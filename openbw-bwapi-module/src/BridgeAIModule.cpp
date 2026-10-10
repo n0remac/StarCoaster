@@ -173,6 +173,13 @@ public:
         const int targetX = environmentInteger("BRIDGE_TARGET_X", 640);
         const int targetY = environmentInteger("BRIDGE_TARGET_Y", 480);
         frameDelayMs_ = environmentInteger("BRIDGE_FRAME_MS", 42);
+        probeEnemyOrders_ = std::getenv("BRIDGE_PROBE_ENEMY_ORDERS") != nullptr;
+        const char* scenario = std::getenv("BRIDGE_SCENARIO");
+        battle_ = scenario && std::strcmp(scenario, "battle") == 0;
+        if (scenario && *scenario && !battle_ && std::strcmp(scenario, "patrol") != 0) {
+            std::cerr << "[bridge] unknown BRIDGE_SCENARIO=" << scenario << std::endl;
+            return;
+        }
         mapId_ = environmentMapId();
         session_ = newSessionId();
         std::cerr << "[bridge] session=" << session_ << std::endl;
@@ -187,6 +194,10 @@ public:
         const int maxY = game->mapHeight() * 32;
         if (spawnX >= maxX || spawnY >= maxY || targetX >= maxX || targetY >= maxY) {
             std::cerr << "[bridge] configured coordinates exceed map bounds " << maxX << "x" << maxY << std::endl;
+            return;
+        }
+        if (battle_) {
+            startBattle(game, { spawnX, spawnY }, { targetX, targetY });
             return;
         }
         const int requested = environmentInteger("BRIDGE_DEMO_UNITS", 1);
@@ -220,6 +231,10 @@ public:
         auto* game = BWAPI::Broodwar.operator->();
         if (!game) return;
         const int frame = game->getFrameCount();
+        if (battle_) {
+            battleFrame(game, frame);
+            return;
+        }
         registerPending(game);
         if (demoUnits_ == 8 && !units_.empty()) {
             auto& first = units_.begin()->second;
@@ -272,6 +287,17 @@ public:
     }
 
     void onUnitDestroy(BWAPI::Unit unit) override {
+        if (battle_) {
+            if (unit) {
+                auto it = battleUnits_.find(unit->getID());
+                if (it != battleUnits_.end()) {
+                    std::cerr << "[battle] destroyed id=" << it->first << " owner=" << it->second.owner
+                              << " kind=" << it->second.kind << " frame=" << BWAPI::Broodwar->getFrameCount() << std::endl;
+                    it->second.alive = false;
+                }
+            }
+            return;
+        }
         if (unit && units_.erase(unit->getID())) {
             std::cerr << "[bridge] unit destroyed id=" << unit->getID() << std::endl;
             publish(BWAPI::Broodwar->getFrameCount());
@@ -279,12 +305,154 @@ public:
     }
 
     void onEnd(bool) override {
+        if (battle_) return;
         units_.clear();
         pending_.clear();
         publish(BWAPI::Broodwar->getFrameCount());
     }
 
 private:
+    struct BattleUnit {
+        BWAPI::Unit unit = nullptr;
+        int owner = -1;
+        std::string kind;
+        int lastHp = -1;
+        bool alive = true;
+        bool ordered = false;
+    };
+
+    void startBattle(BWAPI::Game* game, BWAPI::Position zerg, BWAPI::Position terran) {
+        auto self = game->self();
+        auto enemy = game->enemy();
+        std::cerr << "[battle] player probe self=" << (self ? self->getID() : -1)
+                  << " race=" << (self ? self->getRace().toString() : "none")
+                  << " enemy=" << (enemy ? enemy->getID() : -1)
+                  << " race=" << (enemy ? enemy->getRace().toString() : "none")
+                  << " self_enemy=" << (self && enemy ? self->isEnemy(enemy) : false)
+                  << " enemy_self=" << (self && enemy ? enemy->isEnemy(self) : false) << std::endl;
+        for (auto player : game->getPlayers()) {
+            std::cerr << "[battle] player id=" << player->getID() << " race=" << player->getRace().toString()
+                      << " type=" << player->getType().toString()
+                      << " neutral=" << player->isNeutral() << " observer=" << player->isObserver()
+                      << " enemy_of_self=" << (self ? self->isEnemy(player) : false) << std::endl;
+        }
+        if (!enemy) {
+            for (auto player : game->getPlayers()) {
+                if (player && player != self && player->getRace() == BWAPI::Races::Terran &&
+                    player->getType().toString() == "Player") {
+                    enemy = player;
+                    break;
+                }
+            }
+        }
+        if (!self || !enemy || self == enemy || self->getRace() != BWAPI::Races::Zerg ||
+            enemy->getRace() != BWAPI::Races::Terran) {
+            std::cerr << "[battle] invalid opposing Zerg/Terran players" << std::endl;
+            return;
+        }
+        if (!self->isEnemy(enemy)) {
+            const bool accepted = game->setAlliance(enemy, false, false);
+            std::cerr << "[battle] setAlliance enemy accepted=" << accepted << std::endl;
+        }
+        std::cerr << "[battle] players zerg=" << self->getID() << " terran=" << enemy->getID()
+                  << std::endl;
+        battleTerranOwner_ = enemy->getID();
+        battleTarget_ = terran;
+        for (int index = 0; index < 4; ++index) {
+            BWAPI::Position pos{ terran.x + (index % 2) * 24, terran.y + (index / 2) * 24 };
+            addBattleUnit(game, enemy, BWAPI::UnitTypes::Terran_Marine, pos, "terran_marine");
+        }
+        for (int index = 0; index < 8; ++index) {
+            BWAPI::Position pos{ zerg.x + (index % 2) * 24, zerg.y + (index / 2) * 24 };
+            addBattleUnit(game, self, BWAPI::UnitTypes::Zerg_Zergling, pos, "zerg_zergling");
+        }
+        std::cerr << "[battle] scenario started candidates=" << battlePending_.size() << std::endl;
+    }
+
+    void addBattleUnit(BWAPI::Game* game, BWAPI::Player owner, BWAPI::UnitType type,
+                       BWAPI::Position pos, const char* kind) {
+        auto unit = game->createUnit(owner, type, pos);
+        if (!unit) {
+            std::cerr << "[battle] createUnit failed kind=" << kind << " owner=" << owner->getID()
+                      << " error=" << game->getLastError().toString() << std::endl;
+            return;
+        }
+        const int id = unit->getID();
+        battlePending_.push_back(BattleUnit{ unit, owner->getID(), kind });
+        std::cerr << "[battle] created candidate_id=" << id << " owner=" << owner->getID() << " kind=" << kind
+                  << " x=" << pos.x << " y=" << pos.y << std::endl;
+    }
+
+    void battleFrame(BWAPI::Game* game, int frame) {
+        for (auto it = battlePending_.begin(); it != battlePending_.end();) {
+            if (it->unit && it->unit->exists() && it->unit->getID() >= 0) {
+                const int id = it->unit->getID();
+                std::cerr << "[battle] registered id=" << id << " owner=" << it->owner
+                          << " kind=" << it->kind << std::endl;
+                battleUnits_.emplace(id, *it);
+                it = battlePending_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        if (frame == 6) {
+            auto self = game->self();
+            auto enemy = game->getPlayer(battleTerranOwner_);
+            std::cerr << "[battle] hostility frame=" << frame << " zerg_to_terran="
+                      << (self && enemy ? self->isEnemy(enemy) : false) << " terran_to_zerg="
+                      << (self && enemy ? enemy->isEnemy(self) : false) << std::endl;
+        }
+        int zergAlive = 0, terranAlive = 0;
+        for (auto& [id, tracked] : battleUnits_) {
+            auto unit = tracked.unit;
+            if (!unit || !unit->exists()) {
+                if (tracked.alive) {
+                    tracked.alive = false;
+                    std::cerr << "[battle] destroyed-fallback id=" << id << " owner=" << tracked.owner
+                              << " kind=" << tracked.kind << " frame=" << frame << std::endl;
+                }
+                continue;
+            }
+            if (tracked.kind == "zerg_zergling") {
+                ++zergAlive;
+                if (!tracked.ordered && frame >= 6) {
+                    tracked.ordered = unit->attack(battleTarget_);
+                    std::cerr << "[battle] attack-move id=" << id << " accepted=" << tracked.ordered
+                              << " target=" << battleTarget_.x << "," << battleTarget_.y
+                              << " error=" << game->getLastError().toString() << std::endl;
+                }
+            } else {
+                ++terranAlive;
+                if (probeEnemyOrders_ && frame >= 12 && !tracked.ordered) {
+                    tracked.ordered = true;
+                    const bool accepted = unit->attack(BWAPI::Position{ 320, 480 });
+                    std::cerr << "[battle] enemy-marine-attack-probe id=" << id << " accepted=" << accepted
+                              << " error=" << game->getLastError().toString() << std::endl;
+                }
+            }
+            const int hp = unit->getHitPoints();
+            if (tracked.lastHp >= 0 && hp < tracked.lastHp) {
+                std::cerr << "[battle] damage id=" << id << " owner=" << tracked.owner << " kind=" << tracked.kind
+                          << " from=" << tracked.lastHp << " to=" << hp << " frame=" << frame << std::endl;
+            }
+            tracked.lastHp = hp;
+            if (frame % 24 == 0) {
+                const auto pos = unit->getPosition();
+                std::cerr << "[battle] state frame=" << frame << " id=" << id << " owner=" << tracked.owner
+                          << " kind=" << tracked.kind << " hp=" << hp << " order=" << unit->getOrder().toString()
+                          << " attacking=" << unit->isAttacking() << " attackFrame=" << unit->isAttackFrame()
+                          << " x=" << pos.x << " y=" << pos.y << std::endl;
+            }
+        }
+        if (!battleComplete_ && frame >= 24 && battlePending_.empty() &&
+            (!zergAlive || !terranAlive || frame >= environmentInteger("BRIDGE_BATTLE_TIMEOUT_FRAMES", 1800))) {
+            battleComplete_ = true;
+            std::cerr << "[battle] outcome frame=" << frame << " zerg_alive=" << zergAlive
+                      << " terran_alive=" << terranAlive << " result="
+                      << (!zergAlive ? "terran" : !terranAlive ? "zerg" : "timeout") << std::endl;
+        }
+    }
+
     struct PatrolUnit {
         BWAPI::Unit unit = nullptr;
         BWAPI::Position spawn;
@@ -353,6 +521,13 @@ private:
     }
 
     LoopbackPublisher publisher_;
+    std::map<int, BattleUnit> battleUnits_;
+    std::vector<BattleUnit> battlePending_;
+    BWAPI::Position battleTarget_;
+    int battleTerranOwner_ = -1;
+    bool battle_ = false;
+    bool probeEnemyOrders_ = false;
+    bool battleComplete_ = false;
     std::map<int, PatrolUnit> units_;
     std::vector<PendingUnit> pending_;
     int demoUnits_ = 1;

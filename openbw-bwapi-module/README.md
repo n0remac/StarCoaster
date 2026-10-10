@@ -12,3 +12,5 @@ scripts/build-bridge-module.sh
 The module uses `BRIDGE_PUBLISH_PORT` (default `39999`), `BRIDGE_MAP_ID` (default `demo-flat`), and `BRIDGE_SPAWN_X/Y` plus `BRIDGE_TARGET_X/Y` (defaults `320,480` and `640,480`). The `scripts/run-bwapi.sh` launcher prepares the runtime directory from user-supplied game data. `scripts/receive-snapshots.py` is the M0 movement smoke receiver.
 
 The socket holds at most one pending full snapshot and drops a new snapshot when the receiver is slow. A later full snapshot repairs that loss. It never calls BWAPI from another thread. No StarCraft assets are shipped here.
+
+`BRIDGE_SCENARIO=battle` runs the opt-in Marine-versus-Zergling combat feasibility probe. Its result and the two-sided combat blocker are documented in [the battle gate record](../docs/battle-feasibility-2026-10-10.md). It does not yet publish battle snapshots. Run `scripts/test-battle-feasibility.py` to check the gate; a one-sided fight fails by design.

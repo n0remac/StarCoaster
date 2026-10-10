@@ -6,7 +6,7 @@ data_dir="${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR to your own StarCraft dat
 map_file="${BRIDGE_MAP_FILE:-$project_dir/upstream/bwapi/bwapi/TestAIModule/maps/TestModule/ZergTest.scm}"
 launcher="$project_dir/build/bwapi/bin/BWAPILauncher"
 module="$project_dir/build/bridge-module/BridgeAIModule.so"
-runtime_dir="$project_dir/run-data/openbw"
+runtime_dir="${BRIDGE_BWAPI_RUNTIME_DIR:-$project_dir/run-data/openbw}"
 
 star_dat=""
 broo_dat=""
@@ -39,9 +39,9 @@ cat > "$runtime_dir/bwapi-data/bwapi.ini" <<EOF
 ai = $module
 
 [auto_menu]
-auto_menu = SINGLE_PLAYER
+auto_menu = ${BRIDGE_BWAPI_MENU:-SINGLE_PLAYER}
 map = maps/$map_name
-race = Zerg
+race = ${BRIDGE_BWAPI_RACE:-Zerg}
 enemy_count = 1
 enemy_race = Terran
 game_type = MELEE
