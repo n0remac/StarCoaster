@@ -11,7 +11,7 @@ sudo apt-get install --no-install-recommends -y \
   git python3 ninja-build cmake ccache libsdl2-dev libicu-dev pkg-config libcurl4-openssl-dev \
   libcrypto++-dev libfontconfig1-dev libfreetype6-dev libpng-dev \
   libssl-dev libzip-dev build-essential nlohmann-json3-dev \
-  libflac-dev libvorbis-dev libzstd-dev xvfb scrot
+  libflac-dev libvorbis-dev libzstd-dev xvfb scrot ffmpeg
 ```
 
 From the project root:
@@ -76,6 +76,8 @@ python3 scripts/capture-live-demo.py --seconds 65
 ```
 
 This requires `xvfb` and `scrot`. It starts the real BWAPI launcher, an OpenRCT2 host using the upstream `BigMapTest.sv6` park, and two modified graphical clients on X displays `:91` and `:92`. A local camera helper centres the viewport on the unit for the capture; it changes no shared park state. Screenshots and logs are saved in ignored `run-data/visual-demo/`. To capture a second client with an independently rotated camera, use `DEMO_OUTPUT_DIR=run-data/visual-demo-rotation python3 scripts/capture-live-demo.py --seconds 12 --rotate-client-b`.
+
+Video recording is optional and uses the same X displays. Install it on an existing setup with `sudo apt-get install ffmpeg`, then add `--record-video` to the graphical command. The [rendering guide](rendering-phase.md#video-capture-and-remote-review) covers recording, quality controls, and remote viewing. The screenshot command above remains the exact-pixel regression workflow.
 
 OpenBW's checkout has no top-level license file. The separate BWAPI fork carries LGPL-3.0 licensing, but that does not settle OpenBW source or binary redistribution. Neither game data nor proprietary art belongs in the bridge repository.
 

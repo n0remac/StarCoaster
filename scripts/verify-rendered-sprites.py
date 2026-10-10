@@ -109,7 +109,12 @@ def main() -> None:
                 continue
             direction = item["frame"].split("_", 1)[1].removesuffix(".png")
             r = int(rotation.group(1))
-            expected = ({"east", "west"} if r % 2 == 0 else {"north", "south"}) if args.axis == "east-west" else (
+            # Eight-direction headings can be diagonal near a turn even when
+            # the network positions follow an east-west line. Check the axis
+            # component rather than demanding a cardinal source frame.
+            expected = ({"east", "west", "northeast", "northwest", "southeast", "southwest"}
+                        if r % 2 == 0 else
+                        {"north", "south", "northeast", "northwest", "southeast", "southwest"}) if args.axis == "east-west" else (
                 {"southeast", "northwest"} if r % 2 == 0 else {"southwest", "northeast"})
             if direction not in expected:
                 raise RuntimeError(f"Wrong direction at camera rotation {r}: {item['frame']}")

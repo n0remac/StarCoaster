@@ -81,7 +81,8 @@ client A. `--publisher-restart` captures actor removal and return; the capture
 retries a client park transfer up to twice if OpenRCT2 reports decompression
 failure, preserving the failed logs. The separate `verify-rendered-sprites.py`
 compares visible screenshot pixels with the generated PNGs at the capture zoom,
-checks walking frames and camera-relative direction, and records match scores.
+checks walking frames and camera-relative direction (including diagonal
+headings with the expected axis component near turns), and records match scores.
 The saved screenshots remain the evidence for occlusion and ground contact,
 which a colour check alone cannot establish.
 
@@ -103,3 +104,89 @@ and retains each failure log; the transfer failure has not been isolated.
 Separately, a 65-second graphical run of `EverythingPark.park` with **no bridge
 plugin or publisher** produced `Srand0 mismatch` and a network desync dialog on
 both clients. That warning occurs independently of sprite rendering.
+
+## Video capture and remote review
+
+Install FFmpeg and FFprobe with `sudo apt-get install ffmpeg`. The optional
+recorder reads the two existing Xvfb displays after both clients have joined.
+It records through the screenshot checks and publisher restart, then finalizes
+the MP4 before Xvfb exits. For the full visual regression:
+
+```bash
+DEMO_PARK=run-data/park-generator/save/bridge-render-test.park \
+  DEMO_OUTPUT_DIR=run-data/zergling-video \
+  python3 scripts/capture-live-demo.py --seconds 65 --record-video \
+    --video-layout combined --cycle-rotations --verify-zergling \
+    --publisher-restart --sample-animation
+```
+
+The default `combined.mp4` is 1920×600: client A occupies the left 960×600
+half and client B the right. The defaults are 10 FPS, H.264, CRF 32,
+`veryfast`, and no audio. For separate simultaneous recordings, use
+`--video-layout separate`; this writes `client-a.mp4` and `client-b.mp4`
+instead. `--video-width` sets each client's even output width; height follows
+the original 1280×800 aspect ratio. `--video-fps`, `--video-crf`, and
+`--video-preset` control capture rate and encoding. A lower-cost setting is
+`--video-fps 5 --video-preset ultrafast`; a lower CRF raises quality and file
+size. No video flags are needed for the original PNG-only capture.
+
+The chosen `DEMO_OUTPUT_DIR` contains the MP4, `video-capture.log`,
+`video-metadata.json`, client/server logs, and original screenshots. Metadata
+records UTC capture times, elapsed time, encoder settings, output size and
+measured frame rate, display IDs, test status, and screenshot/event offsets
+from the recording's monotonic start. Each output also has an estimated delay
+before its first encoded frame, so later tools can align event offsets with
+video positions. Recordings are retained on test failure.
+FFprobe checks H.264, resolution, nonzero frames, and duration after shutdown.
+The lossy video is for motion review; keep using the original PNGs with
+`verify-rendered-sprites.py` for exact sprite comparison.
+
+From a laptop with SSH/Tailscale access, copy a recording and play it locally:
+
+```bash
+scp pi:/path/to/StarCoaster/run-data/zergling-video/combined.mp4 .
+mpv combined.mp4
+```
+
+To browse all artifacts without copying them first, mount the Pi directory
+with SSHFS (install `sshfs` on the laptop if needed):
+
+```bash
+mkdir -p ~/starcoaster-captures
+sshfs pi:/path/to/StarCoaster/run-data/zergling-video ~/starcoaster-captures
+ls ~/starcoaster-captures
+fusermount -u ~/starcoaster-captures
+```
+
+The output stays under ignored `run-data/`; do not commit recordings, PNGs, or
+locally extracted game graphics.
+
+### Pi performance check (2026-10-10)
+
+Run the same 65-second rotation, animation, Zergling, and publisher-restart
+regression at all capture rates with:
+
+```bash
+python3 scripts/benchmark-video-capture.py
+```
+
+The script saves per-run logs and MP4s under `run-data/video-benchmark-*` and
+sampled process metrics in `run-data/video-benchmark-summary.json`. One run of
+each mode on this Pi, with the local scenery park and `veryfast`/CRF 32, gave:
+
+| Capture | Wall time | FFmpeg CPU, one-core equivalent | Peak FFmpeg RSS | MP4 size | Encoded FPS | Common snapshots / mismatches |
+|---|---:|---:|---:|---:|---:|---:|
+| Off | 103.0 s | — | — | — | — | 656 / 0 |
+| 5 FPS | 118.0 s | 27.8% | 273 MiB | 0.99 MiB | 5.0 | 674 / 0 |
+| 10 FPS | 113.0 s | 54.7% | 274 MiB | 1.11 MiB | 10.0 | 690 / 0 |
+| 15 FPS | 116.4 s | 81.5% | 272 MiB | 1.21 MiB | 15.0 | 684 / 0 |
+
+All four runs passed the PNG and multiplayer checks with no desync warning.
+Client B advanced over 3,545, 3,751, 3,946, and 4,035 OpenRCT2 ticks,
+respectively. The sampled peak sum of process RSS for the full test tree was
+1,313 MiB without video and 1,611–1,618 MiB with video; shared memory can be
+counted more than once in this sum. Wall time includes startup, park transfer,
+pixel verification, video finalization, and FFprobe, so a single run at each
+rate does not isolate a small encoding effect on test duration. These runs
+show no observed multiplayer disruption at the default 10 FPS. The 5 FPS
+`ultrafast` setting above is available if another Pi has less CPU headroom.

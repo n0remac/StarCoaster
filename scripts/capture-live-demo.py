@@ -5,11 +5,13 @@ import os
 import argparse
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import time
 
 from PIL import Image
+from video_capture import VideoConfig, VideoRecorder, check_dependencies
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -66,11 +68,25 @@ def main() -> int:
     parser.add_argument("--verify-zergling", action="store_true", help="check actual screenshot pixels for local Zergling art")
     parser.add_argument("--publisher-restart", action="store_true", help="capture despawn and return after a publisher restart")
     parser.add_argument("--sample-animation", action="store_true", help="capture several frames 0.1 seconds apart")
+    parser.add_argument("--record-video", action="store_true", help="record the graphical clients with FFmpeg")
+    parser.add_argument("--video-layout", choices=("combined", "separate"), default="combined")
+    parser.add_argument("--video-fps", type=int, default=10)
+    parser.add_argument("--video-width", type=int, default=960, help="even output width per client")
+    parser.add_argument("--video-crf", type=int, default=32)
+    parser.add_argument("--video-preset", default="veryfast")
     args = parser.parse_args()
     if args.seconds < 8:
         parser.error("--seconds must be at least 8")
     if args.publisher_restart and args.seconds < 35:
         parser.error("--publisher-restart requires --seconds of at least 35")
+    video_config = None
+    if args.record_video:
+        try:
+            video_config = VideoConfig(args.video_layout, args.video_fps, args.video_width,
+                                       args.video_crf, args.video_preset)
+            check_dependencies()
+        except (ValueError, RuntimeError) as error:
+            parser.error(str(error))
     if not (RCT2_DATA / "Data/g1.dat").is_file():
         raise RuntimeError(f"Missing RCT2 graphics at {RCT2_DATA / 'Data/g1.dat'}")
     if not all((SC_DATA / f).is_file() for f in ("StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq")):
@@ -82,6 +98,14 @@ def main() -> int:
     env["SDL_AUDIODRIVER"] = "dummy"
     env["LIBGL_ALWAYS_SOFTWARE"] = "1"
     running: list[tuple[subprocess.Popen, object]] = []
+    recorder = VideoRecorder(video_config, OUT) if video_config else None
+    recording_started = False
+    test_error = None
+    previous_sigterm = None
+    if recorder:
+        def interrupted(_signum, _frame):
+            raise RuntimeError("graphical capture interrupted by SIGTERM")
+        previous_sigterm = signal.signal(signal.SIGTERM, interrupted)
     try:
         for label, display in (("display-a", ":91"), ("display-b", ":92")):
             running.append(start(label, ["Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], env))
@@ -128,7 +152,11 @@ def main() -> int:
                     client_processes[label] = process
                     break
         print("Both graphical clients receiving live BWAPI snapshots", flush=True)
-        start_time = time.monotonic()
+        if recorder:
+            recorder.start()
+            recording_started = True
+            print(f"Recording {video_config.layout} video in {OUT}", flush=True)
+        start_time = recorder.start_monotonic if recorder else time.monotonic()
         shot_times = [2, 5]
         if args.sample_animation:
             shot_times += [5.1, 5.2, 5.3, 5.4, 5.5]
@@ -140,10 +168,14 @@ def main() -> int:
         captured_rotations = set()
         captured_paths = {"client-a": [], "client-b": []}
         for shot_at in shot_times:
+            if recorder:
+                recorder.check_alive()
             if args.publisher_restart and shot_at == 20:
                 time.sleep(max(0, start_time + 18 - time.monotonic()))
                 publisher.terminate()
                 publisher.wait(timeout=3)
+                if recorder:
+                    recorder.event("publisher_stopped")
                 wait_for("server", "publisher disconnected; removed actor", running[3][0], 10)
                 for label in ("client-a", "client-b"):
                     wait_for(label, "despawn", client_processes[label], 10)
@@ -151,6 +183,8 @@ def main() -> int:
             if args.publisher_restart and shot_at == 23:
                 time.sleep(max(0, start_time + 21 - time.monotonic()))
                 running.append(start("bwapi-restart", [str(ROOT / "scripts/run-bwapi.sh")], env))
+                if recorder:
+                    recorder.event("publisher_restart_started")
                 wait_for("bwapi-restart", "registered unit id=", running[-1][0], 15)
             if args.publisher_restart and shot_at == 30:
                 deadline = time.monotonic() + 20
@@ -171,8 +205,13 @@ def main() -> int:
                         filename = f"{label}-{suffix}-rot{rotations[-1]}.png"
                 subprocess.run(["scrot", "-z", "-o", str(OUT / filename)],
                                check=True, env=env | {"DISPLAY": display})
+                if recorder:
+                    recorder.event("screenshot", client=label, filename=filename,
+                                   scheduled_seconds=shot_at)
                 captured_paths[label].append(OUT / filename)
                 print(f"Captured {OUT / filename}", flush=True)
+            if recorder:
+                recorder.check_alive()
             if args.publisher_restart and shot_at == 20:
                 for label in ("client-a", "client-b"):
                     screenshot = captured_paths[label][-1]
@@ -225,17 +264,27 @@ def main() -> int:
         if len(common) < 10 or mismatches:
             raise RuntimeError("server and graphical clients disagree on applied snapshots")
         return 0
+    except BaseException as error:
+        test_error = f"{type(error).__name__}: {error}"
+        raise
     finally:
-        for process, _ in reversed(running):
-            if process.poll() is None:
-                process.terminate()
-        for process, output in reversed(running):
-            try:
-                process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-            output.close()
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)
+        # Finalize MP4 atoms while both X displays still exist, including on test failure.
+        try:
+            if recording_started:
+                recorder.stop(test_success=test_error is None, test_error=test_error)
+        finally:
+            for process, _ in reversed(running):
+                if process.poll() is None:
+                    process.terminate()
+            for process, output in reversed(running):
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                output.close()
 
 
 if __name__ == "__main__":
