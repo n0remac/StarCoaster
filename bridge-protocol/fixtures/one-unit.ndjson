@@ -1,0 +1,3 @@
+{"v":1,"kind":"units.snapshot","session":"fixture-001","map_id":"demo-flat","seq":1,"bw_tick":0,"units":[{"id":"openbw:1","kind":"alien_scout","x":320,"y":480,"facing":0,"motion":"idle","alive":true}]}
+{"v":1,"kind":"units.snapshot","session":"fixture-001","map_id":"demo-flat","seq":2,"bw_tick":3,"units":[{"id":"openbw:1","kind":"alien_scout","x":324,"y":480,"facing":0,"motion":"walk","alive":true}]}
+{"v":1,"kind":"units.snapshot","session":"fixture-001","map_id":"demo-flat","seq":3,"bw_tick":6,"units":[]}

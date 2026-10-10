@@ -1,0 +1,20 @@
+# Upstream repositories live here but keep their own Git histories.
+/upstream/
+
+# Local build output and runtime data.
+/build/
+/run-data/
+/logs/
+/captures/
+
+# User-supplied proprietary game data, wherever staged under this tree.
+*.mpq
+*.MPQ
+*.SV6
+*.sv6
+/rct2-data/
+
+# Editor and Python scratch files.
+__pycache__/
+*.pyc
+.DS_Store

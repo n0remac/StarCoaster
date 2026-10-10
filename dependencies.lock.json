@@ -1,0 +1,16 @@
+{
+  "openbw": {
+    "repository": "https://github.com/OpenBW/openbw.git",
+    "commit": "4b046d5f65302b10cb0a745f0fecd37ec85b20a8"
+  },
+  "bwapi": {
+    "repository": "https://github.com/OpenBW/bwapi.git",
+    "branch": "develop-openbw",
+    "commit": "48124ba8ed1b4d52b3dfd52acbaf34afb9a37fe2"
+  },
+  "openrct2": {
+    "repository": "https://github.com/OpenRCT2/OpenRCT2.git",
+    "branch": "develop",
+    "commit": "33aacdeb0d9e22c1622acf071e6698f946365453"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:passthrough-rts:units.snapshot:v1",
+  "title": "Passthrough RTS full unit snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "kind", "session", "map_id", "seq", "bw_tick", "units"],
+  "properties": {
+    "v": { "const": 1 },
+    "kind": { "const": "units.snapshot" },
+    "session": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "map_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "seq": { "type": "integer", "minimum": 1 },
+    "bw_tick": { "type": "integer", "minimum": 0 },
+    "units": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "x", "y", "facing", "motion", "alive"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^openbw:[0-9]+$" },
+          "kind": { "const": "alien_scout" },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "facing": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "motion": { "enum": ["idle", "walk"] },
+          "alive": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}
