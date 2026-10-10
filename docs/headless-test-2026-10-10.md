@@ -24,7 +24,7 @@ No screenshot was produced. A headless host has no framebuffer to capture. A gen
 
 ## Inputs needed for the next runtime gate
 
-- StarCraft: Brood War `StarDat.mpq` (or `Stardat.mpq`), `BrooDat.mpq` (or `Broodat.mpq`), `Patch_rt.mpq`, and a valid `.scm` or `.scx` test map compatible with this OpenBW build.
+- StarCraft: Brood War `StarDat.mpq` (or `Stardat.mpq`), `BrooDat.mpq` (or `Broodat.mpq`), and `Patch_rt.mpq`. The pinned BWAPI checkout supplies a `ZergTest.scm` test map, though its default movement points still need runtime validation.
 - RollerCoaster Tycoon 2 or RCT Classic game files, plus a suitable `.park`, `.sv6`, or scenario file.
 
 Keep these user-supplied files outside Git. The launch scripts stage paths under ignored `run-data/`.

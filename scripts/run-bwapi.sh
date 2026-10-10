@@ -3,7 +3,7 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 data_dir="${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR to your own StarCraft data directory}"
-map_file="${BRIDGE_MAP_FILE:?Set BRIDGE_MAP_FILE to a local .scm or .scx map file}"
+map_file="${BRIDGE_MAP_FILE:-$project_dir/upstream/bwapi/bwapi/TestAIModule/maps/TestModule/ZergTest.scm}"
 launcher="$project_dir/build/bwapi/bin/BWAPILauncher"
 module="$project_dir/build/bridge-module/BridgeAIModule.so"
 runtime_dir="$project_dir/run-data/openbw"

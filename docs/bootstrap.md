@@ -38,14 +38,12 @@ RCT2_DATA_DIR=/path/to/your/rct2 scripts/run-openrct2-host.sh /path/to/park.park
 
 ## OpenBW runtime proof
 
-The runtime needs three **user-supplied** StarCraft data archives: `StarDat.mpq`, `BrooDat.mpq`, and `Patch_rt.mpq`, plus a suitable `.scm` or `.scx` map. The project does not download or commit them. `scripts/run-bwapi.sh` accepts the alternate README spelling `Stardat.mpq` / `Broodat.mpq` and creates ignored symlinks with the [exact names used by the pinned OpenBW loader](https://github.com/OpenBW/openbw/blob/4b046d5f65302b10cb0a745f0fecd37ec85b20a8/data_loading.h#L1322-L1324) in `run-data/openbw/`. The [BWAPI fork README](https://github.com/OpenBW/bwapi/blob/develop-openbw/README.md) names MPQs from StarCraft 1.16.1 or 1.18. Blizzard's [current free StarCraft installation](https://us.support.blizzard.com/en/article/troubleshooting-starcraft-or-brood-war-patches) is available through Battle.net, but [Blizzard support says the post-1.16.1 game data was repackaged](https://us.forums.blizzard.com/en/starcraft/t/missing-files-for-campaign-editor/3655); the current download alone does not provide the MPQs this fork expects.
+The runtime needs three **user-supplied** StarCraft data archives: `StarDat.mpq`, `BrooDat.mpq`, and `Patch_rt.mpq`. The pinned BWAPI checkout includes a `ZergTest.scm` map that the launcher uses by default; `BRIDGE_MAP_FILE` can select another `.scm` or `.scx` map. The project does not download or commit the MPQs. `scripts/run-bwapi.sh` accepts the alternate README spelling `Stardat.mpq` / `Broodat.mpq` and creates ignored symlinks with the [exact names used by the pinned OpenBW loader](https://github.com/OpenBW/openbw/blob/4b046d5f65302b10cb0a745f0fecd37ec85b20a8/data_loading.h#L1322-L1324) in `run-data/openbw/`. The [BWAPI fork README](https://github.com/OpenBW/bwapi/blob/develop-openbw/README.md) names MPQs from StarCraft 1.16.1 or 1.18. Blizzard's [current free StarCraft installation](https://us.support.blizzard.com/en/article/troubleshooting-starcraft-or-brood-war-patches) is available through Battle.net, but [Blizzard support says the post-1.16.1 game data was repackaged](https://us.forums.blizzard.com/en/starcraft/t/missing-files-for-campaign-editor/3655); the current download alone does not provide the MPQs this fork expects.
 
 In one terminal:
 
 ```bash
-STARCRAFT_DATA_DIR=/path/to/your/starcraft \
-BRIDGE_MAP_FILE=/path/to/your/map.scx \
-scripts/run-bwapi.sh
+STARCRAFT_DATA_DIR=/path/to/your/starcraft scripts/run-bwapi.sh
 ```
 
 In another terminal:
@@ -54,7 +52,7 @@ In another terminal:
 scripts/receive-snapshots.py --seconds 30
 ```
 
-The receiver passes only after it sees the actual published unit position change. `BRIDGE_SPAWN_X`, `BRIDGE_SPAWN_Y`, `BRIDGE_TARGET_X`, `BRIDGE_TARGET_Y`, `BRIDGE_PUBLISH_PORT`, and `BRIDGE_MAP_ID` can override the defaults. Pick two clear walkable coordinates on the selected map; the default points `(320, 480)` and `(640, 480)` are illustrative.
+The receiver passes only after it sees the published unit position change. `BRIDGE_SPAWN_X`, `BRIDGE_SPAWN_Y`, `BRIDGE_TARGET_X`, `BRIDGE_TARGET_Y`, `BRIDGE_PUBLISH_PORT`, and `BRIDGE_MAP_ID` can override the defaults. Pick two clear walkable coordinates on the selected map; the default points `(320, 480)` and `(640, 480)` are illustrative and remain unverified on `ZergTest.scm`.
 
 OpenBW's checkout has no top-level license file. The separate BWAPI fork carries LGPL-3.0 licensing, but that does not settle OpenBW source or binary redistribution. Neither game data nor proprietary art belongs in the bridge repository.
 
@@ -68,5 +66,5 @@ OpenBW's checkout has no top-level license file. The separate BWAPI fork carries
 
 ## What is not yet proven
 
-- The launcher still needs to load the custom module and simulate actual movement. A suitable map and the older MPQs are needed for that proof.
+- The launcher still needs to load the custom module and simulate actual movement. The older MPQs are needed for that proof; the bundled BWAPI test map and default spawn/target points have not yet been validated together.
 - [OpenRCT2 needs user-supplied RCT2 or RCT Classic game assets](https://docs.openrct2.io/en/latest/faq/installing.html) to run. Its native rendering hook and server plugin are future milestones.
