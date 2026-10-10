@@ -70,7 +70,7 @@ def main() -> int:
                         f"id={unit['id']} x={unit['x']} y={unit['y']} motion={unit['motion']}"
                     )
                 if moved and count >= 3:
-                    print(f"PASS: {count} snapshots; simulated unit position changed")
+                    print(f"PASS: {count} snapshots; reported unit position changed (publisher not authenticated)")
                     return 0
 
     print(f"FAIL: {count} snapshots; no moving unit observed", file=sys.stderr)
