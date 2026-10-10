@@ -94,7 +94,10 @@ OpenBW's checkout has no top-level license file. The separate BWAPI fork carries
 - Stopping and restarting `BWAPILauncher` produced synchronized actor removal on the server and a headless client, followed by a new session epoch and fresh actor snapshots.
 - A 65-second run with two graphical clients passed on `BigMapTest.sv6`: server and clients shared 514 matching snapshots with no reported desync. Screenshots show the moving actor on both clients. A shorter run passed with client B's camera rotated independently, with 155 matching snapshots.
 
-## What is not yet proven
+For the locally extracted StarCraft renderer, controlled scenery park, and
+four-rotation graphical regression, see [Local Zergling renderer](rendering-phase.md).
 
-- Occlusion against scenery and terrain height transitions have not yet been visually validated. The stable screenshot test uses a broad grass area.
-- `EverythingPark.park` produced an OpenRCT2 random-state desync warning in a graphical run. The live bridge passed on `BigMapTest.sv6`; the cause of the `EverythingPark` warning has not been isolated.
+## Earlier open questions
+
+- The flat-map screenshot run described above used a broad grass area. The controlled rendering run now covers scenery and raised terrain, as recorded in the rendering guide.
+- `EverythingPark.park` produced an OpenRCT2 random-state desync warning. A later 65-second two-client graphical control with no bridge plugin or publisher reproduced `Srand0 mismatch` on both clients, so this park warning is independent of sprite rendering. The precise OpenRCT2 park cause has not been isolated.
