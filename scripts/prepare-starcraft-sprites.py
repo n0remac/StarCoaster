@@ -19,10 +19,12 @@ OUTPUT = ROOT / "run-data/generated-assets/starcraft/zergling"
 RESOURCE = "unit/zerg/zergling.grp"
 PALETTE = "Tileset/Badlands.wpe"
 # The first three 17-direction groups are the rest and two gait poses.
-# Source directions are north (0), east (8), south (16); west is mirrored east.
+# The source stores north through south via east; western angles are mirrored.
 FRAMES = {"idle": 0, "walk0": 17, "walk1": 34}
 DIRECTIONS = {"east": (8, False), "south": (16, False),
-              "west": (8, True), "north": (0, False)}
+              "west": (8, True), "north": (0, False),
+              "southeast": (12, False), "southwest": (12, True),
+              "northwest": (4, True), "northeast": (4, False)}
 
 
 def openrct2_palette() -> list[tuple[int, int, int]]:
@@ -148,7 +150,8 @@ def main() -> None:
                                   "visible_pixels": sum(a != 0 for a in cropped.getchannel("A").getdata())}
     manifest = {"unit": args.unit, "source": RESOURCE, "palette": PALETTE,
                 "archives": archives, "canvas": [canvas_width, canvas_height],
-                "frame_count": frame_count, "direction_convention": "north=0 east=8 south=16 west=mirror(east)",
+                "frame_count": frame_count,
+                "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
                 "team_colour": "source palette indices 8..15 retained without player remap",
                 "shadow": "separate StarCraft shadow artwork omitted",
                 "output_palette": "nearest OpenRCT2 standard palette colour, excluding special and primary remap indices",
