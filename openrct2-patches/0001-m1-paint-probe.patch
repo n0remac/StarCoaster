@@ -1,0 +1,152 @@
+diff --git a/resources/g2/sprites.json b/resources/g2/sprites.json
+index 83e5f1c..922fa58 100644
+--- a/resources/g2/sprites.json
++++ b/resources/g2/sprites.json
+@@ -666,5 +666,41 @@
+         "path": "icons/walls.png",
+         "x": 1,
+         "y": 1
++    },
++    {
++        "path": "bridge/idle_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/idle_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/idle_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/idle_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk0_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk0_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk0_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk0_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk1_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk1_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk1_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk1_north.png", "x": -16, "y": -28
+     }
+ ]
+diff --git a/src/openrct2/SpriteIds.h b/src/openrct2/SpriteIds.h
+index 500f197..aa97d78 100644
+--- a/src/openrct2/SpriteIds.h
++++ b/src/openrct2/SpriteIds.h
+@@ -1211,6 +1211,19 @@ enum : ImageIndex
+     SPR_G2_BUTTON_PATH_ADDITIONS,
+     SPR_G2_BUTTON_WALLS,
+ 
++    SPR_BRIDGE_SCOUT_IDLE_EAST,
++    SPR_BRIDGE_SCOUT_IDLE_SOUTH,
++    SPR_BRIDGE_SCOUT_IDLE_WEST,
++    SPR_BRIDGE_SCOUT_IDLE_NORTH,
++    SPR_BRIDGE_SCOUT_WALK0_EAST,
++    SPR_BRIDGE_SCOUT_WALK0_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK0_WEST,
++    SPR_BRIDGE_SCOUT_WALK0_NORTH,
++    SPR_BRIDGE_SCOUT_WALK1_EAST,
++    SPR_BRIDGE_SCOUT_WALK1_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK1_WEST,
++    SPR_BRIDGE_SCOUT_WALK1_NORTH,
++
+     SPR_G2_END,
+ 
+     // Main palettes
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+index 7fd474f..33797e6 100644
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -9,6 +9,7 @@
+ 
+ #include "Paint.Entity.h"
+ 
++#include "../SpriteIds.h"
+ #include "../drawing/LightFX.h"
+ #include "../entity/EntityList.h"
+ #include "../entity/Staff.h"
+@@ -16,6 +17,7 @@
+ #include "../profiling/Profiling.h"
+ #include "../ride/TrackDesign.h"
+ #include "../world/Map.h"
++#include "../world/tile_element/SurfaceElement.h"
+ #include "Paint.h"
+ #include "entity/Paint.Balloon.h"
+ #include "entity/Paint.CrashSplashParticle.h"
+@@ -180,3 +182,27 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
+         }
+     }
+ }
++
++// M1 paint-pipeline probe. The synchronized bridge registry will replace this fixed
++// actor after the art, occlusion, and rotation can be inspected in a graphical client.
++void PaintBridgeActors(PaintSession& session, const CoordsXY& pos)
++{
++    constexpr CoordsXY actorPos{ 320, 480 };
++    if (pos != actorPos.toTileStart() || !MapIsLocationValid(actorPos))
++        return;
++    if (gTrackDesignSaveMode || session.ViewFlags.has(ViewportFlag::hideEntities) || session.rt.zoom_level > ZoomLevel{ 2 })
++        return;
++
++    auto* surface = MapGetSurfaceElementAt(actorPos);
++    if (surface == nullptr)
++        return;
++
++    session.SpritePosition = actorPos;
++    session.MapPosition = pos;
++    session.CurrentlyDrawnEntity = nullptr;
++    session.CurrentlyDrawnTileElement = nullptr;
++    session.InteractionType = ViewportInteractionItem::none;
++    const int32_t z = surface->getBaseZ();
++    const uint32_t imageId = SPR_BRIDGE_SCOUT_IDLE_EAST + session.CurrentRotation;
++    PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, { { -5, -5, z + 1 }, { 10, 10, 17 } });
++}
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+index b481242..14cb73c 100644
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -13,3 +13,4 @@ struct PaintSession;
+ struct CoordsXY;
+ 
+ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos);
++void PaintBridgeActors(PaintSession& session, const CoordsXY& pos);
+diff --git a/src/openrct2/paint/Paint.cpp b/src/openrct2/paint/Paint.cpp
+index 7aea6d1..6e3f788 100644
+--- a/src/openrct2/paint/Paint.cpp
++++ b/src/openrct2/paint/Paint.cpp
+@@ -297,16 +297,20 @@ void PaintSessionGenerateRotate(PaintSession& session)
+     {
+         TileElementPaintSetup(session, mapTile);
+         EntityPaintSetup(session, mapTile);
++        PaintBridgeActors(session, mapTile);
+ 
+         const auto loc1 = mapTile + adjacentTiles[0];
+         EntityPaintSetup(session, loc1);
++        PaintBridgeActors(session, loc1);
+ 
+         const auto loc2 = mapTile + adjacentTiles[1];
+         TileElementPaintSetup(session, loc2);
+         EntityPaintSetup(session, loc2);
++        PaintBridgeActors(session, loc2);
+ 
+         const auto loc3 = mapTile + adjacentTiles[2];
+         EntityPaintSetup(session, loc3);
++        PaintBridgeActors(session, loc3);
+ 
+         mapTile += nextVerticalTile;
+     }

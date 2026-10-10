@@ -27,6 +27,7 @@ scripts/install-openrct2-local.sh
 
 `BRIDGE_BUILD_JOBS=2` is the default to limit memory use on the Pi. Build trees stay in `build/` on the attached drive. The OpenRCT2 build keeps networking, scripting, and its GUI enabled because the proof of concept requires both a headless server and graphical clients.
 The local install stages OpenRCT2's project object and media packs in `build/openrct2-stage/usr/local/share/openrct2/`; it does not install into the system `/usr/local` tree and it does not provide the proprietary RCT2 assets.
+`scripts/build-openrct2.sh` applies the reviewable M1 patch from `openrct2-patches/` and copies the original creature frames from `assets/alien-scout/` into the pinned checkout before building. The current patch paints one fixed actor at `(320, 480)` for scene-pipeline inspection; it is not yet connected to snapshots or synchronized actions.
 
 The locally built OpenRCT2 v0.5.5 can already load its upstream `EverythingPark.park` test park as a headless host using `/usr/share/openrct2` for the data path. Graphical rendering still needs original RCT2 or RCT Classic `Data/g1.dat`; the apt-installed OpenRCT2 v0.4.3 does not supply it. Once those game files are available, start the host with:
 
@@ -71,6 +72,7 @@ OpenBW's checkout has no top-level license file. The separate BWAPI fork carries
 - OpenRCT2 configured and completed its full Release build with GUI, networking, and scripting enabled. Both `openrct2` and `openrct2-cli` report v0.5.5 on Linux AArch64, network version `0.5.5-2`, and plugin API version `124`.
 - OpenRCT2's project asset packs were staged locally in `build/openrct2-stage/` without writing to `/usr/local`.
 - The v0.5.5 headless OpenRCT2 host opened the upstream `EverythingPark.park` test park and listened on localhost. Its screenshot command failed with `Unable to load g1 graphics`, so no graphical park proof is available yet.
+- The M1 native paint probe compiled. `g2.dat` contains all 12 original alien scout sprites, and exporting each one produced a nonblank 32×32 image. Visual placement and occlusion still need `g1.dat` and a graphical client.
 
 ## What is not yet proven
 

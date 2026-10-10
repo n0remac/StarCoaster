@@ -18,6 +18,7 @@ Machine: Raspberry Pi, Linux AArch64. Test root: `/media/pi/media1/rts-bridge`.
 | 15-second paced BWAPI run | 115 logged unit snapshots, one unit ID, six accepted waypoint orders, zero move errors. Approximate publication rate: 7.7 snapshots/s. Full logs are under ignored `run-data/`. |
 | Headless OpenRCT2 host | Loaded the upstream `EverythingPark.park` test park and listened on `127.0.0.1:11753`. This does not prove graphical rendering or the bridge action. |
 | Combined headless run | BWAPI moved unit `16` while OpenRCT2 hosted the test park. One process sample showed about 38 MiB RSS for `BWAPILauncher` and 135 MiB RSS for the OpenRCT2 host; `vcgencmd` reported `throttled=0x0` and 46.1°C. This is a short feasibility sample, not a two-client load test. |
+| M1 paint-probe build | Passed. The modified OpenRCT2 client compiled with a fixed world-paint actor and generated `g2.dat` with 182 images, including 12 original alien scout sprites. All 12 were exported back from `g2.dat` as nonblank 32×32 images. In-world appearance and occlusion remain unverified. |
 | OpenRCT2 graphical screenshot command | Failed: `Unable to load g1 graphics`. The apt OpenRCT2 package is installed, but no RCT2 `g1.dat` was found. |
 
 The fixture receiver prints `reported unit position changed (publisher not authenticated)`. That fixture result establishes TCP framing only. The separate live run establishes BWAPI creation, ordering, and movement. Representative live log lines:
