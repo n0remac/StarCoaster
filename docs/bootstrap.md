@@ -11,7 +11,7 @@ sudo apt-get install --no-install-recommends -y \
   git python3 ninja-build cmake ccache libsdl2-dev libicu-dev pkg-config libcurl4-openssl-dev \
   libcrypto++-dev libfontconfig1-dev libfreetype6-dev libpng-dev \
   libssl-dev libzip-dev build-essential nlohmann-json3-dev \
-  libflac-dev libvorbis-dev libzstd-dev
+  libflac-dev libvorbis-dev libzstd-dev xvfb scrot
 ```
 
 From the project root:
@@ -29,13 +29,13 @@ scripts/install-openrct2-local.sh
 The local install stages OpenRCT2's project object and media packs in `build/openrct2-stage/usr/local/share/openrct2/`; it does not install into the system `/usr/local` tree and it does not provide the proprietary RCT2 assets.
 `scripts/build-openrct2.sh` applies the reviewable native patch from `openrct2-patches/` and copies the original creature frames from `assets/alien-scout/` into the pinned checkout before building. The native build provides a render-only actor registry and script binding. The server-distributed plugin in `openrct2-plugin/` receives BWAPI snapshots and calls the binding through synchronized custom actions.
 
-The locally built OpenRCT2 v0.5.5 can already load its upstream `EverythingPark.park` test park as a headless host using `/usr/share/openrct2` for the data path. Graphical rendering still needs original RCT2 or RCT Classic `Data/g1.dat`; the apt-installed OpenRCT2 v0.4.3 does not supply it. Once those game files are available, start the host with:
+The locally built OpenRCT2 v0.5.5 uses the user-supplied RCT2 graphics at `/home/pi/games/rct2/Data/g1.dat` on this Pi. The apt-installed OpenRCT2 v0.4.3 does not have the native bridge patch or matching plugin API. To start a host manually:
 
 ```bash
 RCT2_DATA_DIR=/path/to/your/rct2 scripts/run-openrct2-host.sh /path/to/park.park
 ```
 
-`OPENRCT2_PORT` defaults to `11753`. The demo host listens on localhost and does not advertise to the public master server. Its user data and future remote plugin directory are kept under ignored `run-data/openrct2-server/`.
+`OPENRCT2_PORT` defaults to `11753`. The demo host listens on localhost and does not advertise to the public master server. Its user data and remote plugin directory are kept under ignored `run-data/openrct2-server/`.
 
 ## OpenBW runtime proof
 
@@ -67,7 +67,15 @@ For a headless server plus two headless client integration run:
 STARCRAFT_DATA_DIR=/home/pi/games/starcraft scripts/test-two-clients-headless.py --seconds 65
 ```
 
-The test uses OpenRCT2's upstream `EverythingPark.park`, the locally built v0.5.5 binaries, `/usr/share/openrct2` as its default headless data path, and separate ignored user directories for both clients. It compares each common action's OpenRCT2 tick, unit ID, and position across all three participants; logs are retained in `run-data/headless-multiplayer/`. The native patch adds a network tick to the headless client title scene so its join handshake can complete. This headless test does not render a screenshot.
+The test uses OpenRCT2's upstream `EverythingPark.park`, the locally built v0.5.5 binaries, `/usr/share/openrct2` as its default headless data path, and separate ignored user directories for both clients. Set `RCT2_DATA_DIR=/home/pi/games/rct2` to use the supplied game graphics here. It compares each common action's OpenRCT2 tick, unit ID, and position across all three participants; logs are retained in `run-data/headless-multiplayer/`. The native patch adds a network tick to the headless client title scene so its join handshake can complete. This headless test does not render a screenshot.
+
+For two live graphical clients on virtual displays, using the game files already present on this Pi:
+
+```bash
+python3 scripts/capture-live-demo.py --seconds 65
+```
+
+This requires `xvfb` and `scrot`. It starts the real BWAPI launcher, an OpenRCT2 host using the upstream `BigMapTest.sv6` park, and two modified graphical clients on X displays `:91` and `:92`. A local camera helper centres the viewport on the unit for the capture; it changes no shared park state. Screenshots and logs are saved in ignored `run-data/visual-demo/`. To capture a second client with an independently rotated camera, use `DEMO_OUTPUT_DIR=run-data/visual-demo-rotation python3 scripts/capture-live-demo.py --seconds 12 --rotate-client-b`.
 
 OpenBW's checkout has no top-level license file. The separate BWAPI fork carries LGPL-3.0 licensing, but that does not settle OpenBW source or binary redistribution. Neither game data nor proprietary art belongs in the bridge repository.
 
@@ -79,12 +87,14 @@ OpenBW's checkout has no top-level license file. The separate BWAPI fork carries
 - The receiver passed a fixture stream sent in split TCP writes, confirming newline framing and movement detection in the test tool.
 - OpenRCT2 configured and completed its full Release build with GUI, networking, and scripting enabled. Both `openrct2` and `openrct2-cli` report v0.5.5 on Linux AArch64, network version `0.5.5-2`, and plugin API version `124`.
 - OpenRCT2's project asset packs were staged locally in `build/openrct2-stage/` without writing to `/usr/local`.
-- The v0.5.5 headless OpenRCT2 host opened the upstream `EverythingPark.park` test park and listened on localhost. Its screenshot command failed with `Unable to load g1 graphics`, so no graphical park proof is available yet.
-- The M1 native paint probe compiled. `g2.dat` contains all 12 original alien scout sprites, and exporting each one produced a nonblank 32×32 image. Visual placement and occlusion still need `g1.dat` and a graphical client.
+- The v0.5.5 headless OpenRCT2 host opened the upstream `EverythingPark.park` test park and listened on localhost. The user-provided RCT2 data now allows graphical clients to render the park.
+- The M1 native paint hook compiled. `g2.dat` contains all 12 original alien scout sprites; the alien scout is visible in the live graphical clients and changes position between screenshots.
 - The server's remote plugin connected to the live BWAPI publisher and applied synchronized custom actions to the native presentation registry. Two headless clients joined; 143 shared action logs had exactly matching OpenRCT2 tick, unit ID, and coordinates on server and clients.
 - A repeatable 65-second headless run passed with 515 shared snapshots and zero tick/identity/position differences across the server and both clients.
 - Stopping and restarting `BWAPILauncher` produced synchronized actor removal on the server and a headless client, followed by a new session epoch and fresh actor snapshots.
+- A 65-second run with two graphical clients passed on `BigMapTest.sv6`: server and clients shared 514 matching snapshots with no reported desync. Screenshots show the moving actor on both clients. A shorter run passed with client B's camera rotated independently, with 155 matching snapshots.
 
 ## What is not yet proven
 
-- [OpenRCT2 needs user-supplied RCT2 or RCT Classic game assets](https://docs.openrct2.io/en/latest/faq/installing.html) for graphical screenshots. Its native rendering hook and server plugin are future milestones.
+- Occlusion against scenery and terrain height transitions have not yet been visually validated. The stable screenshot test uses a broad grass area.
+- `EverythingPark.park` produced an OpenRCT2 random-state desync warning in a graphical run. The live bridge passed on `BigMapTest.sv6`; the cause of the `EverythingPark` warning has not been isolated.
