@@ -69,7 +69,7 @@ index 500f197..aa97d78 100644
  
      // Main palettes
 diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
-index 7fd474f..f785c42 100644
+index 7fd474f..5afca26 100644
 --- a/src/openrct2/paint/Paint.Entity.cpp
 +++ b/src/openrct2/paint/Paint.Entity.cpp
 @@ -9,6 +9,9 @@
@@ -90,7 +90,7 @@ index 7fd474f..f785c42 100644
  #include "Paint.h"
  #include "entity/Paint.Balloon.h"
  #include "entity/Paint.CrashSplashParticle.h"
-@@ -32,10 +36,61 @@
+@@ -32,10 +36,71 @@
  #include "entity/Paint.VehicleCrashParticle.h"
  
  #include <cassert>
@@ -106,6 +106,7 @@ index 7fd474f..f785c42 100644
 +        std::string session;
 +        uint64_t seq = 0;
 +        std::optional<BridgeActor> actor;
++        uint32_t animationStartTick = 0;
 +    };
 +
 +    std::shared_ptr<const BridgeSnapshot> gBridgeSnapshot = std::make_shared<BridgeSnapshot>();
@@ -115,11 +116,9 @@ index 7fd474f..f785c42 100644
 +        const CoordsXY position{ actor.x, actor.y };
 +        if (!MapIsLocationValid(position))
 +            return;
-+        auto* surface = MapGetSurfaceElementAt(position);
-+        if (surface != nullptr)
-+        {
-+            ViewportsInvalidate({ actor.x, actor.y, surface->getBaseZ() }, 16, 28, 8, ZoomLevel{ 2 });
-+        }
++        // The image can extend well above the feet and across neighbouring
++        // tiles. Invalidate both the old and new full screen footprints.
++        ViewportsInvalidate({ actor.x, actor.y, TileElementHeight(position) }, 80, 80, 48, ZoomLevel{ 2 });
 +    }
 +} // namespace
 +
@@ -133,6 +132,10 @@ index 7fd474f..f785c42 100644
 +    next->session = std::move(session);
 +    next->seq = seq;
 +    next->actor = std::move(actor);
++    next->animationStartTick = previous->actor && next->actor
++            && previous->actor->id == next->actor->id && previous->actor->moving && next->actor->moving
++        ? previous->animationStartTick
++        : getGameState().currentTicks;
 +    if (previous->actor)
 +        InvalidateBridgeActor(*previous->actor);
 +    std::atomic_store(&gBridgeSnapshot, std::shared_ptr<const BridgeSnapshot>(next));
@@ -149,10 +152,17 @@ index 7fd474f..f785c42 100644
 +    }
 +}
 +
++void BridgeInvalidateAnimation()
++{
++    auto snapshot = std::atomic_load(&gBridgeSnapshot);
++    if (snapshot->actor && snapshot->actor->moving)
++        InvalidateBridgeActor(*snapshot->actor);
++}
++
  /**
   * Paint Quadrant
   *  rct2: 0x0069E8B0
-@@ -180,3 +235,33 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
+@@ -180,3 +245,33 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
          }
      }
  }
@@ -169,28 +179,28 @@ index 7fd474f..f785c42 100644
 +    if (gTrackDesignSaveMode || session.ViewFlags.has(ViewportFlag::hideEntities) || session.rt.zoom_level > ZoomLevel{ 2 })
 +        return;
 +
-+    auto* surface = MapGetSurfaceElementAt(actorPos);
-+    if (surface == nullptr)
-+        return;
-+
 +    session.SpritePosition = actorPos;
 +    session.MapPosition = pos;
 +    session.CurrentlyDrawnEntity = nullptr;
 +    session.CurrentlyDrawnTileElement = nullptr;
 +    session.InteractionType = ViewportInteractionItem::none;
-+    const int32_t z = surface->getBaseZ();
++    // Use the same interpolated slope height as ordinary ground entities.
++    const int32_t z = TileElementHeight(actorPos);
 +    const uint32_t direction = ((actor.facing + 32) / 64 + session.CurrentRotation) & 3;
 +    const uint32_t imageBase = !actor.moving             ? SPR_BRIDGE_SCOUT_IDLE_EAST
-+        : (snapshot->seq & 1) != 0                       ? SPR_BRIDGE_SCOUT_WALK1_EAST
++        : ((getGameState().currentTicks - snapshot->animationStartTick) / 4 & 1) != 0
++                                                      ? SPR_BRIDGE_SCOUT_WALK1_EAST
 +                                                      : SPR_BRIDGE_SCOUT_WALK0_EAST;
 +    const uint32_t imageId = imageBase + direction;
-+    PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, { { -5, -5, z + 1 }, { 10, 10, 17 } });
++    // Sorting volume represents the creature's feet/body in world space,
++    // independent of the transparent image canvas and its draw offset.
++    PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, { { -8, -8, z }, { 16, 16, 24 } });
 +}
 diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
-index b481242..1ddf44f 100644
+index b481242..49a751e 100644
 --- a/src/openrct2/paint/Paint.Entity.h
 +++ b/src/openrct2/paint/Paint.Entity.h
-@@ -9,7 +9,22 @@
+@@ -9,7 +9,23 @@
  
  #pragma once
  
@@ -213,6 +223,7 @@ index b481242..1ddf44f 100644
  void EntityPaintSetup(PaintSession& session, const CoordsXY& pos);
 +void PaintBridgeActors(PaintSession& session, const CoordsXY& pos);
 +void BridgeApplySnapshot(std::string session, uint64_t seq, std::optional<BridgeActor> actor);
++void BridgeInvalidateAnimation();
 diff --git a/src/openrct2/paint/Paint.cpp b/src/openrct2/paint/Paint.cpp
 index 7aea6d1..6e3f788 100644
 --- a/src/openrct2/paint/Paint.cpp
@@ -265,7 +276,7 @@ index 8820369..4962081c 100644
      {
          TryLoadSequence();
 diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
-index bb88d98..1bc660e 100644
+index bb88d98..dffd077 100644
 --- a/src/openrct2/scripting/ScriptEngine.cpp
 +++ b/src/openrct2/scripting/ScriptEngine.cpp
 @@ -28,6 +28,7 @@
@@ -276,7 +287,7 @@ index bb88d98..1bc660e 100644
      #include "../ride/ted/PitchAndRoll.h"
      #include "bindings/entity/ScBalloon.hpp"
      #include "bindings/entity/ScEntity.hpp"
-@@ -694,9 +695,90 @@ JSContext* ScriptEngine::CreateContext() const
+@@ -694,9 +695,97 @@ JSContext* ScriptEngine::CreateContext() const
      return newCtx;
  }
  
@@ -356,6 +367,12 @@ index bb88d98..1bc660e 100644
 +    return JS_NewBool(ctx, true);
 +}
 +
++static JSValue BridgeInvalidateAnimationJS(JSContext*, JSValueConst, int, JSValueConst*)
++{
++    BridgeInvalidateAnimation();
++    return JS_UNDEFINED;
++}
++
  void ScriptEngine::InitialiseContext(JSContext* ctx) const
  {
      JSValue glb = JS_GetGlobalObject(ctx);
@@ -363,6 +380,7 @@ index bb88d98..1bc660e 100644
 +    JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 1));
 +    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 1));
 +    JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
++    JS_SetPropertyStr(ctx, bridge, "invalidateAnimation", JS_NewCFunction(ctx, BridgeInvalidateAnimationJS, "invalidateAnimation", 0));
 +    JS_SetPropertyStr(ctx, glb, "rtsBridge", bridge);
      JS_SetPropertyStr(ctx, glb, "cheats", gScCheats.New(ctx));
      JS_SetPropertyStr(ctx, glb, "climate", gScWeather.New(ctx));

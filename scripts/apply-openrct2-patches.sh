@@ -5,7 +5,7 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="$project_dir/upstream/openrct2"
 patch="$project_dir/openrct2-patches/0001-native-bridge.patch"
 
-if git -C "$source_dir" apply --reverse --check "$patch" 2>/dev/null; then
+if rg -q 'SPR_BRIDGE_SCOUT_IDLE_EAST' "$source_dir/src/openrct2/SpriteIds.h"; then
   printf 'OpenRCT2 native bridge patch already applied\n'
 else
   git -C "$source_dir" apply --check "$patch"
@@ -13,5 +13,10 @@ else
   printf 'Applied OpenRCT2 native bridge patch\n'
 fi
 
-mkdir -p "$source_dir/resources/g2/bridge"
-cp "$project_dir"/assets/alien-scout/sprites/*.png "$source_dir/resources/g2/bridge/"
+source_name="${BRIDGE_SPRITE_SOURCE:-alien-scout}"
+case "$source_name" in
+  alien-scout) sprite_dir="$project_dir/assets/alien-scout/sprites" ;;
+  starcraft-local) sprite_dir="$project_dir/run-data/generated-assets/starcraft/zergling" ;;
+  *) printf 'Unknown BRIDGE_SPRITE_SOURCE: %s\n' "$source_name" >&2; exit 1 ;;
+esac
+python3 "$project_dir/scripts/install-bridge-sprites.py" "$sprite_dir" "$source_dir" "$source_name"

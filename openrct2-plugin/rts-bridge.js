@@ -41,7 +41,8 @@
 
     function main() {
         if (typeof rtsBridge !== "object" || rtsBridge.version !== 1 || rtsBridge.assetVersion !== 1
-            || typeof rtsBridge.applySnapshot !== "function") {
+            || typeof rtsBridge.applySnapshot !== "function"
+            || typeof rtsBridge.invalidateAnimation !== "function") {
             throw new Error("RTS Bridge needs the matching native OpenRCT2 build and asset pack");
         }
 
@@ -54,6 +55,11 @@
             if (!validAction(event.args)) return { error: 1, errorMessage: "Invalid RTS bridge snapshot" };
             rtsBridge.applySnapshot(event.args);
             return {};
+        });
+
+        let animationTicks = 0;
+        context.subscribe("interval.tick", function () {
+            if (++animationTicks % 4 === 0) rtsBridge.invalidateAnimation();
         });
 
         if (network.mode !== "server") return;
