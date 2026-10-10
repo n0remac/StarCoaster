@@ -5,7 +5,8 @@
     const ACTION = "rtsbridge.applySnapshot";
     const PORT = 39999;
     const MAP_ID = "demo-flat";
-    const MAX_LINE = 4096;
+    const MAX_LINE = 16384;
+    const MAX_UNITS = 32;
     const ORIGIN_X = 0;
     const ORIGIN_Y = 0;
     const SCALE_X = 1;
@@ -13,30 +14,31 @@
 
     function validAction(args) {
         if (!args || typeof args.session !== "string" || !/^[0-9a-f]{32}$/.test(args.session)
-            || !Number.isInteger(args.seq) || args.seq < 1 || !Array.isArray(args.units) || args.units.length > 1) {
+            || !Number.isSafeInteger(args.seq) || args.seq < 1 || !Array.isArray(args.units) || args.units.length > MAX_UNITS) {
             return false;
         }
-        if (args.units.length === 0) return true;
-        const unit = args.units[0];
-        return unit && /^openbw:[0-9]+$/.test(unit.id)
-            && Number.isInteger(unit.x) && Number.isInteger(unit.y)
-            && unit.x >= 0 && unit.y >= 0
-            && unit.x < map.size.x * 32 && unit.y < map.size.y * 32
-            && Number.isInteger(unit.facing) && unit.facing >= 0 && unit.facing <= 255
-            && (unit.motion === "idle" || unit.motion === "walk");
+        const ids = {};
+        return args.units.every(function (unit) {
+            if (!unit || typeof unit.id !== "string" || unit.id.length > 32
+                || !/^openbw:[0-9]+$/.test(unit.id) || ids[unit.id]) return false;
+            ids[unit.id] = true;
+            return Number.isInteger(unit.x) && Number.isInteger(unit.y)
+                && unit.x >= 0 && unit.y >= 0
+                && unit.x < map.size.x * 32 && unit.y < map.size.y * 32
+                && Number.isInteger(unit.facing) && unit.facing >= 0 && unit.facing <= 255
+                && (unit.motion === "idle" || unit.motion === "walk");
+        });
     }
 
     function validWire(snapshot) {
         if (!snapshot || snapshot.v !== 1 || snapshot.kind !== "units.snapshot"
             || snapshot.map_id !== MAP_ID || !validAction(snapshot)
-            || !Number.isInteger(snapshot.bw_tick) || snapshot.bw_tick < 0) {
+            || !Number.isSafeInteger(snapshot.bw_tick) || snapshot.bw_tick < 0) {
             return false;
         }
-        if (snapshot.units.length === 0) return true;
-        const unit = snapshot.units[0];
-        return unit.kind === "alien_scout" && unit.alive === true
-            && Number.isFinite(unit.x) && Number.isFinite(unit.y)
-            && Number.isInteger(unit.facing) && unit.facing >= 0 && unit.facing <= 255;
+        return snapshot.units.every(function (unit) {
+            return unit.kind === "alien_scout" && unit.alive === true;
+        });
     }
 
     function main() {
@@ -71,6 +73,7 @@
         });
         let session = "";
         let lastSeq = 0;
+        const retiredSessions = {};
         let socket = null;
         let reconnectTicks = 0;
 
@@ -87,6 +90,8 @@
                 return;
             }
             if (snapshot.session !== session) {
+                if (retiredSessions[snapshot.session]) return;
+                if (session) retiredSessions[session] = true;
                 session = snapshot.session;
                 lastSeq = 0;
                 console.log("RTS Bridge session " + session);
@@ -126,8 +131,8 @@
                 while ((newline = pending.indexOf("\n")) !== -1) {
                     const line = pending.slice(0, newline);
                     pending = pending.slice(newline + 1);
-                    if (line.length > MAX_LINE) {
-                        console.log("RTS Bridge dropped oversized snapshot");
+                    if (line.length > MAX_LINE || /[^\x20-\x7e]/.test(line)) {
+                        console.log("RTS Bridge dropped oversized or non-ASCII snapshot");
                     } else if (line.length > 0) {
                         onLine(line);
                     }
@@ -147,7 +152,7 @@
                     context.executeAction(ACTION, clear, function (result) {
                         if (result.error) console.log("RTS Bridge removal action failed: " + result.errorMessage);
                     });
-                    console.log("RTS Bridge publisher disconnected; removed actor");
+                    console.log("RTS Bridge publisher disconnected; removed actors");
                 }
             });
             connection.connect(PORT, "127.0.0.1", function () {

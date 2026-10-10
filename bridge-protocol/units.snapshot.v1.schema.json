@@ -14,13 +14,13 @@
     "bw_tick": { "type": "integer", "minimum": 0 },
     "units": {
       "type": "array",
-      "maxItems": 1,
+      "maxItems": 32,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["id", "kind", "x", "y", "facing", "motion", "alive"],
         "properties": {
-          "id": { "type": "string", "pattern": "^openbw:[0-9]+$" },
+          "id": { "type": "string", "maxLength": 32, "pattern": "^openbw:[0-9]+$" },
           "kind": { "const": "alien_scout" },
           "x": { "type": "number" },
           "y": { "type": "number" },

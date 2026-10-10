@@ -28,17 +28,26 @@ def main() -> None:
     if pack == "starcraft-local" and not manifest_path.is_file():
         raise SystemExit(f"Missing StarCraft sprite manifest: {manifest_path}")
     manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
+    if pack == "starcraft-local":
+        registry = manifest.get("registry", {}).get("alien_scout", {})
+        if len(manifest.get("frames", {})) != 88 or len(registry.get("walk", {}).get("frames", {})) != 8:
+            raise SystemExit("StarCraft manifest must contain 88 frames and eight walk directions")
     sprite_list = upstream / "resources/g2/sprites.json"
     contents = sprite_list.read_text()
+    enum_text = (upstream / "src/openrct2/SpriteIds.h").read_text()
+    if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_(?:IDLE|WALK[0-9]+)_", enum_text, re.MULTILINE)) != 88:
+        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 88 bridge images")
     colours = standard_colours(upstream)
     prepared = []
     diagonals = {"southeast": "east", "southwest": "south",
                  "northwest": "west", "northeast": "north"}
-    for motion in ("idle", "walk0", "walk1"):
+    motions = ("idle", *(f"walk{index}" for index in range(10)))
+    for motion in motions:
         for direction in ("east", "south", "west", "north", *diagonals):
             name = f"{motion}_{direction}.png"
-            source_name = (f"{motion}_{diagonals[direction]}.png"
-                           if pack == "alien-scout" and direction in diagonals else name)
+            fallback_motion = motion if motion in ("idle", "walk0", "walk1") else f"walk{int(motion[4:]) % 2}"
+            source_name = (f"{fallback_motion}_{diagonals.get(direction, direction)}.png"
+                           if pack == "alien-scout" else name)
             path = source / source_name
             if not path.is_file():
                 raise SystemExit(f"Missing required {pack} frame: {path}")
@@ -55,6 +64,9 @@ def main() -> None:
                     meta = manifest.get("frames", {}).get(name)
                     if not meta or (meta["width"], meta["height"]) != image.size:
                         raise SystemExit(f"Sprite/manifest mismatch: {path}")
+                    kind = "idle" if motion == "idle" else "walk"
+                    if name not in registry[kind]["frames"][direction]:
+                        raise SystemExit(f"Sprite missing from kind registry: {name}")
                     x, y = meta["x"], meta["y"]
                 else:
                     x, y = -16, -28

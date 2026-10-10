@@ -1,8 +1,8 @@
 diff --git a/resources/g2/sprites.json b/resources/g2/sprites.json
-index 83e5f1c..78e5e79 100644
+index 83e5f1c..29ccfa4 100644
 --- a/resources/g2/sprites.json
 +++ b/resources/g2/sprites.json
-@@ -666,5 +666,77 @@
+@@ -666,5 +666,269 @@
          "path": "icons/walls.png",
          "x": 1,
          "y": 1
@@ -78,13 +78,205 @@ index 83e5f1c..78e5e79 100644
 +    },
 +    {
 +        "path": "bridge/walk1_northeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk2_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk2_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk2_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk2_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk2_southeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk2_southwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk2_northwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk2_northeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk3_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk3_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk3_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk3_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk3_southeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk3_southwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk3_northwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk3_northeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk4_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk4_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk4_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk4_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk4_southeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk4_southwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk4_northwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk4_northeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk5_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk5_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk5_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk5_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk5_southeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk5_southwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk5_northwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk5_northeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk6_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk6_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk6_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk6_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk6_southeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk6_southwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk6_northwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk6_northeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk7_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk7_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk7_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk7_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk7_southeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk7_southwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk7_northwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk7_northeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk8_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk8_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk8_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk8_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk8_southeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk8_southwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk8_northwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk8_northeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk9_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk9_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk9_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk9_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk9_southeast.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk9_southwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk9_northwest.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk9_northeast.png", "x": -16, "y": -28
      }
  ]
 diff --git a/src/openrct2/SpriteIds.h b/src/openrct2/SpriteIds.h
-index 500f197..c2ea0c4 100644
+index 500f197..792abcf 100644
 --- a/src/openrct2/SpriteIds.h
 +++ b/src/openrct2/SpriteIds.h
-@@ -1211,6 +1211,32 @@ enum : ImageIndex
+@@ -1211,6 +1211,97 @@ enum : ImageIndex
      SPR_G2_BUTTON_PATH_ADDITIONS,
      SPR_G2_BUTTON_WALLS,
  
@@ -114,11 +306,76 @@ index 500f197..c2ea0c4 100644
 +    SPR_BRIDGE_SCOUT_WALK1_NORTHWEST,
 +    SPR_BRIDGE_SCOUT_WALK1_NORTHEAST,
 +
++    SPR_BRIDGE_SCOUT_WALK2_EAST,
++    SPR_BRIDGE_SCOUT_WALK2_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK2_WEST,
++    SPR_BRIDGE_SCOUT_WALK2_NORTH,
++    SPR_BRIDGE_SCOUT_WALK2_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_WALK2_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_WALK2_NORTHWEST,
++    SPR_BRIDGE_SCOUT_WALK2_NORTHEAST,
++    SPR_BRIDGE_SCOUT_WALK3_EAST,
++    SPR_BRIDGE_SCOUT_WALK3_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK3_WEST,
++    SPR_BRIDGE_SCOUT_WALK3_NORTH,
++    SPR_BRIDGE_SCOUT_WALK3_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_WALK3_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_WALK3_NORTHWEST,
++    SPR_BRIDGE_SCOUT_WALK3_NORTHEAST,
++    SPR_BRIDGE_SCOUT_WALK4_EAST,
++    SPR_BRIDGE_SCOUT_WALK4_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK4_WEST,
++    SPR_BRIDGE_SCOUT_WALK4_NORTH,
++    SPR_BRIDGE_SCOUT_WALK4_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_WALK4_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_WALK4_NORTHWEST,
++    SPR_BRIDGE_SCOUT_WALK4_NORTHEAST,
++    SPR_BRIDGE_SCOUT_WALK5_EAST,
++    SPR_BRIDGE_SCOUT_WALK5_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK5_WEST,
++    SPR_BRIDGE_SCOUT_WALK5_NORTH,
++    SPR_BRIDGE_SCOUT_WALK5_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_WALK5_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_WALK5_NORTHWEST,
++    SPR_BRIDGE_SCOUT_WALK5_NORTHEAST,
++    SPR_BRIDGE_SCOUT_WALK6_EAST,
++    SPR_BRIDGE_SCOUT_WALK6_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK6_WEST,
++    SPR_BRIDGE_SCOUT_WALK6_NORTH,
++    SPR_BRIDGE_SCOUT_WALK6_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_WALK6_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_WALK6_NORTHWEST,
++    SPR_BRIDGE_SCOUT_WALK6_NORTHEAST,
++    SPR_BRIDGE_SCOUT_WALK7_EAST,
++    SPR_BRIDGE_SCOUT_WALK7_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK7_WEST,
++    SPR_BRIDGE_SCOUT_WALK7_NORTH,
++    SPR_BRIDGE_SCOUT_WALK7_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_WALK7_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_WALK7_NORTHWEST,
++    SPR_BRIDGE_SCOUT_WALK7_NORTHEAST,
++    SPR_BRIDGE_SCOUT_WALK8_EAST,
++    SPR_BRIDGE_SCOUT_WALK8_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK8_WEST,
++    SPR_BRIDGE_SCOUT_WALK8_NORTH,
++    SPR_BRIDGE_SCOUT_WALK8_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_WALK8_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_WALK8_NORTHWEST,
++    SPR_BRIDGE_SCOUT_WALK8_NORTHEAST,
++    SPR_BRIDGE_SCOUT_WALK9_EAST,
++    SPR_BRIDGE_SCOUT_WALK9_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK9_WEST,
++    SPR_BRIDGE_SCOUT_WALK9_NORTH,
++    SPR_BRIDGE_SCOUT_WALK9_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_WALK9_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_WALK9_NORTHWEST,
++    SPR_BRIDGE_SCOUT_WALK9_NORTHEAST,
++
      SPR_G2_END,
  
      // Main palettes
 diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
-index 7fd474f..3e82659 100644
+index 7fd474f..c17e154 100644
 --- a/src/openrct2/paint/Paint.Entity.cpp
 +++ b/src/openrct2/paint/Paint.Entity.cpp
 @@ -9,6 +9,9 @@
@@ -139,11 +396,14 @@ index 7fd474f..3e82659 100644
  #include "Paint.h"
  #include "entity/Paint.Balloon.h"
  #include "entity/Paint.CrashSplashParticle.h"
-@@ -32,10 +36,72 @@
+@@ -32,10 +36,163 @@
  #include "entity/Paint.VehicleCrashParticle.h"
  
  #include <cassert>
++#include <algorithm>
++#include <map>
 +#include <memory>
++#include <sstream>
  
  using namespace OpenRCT2;
  using namespace OpenRCT2::Drawing;
@@ -154,11 +414,28 @@ index 7fd474f..3e82659 100644
 +    {
 +        std::string session;
 +        uint64_t seq = 0;
-+        std::optional<BridgeActor> actor;
-+        uint32_t animationStartTick = 0;
++        std::vector<BridgeActor> actors;
++        struct VisualState
++        {
++            uint32_t animationStartTick = 0;
++            int32_t previousX = 0;
++            int32_t previousY = 0;
++            uint32_t blendStartTick = 0;
++            uint32_t blendDuration = 1;
++        };
++        std::map<std::string, VisualState> visual;
++        std::map<std::pair<int32_t, int32_t>, std::vector<size_t>> tiles;
 +    };
 +
 +    std::shared_ptr<const BridgeSnapshot> gBridgeSnapshot = std::make_shared<BridgeSnapshot>();
++
++    uint32_t BridgePhase(const std::string& id)
++    {
++        uint32_t hash = 2166136261u;
++        for (unsigned char character : id)
++            hash = (hash ^ character) * 16777619u;
++        return (hash % 10) * 4;
++    }
 +
 +    void InvalidateBridgeActor(const BridgeActor& actor)
 +    {
@@ -169,9 +446,24 @@ index 7fd474f..3e82659 100644
 +        // tiles. Invalidate both the old and new full screen footprints.
 +        ViewportsInvalidate({ actor.x, actor.y, TileElementHeight(position) }, 80, 80, 48, ZoomLevel{ 2 });
 +    }
++
++    CoordsXY VisualPosition(const BridgeActor& actor, const BridgeSnapshot::VisualState& state)
++    {
++        const uint32_t elapsed = getGameState().currentTicks - state.blendStartTick;
++        const uint32_t t = std::min(elapsed, state.blendDuration);
++        return { state.previousX + static_cast<int32_t>((actor.x - state.previousX) * static_cast<int64_t>(t) / state.blendDuration),
++            state.previousY + static_cast<int32_t>((actor.y - state.previousY) * static_cast<int64_t>(t) / state.blendDuration) };
++    }
++
++    void AddTile(BridgeSnapshot& snapshot, size_t index, int32_t x, int32_t y)
++    {
++        auto& bucket = snapshot.tiles[{ x / 32, y / 32 }];
++        if (std::find(bucket.begin(), bucket.end(), index) == bucket.end())
++            bucket.push_back(index);
++    }
 +} // namespace
 +
-+void BridgeApplySnapshot(std::string session, uint64_t seq, std::optional<BridgeActor> actor)
++void BridgeApplySnapshot(std::string session, uint64_t seq, std::vector<BridgeActor> actors)
 +{
 +    auto previous = std::atomic_load(&gBridgeSnapshot);
 +    if (previous->session == session && seq <= previous->seq)
@@ -180,39 +472,95 @@ index 7fd474f..3e82659 100644
 +    auto next = std::make_shared<BridgeSnapshot>();
 +    next->session = std::move(session);
 +    next->seq = seq;
-+    next->actor = std::move(actor);
-+    next->animationStartTick = previous->actor && next->actor
-+            && previous->actor->id == next->actor->id && previous->actor->moving && next->actor->moving
-+        ? previous->animationStartTick
-+        : getGameState().currentTicks;
-+    if (previous->actor)
-+        InvalidateBridgeActor(*previous->actor);
++    next->actors = std::move(actors);
++    std::sort(next->actors.begin(), next->actors.end(), [](const auto& a, const auto& b) { return a.id < b.id; });
++    std::map<std::string, BridgeActor> oldActors;
++    if (previous->session == next->session)
++        for (const auto& actor : previous->actors)
++            oldActors.emplace(actor.id, actor);
++    const auto tick = getGameState().currentTicks;
++    for (size_t index = 0; index < next->actors.size(); ++index)
++    {
++        const auto& actor = next->actors[index];
++        BridgeSnapshot::VisualState visual{};
++        visual.previousX = actor.x;
++        visual.previousY = actor.y;
++        visual.animationStartTick = tick - BridgePhase(actor.id);
++        visual.blendStartTick = tick;
++        const auto old = oldActors.find(actor.id);
++        if (old != oldActors.end())
++        {
++            const auto previousVisual = previous->visual.find(actor.id);
++            if (previousVisual != previous->visual.end())
++            {
++                if (actor.moving && old->second.moving)
++                    visual.animationStartTick = previousVisual->second.animationStartTick;
++                const auto source = VisualPosition(old->second, previousVisual->second);
++                const int64_t dx = static_cast<int64_t>(actor.x) - old->second.x;
++                const int64_t dy = static_cast<int64_t>(actor.y) - old->second.y;
++                if (dx * dx + dy * dy <= 64 * 64 && tick - previousVisual->second.blendStartTick <= 16)
++                {
++                    visual.previousX = source.x;
++                    visual.previousY = source.y;
++                    visual.blendDuration = std::max(1u, std::min(8u, tick - previousVisual->second.blendStartTick));
++                }
++            }
++        }
++        next->visual.emplace(actor.id, visual);
++        for (int32_t tileX = std::min(actor.x, visual.previousX) / 32; tileX <= std::max(actor.x, visual.previousX) / 32; ++tileX)
++            for (int32_t tileY = std::min(actor.y, visual.previousY) / 32; tileY <= std::max(actor.y, visual.previousY) / 32; ++tileY)
++                AddTile(*next, index, tileX * 32, tileY * 32);
++    }
++    for (const auto& actor : previous->actors)
++    {
++        InvalidateBridgeActor(actor);
++        auto visual = previous->visual.find(actor.id);
++        if (visual != previous->visual.end())
++        {
++            BridgeActor displayed = actor;
++            const auto position = VisualPosition(actor, visual->second);
++            displayed.x = position.x;
++            displayed.y = position.y;
++            InvalidateBridgeActor(displayed);
++        }
++    }
 +    std::atomic_store(&gBridgeSnapshot, std::shared_ptr<const BridgeSnapshot>(next));
-+    if (next->actor)
++    std::ostringstream canonical;
++    for (const auto& actor : next->actors)
 +    {
-+        InvalidateBridgeActor(*next->actor);
-+        LOG_INFO("RTS Bridge apply tick=%u seq=%llu id=%s x=%d y=%d session=%s motion=%s", getGameState().currentTicks,
-+            static_cast<unsigned long long>(seq), next->actor->id.c_str(), next->actor->x, next->actor->y,
-+            next->session.c_str(), next->actor->moving ? "walk" : "idle");
++        InvalidateBridgeActor(actor);
++        if (canonical.tellp() > 0) canonical << ';';
++        canonical << actor.id << ',' << actor.x << ',' << actor.y << ',' << static_cast<int>(actor.facing)
++                  << ',' << (actor.moving ? "walk" : "idle") << ',' << TileElementHeight({ actor.x, actor.y });
 +    }
-+    else
-+    {
-+        LOG_INFO("RTS Bridge apply tick=%u seq=%llu despawn session=%s", getGameState().currentTicks,
-+            static_cast<unsigned long long>(seq), next->session.c_str());
-+    }
++    LOG_INFO("RTS Bridge apply tick=%u seq=%llu session=%s center_z=%d units=%s", tick,
++        static_cast<unsigned long long>(seq), next->session.c_str(), TileElementHeight({ 480, 480 }), canonical.str().c_str());
 +}
 +
 +void BridgeInvalidateAnimation()
 +{
 +    auto snapshot = std::atomic_load(&gBridgeSnapshot);
-+    if (snapshot->actor && snapshot->actor->moving)
-+        InvalidateBridgeActor(*snapshot->actor);
++    for (const auto& actor : snapshot->actors)
++    {
++        auto it = snapshot->visual.find(actor.id);
++        if (it != snapshot->visual.end())
++        {
++            if (!actor.moving && getGameState().currentTicks - it->second.blendStartTick >= it->second.blendDuration)
++                continue;
++            BridgeActor old = actor;
++            const auto position = VisualPosition(actor, it->second);
++            old.x = position.x;
++            old.y = position.y;
++            InvalidateBridgeActor(old);
++        }
++        InvalidateBridgeActor(actor);
++    }
 +}
 +
  /**
   * Paint Quadrant
   *  rct2: 0x0069E8B0
-@@ -180,3 +246,37 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
+@@ -180,3 +337,44 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
          }
      }
  }
@@ -220,38 +568,45 @@ index 7fd474f..3e82659 100644
 +void PaintBridgeActors(PaintSession& session, const CoordsXY& pos)
 +{
 +    auto snapshot = std::atomic_load(&gBridgeSnapshot);
-+    if (!snapshot->actor)
-+        return;
-+    const auto& actor = *snapshot->actor;
-+    const CoordsXY actorPos{ actor.x, actor.y };
-+    if (pos != actorPos.toTileStart() || !MapIsLocationValid(actorPos))
++    const auto bucket = snapshot->tiles.find({ pos.x / 32, pos.y / 32 });
++    if (bucket == snapshot->tiles.end())
 +        return;
 +    if (gTrackDesignSaveMode || session.ViewFlags.has(ViewportFlag::hideEntities) || session.rt.zoom_level > ZoomLevel{ 2 })
 +        return;
-+
-+    session.SpritePosition = actorPos;
-+    session.MapPosition = pos;
-+    session.CurrentlyDrawnEntity = nullptr;
-+    session.CurrentlyDrawnTileElement = nullptr;
-+    session.InteractionType = ViewportInteractionItem::none;
-+    // Use the same interpolated slope height as ordinary ground entities.
-+    const int32_t z = TileElementHeight(actorPos);
-+    // Facing 0 is east in BWAPI. Rotate the artwork only for this viewport;
-+    // four client camera rotations each advance by two sprite octants.
-+    const uint32_t direction = ((actor.facing + 16) / 32 + session.CurrentRotation * 2) & 7;
-+    const bool diagonal = (direction & 1) != 0;
-+    const bool alternate = ((getGameState().currentTicks - snapshot->animationStartTick) / 4 & 1) != 0;
-+    const uint32_t imageBase = !actor.moving
-+        ? (diagonal ? SPR_BRIDGE_SCOUT_IDLE_SOUTHEAST : SPR_BRIDGE_SCOUT_IDLE_EAST)
-+        : alternate ? (diagonal ? SPR_BRIDGE_SCOUT_WALK1_SOUTHEAST : SPR_BRIDGE_SCOUT_WALK1_EAST)
-+                    : (diagonal ? SPR_BRIDGE_SCOUT_WALK0_SOUTHEAST : SPR_BRIDGE_SCOUT_WALK0_EAST);
-+    const uint32_t imageId = imageBase + direction / 2;
-+    // Sorting volume represents the creature's feet/body in world space,
-+    // independent of the transparent image canvas and its draw offset.
-+    PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, { { -8, -8, z }, { 16, 16, 24 } });
++    for (const size_t index : bucket->second)
++    {
++        const auto& actor = snapshot->actors[index];
++        const auto& visual = snapshot->visual.at(actor.id);
++        const auto actorPos = VisualPosition(actor, visual);
++        if (pos != actorPos.toTileStart() || !MapIsLocationValid(actorPos))
++            continue;
++        session.SpritePosition = actorPos;
++        session.MapPosition = pos;
++        session.CurrentlyDrawnEntity = nullptr;
++        session.CurrentlyDrawnTileElement = nullptr;
++        session.InteractionType = ViewportInteractionItem::none;
++        const int32_t z = TileElementHeight(actorPos);
++        const uint32_t direction = ((actor.facing + 16) / 32 + session.CurrentRotation * 2) & 7;
++        const bool diagonal = (direction & 1) != 0;
++        static_assert(SPR_G2_END - SPR_BRIDGE_SCOUT_IDLE_EAST == 88, "bridge sprite registry count differs from g2 range");
++        constexpr uint32_t walkCardinal[] = { SPR_BRIDGE_SCOUT_WALK0_EAST, SPR_BRIDGE_SCOUT_WALK1_EAST,
++            SPR_BRIDGE_SCOUT_WALK2_EAST, SPR_BRIDGE_SCOUT_WALK3_EAST, SPR_BRIDGE_SCOUT_WALK4_EAST,
++            SPR_BRIDGE_SCOUT_WALK5_EAST, SPR_BRIDGE_SCOUT_WALK6_EAST, SPR_BRIDGE_SCOUT_WALK7_EAST,
++            SPR_BRIDGE_SCOUT_WALK8_EAST, SPR_BRIDGE_SCOUT_WALK9_EAST };
++        constexpr uint32_t walkDiagonal[] = { SPR_BRIDGE_SCOUT_WALK0_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK1_SOUTHEAST,
++            SPR_BRIDGE_SCOUT_WALK2_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK3_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK4_SOUTHEAST,
++            SPR_BRIDGE_SCOUT_WALK5_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK6_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK7_SOUTHEAST,
++            SPR_BRIDGE_SCOUT_WALK8_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK9_SOUTHEAST };
++        const uint32_t frame = (getGameState().currentTicks - visual.animationStartTick) / 4 % 10;
++        const uint32_t imageBase = !actor.moving
++            ? (diagonal ? SPR_BRIDGE_SCOUT_IDLE_SOUTHEAST : SPR_BRIDGE_SCOUT_IDLE_EAST)
++            : (diagonal ? walkDiagonal[frame] : walkCardinal[frame]);
++        const uint32_t imageId = imageBase + direction / 2;
++        PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, { { -8, -8, z }, { 16, 16, 24 } });
++    }
 +}
 diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
-index b481242..49a751e 100644
+index b481242..f35ae7c 100644
 --- a/src/openrct2/paint/Paint.Entity.h
 +++ b/src/openrct2/paint/Paint.Entity.h
 @@ -9,7 +9,23 @@
@@ -259,8 +614,8 @@ index b481242..49a751e 100644
  #pragma once
  
 +#include <cstdint>
-+#include <optional>
 +#include <string>
++#include <vector>
 +
  struct PaintSession;
  struct CoordsXY;
@@ -276,7 +631,7 @@ index b481242..49a751e 100644
 +
  void EntityPaintSetup(PaintSession& session, const CoordsXY& pos);
 +void PaintBridgeActors(PaintSession& session, const CoordsXY& pos);
-+void BridgeApplySnapshot(std::string session, uint64_t seq, std::optional<BridgeActor> actor);
++void BridgeApplySnapshot(std::string session, uint64_t seq, std::vector<BridgeActor> actors);
 +void BridgeInvalidateAnimation();
 diff --git a/src/openrct2/paint/Paint.cpp b/src/openrct2/paint/Paint.cpp
 index 7aea6d1..6e3f788 100644
@@ -330,18 +685,30 @@ index 8820369..4962081c 100644
      {
          TryLoadSequence();
 diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
-index bb88d98..dffd077 100644
+index bb88d98..858e34f 100644
 --- a/src/openrct2/scripting/ScriptEngine.cpp
 +++ b/src/openrct2/scripting/ScriptEngine.cpp
-@@ -28,6 +28,7 @@
+@@ -28,7 +28,9 @@
      #include "../core/Path.hpp"
      #include "../interface/InteractiveConsole.h"
      #include "../platform/Platform.h"
 +    #include "../paint/Paint.Entity.h"
      #include "../ride/ted/PitchAndRoll.h"
++    #include "../world/Map.h"
      #include "bindings/entity/ScBalloon.hpp"
      #include "bindings/entity/ScEntity.hpp"
-@@ -694,9 +695,97 @@ JSContext* ScriptEngine::CreateContext() const
+     #include "bindings/entity/ScGuest.hpp"
+@@ -66,7 +68,9 @@
+     #include "bindings/world/ScTileElement.hpp"
+     #include "bindings/world/ScWeather.hpp"
+ 
++    #include <cmath>
+     #include <memory>
++    #include <set>
+     #include <stdexcept>
+     #include <string>
+ 
+@@ -694,9 +698,104 @@ JSContext* ScriptEngine::CreateContext() const
      return newCtx;
  }
  
@@ -366,7 +733,10 @@ index bb88d98..dffd077 100644
 +static bool BridgeReadInt(JSContext* ctx, JSValueConst object, const char* name, int32_t& output)
 +{
 +    JSValue value = JS_GetPropertyStr(ctx, object, name);
-+    const bool ok = JS_IsNumber(value) && JS_ToInt32(ctx, &output, value) == 0;
++    double number = 0;
++    const bool ok = JS_IsNumber(value) && JS_ToFloat64(ctx, &number, value) == 0 && std::isfinite(number)
++        && number == std::floor(number) && number >= INT32_MIN && number <= INT32_MAX
++        && JS_ToInt32(ctx, &output, value) == 0;
 +    JS_FreeValue(ctx, value);
 +    return ok;
 +}
@@ -386,24 +756,28 @@ index bb88d98..dffd077 100644
 +    JSValue lengthValue = JS_GetPropertyStr(ctx, units, "length");
 +    int32_t length = -1;
 +    const bool validLength = JS_IsArray(units) && JS_ToInt32(ctx, &length, lengthValue) == 0 && length >= 0
-+        && length <= 1;
++        && length <= 32;
 +    JS_FreeValue(ctx, lengthValue);
 +    if (!validLength)
 +    {
 +        JS_FreeValue(ctx, units);
-+        return JS_ThrowTypeError(ctx, "bridge snapshot must contain at most one unit");
++        return JS_ThrowTypeError(ctx, "bridge snapshot must contain at most 32 units");
 +    }
 +
-+    std::optional<BridgeActor> actor;
-+    if (length == 1)
++    std::vector<BridgeActor> actors;
++    std::set<std::string> ids;
++    const auto mapSize = GetMapSizeUnits();
++    for (int32_t index = 0; index < length; ++index)
 +    {
-+        JSValue unit = JS_GetPropertyUint32(ctx, units, 0);
++        JSValue unit = JS_GetPropertyUint32(ctx, units, index);
 +        BridgeActor parsed{};
 +        std::string motion;
 +        int32_t facing = 0;
 +        const bool valid = JS_IsObject(unit) && BridgeReadString(ctx, unit, "id", parsed.id)
-+            && !parsed.id.empty() && parsed.id.size() <= 32 && BridgeReadInt(ctx, unit, "x", parsed.x)
-+            && BridgeReadInt(ctx, unit, "y", parsed.y) && parsed.x >= 0 && parsed.y >= 0
++            && parsed.id.size() > 7 && parsed.id.size() <= 32 && parsed.id.compare(0, 7, "openbw:") == 0
++            && parsed.id.find_first_not_of("0123456789", 7) == std::string::npos && ids.insert(parsed.id).second
++            && BridgeReadInt(ctx, unit, "x", parsed.x) && BridgeReadInt(ctx, unit, "y", parsed.y)
++            && parsed.x >= 0 && parsed.y >= 0 && parsed.x < mapSize.x && parsed.y < mapSize.y
 +            && BridgeReadInt(ctx, unit, "facing", facing) && facing >= 0 && facing <= 255
 +            && BridgeReadString(ctx, unit, "motion", motion) && (motion == "idle" || motion == "walk");
 +        JS_FreeValue(ctx, unit);
@@ -414,10 +788,10 @@ index bb88d98..dffd077 100644
 +        }
 +        parsed.facing = static_cast<uint8_t>(facing);
 +        parsed.moving = motion == "walk";
-+        actor = std::move(parsed);
++        actors.push_back(std::move(parsed));
 +    }
 +    JS_FreeValue(ctx, units);
-+    BridgeApplySnapshot(std::move(session), static_cast<uint64_t>(seq), std::move(actor));
++    BridgeApplySnapshot(std::move(session), static_cast<uint64_t>(seq), std::move(actors));
 +    return JS_NewBool(ctx, true);
 +}
 +

@@ -1,6 +1,6 @@
 # Bridge protocol v1
 
-The POC publisher sends one UTF-8 JSON object per line over a TCP connection bound to `127.0.0.1`. Each line is a **full** snapshot, capped at 4096 bytes in the POC. The [schema](units.snapshot.v1.schema.json) and [fixture](fixtures/one-unit.ndjson) define the current wire shape.
+The publisher sends one UTF-8 JSON object per line over a TCP connection bound to `127.0.0.1`. Each line is a **full** snapshot, capped at 16384 bytes including the JSON but excluding the newline. A 32-unit packet with 32-byte IDs and signed decimal 32-bit coordinates fits under 8 KiB; the larger cap leaves room for envelope fields. The [schema](units.snapshot.v1.schema.json) and [fixture](fixtures/one-unit.ndjson) define the wire shape. Every receiver rejects an invalid array as a whole, including duplicate IDs.
 
 `x` and `y` are OpenBW map pixel coordinates. The OpenRCT2 adapter alone converts them to park world coordinates. `facing` is one unsigned byte for a full circle: 0 is east, increasing according to the BWAPI angle after normalization. The adapter must calibrate the axis handedness before choosing a sprite frame.
 
@@ -8,4 +8,4 @@ The POC publisher sends one UTF-8 JSON object per line over a TCP connection bou
 
 The first BWAPI module publishes on every third simulation frame. The resulting rate depends on the simulator's frame speed. This cadence is tied to `bw_tick`, so pausing the simulation does not generate repeated snapshots for the same tick.
 
-The schema limits the POC to one actor. A later protocol revision can raise that limit after profiling.
+Protocol v1 supports up to 32 actors. The default demo still publishes one Zergling; `BRIDGE_DEMO_UNITS=8` opts into the squad patrol.

@@ -1,5 +1,7 @@
 #include <BWAPI.h>
 
+#include <algorithm>
+
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -14,14 +16,18 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <random>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
 constexpr double kTau = 6.28318530717958647692;
+constexpr size_t kMaxLine = 16384;
+constexpr size_t kMaxUnits = 32;
 
 int environmentInteger(const char* name, int fallback) {
     const char* value = std::getenv(name);
@@ -100,6 +106,10 @@ public:
     }
 
     void publish(const std::string& line) {
+        if (line.size() > kMaxLine) {
+            std::cerr << "[bridge] dropped oversized snapshot bytes=" << line.size() << std::endl;
+            return;
+        }
         if (client_ < 0) return;
         flush();
         if (!pending_.empty()) return;  // Drop this full snapshot if the receiver is slow.
@@ -165,6 +175,7 @@ public:
         frameDelayMs_ = environmentInteger("BRIDGE_FRAME_MS", 42);
         mapId_ = environmentMapId();
         session_ = newSessionId();
+        std::cerr << "[bridge] session=" << session_ << std::endl;
         publisher_.start(port);
 
         auto* game = BWAPI::Broodwar.operator->();
@@ -178,15 +189,27 @@ public:
             std::cerr << "[bridge] configured coordinates exceed map bounds " << maxX << "x" << maxY << std::endl;
             return;
         }
-        spawn_ = BWAPI::Position(spawnX, spawnY);
-        target_ = BWAPI::Position(targetX, targetY);
-        unit_ = game->createUnit(game->self(), BWAPI::UnitTypes::Zerg_Zergling, spawn_);
-        if (!unit_) {
-            std::cerr << "[bridge] createUnit failed: " << game->getLastError().toString() << std::endl;
-            return;
+        const int requested = environmentInteger("BRIDGE_DEMO_UNITS", 1);
+        demoUnits_ = requested >= 1 && requested <= 8 ? requested : 1;
+        for (int index = 0; index < demoUnits_; ++index) {
+            const int lane = index - (demoUnits_ - 1) / 2;
+            const int sx = spawnX + (demoUnits_ == 1 ? 0 : (index % 2) * 20);
+            const int sy = spawnY + (demoUnits_ == 1 ? 0 : lane * 18);
+            const int tx = targetX - (demoUnits_ == 1 ? 0 : (index % 3) * 24);
+            const int targetLane = demoUnits_ == 8 && (index == 0 || index == 7) ? 1 - index : lane;
+            const int ty = targetY + (demoUnits_ == 1 ? 0 : targetLane * 18);
+            if (sx < 0 || sy < 0 || tx < 0 || ty < 0 || sx >= maxX || sy >= maxY || tx >= maxX || ty >= maxY) {
+                std::cerr << "[bridge] squad coordinate outside BW map; index=" << index << std::endl;
+                continue;
+            }
+            BWAPI::Unit unit = game->createUnit(game->self(), BWAPI::UnitTypes::Zerg_Zergling, { sx, sy });
+            if (!unit) {
+                std::cerr << "[bridge] createUnit failed index=" << index << ": " << game->getLastError().toString() << std::endl;
+                continue;
+            }
+            pending_.push_back({ unit, { sx, sy }, { tx, ty } });
         }
-        std::cerr << "[bridge] createUnit returned at " << spawnX << "," << spawnY
-                  << "; waiting for BWAPI unit registration before ordering movement" << std::endl;
+        std::cerr << "[bridge] created squad candidates=" << pending_.size() << std::endl;
     }
 
     void onFrame() override {
@@ -197,25 +220,48 @@ public:
         auto* game = BWAPI::Broodwar.operator->();
         if (!game) return;
         const int frame = game->getFrameCount();
-        if (unit_ && unit_->exists() && unit_->getID() >= 0 && unit_->getPlayer() == game->self()) {
-            if (unitId_ < 0) {
-                unitId_ = unit_->getID();
-                std::cerr << "[bridge] registered unit id=" << unitId_ << std::endl;
+        registerPending(game);
+        if (demoUnits_ == 8 && !units_.empty()) {
+            auto& first = units_.begin()->second;
+            if (frame == 850 && first.unit && first.unit->exists()) {
+                game->killUnit(first.unit);
+                std::cerr << "[bridge] scenario death id=" << units_.begin()->first << std::endl;
             }
-            if (!initialMoveAccepted_) {
-                if (frame - lastMoveAttemptFrame_ >= 24) {
-                    lastMoveAttemptFrame_ = frame;
-                    initialMoveAccepted_ = orderMove(target_);
+        }
+        for (auto& [id, patrol] : units_) {
+            auto unit = patrol.unit;
+            if (!unit || !unit->exists()) continue;
+            const auto position = unit->getPosition();
+            const int minX = std::min(patrol.spawn.x, patrol.outbound.x) - 40;
+            const int maxX = std::max(patrol.spawn.x, patrol.outbound.x) + 40;
+            const int minY = std::min(patrol.spawn.y, patrol.outbound.y) - 48;
+            const int maxY = std::max(patrol.spawn.y, patrol.outbound.y) + 48;
+            if (demoUnits_ == 8 && (position.x < minX || position.x > maxX || position.y < minY || position.y > maxY)
+                && frame - patrol.lastCorrectionFrame >= 24) {
+                patrol.lastCorrectionFrame = frame;
+                unit->stop();
+                orderMove(id, patrol, patrol.target);
+                std::cerr << "[bridge] corrected patrol id=" << id << " x=" << position.x << " y=" << position.y << std::endl;
+            }
+            if (demoUnits_ == 8 && id == units_.begin()->first && frame >= 700 && frame < 780) {
+                if (frame == 700) unit->stop();
+                continue;
+            }
+            if (demoUnits_ == 8 && id == units_.begin()->first && frame == 780)
+                orderMove(id, patrol, patrol.target);
+            if (!patrol.initialMoveAccepted) {
+                if (frame - patrol.lastMoveAttemptFrame >= 24) {
+                    patrol.lastMoveAttemptFrame = frame;
+                    patrol.initialMoveAccepted = orderMove(id, patrol, patrol.target);
                 }
             } else {
-                const auto current = unit_->getPosition();
-                const int dx = current.x - target_.x;
-                const int dy = current.y - target_.y;
-                if (!unit_->isMoving() && dx * dx + dy * dy <= 16 * 16) {
-                    target_ = returning_ ? BWAPI::Position(environmentInteger("BRIDGE_TARGET_X", 640),
-                                                            environmentInteger("BRIDGE_TARGET_Y", 480)) : spawn_;
-                    returning_ = !returning_;
-                    orderMove(target_);
+                const auto current = unit->getPosition();
+                const int dx = current.x - patrol.target.x;
+                const int dy = current.y - patrol.target.y;
+                if (!unit->isMoving() && dx * dx + dy * dy <= 16 * 16) {
+                    patrol.target = patrol.returning ? patrol.outbound : patrol.spawn;
+                    patrol.returning = !patrol.returning;
+                    orderMove(id, patrol, patrol.target);
                 }
             }
         }
@@ -226,25 +272,55 @@ public:
     }
 
     void onUnitDestroy(BWAPI::Unit unit) override {
-        if (unit && unit->getID() == unitId_) {
-            unit_ = nullptr;
-            std::cerr << "[bridge] unit destroyed id=" << unitId_ << std::endl;
+        if (unit && units_.erase(unit->getID())) {
+            std::cerr << "[bridge] unit destroyed id=" << unit->getID() << std::endl;
             publish(BWAPI::Broodwar->getFrameCount());
         }
     }
 
     void onEnd(bool) override {
-        unit_ = nullptr;
+        units_.clear();
+        pending_.clear();
         publish(BWAPI::Broodwar->getFrameCount());
     }
 
 private:
-    bool orderMove(BWAPI::Position destination) {
-        if (!unit_ || !unit_->move(destination)) {
+    struct PatrolUnit {
+        BWAPI::Unit unit = nullptr;
+        BWAPI::Position spawn;
+        BWAPI::Position outbound;
+        BWAPI::Position target;
+        bool returning = false;
+        bool initialMoveAccepted = false;
+        int lastMoveAttemptFrame = -24;
+        int lastCorrectionFrame = -24;
+    };
+
+    struct PendingUnit {
+        BWAPI::Unit unit;
+        BWAPI::Position spawn;
+        BWAPI::Position outbound;
+    };
+
+    void registerPending(BWAPI::Game* game) {
+        for (auto it = pending_.begin(); it != pending_.end();) {
+            if (it->unit && it->unit->exists() && it->unit->getID() >= 0 && it->unit->getPlayer() == game->self()) {
+                const int id = it->unit->getID();
+                units_.emplace(id, PatrolUnit{ it->unit, it->spawn, it->outbound, it->outbound });
+                std::cerr << "[bridge] registered unit id=" << id << std::endl;
+                it = pending_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    bool orderMove(int id, PatrolUnit& patrol, BWAPI::Position destination) {
+        if (!patrol.unit || !patrol.unit->move(destination)) {
             std::cerr << "[bridge] Unit::move failed: " << BWAPI::Broodwar->getLastError().toString() << std::endl;
             return false;
         } else {
-            std::cerr << "[bridge] Unit::move id=" << unitId_ << " target=" << destination.x << "," << destination.y << std::endl;
+            std::cerr << "[bridge] Unit::move id=" << id << " target=" << destination.x << "," << destination.y << std::endl;
             return true;
         }
     }
@@ -254,33 +330,34 @@ private:
         line << "{\"v\":1,\"kind\":\"units.snapshot\",\"session\":\"" << session_
              << "\",\"map_id\":\"" << mapId_ << "\",\"seq\":" << ++sequence_
              << ",\"bw_tick\":" << frame << ",\"units\":[";
-        if (unit_ && unit_->exists() && unitId_ >= 0) {
-            const auto position = unit_->getPosition();
-            const int facing = facingByte(unit_->getAngle());
+        size_t count = 0;
+        for (const auto& [id, patrol] : units_) {
+            auto unit = patrol.unit;
+            if (!unit || !unit->exists() || count >= kMaxUnits) continue;
+            const auto position = unit->getPosition();
+            const int facing = facingByte(unit->getAngle());
             // BWAPI may keep isMoving() true for a move order to the current
             // position. Animation should follow actual motion, not the order.
-            const bool moving = unit_->isMoving()
-                && std::hypot(unit_->getVelocityX(), unit_->getVelocityY()) >= 0.25;
-            line << "{\"id\":\"openbw:" << unitId_ << "\",\"kind\":\"alien_scout\",\"x\":"
+            const bool moving = unit->isMoving()
+                && std::hypot(unit->getVelocityX(), unit->getVelocityY()) >= 0.25;
+            if (count++) line << ',';
+            line << "{\"id\":\"openbw:" << id << "\",\"kind\":\"alien_scout\",\"x\":"
                  << position.x << ",\"y\":" << position.y << ",\"facing\":" << facing
                  << ",\"motion\":\"" << (moving ? "walk" : "idle") << "\",\"alive\":true}";
-            std::cerr << "[bridge] tick=" << frame << " seq=" << sequence_ << " id=" << unitId_
-                      << " x=" << position.x << " y=" << position.y << " moving=" << moving << std::endl;
+            std::cerr << "[bridge] tick=" << frame << " seq=" << sequence_ << " id=" << id
+                      << " x=" << position.x << " y=" << position.y << " facing=" << facing
+                      << " motion=" << (moving ? "walk" : "idle") << std::endl;
         }
         line << "]}";
         publisher_.publish(line.str());
     }
 
     LoopbackPublisher publisher_;
-    BWAPI::Unit unit_ = nullptr;
-    int unitId_ = -1;
-    BWAPI::Position spawn_;
-    BWAPI::Position target_;
-    bool returning_ = false;
+    std::map<int, PatrolUnit> units_;
+    std::vector<PendingUnit> pending_;
+    int demoUnits_ = 1;
     uint64_t sequence_ = 0;
     int lastPublishedFrame_ = -1;
-    int lastMoveAttemptFrame_ = -24;
-    bool initialMoveAccepted_ = false;
     int frameDelayMs_ = 42;
     std::string session_;
     std::string mapId_;

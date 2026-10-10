@@ -2,6 +2,7 @@
 """Extract a local classic StarCraft Zergling pack. Never commit the output."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,9 +19,10 @@ ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "run-data/generated-assets/starcraft/zergling"
 RESOURCE = "unit/zerg/zergling.grp"
 PALETTE = "Tileset/Badlands.wpe"
-# The first three 17-direction groups are the rest and two gait poses.
-# The source stores north through south via east; western angles are mirrored.
-FRAMES = {"idle": 0, "walk0": 17, "walk1": 34}
+# Contact-sheet inspection of the local classic Zergling GRP: directional
+# groups 0..10 form the run, while 11..16 crouch/collapse into death art.
+# Each complete directional group has 17 frames (north through south via east).
+FRAMES = {"idle": 0, **{f"walk{pose}": 17 * (pose + 1) for pose in range(10)}}
 DIRECTIONS = {"east": (8, False), "south": (16, False),
               "west": (8, True), "north": (0, False),
               "southeast": (12, False), "southwest": (12, True),
@@ -126,8 +128,8 @@ def main() -> None:
     if len(wpe) != 1024:
         raise ValueError(f"Expected 1024-byte WPE palette, got {len(wpe)}")
     frame_count, canvas_width, canvas_height = struct.unpack_from("<HHH", data)
-    if frame_count < 51:
-        raise ValueError(f"Expected at least 51 Zergling frames, got {frame_count}")
+    if frame_count < 17 * 11:
+        raise ValueError(f"Expected at least 11 directional groups, got {frame_count} frames")
     palette = openrct2_palette()
     selected = {}
     for motion, base in FRAMES.items():
@@ -143,14 +145,25 @@ def main() -> None:
             cropped = quantize(image.crop(bbox), palette)
             filename = f"{motion}_{direction}.png"
             cropped.save(output / filename)
-            selected[filename] = {"source_frame": frame, "mirrored": mirror,
+            selected[filename] = {"source_frame": frame, "source_group": base // 17,
+                                  "source_direction": facing, "mirrored": mirror,
                                   "width": cropped.width, "height": cropped.height,
                                   "x": bbox[0] - canvas_width // 2,
                                   "y": bbox[1] - canvas_height // 2,
                                   "visible_pixels": sum(a != 0 for a in cropped.getchannel("A").getdata())}
+    groups = [{"group": group, "first_frame": group * 17,
+               "last_frame": min(frame_count - 1, group * 17 + 16),
+               "classification": "idle" if group == 0 else "walk" if group <= 10 else "non_locomotion"}
+              for group in range((frame_count + 16) // 17)]
+    directions = list(DIRECTIONS)
+    registry = {"alien_scout": {"idle": {"frames": {direction: [f"idle_{direction}.png"]
+                                                   for direction in directions}, "ticks_per_frame": 0},
+                                "walk": {"frames": {direction: [f"walk{pose}_{direction}.png" for pose in range(10)]
+                                                    for direction in directions}, "ticks_per_frame": 4}}}
     manifest = {"unit": args.unit, "source": RESOURCE, "palette": PALETTE,
                 "archives": archives, "canvas": [canvas_width, canvas_height],
-                "frame_count": frame_count,
+                "frame_count": frame_count, "source_sha256": hashlib.sha256(data).hexdigest(),
+                "source_groups": groups, "registry": registry,
                 "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
                 "team_colour": "source palette indices 8..15 retained without player remap",
                 "shadow": "separate StarCraft shadow artwork omitted",
