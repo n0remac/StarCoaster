@@ -4,6 +4,9 @@
 # Local build output and runtime data.
 /build/
 /run-data/
+# Local StarCraft GRP extraction and generated PNG packs stay under run-data.
+*.[gG][rR][pP]
+*.[wW][pP][eE]
 /logs/
 /captures/
 
