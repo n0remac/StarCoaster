@@ -13,13 +13,16 @@ test -f "$openrct2_data/g2.dat" || { printf 'Missing staged OpenRCT2 data; run s
 test -x "$project_dir/build/openrct2/openrct2-cli" || { printf 'Missing OpenRCT2 CLI; run scripts/build-openrct2.sh\n' >&2; exit 1; }
 
 mkdir -p "$server_data/plugin"
+cp "$project_dir/openrct2-plugin/rts-bridge.js" "$server_data/plugin/rts-bridge.js"
 if ! test -f "$server_data/config.ini"; then
   printf '[network]\nadvertise = false\n' > "$server_data/config.ini"
 elif grep -q '^advertise = true$' "$server_data/config.ini"; then
   sed -i 's/^advertise = true$/advertise = false/' "$server_data/config.ini"
 fi
+extra_args=()
+if test "${BRIDGE_VERBOSE:-0}" = 1; then extra_args+=(--verbose); fi
 exec "$project_dir/build/openrct2/openrct2-cli" host "$(realpath "$park_file")" \
   --headless --address=127.0.0.1 --port="${OPENRCT2_PORT:-11753}" \
   --rct2-data-path="$(realpath "$rct2_dir")" \
   --openrct2-data-path="$openrct2_data" \
-  --user-data-path="$server_data"
+  --user-data-path="$server_data" "${extra_args[@]}"

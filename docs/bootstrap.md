@@ -27,7 +27,7 @@ scripts/install-openrct2-local.sh
 
 `BRIDGE_BUILD_JOBS=2` is the default to limit memory use on the Pi. Build trees stay in `build/` on the attached drive. The OpenRCT2 build keeps networking, scripting, and its GUI enabled because the proof of concept requires both a headless server and graphical clients.
 The local install stages OpenRCT2's project object and media packs in `build/openrct2-stage/usr/local/share/openrct2/`; it does not install into the system `/usr/local` tree and it does not provide the proprietary RCT2 assets.
-`scripts/build-openrct2.sh` applies the reviewable M1 patch from `openrct2-patches/` and copies the original creature frames from `assets/alien-scout/` into the pinned checkout before building. The current patch paints one fixed actor at `(320, 480)` for scene-pipeline inspection; it is not yet connected to snapshots or synchronized actions.
+`scripts/build-openrct2.sh` applies the reviewable native patch from `openrct2-patches/` and copies the original creature frames from `assets/alien-scout/` into the pinned checkout before building. The native build provides a render-only actor registry and script binding. The server-distributed plugin in `openrct2-plugin/` receives BWAPI snapshots and calls the binding through synchronized custom actions.
 
 The locally built OpenRCT2 v0.5.5 can already load its upstream `EverythingPark.park` test park as a headless host using `/usr/share/openrct2` for the data path. Graphical rendering still needs original RCT2 or RCT Classic `Data/g1.dat`; the apt-installed OpenRCT2 v0.4.3 does not supply it. Once those game files are available, start the host with:
 
@@ -61,6 +61,14 @@ scripts/receive-snapshots.py --seconds 30
 
 The receiver passes only after it sees the published unit position change. `BRIDGE_SPAWN_X`, `BRIDGE_SPAWN_Y`, `BRIDGE_TARGET_X`, `BRIDGE_TARGET_Y`, `BRIDGE_PUBLISH_PORT`, `BRIDGE_FRAME_MS`, and `BRIDGE_MAP_ID` can override the defaults. The default points `(320, 480)` and `(640, 480)` were validated on `ZergTest.scm` on this Pi. The headless launcher has no frame pacing of its own; the module waits 42 ms per frame by default and sends one snapshot every three frames, about 8 Hz.
 
+For a headless server plus two headless client integration run:
+
+```bash
+STARCRAFT_DATA_DIR=/home/pi/games/starcraft scripts/test-two-clients-headless.py --seconds 65
+```
+
+The test uses OpenRCT2's upstream `EverythingPark.park`, the locally built v0.5.5 binaries, `/usr/share/openrct2` as its default headless data path, and separate ignored user directories for both clients. It compares each common action's OpenRCT2 tick, unit ID, and position across all three participants; logs are retained in `run-data/headless-multiplayer/`. The native patch adds a network tick to the headless client title scene so its join handshake can complete. This headless test does not render a screenshot.
+
 OpenBW's checkout has no top-level license file. The separate BWAPI fork carries LGPL-3.0 licensing, but that does not settle OpenBW source or binary redistribution. Neither game data nor proprietary art belongs in the bridge repository.
 
 ## Verified on this Pi (2026-10-10)
@@ -73,6 +81,9 @@ OpenBW's checkout has no top-level license file. The separate BWAPI fork carries
 - OpenRCT2's project asset packs were staged locally in `build/openrct2-stage/` without writing to `/usr/local`.
 - The v0.5.5 headless OpenRCT2 host opened the upstream `EverythingPark.park` test park and listened on localhost. Its screenshot command failed with `Unable to load g1 graphics`, so no graphical park proof is available yet.
 - The M1 native paint probe compiled. `g2.dat` contains all 12 original alien scout sprites, and exporting each one produced a nonblank 32×32 image. Visual placement and occlusion still need `g1.dat` and a graphical client.
+- The server's remote plugin connected to the live BWAPI publisher and applied synchronized custom actions to the native presentation registry. Two headless clients joined; 143 shared action logs had exactly matching OpenRCT2 tick, unit ID, and coordinates on server and clients.
+- A repeatable 65-second headless run passed with 515 shared snapshots and zero tick/identity/position differences across the server and both clients.
+- Stopping and restarting `BWAPILauncher` produced synchronized actor removal on the server and a headless client, followed by a new session epoch and fresh actor snapshots.
 
 ## What is not yet proven
 

@@ -3,14 +3,14 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="$project_dir/upstream/openrct2"
-patch="$project_dir/openrct2-patches/0001-m1-paint-probe.patch"
+patch="$project_dir/openrct2-patches/0001-native-bridge.patch"
 
 if git -C "$source_dir" apply --reverse --check "$patch" 2>/dev/null; then
-  printf 'OpenRCT2 M1 paint patch already applied\n'
+  printf 'OpenRCT2 native bridge patch already applied\n'
 else
   git -C "$source_dir" apply --check "$patch"
   git -C "$source_dir" apply "$patch"
-  printf 'Applied OpenRCT2 M1 paint patch\n'
+  printf 'Applied OpenRCT2 native bridge patch\n'
 fi
 
 mkdir -p "$source_dir/resources/g2/bridge"

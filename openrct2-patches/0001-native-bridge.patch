@@ -1,0 +1,369 @@
+diff --git a/resources/g2/sprites.json b/resources/g2/sprites.json
+index 83e5f1c..922fa58 100644
+--- a/resources/g2/sprites.json
++++ b/resources/g2/sprites.json
+@@ -666,5 +666,41 @@
+         "path": "icons/walls.png",
+         "x": 1,
+         "y": 1
++    },
++    {
++        "path": "bridge/idle_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/idle_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/idle_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/idle_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk0_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk0_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk0_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk0_north.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk1_east.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk1_south.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk1_west.png", "x": -16, "y": -28
++    },
++    {
++        "path": "bridge/walk1_north.png", "x": -16, "y": -28
+     }
+ ]
+diff --git a/src/openrct2/SpriteIds.h b/src/openrct2/SpriteIds.h
+index 500f197..aa97d78 100644
+--- a/src/openrct2/SpriteIds.h
++++ b/src/openrct2/SpriteIds.h
+@@ -1211,6 +1211,19 @@ enum : ImageIndex
+     SPR_G2_BUTTON_PATH_ADDITIONS,
+     SPR_G2_BUTTON_WALLS,
+ 
++    SPR_BRIDGE_SCOUT_IDLE_EAST,
++    SPR_BRIDGE_SCOUT_IDLE_SOUTH,
++    SPR_BRIDGE_SCOUT_IDLE_WEST,
++    SPR_BRIDGE_SCOUT_IDLE_NORTH,
++    SPR_BRIDGE_SCOUT_WALK0_EAST,
++    SPR_BRIDGE_SCOUT_WALK0_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK0_WEST,
++    SPR_BRIDGE_SCOUT_WALK0_NORTH,
++    SPR_BRIDGE_SCOUT_WALK1_EAST,
++    SPR_BRIDGE_SCOUT_WALK1_SOUTH,
++    SPR_BRIDGE_SCOUT_WALK1_WEST,
++    SPR_BRIDGE_SCOUT_WALK1_NORTH,
++
+     SPR_G2_END,
+ 
+     // Main palettes
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+index 7fd474f..f785c42 100644
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -9,6 +9,9 @@
+ 
+ #include "Paint.Entity.h"
+ 
++#include "../Diagnostic.h"
++#include "../GameState.h"
++#include "../SpriteIds.h"
+ #include "../drawing/LightFX.h"
+ #include "../entity/EntityList.h"
+ #include "../entity/Staff.h"
+@@ -16,6 +19,7 @@
+ #include "../profiling/Profiling.h"
+ #include "../ride/TrackDesign.h"
+ #include "../world/Map.h"
++#include "../world/tile_element/SurfaceElement.h"
+ #include "Paint.h"
+ #include "entity/Paint.Balloon.h"
+ #include "entity/Paint.CrashSplashParticle.h"
+@@ -32,10 +36,61 @@
+ #include "entity/Paint.VehicleCrashParticle.h"
+ 
+ #include <cassert>
++#include <memory>
+ 
+ using namespace OpenRCT2;
+ using namespace OpenRCT2::Drawing;
+ 
++namespace
++{
++    struct BridgeSnapshot
++    {
++        std::string session;
++        uint64_t seq = 0;
++        std::optional<BridgeActor> actor;
++    };
++
++    std::shared_ptr<const BridgeSnapshot> gBridgeSnapshot = std::make_shared<BridgeSnapshot>();
++
++    void InvalidateBridgeActor(const BridgeActor& actor)
++    {
++        const CoordsXY position{ actor.x, actor.y };
++        if (!MapIsLocationValid(position))
++            return;
++        auto* surface = MapGetSurfaceElementAt(position);
++        if (surface != nullptr)
++        {
++            ViewportsInvalidate({ actor.x, actor.y, surface->getBaseZ() }, 16, 28, 8, ZoomLevel{ 2 });
++        }
++    }
++} // namespace
++
++void BridgeApplySnapshot(std::string session, uint64_t seq, std::optional<BridgeActor> actor)
++{
++    auto previous = std::atomic_load(&gBridgeSnapshot);
++    if (previous->session == session && seq <= previous->seq)
++        return;
++
++    auto next = std::make_shared<BridgeSnapshot>();
++    next->session = std::move(session);
++    next->seq = seq;
++    next->actor = std::move(actor);
++    if (previous->actor)
++        InvalidateBridgeActor(*previous->actor);
++    std::atomic_store(&gBridgeSnapshot, std::shared_ptr<const BridgeSnapshot>(next));
++    if (next->actor)
++    {
++        InvalidateBridgeActor(*next->actor);
++        LOG_INFO("RTS Bridge apply tick=%u seq=%llu id=%s x=%d y=%d", getGameState().currentTicks,
++            static_cast<unsigned long long>(seq), next->actor->id.c_str(), next->actor->x, next->actor->y);
++    }
++    else
++    {
++        LOG_INFO("RTS Bridge apply tick=%u seq=%llu despawn", getGameState().currentTicks,
++            static_cast<unsigned long long>(seq));
++    }
++}
++
+ /**
+  * Paint Quadrant
+  *  rct2: 0x0069E8B0
+@@ -180,3 +235,33 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
+         }
+     }
+ }
++
++void PaintBridgeActors(PaintSession& session, const CoordsXY& pos)
++{
++    auto snapshot = std::atomic_load(&gBridgeSnapshot);
++    if (!snapshot->actor)
++        return;
++    const auto& actor = *snapshot->actor;
++    const CoordsXY actorPos{ actor.x, actor.y };
++    if (pos != actorPos.toTileStart() || !MapIsLocationValid(actorPos))
++        return;
++    if (gTrackDesignSaveMode || session.ViewFlags.has(ViewportFlag::hideEntities) || session.rt.zoom_level > ZoomLevel{ 2 })
++        return;
++
++    auto* surface = MapGetSurfaceElementAt(actorPos);
++    if (surface == nullptr)
++        return;
++
++    session.SpritePosition = actorPos;
++    session.MapPosition = pos;
++    session.CurrentlyDrawnEntity = nullptr;
++    session.CurrentlyDrawnTileElement = nullptr;
++    session.InteractionType = ViewportInteractionItem::none;
++    const int32_t z = surface->getBaseZ();
++    const uint32_t direction = ((actor.facing + 32) / 64 + session.CurrentRotation) & 3;
++    const uint32_t imageBase = !actor.moving             ? SPR_BRIDGE_SCOUT_IDLE_EAST
++        : (snapshot->seq & 1) != 0                       ? SPR_BRIDGE_SCOUT_WALK1_EAST
++                                                      : SPR_BRIDGE_SCOUT_WALK0_EAST;
++    const uint32_t imageId = imageBase + direction;
++    PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, { { -5, -5, z + 1 }, { 10, 10, 17 } });
++}
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+index b481242..1ddf44f 100644
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -9,7 +9,22 @@
+ 
+ #pragma once
+ 
++#include <cstdint>
++#include <optional>
++#include <string>
++
+ struct PaintSession;
+ struct CoordsXY;
+ 
++struct BridgeActor
++{
++    std::string id;
++    int32_t x;
++    int32_t y;
++    uint8_t facing;
++    bool moving;
++};
++
+ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos);
++void PaintBridgeActors(PaintSession& session, const CoordsXY& pos);
++void BridgeApplySnapshot(std::string session, uint64_t seq, std::optional<BridgeActor> actor);
+diff --git a/src/openrct2/paint/Paint.cpp b/src/openrct2/paint/Paint.cpp
+index 7aea6d1..6e3f788 100644
+--- a/src/openrct2/paint/Paint.cpp
++++ b/src/openrct2/paint/Paint.cpp
+@@ -297,16 +297,20 @@ void PaintSessionGenerateRotate(PaintSession& session)
+     {
+         TileElementPaintSetup(session, mapTile);
+         EntityPaintSetup(session, mapTile);
++        PaintBridgeActors(session, mapTile);
+ 
+         const auto loc1 = mapTile + adjacentTiles[0];
+         EntityPaintSetup(session, loc1);
++        PaintBridgeActors(session, loc1);
+ 
+         const auto loc2 = mapTile + adjacentTiles[1];
+         TileElementPaintSetup(session, loc2);
+         EntityPaintSetup(session, loc2);
++        PaintBridgeActors(session, loc2);
+ 
+         const auto loc3 = mapTile + adjacentTiles[2];
+         EntityPaintSetup(session, loc3);
++        PaintBridgeActors(session, loc3);
+ 
+         mapTile += nextVerticalTile;
+     }
+diff --git a/src/openrct2/scenes/title/TitleScene.cpp b/src/openrct2/scenes/title/TitleScene.cpp
+index 8820369..4962081c 100644
+--- a/src/openrct2/scenes/title/TitleScene.cpp
++++ b/src/openrct2/scenes/title/TitleScene.cpp
+@@ -23,6 +23,7 @@
+ #include "../../interface/Screenshot.h"
+ #include "../../interface/Window.h"
+ #include "../../network/NetworkBase.h"
++#include "../../network/Network.h"
+ #include "../../scenario/ScenarioRepository.h"
+ #include "../../scenes/SceneManager.h"
+ #include "../../ui/UiContext.h"
+@@ -140,6 +141,13 @@ void TitleScene::Tick()
+     ScreenshotCheck();
+     TitleHandleKeyboardInput();
+ 
++#ifndef DISABLE_NETWORK
++    // A headless joining client starts on the title scene. Keep its network
++    // handshake moving until the server transfers the park and changes scenes.
++    if (gOpenRCT2Headless && Network::GetMode() == Network::Mode::client)
++        Network::Tick();
++#endif
++
+     if (!gOpenRCT2Headless && GameIsNotPaused())
+     {
+         TryLoadSequence();
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+index bb88d98..1bc660e 100644
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -28,6 +28,7 @@
+     #include "../core/Path.hpp"
+     #include "../interface/InteractiveConsole.h"
+     #include "../platform/Platform.h"
++    #include "../paint/Paint.Entity.h"
+     #include "../ride/ted/PitchAndRoll.h"
+     #include "bindings/entity/ScBalloon.hpp"
+     #include "bindings/entity/ScEntity.hpp"
+@@ -694,9 +695,90 @@ JSContext* ScriptEngine::CreateContext() const
+     return newCtx;
+ }
+ 
++static bool BridgeReadString(JSContext* ctx, JSValueConst object, const char* name, std::string& output)
++{
++    JSValue value = JS_GetPropertyStr(ctx, object, name);
++    if (!JS_IsString(value))
++    {
++        JS_FreeValue(ctx, value);
++        return false;
++    }
++    const char* text = JS_ToCString(ctx, value);
++    if (text != nullptr)
++    {
++        output = text;
++        JS_FreeCString(ctx, text);
++    }
++    JS_FreeValue(ctx, value);
++    return text != nullptr;
++}
++
++static bool BridgeReadInt(JSContext* ctx, JSValueConst object, const char* name, int32_t& output)
++{
++    JSValue value = JS_GetPropertyStr(ctx, object, name);
++    const bool ok = JS_IsNumber(value) && JS_ToInt32(ctx, &output, value) == 0;
++    JS_FreeValue(ctx, value);
++    return ok;
++}
++
++static JSValue BridgeApplySnapshotJS(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
++{
++    if (argc != 1 || !JS_IsObject(argv[0]))
++        return JS_ThrowTypeError(ctx, "expected one snapshot object");
++
++    std::string session;
++    int32_t seq = 0;
++    if (!BridgeReadString(ctx, argv[0], "session", session) || session.empty() || session.size() > 64
++        || !BridgeReadInt(ctx, argv[0], "seq", seq) || seq <= 0)
++        return JS_ThrowTypeError(ctx, "invalid bridge session or sequence");
++
++    JSValue units = JS_GetPropertyStr(ctx, argv[0], "units");
++    JSValue lengthValue = JS_GetPropertyStr(ctx, units, "length");
++    int32_t length = -1;
++    const bool validLength = JS_IsArray(units) && JS_ToInt32(ctx, &length, lengthValue) == 0 && length >= 0
++        && length <= 1;
++    JS_FreeValue(ctx, lengthValue);
++    if (!validLength)
++    {
++        JS_FreeValue(ctx, units);
++        return JS_ThrowTypeError(ctx, "bridge snapshot must contain at most one unit");
++    }
++
++    std::optional<BridgeActor> actor;
++    if (length == 1)
++    {
++        JSValue unit = JS_GetPropertyUint32(ctx, units, 0);
++        BridgeActor parsed{};
++        std::string motion;
++        int32_t facing = 0;
++        const bool valid = JS_IsObject(unit) && BridgeReadString(ctx, unit, "id", parsed.id)
++            && !parsed.id.empty() && parsed.id.size() <= 32 && BridgeReadInt(ctx, unit, "x", parsed.x)
++            && BridgeReadInt(ctx, unit, "y", parsed.y) && parsed.x >= 0 && parsed.y >= 0
++            && BridgeReadInt(ctx, unit, "facing", facing) && facing >= 0 && facing <= 255
++            && BridgeReadString(ctx, unit, "motion", motion) && (motion == "idle" || motion == "walk");
++        JS_FreeValue(ctx, unit);
++        if (!valid)
++        {
++            JS_FreeValue(ctx, units);
++            return JS_ThrowTypeError(ctx, "invalid bridge unit");
++        }
++        parsed.facing = static_cast<uint8_t>(facing);
++        parsed.moving = motion == "walk";
++        actor = std::move(parsed);
++    }
++    JS_FreeValue(ctx, units);
++    BridgeApplySnapshot(std::move(session), static_cast<uint64_t>(seq), std::move(actor));
++    return JS_NewBool(ctx, true);
++}
++
+ void ScriptEngine::InitialiseContext(JSContext* ctx) const
+ {
+     JSValue glb = JS_GetGlobalObject(ctx);
++    JSValue bridge = JS_NewObject(ctx);
++    JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 1));
++    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 1));
++    JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
++    JS_SetPropertyStr(ctx, glb, "rtsBridge", bridge);
+     JS_SetPropertyStr(ctx, glb, "cheats", gScCheats.New(ctx));
+     JS_SetPropertyStr(ctx, glb, "climate", gScWeather.New(ctx));
+     JS_SetPropertyStr(ctx, glb, "console", gScConsole.New(ctx, _console));
