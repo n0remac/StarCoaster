@@ -72,7 +72,6 @@
         let session = "";
         let lastSeq = 0;
         let socket = null;
-        let pending = "";
         let reconnectTicks = 0;
 
         function onLine(line) {
@@ -112,13 +111,15 @@
 
         function connect() {
             if (socket !== null) return;
-            pending = "";
-            socket = network.createSocket();
-            socket.on("data", function (data) {
+            let pending = "";
+            const connection = network.createSocket();
+            let connected = false;
+            socket = connection;
+            connection.on("data", function (data) {
                 pending += data;
                 if (pending.length > MAX_LINE * 2) {
                     console.log("RTS Bridge dropped oversized TCP buffer");
-                    socket.destroy({});
+                    connection.destroy({});
                     return;
                 }
                 let newline;
@@ -132,13 +133,16 @@
                     }
                 }
             });
-            socket.on("error", function (error) {
+            connection.on("error", function (error) {
                 console.log("RTS Bridge socket error: " + error);
+                // A refused connect need not deliver a close event by itself.
+                // Destroy it so interval.tick can create a fresh socket.
+                if (socket === connection) socket = null;
+                connection.destroy({});
             });
-            socket.on("close", function () {
-                socket = null;
-                pending = "";
-                if (session) {
+            connection.on("close", function () {
+                if (socket === connection) socket = null;
+                if (connected && session) {
                     const clear = { session: session, seq: ++lastSeq, units: [] };
                     context.executeAction(ACTION, clear, function (result) {
                         if (result.error) console.log("RTS Bridge removal action failed: " + result.errorMessage);
@@ -146,7 +150,9 @@
                     console.log("RTS Bridge publisher disconnected; removed actor");
                 }
             });
-            socket.connect(PORT, "127.0.0.1", function () {
+            connection.connect(PORT, "127.0.0.1", function () {
+                connected = true;
+                reconnectTicks = 0;
                 console.log("RTS Bridge connected to BWAPI publisher on localhost");
             });
         }

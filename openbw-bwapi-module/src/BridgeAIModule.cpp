@@ -257,7 +257,10 @@ private:
         if (unit_ && unit_->exists() && unitId_ >= 0) {
             const auto position = unit_->getPosition();
             const int facing = facingByte(unit_->getAngle());
-            const bool moving = unit_->isMoving();
+            // BWAPI may keep isMoving() true for a move order to the current
+            // position. Animation should follow actual motion, not the order.
+            const bool moving = unit_->isMoving()
+                && std::hypot(unit_->getVelocityX(), unit_->getVelocityY()) >= 0.25;
             line << "{\"id\":\"openbw:" << unitId_ << "\",\"kind\":\"alien_scout\",\"x\":"
                  << position.x << ",\"y\":" << position.y << ",\"facing\":" << facing
                  << ",\"motion\":\"" << (moving ? "walk" : "idle") << "\",\"alive\":true}";
