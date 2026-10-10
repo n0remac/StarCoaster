@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -16,6 +17,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -160,6 +162,7 @@ public:
         const int spawnY = environmentInteger("BRIDGE_SPAWN_Y", 480);
         const int targetX = environmentInteger("BRIDGE_TARGET_X", 640);
         const int targetY = environmentInteger("BRIDGE_TARGET_Y", 480);
+        frameDelayMs_ = environmentInteger("BRIDGE_FRAME_MS", 42);
         mapId_ = environmentMapId();
         session_ = newSessionId();
         publisher_.start(port);
@@ -182,25 +185,38 @@ public:
             std::cerr << "[bridge] createUnit failed: " << game->getLastError().toString() << std::endl;
             return;
         }
-        unitId_ = unit_->getID();
-        std::cerr << "[bridge] createUnit id=" << unitId_ << " at " << spawnX << "," << spawnY << std::endl;
-        orderMove(target_);
+        std::cerr << "[bridge] createUnit returned at " << spawnX << "," << spawnY
+                  << "; waiting for BWAPI unit registration before ordering movement" << std::endl;
     }
 
     void onFrame() override {
+        // The OpenBW launcher does not pace frames when its UI is disabled.
+        // Pace its simulation loop here so every third-frame snapshot is about 8 Hz.
+        if (frameDelayMs_ > 0) std::this_thread::sleep_for(std::chrono::milliseconds(frameDelayMs_));
         publisher_.poll();
         auto* game = BWAPI::Broodwar.operator->();
         if (!game) return;
         const int frame = game->getFrameCount();
-        if (unit_ && unit_->exists()) {
-            const auto current = unit_->getPosition();
-            const int dx = current.x - target_.x;
-            const int dy = current.y - target_.y;
-            if (!unit_->isMoving() && dx * dx + dy * dy <= 16 * 16) {
-                target_ = returning_ ? BWAPI::Position(environmentInteger("BRIDGE_TARGET_X", 640),
-                                                        environmentInteger("BRIDGE_TARGET_Y", 480)) : spawn_;
-                returning_ = !returning_;
-                orderMove(target_);
+        if (unit_ && unit_->exists() && unit_->getID() >= 0 && unit_->getPlayer() == game->self()) {
+            if (unitId_ < 0) {
+                unitId_ = unit_->getID();
+                std::cerr << "[bridge] registered unit id=" << unitId_ << std::endl;
+            }
+            if (!initialMoveAccepted_) {
+                if (frame - lastMoveAttemptFrame_ >= 24) {
+                    lastMoveAttemptFrame_ = frame;
+                    initialMoveAccepted_ = orderMove(target_);
+                }
+            } else {
+                const auto current = unit_->getPosition();
+                const int dx = current.x - target_.x;
+                const int dy = current.y - target_.y;
+                if (!unit_->isMoving() && dx * dx + dy * dy <= 16 * 16) {
+                    target_ = returning_ ? BWAPI::Position(environmentInteger("BRIDGE_TARGET_X", 640),
+                                                            environmentInteger("BRIDGE_TARGET_Y", 480)) : spawn_;
+                    returning_ = !returning_;
+                    orderMove(target_);
+                }
             }
         }
         if (frame % 3 == 0 && frame != lastPublishedFrame_) {
@@ -223,11 +239,13 @@ public:
     }
 
 private:
-    void orderMove(BWAPI::Position destination) {
+    bool orderMove(BWAPI::Position destination) {
         if (!unit_ || !unit_->move(destination)) {
             std::cerr << "[bridge] Unit::move failed: " << BWAPI::Broodwar->getLastError().toString() << std::endl;
+            return false;
         } else {
             std::cerr << "[bridge] Unit::move id=" << unitId_ << " target=" << destination.x << "," << destination.y << std::endl;
+            return true;
         }
     }
 
@@ -236,7 +254,7 @@ private:
         line << "{\"v\":1,\"kind\":\"units.snapshot\",\"session\":\"" << session_
              << "\",\"map_id\":\"" << mapId_ << "\",\"seq\":" << ++sequence_
              << ",\"bw_tick\":" << frame << ",\"units\":[";
-        if (unit_ && unit_->exists()) {
+        if (unit_ && unit_->exists() && unitId_ >= 0) {
             const auto position = unit_->getPosition();
             const int facing = facingByte(unit_->getAngle());
             const bool moving = unit_->isMoving();
@@ -258,6 +276,9 @@ private:
     bool returning_ = false;
     uint64_t sequence_ = 0;
     int lastPublishedFrame_ = -1;
+    int lastMoveAttemptFrame_ = -24;
+    bool initialMoveAccepted_ = false;
+    int frameDelayMs_ = 42;
     std::string session_;
     std::string mapId_;
 };

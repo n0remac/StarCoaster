@@ -12,19 +12,32 @@ Machine: Raspberry Pi, Linux AArch64. Test root: `/media/pi/media1/rts-bridge`.
 | `nm -D build/bridge-module/BridgeAIModule.so` | Passed: `gameInit` and `newAIModule` are exported. |
 | `ctypes.CDLL` load of `BridgeAIModule.so` | Passed: the shared library loads on this Pi. |
 | Local TCP fixture to `scripts/receive-snapshots.py` | Passed: three framed snapshots were received, including a reported position change. **This was fixture data, not OpenBW simulation.** |
-| `BWAPILauncher` startup | Blocked: `Error: file_reader: failed to open ./Patch_rt.mpq for reading`. |
-| `scripts/run-bwapi.sh` preflight | Correctly rejects the absent `StarDat.mpq` / `Stardat.mpq` data file. |
-| `scripts/run-openrct2-host.sh` preflight | Correctly rejects the absent park file; RCT2 game assets are also absent. |
+| `BWAPILauncher` with `/home/pi/games/starcraft` | Passed headlessly with the pinned `ZergTest.scm` map and custom module. BWAPI registered Zergling ID `16`; `Unit::move` succeeded and `getPosition` changed from `(320,480)` to `(640,480)` along the path. |
+| Live `scripts/receive-snapshots.py` | Passed against the running launcher: one session, increasing sequence and tick, and changing unit positions. |
+| `STARCRAFT_DATA_DIR=/home/pi/games/starcraft scripts/test-bwapi-headless.py --seconds 10` | Passed end to end. The harness launched BWAPI itself, found registered unit `16` and an accepted move in its log, and received positions `(320,480)`, `(337,480)`, `(355,480)`. Logs saved under ignored `run-data/headless-test/`. |
+| 15-second paced BWAPI run | 115 logged unit snapshots, one unit ID, six accepted waypoint orders, zero move errors. Approximate publication rate: 7.7 snapshots/s. Full logs are under ignored `run-data/`. |
+| Headless OpenRCT2 host | Loaded the upstream `EverythingPark.park` test park and listened on `127.0.0.1:11753`. This does not prove graphical rendering or the bridge action. |
+| Combined headless run | BWAPI moved unit `16` while OpenRCT2 hosted the test park. One process sample showed about 38 MiB RSS for `BWAPILauncher` and 135 MiB RSS for the OpenRCT2 host; `vcgencmd` reported `throttled=0x0` and 46.1°C. This is a short feasibility sample, not a two-client load test. |
+| OpenRCT2 graphical screenshot command | Failed: `Unable to load g1 graphics`. The apt OpenRCT2 package is installed, but no RCT2 `g1.dat` was found. |
 
-The fixture receiver prints `reported unit position changed (publisher not authenticated)`. That result establishes TCP framing and receiver behavior only. It does not establish that `createUnit`, `Unit::move`, or `getPosition` work at runtime.
+The fixture receiver prints `reported unit position changed (publisher not authenticated)`. That fixture result establishes TCP framing only. The separate live run establishes BWAPI creation, ordering, and movement. Representative live log lines:
+
+```text
+[bridge] registered unit id=16
+[bridge] Unit::move id=16 target=640,480
+[bridge] tick=3 seq=2 id=16 x=320 y=480 moving=1
+[bridge] tick=9 seq=4 id=16 x=342 y=480 moving=1
+session=abee1a6b88c4e8e97bb752e26b818af0 seq=21 tick=60 id=openbw:16 x=615 y=480 motion=walk
+```
 
 ## Screenshot status
 
-No screenshot was produced. A headless host has no framebuffer to capture. A genuine screenshot of the requested result requires an offscreen graphical OpenRCT2 client, user-supplied RCT2 assets and a park, a successful OpenBW/BWAPI runtime gate with the required StarCraft MPQs and map, and the OpenRCT2 native renderer and multiplayer plugin. The latter two bridge components have not yet been implemented. A screenshot of a fixture or console would falsely imply the crossover is working.
+No screenshot was produced. The OpenRCT2 software screenshot command fails while loading `g1.dat`. A screenshot of the requested crossover also requires the native renderer and multiplayer plugin, which have not yet been implemented. The headless host and BWAPI movement proof are genuine, but neither creates an in-world actor image.
+
+The apt-installed OpenRCT2 is v0.4.3 (plugin API 65). This project builds pinned OpenRCT2 v0.5.5 (plugin API 124), so the apt executable cannot serve as a matching graphical client for the native bridge fork.
 
 ## Inputs needed for the next runtime gate
 
-- StarCraft: Brood War `StarDat.mpq` (or `Stardat.mpq`), `BrooDat.mpq` (or `Broodat.mpq`), and `Patch_rt.mpq`. The pinned BWAPI checkout supplies a `ZergTest.scm` test map, though its default movement points still need runtime validation.
-- RollerCoaster Tycoon 2 or RCT Classic game files, plus a suitable `.park`, `.sv6`, or scenario file.
+- RollerCoaster Tycoon 2 or RCT Classic game files containing `Data/g1.dat`. The upstream OpenRCT2 checkout already supplies a park usable for a baseline test.
 
-Keep these user-supplied files outside Git. The launch scripts stage paths under ignored `run-data/`.
+Keep these user-supplied files outside Git. The launch scripts stage paths under ignored `run-data/`. The StarCraft archives at `/home/pi/games/starcraft` were used locally and were not copied into Git.
