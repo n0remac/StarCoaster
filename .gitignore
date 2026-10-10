@@ -1,4 +1,4 @@
-# Upstream repositories live here but keep their own Git histories.
+# Pinned engine checkouts are fetched into this directory.
 /upstream/
 
 # Local build output and runtime data.
@@ -7,12 +7,22 @@
 /logs/
 /captures/
 
-# User-supplied proprietary game data, wherever staged under this tree.
-*.mpq
-*.MPQ
-*.SV6
-*.sv6
+# User-supplied StarCraft and RollerCoaster Tycoon data.
+# Keep full installations under /game-data/ if staged in the repository tree.
+/game-data/
+/starcraft-data/
 /rct2-data/
+*.[mM][pP][qQ]
+*.[dD][aA][tT]
+*.[sS][vV]6
+*.[sS][cC]6
+*.[sS][cC][mM]
+*.[sS][cC][xX]
+*.[pP][aA][rR][kK]
+*.[eE][xX][eE]
+*.[dD][lL][lL]
+**/[oO][bB][jJ][dD][aA][tT][aA]/
+**/[sS]aved [gG]ames/
 
 # Editor and Python scratch files.
 __pycache__/
