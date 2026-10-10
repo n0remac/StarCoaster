@@ -5,7 +5,7 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="$project_dir/upstream/openrct2"
 patch="$project_dir/openrct2-patches/0001-native-bridge.patch"
 
-if rg -q 'SPR_BRIDGE_SCOUT_IDLE_EAST' "$source_dir/src/openrct2/SpriteIds.h"; then
+if grep -q 'SPR_BRIDGE_SCOUT_IDLE_EAST' "$source_dir/src/openrct2/SpriteIds.h"; then
   printf 'OpenRCT2 native bridge patch already applied\n'
 else
   git -C "$source_dir" apply --check "$patch"
