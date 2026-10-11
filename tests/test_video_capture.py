@@ -179,6 +179,7 @@ class ExistingWorkflowTests(unittest.TestCase):
             with patch.object(module, "RCT2_DATA", root / "rct2"), \
                  patch.object(module, "SC_DATA", root / "starcraft"), \
                  patch.object(module, "OUT", root / "out"), \
+             patch("artifact_runs.ARTIFACT_ROOT", root / "artifacts"), \
                  patch.object(module, "start", side_effect=RuntimeError("stopped before launch")), \
                  patch.object(module, "check_dependencies") as dependencies, \
                  patch.object(sys, "argv", ["capture-live-demo.py", "--seconds", "8", "--video-fps", "0"]):

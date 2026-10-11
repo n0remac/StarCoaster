@@ -25,7 +25,10 @@ func fixture(t *testing.T, root, id, kind, status string, video bool) {
 	os.WriteFile(filepath.Join(dir, run.Screenshots[0].Path), []byte("PNG"), 0644)
 	if video {
 		run.Videos = []artifacts.File{{Path: "combined.mp4", Label: "Combined"}}
+		metadataName := "video-metadata.json"
+		run.VideoMetadataFile = &metadataName
 		os.WriteFile(filepath.Join(dir, "combined.mp4"), []byte("0123456789"), 0644)
+		os.WriteFile(filepath.Join(dir, metadataName), []byte(`{"filename":"combined.mp4","duration_seconds":1}`), 0644)
 	}
 	bytes, _ := json.Marshal(run)
 	os.WriteFile(filepath.Join(dir, "run.json"), bytes, 0644)
@@ -66,7 +69,7 @@ func TestViewerIntegration(t *testing.T) {
 	fixture(t, root, live, "live-capture", "passed", true)
 	fixture(t, root, battle, "battle-replay", "passed", true)
 	fixture(t, root, failed, "live-capture", "failed", false)
-	fixture(t, root, running, "live-capture", "running", false)
+	fixture(t, root, running, "live-capture", "running", true)
 	if code, body, _ := get("/", nil); code != 200 || !strings.Contains(body, "Fixture failed") {
 		t.Fatalf("dashboard: %d %s", code, body)
 	}

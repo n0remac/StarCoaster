@@ -39,12 +39,19 @@ func New(store *artifacts.Store, maxRuns int) (*Server, error) {
 			return t.Format("Jan 2, 2006 15:04 UTC")
 		},
 		"seek": seek,
-		"shotTime": func(name string, events []map[string]any) string {
+		"shotTime": func(name string, events []map[string]any, metadata map[string]any) string {
 			for _, event := range events {
 				if event["filename"] == name {
 					if seconds, ok := event["scheduled_seconds"].(float64); ok {
 						return fmt.Sprintf(" · %.1f s", seconds)
 					}
+				}
+			}
+			if strings.HasPrefix(name, "frame-") && strings.HasSuffix(name, ".png") {
+				frame, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(name, "frame-"), ".png"))
+				fps, ok := metadata["measured_fps"].(float64)
+				if err == nil && ok && fps > 0 {
+					return fmt.Sprintf(" · ≈ %.1f s", float64(frame)/fps)
 				}
 			}
 			return ""

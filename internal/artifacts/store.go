@@ -174,6 +174,9 @@ func (s *Store) file(r Run, name string) (string, error) {
 func (s *Store) Media(r Run, name string) (string, string, error) {
 	for _, f := range r.Videos {
 		if f.Path == name && filepath.Ext(name) == ".mp4" {
+			if r.Status == "running" || !s.validatedVideo(r, name) {
+				return "", "", ErrNotFound
+			}
 			path, err := s.file(r, name)
 			return path, "video/mp4", err
 		}
@@ -191,6 +194,32 @@ func (s *Store) Media(r Run, name string) (string, string, error) {
 		}
 	}
 	return "", "", ErrNotFound
+}
+
+func (s *Store) validatedVideo(r Run, name string) bool {
+	metadata := s.readJSON(r, r.VideoMetadataFile)
+	if metadata == nil {
+		return false
+	}
+	if metadata["filename"] == name {
+		duration, ok := metadata["duration_seconds"].(float64)
+		return ok && duration > 0
+	}
+	outputs, ok := metadata["outputs"].([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range outputs {
+		output, ok := value.(map[string]any)
+		if !ok || output["filename"] != name || output["validation_error"] != nil {
+			continue
+		}
+		duration, ok := output["duration_seconds"].(float64)
+		if ok && duration > 0 {
+			return true
+		}
+	}
+	return false
 }
 func (s *Store) readJSON(r Run, name *string) map[string]any {
 	if name == nil {

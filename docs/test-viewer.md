@@ -24,7 +24,7 @@ The current command lines continue to work. Without an output override, each inv
 
 ```sh
 DEMO_PARK=run-data/park-generator/save/bridge-render-test.park \
-  python3 scripts/capture-live-demo.py --seconds 8 --record-video --verify-zergling
+  python3 scripts/capture-live-demo.py --seconds 8 --record-video
 python3 scripts/render-battle-replay.py
 ```
 
@@ -61,12 +61,12 @@ tailscale funnel status
 On this Pi, Tailscale 1.102.2 already uses public Funnel port 443 for a Fabric endpoint at `http://127.0.0.1:8080`. Leave that route intact. The installed CLI accepts a separate HTTPS port:
 
 ```sh
-tailscale serve --bg --https=8443 http://127.0.0.1:8787
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:8787
 tailscale serve status --json
 tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"])'
 ```
 
-The private URL is `https://<DNSName>:8443/`. Confirm that `AllowFunnel` includes only the preexisting `:443` route and no `:8443` route. From a **second device joined to the same tailnet**, open that URL in a browser and check the latest run, MP4 playback and seeking, and full-size screenshots. Alternatively run `curl -I https://<DNSName>:8443/healthz` there. Do not use `tailscale funnel` or `tailscale serve reset` for this viewer.
+The private URL is `https://<DNSName>:8443/`. Confirm that `AllowFunnel` includes only the preexisting `:443` route and no `:8443` route. From a **second device joined to the same tailnet**, open that URL in a browser and check the latest run, MP4 playback and seeking, and full-size screenshots. Alternatively run `curl -f https://<DNSName>:8443/healthz` there. Do not use `tailscale funnel` or `tailscale serve reset` for this viewer. On this Pi, local DNS currently resolves the hostname to a public address; to test its private listener from the Pi itself, use `curl --resolve <DNSName>:8443:$(tailscale ip -4) https://<DNSName>:8443/healthz`.
 
 ## API and maintenance
 
