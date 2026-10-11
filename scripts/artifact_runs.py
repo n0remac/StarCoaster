@@ -79,6 +79,7 @@ class ArtifactRun:
             "status": "running", "started_at": datetime.now(timezone.utc).isoformat(),
             "finished_at": None, "commit_sha": sha, "videos": [], "screenshots": [],
             "verification_file": None, "video_metadata_file": None, "logs": [],
+            "scenario_config_file": None,
             "error": None, "capture_config": config or {}, "size_bytes": 0,
         }
         atomic_json(self.directory / "run.json", self.manifest)
@@ -137,7 +138,7 @@ class ArtifactRun:
                 logs.append({"path": diagnostic_name, "label": name})
                 sizes += len(data)
                 continue
-            elif name in ("verification.json", "video-metadata.json"):
+            elif name in ("verification.json", "video-metadata.json", "scenario-config.json"):
                 group = None
                 label = ""
             else:
@@ -151,6 +152,7 @@ class ArtifactRun:
                               "error": error, "videos": videos, "screenshots": screenshots,
                               "logs": logs, "size_bytes": sizes,
                               "verification_file": "verification.json" if (self.directory / "verification.json").is_file() else None,
-                              "video_metadata_file": "video-metadata.json" if (self.directory / "video-metadata.json").is_file() else None})
+                              "video_metadata_file": "video-metadata.json" if (self.directory / "video-metadata.json").is_file() else None,
+                              "scenario_config_file": "scenario-config.json" if (self.directory / "scenario-config.json").is_file() else None})
         atomic_json(self.directory / "run.json", self.manifest)
         return self.manifest

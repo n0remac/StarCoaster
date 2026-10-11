@@ -32,6 +32,7 @@ type Run struct {
 	Screenshots       []File         `json:"screenshots"`
 	VerificationFile  *string        `json:"verification_file"`
 	VideoMetadataFile *string        `json:"video_metadata_file"`
+	ScenarioConfigFile *string        `json:"scenario_config_file,omitempty"`
 	Logs              []File         `json:"logs"`
 	Error             *string        `json:"error"`
 	CaptureConfig     map[string]any `json:"capture_config,omitempty"`
@@ -86,6 +87,9 @@ func validRun(r Run, id string) bool {
 		return false
 	}
 	if r.VideoMetadataFile != nil && *r.VideoMetadataFile != "video-metadata.json" {
+		return false
+	}
+	if r.ScenarioConfigFile != nil && *r.ScenarioConfigFile != "scenario-config.json" {
 		return false
 	}
 	return true
@@ -172,6 +176,10 @@ func (s *Store) file(r Run, name string) (string, error) {
 	return path, nil
 }
 func (s *Store) Media(r Run, name string) (string, string, error) {
+	if r.ScenarioConfigFile != nil && name == *r.ScenarioConfigFile {
+		path, err := s.file(r, name)
+		return path, "application/json", err
+	}
 	for _, f := range r.Videos {
 		if f.Path == name && filepath.Ext(name) == ".mp4" {
 			if r.Status == "running" || !s.validatedVideo(r, name) {

@@ -70,6 +70,25 @@ func TestViewerIntegration(t *testing.T) {
 	fixture(t, root, battle, "battle-replay", "passed", true)
 	fixture(t, root, failed, "live-capture", "failed", false)
 	fixture(t, root, running, "live-capture", "running", true)
+	siegeConfig := "scenario-config.json"
+	liveManifest := filepath.Join(root, live, "run.json")
+	var liveRun artifacts.Run
+	raw, _ := os.ReadFile(liveManifest)
+	json.Unmarshal(raw, &liveRun)
+	liveRun.ScenarioConfigFile = &siegeConfig
+	liveRun.Title = "Live ride siege: Frontier Carousel"
+	verification := "verification.json"
+	liveRun.VerificationFile = &verification
+	raw, _ = json.Marshal(liveRun)
+	os.WriteFile(liveManifest, raw, 0644)
+	os.WriteFile(filepath.Join(root, live, siegeConfig), []byte(`{"scenario":"ride-siege"}`), 0644)
+	os.WriteFile(filepath.Join(root, live, verification), []byte(`{"scenario":"ride-siege","target":{"initial_hp":200,"damage_events":27,"destroyed_bw_frame":190},"demolition":{"ride_id":100,"success":true},"clients":{}}`), 0644)
+	if code, body, _ := get("/runs/"+live, nil); code != 200 || !strings.Contains(body, "Native ride demolition: succeeded") || !strings.Contains(body, "Scenario configuration") {
+		t.Fatalf("siege detail: %d %s", code, body)
+	}
+	if code, body, headers := get("/media/"+live+"/scenario-config.json", nil); code != 200 || !strings.Contains(body, "ride-siege") || headers.Get("Content-Type") != "application/json" {
+		t.Fatalf("siege config: %d %s %v", code, body, headers)
+	}
 	if code, body, _ := get("/", nil); code != 200 || !strings.Contains(body, "Fixture failed") {
 		t.Fatalf("dashboard: %d %s", code, body)
 	}

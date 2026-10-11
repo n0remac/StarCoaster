@@ -68,6 +68,18 @@ class ArtifactRunTests(unittest.TestCase):
             (run.output / "video-metadata.json").write_text(json.dumps({"filename": "combined.mp4", "duration_seconds": 5.2}))
             self.assertEqual(run.finalize("passed")["videos"][0]["path"], "combined.mp4")
 
+    def test_siege_configuration_is_published_without_runtime_assets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "legacy"
+            run = ArtifactRun("live-capture", "siege", output, root / "artifacts")
+            (output / "scenario-config.json").write_text('{"scenario":"ride-siege"}')
+            (output / "ride-siege.scm").write_bytes(b"private map data")
+            result = run.finalize("failed", "example")
+            self.assertEqual(result["scenario_config_file"], "scenario-config.json")
+            self.assertTrue((run.directory / "scenario-config.json").is_file())
+            self.assertFalse((run.directory / "ride-siege.scm").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
