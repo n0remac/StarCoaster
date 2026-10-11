@@ -1,0 +1,15 @@
+[Unit]
+Description=StarCoaster test artifact viewer
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/Projects/rts-bridge/build/test-viewer
+Environment=STARCOASTER_ARTIFACT_ROOT=%h/Projects/rts-bridge/run-data/artifacts
+Environment=STARCOASTER_VIEWER_LISTEN=127.0.0.1:8787
+Restart=on-failure
+RestartSec=3
+WorkingDirectory=%h/Projects/rts-bridge
+
+[Install]
+WantedBy=default.target
