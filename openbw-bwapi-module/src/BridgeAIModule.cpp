@@ -177,7 +177,8 @@ public:
         probeEnemyOrders_ = std::getenv("BRIDGE_PROBE_ENEMY_ORDERS") != nullptr;
         const char* scenario = std::getenv("BRIDGE_SCENARIO");
         battle_ = scenario && std::strcmp(scenario, "battle") == 0;
-        if (scenario && *scenario && !battle_ && std::strcmp(scenario, "patrol") != 0) {
+        siege_ = scenario && std::strcmp(scenario, "ride_siege") == 0;
+        if (scenario && *scenario && !battle_ && !siege_ && std::strcmp(scenario, "patrol") != 0) {
             std::cerr << "[bridge] unknown BRIDGE_SCENARIO=" << scenario << std::endl;
             return;
         }
@@ -199,6 +200,12 @@ public:
         }
         if (battle_) {
             startBattle(game, { spawnX, spawnY }, { targetX, targetY });
+            return;
+        }
+        if (siege_) {
+            startSiege(game, { spawnX, spawnY },
+                       { environmentInteger("BRIDGE_SIEGE_TARGET_X", 736),
+                         environmentInteger("BRIDGE_SIEGE_TARGET_Y", 576) });
             return;
         }
         const int requested = environmentInteger("BRIDGE_DEMO_UNITS", 1);
@@ -234,6 +241,10 @@ public:
         const int frame = game->getFrameCount();
         if (battle_) {
             battleFrame(game, frame);
+            return;
+        }
+        if (siege_) {
+            siegeFrame(game, frame);
             return;
         }
         registerPending(game);
@@ -288,6 +299,15 @@ public:
     }
 
     void onUnitDestroy(BWAPI::Unit unit) override {
+        if (siege_) {
+            if (unit && unit->getID() == siegeTargetId_) {
+                siegeDestroyed_ = true;
+                siegeDestroyFrame_ = BWAPI::Broodwar->getFrameCount();
+                std::cerr << "[siege] target-destroyed id=" << siegeTargetId_
+                          << " frame=" << siegeDestroyFrame_ << std::endl;
+            }
+            return;
+        }
         if (battle_) {
             if (unit) {
                 auto it = battleUnits_.find(unit->getID());
@@ -306,13 +326,116 @@ public:
     }
 
     void onEnd(bool) override {
-        if (battle_) return;
+        if (battle_ || siege_) return;
         units_.clear();
         pending_.clear();
         publish(BWAPI::Broodwar->getFrameCount());
     }
 
 private:
+    void startSiege(BWAPI::Game* game, BWAPI::Position spawn, BWAPI::Position target) {
+        auto self = game->self();
+        auto enemy = game->enemy();
+        if (!enemy) {
+            for (auto player : game->getPlayers()) {
+                if (player && player != self && player->getRace() == BWAPI::Races::Terran &&
+                    player->getType().toString() == "Player") {
+                    enemy = player;
+                    break;
+                }
+            }
+        }
+        if (!self || !enemy || self == enemy || self->getRace() != BWAPI::Races::Zerg ||
+            enemy->getRace() != BWAPI::Races::Terran) {
+            std::cerr << "[siege] invalid opposing Zerg/Terran players" << std::endl;
+            return;
+        }
+        if (!self->isEnemy(enemy)) game->setAlliance(enemy, false, false);
+        std::cerr << "[siege] players self=" << self->getID() << " enemy=" << enemy->getID()
+                  << " game_type=" << game->getGameType().toString() << std::endl;
+        std::cerr << "[siege] hostility zerg_to_terran=" << self->isEnemy(enemy)
+                  << " terran_to_zerg=" << enemy->isEnemy(self) << std::endl;
+        for (auto unit : game->getAllUnits()) {
+            if (unit && unit->getPlayer() == enemy && unit->getType() == BWAPI::UnitTypes::Terran_Missile_Turret) {
+                if (siegeTarget_) {
+                    std::cerr << "[siege] multiple proxy structures in map" << std::endl;
+                    return;
+                }
+                siegeTarget_ = unit;
+            }
+        }
+        if (!siegeTarget_) {
+            std::cerr << "[siege] missing preplaced Missile Turret" << std::endl;
+            return;
+        }
+        const auto placed = siegeTarget_->getPosition();
+        if (std::abs(placed.x - target.x) > 32 || std::abs(placed.y - target.y) > 32) {
+            std::cerr << "[siege] proxy position does not match configured target" << std::endl;
+            siegeTarget_ = nullptr;
+            return;
+        }
+        siegeTargetId_ = siegeTarget_->getID();
+        siegeInitialHp_ = siegeTarget_->getHitPoints();
+        siegeLastHp_ = siegeInitialHp_;
+        std::cerr << "[siege] target-created id=" << siegeTargetId_ << " owner=" << enemy->getID()
+                  << " kind=Terran_Missile_Turret hp=" << siegeInitialHp_
+                  << " max_hp=" << siegeTarget_->getType().maxHitPoints()
+                  << " x=" << placed.x << " y=" << placed.y << std::endl;
+        for (auto unit : game->getAllUnits()) {
+            if (unit && unit->getPlayer() == self && unit->getType() == BWAPI::UnitTypes::Zerg_Zergling) {
+                siegeUnits_.emplace(unit->getID(), BattleUnit{ unit, self->getID(), "zerg_zergling" });
+                const auto pos = unit->getPosition();
+                std::cerr << "[siege] zergling-created id=" << unit->getID() << " owner=" << self->getID()
+                          << " x=" << pos.x << " y=" << pos.y << std::endl;
+            }
+        }
+        if (siegeUnits_.size() != 8) std::cerr << "[siege] expected eight Zerglings, got " << siegeUnits_.size() << std::endl;
+    }
+
+    void siegeFrame(BWAPI::Game* game, int frame) {
+        if (siegeTarget_ && siegeTarget_->exists() && siegeTarget_->getID() >= 0 && siegeTargetId_ < 0) {
+            siegeTargetId_ = siegeTarget_->getID();
+            siegeInitialHp_ = siegeTarget_->getHitPoints();
+            siegeLastHp_ = siegeInitialHp_;
+            std::cerr << "[siege] target-registered id=" << siegeTargetId_ << " hp=" << siegeInitialHp_ << std::endl;
+        }
+        if (siegeTarget_ && siegeTarget_->exists()) {
+            const int hp = siegeTarget_->getHitPoints();
+            if (siegeLastHp_ >= 0 && hp < siegeLastHp_) {
+                std::cerr << "[siege] target-damage id=" << siegeTarget_->getID()
+                          << " from=" << siegeLastHp_ << " to=" << hp << " frame=" << frame << std::endl;
+            }
+            siegeLastHp_ = hp;
+        } else if (siegeTarget_ && !siegeDestroyed_ && siegeTargetId_ >= 0) {
+            siegeDestroyed_ = true;
+            siegeDestroyFrame_ = frame;
+            std::cerr << "[siege] target-destroyed-fallback id=" << siegeTargetId_
+                      << " frame=" << frame << std::endl;
+        }
+        for (auto& [id, tracked] : siegeUnits_) {
+            auto unit = tracked.unit;
+            if (!unit || !unit->exists()) continue;
+            if (!tracked.ordered && frame >= 6 && siegeTarget_ && siegeTarget_->exists()) {
+                tracked.ordered = unit->attack(siegeTarget_);
+                std::cerr << "[siege] attack-order id=" << id << " target=" << siegeTargetId_
+                          << " accepted=" << tracked.ordered
+                          << " error=" << game->getLastError().toString() << " frame=" << frame << std::endl;
+            }
+            const bool attackFrame = unit->isAttackFrame();
+            if (attackFrame && !tracked.lastAttackFrame) {
+                std::cerr << "[siege] attack-frame id=" << id << " target=" << siegeTargetId_
+                          << " frame=" << frame << std::endl;
+            }
+            tracked.lastAttackFrame = attackFrame;
+            if (frame % 24 == 0) {
+                const auto position = unit->getPosition();
+                std::cerr << "[siege] zergling-state id=" << id << " frame=" << frame
+                          << " x=" << position.x << " y=" << position.y
+                          << " order=" << unit->getOrder().toString() << std::endl;
+            }
+        }
+    }
+
     struct BattleUnit {
         BWAPI::Unit unit = nullptr;
         int owner = -1;
@@ -585,10 +708,18 @@ private:
 
     LoopbackPublisher publisher_;
     std::map<int, BattleUnit> battleUnits_;
+    std::map<int, BattleUnit> siegeUnits_;
+    BWAPI::Unit siegeTarget_ = nullptr;
+    int siegeTargetId_ = -1;
+    int siegeInitialHp_ = -1;
+    int siegeLastHp_ = -1;
+    int siegeDestroyFrame_ = -1;
+    bool siegeDestroyed_ = false;
     std::vector<BattleUnit> battlePending_;
     BWAPI::Position battleTarget_;
     int battleTerranOwner_ = -1;
     bool battle_ = false;
+    bool siege_ = false;
     bool probeEnemyOrders_ = false;
     bool traceBattle_ = false;
     bool battleComplete_ = false;

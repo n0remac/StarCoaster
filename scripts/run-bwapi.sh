@@ -6,6 +6,11 @@ data_dir="${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR to your own StarCraft dat
 default_map="$project_dir/upstream/bwapi/bwapi/TestAIModule/maps/TestModule/ZergTest.scm"
 if [[ "${BRIDGE_SCENARIO:-patrol}" == battle ]]; then
   default_map="$project_dir/upstream/bwapi/bwapi/TestAIModule/maps/TestModule/testmap1.scm"
+elif [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege ]]; then
+  default_map="$project_dir/run-data/ride-siege-map/ride-siege.scm"
+  if [[ ! -f "$default_map" ]]; then
+    python3 "$project_dir/scripts/create-ride-siege-map.py" --output "$default_map"
+  fi
 fi
 map_file="${BRIDGE_MAP_FILE:-$default_map}"
 launcher="$project_dir/build/bwapi/bin/BWAPILauncher"
@@ -48,12 +53,16 @@ map = maps/$map_name
 race = ${BRIDGE_BWAPI_RACE:-Zerg}
 enemy_count = 1
 enemy_race = Terran
-game_type = MELEE
+game_type = ${BRIDGE_BWAPI_GAME_TYPE:-$(if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege ]]; then printf USE_MAP_SETTINGS; else printf MELEE; fi)}
 auto_restart = OFF
 EOF
 
 export OPENBW_ENABLE_UI=0
-export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-demo-flat}"
+if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege ]]; then
+  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-ride-siege}"
+else
+  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-demo-flat}"
+fi
 export LD_LIBRARY_PATH="$project_dir/build/bwapi/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 cd "$runtime_dir"
 exec "$launcher"
