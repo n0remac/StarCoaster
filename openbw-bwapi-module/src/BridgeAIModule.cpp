@@ -173,6 +173,7 @@ public:
         const int targetX = environmentInteger("BRIDGE_TARGET_X", 640);
         const int targetY = environmentInteger("BRIDGE_TARGET_Y", 480);
         frameDelayMs_ = environmentInteger("BRIDGE_FRAME_MS", 42);
+        siegeStartFrame_ = environmentInteger("BRIDGE_SIEGE_START_FRAME", 48);
         traceBattle_ = std::getenv("BRIDGE_BATTLE_TRACE") != nullptr;
         probeEnemyOrders_ = std::getenv("BRIDGE_PROBE_ENEMY_ORDERS") != nullptr;
         const char* scenario = std::getenv("BRIDGE_SCENARIO");
@@ -381,6 +382,7 @@ private:
                   << " kind=Terran_Missile_Turret hp=" << siegeInitialHp_
                   << " max_hp=" << siegeTarget_->getType().maxHitPoints()
                   << " x=" << placed.x << " y=" << placed.y << std::endl;
+        std::cerr << "[siege] attack orders scheduled for BW frame " << siegeStartFrame_ << std::endl;
         for (auto unit : game->getAllUnits()) {
             if (unit && unit->getPlayer() == self && unit->getType() == BWAPI::UnitTypes::Zerg_Zergling) {
                 siegeUnits_.emplace(unit->getID(), BattleUnit{ unit, self->getID(), "zerg_zergling" });
@@ -415,7 +417,7 @@ private:
         for (auto& [id, tracked] : siegeUnits_) {
             auto unit = tracked.unit;
             if (!unit || !unit->exists()) continue;
-            if (!tracked.ordered && frame >= 6 && siegeTarget_ && siegeTarget_->exists()) {
+            if (!tracked.ordered && frame >= siegeStartFrame_ && siegeTarget_ && siegeTarget_->exists()) {
                 tracked.ordered = unit->attack(siegeTarget_);
                 std::cerr << "[siege] attack-order id=" << id << " target=" << siegeTargetId_
                           << " accepted=" << tracked.ordered
@@ -434,6 +436,37 @@ private:
                           << " order=" << unit->getOrder().toString() << std::endl;
             }
         }
+        if (frame % 3 == 0 && frame != lastPublishedFrame_) {
+            publishSiege(frame);
+            lastPublishedFrame_ = frame;
+        }
+    }
+
+    void publishSiege(int frame) {
+        if (siegeTargetId_ < 0 || siegeUnits_.size() != 8) return;
+        const int hp = siegeDestroyed_ || !siegeTarget_ || !siegeTarget_->exists()
+            ? 0 : siegeTarget_->getHitPoints();
+        const char* state = hp == 0 ? "destroyed" : hp < siegeInitialHp_ ? "damaged" : "intact";
+        std::ostringstream line;
+        line << "{\"v\":2,\"kind\":\"scenario.snapshot\",\"session\":\"" << session_
+             << "\",\"map_id\":\"" << mapId_ << "\",\"seq\":" << ++sequence_
+             << ",\"bw_tick\":" << frame << ",\"units\":[";
+        size_t count = 0;
+        for (const auto& [id, tracked] : siegeUnits_) {
+            const auto unit = tracked.unit;
+            if (!unit || !unit->exists()) continue;
+            const auto pos = unit->getPosition();
+            const bool moving = unit->isMoving()
+                && std::hypot(unit->getVelocityX(), unit->getVelocityY()) >= 0.25;
+            if (count++) line << ',';
+            line << "{\"id\":\"openbw:" << id << "\",\"kind\":\"alien_scout\",\"x\":"
+                 << pos.x << ",\"y\":" << pos.y << ",\"facing\":" << facingByte(unit->getAngle())
+                 << ",\"motion\":\"" << (moving ? "walk" : "idle") << "\",\"alive\":true}";
+        }
+        line << "],\"targets\":[{\"id\":\"carousel-1\",\"proxy_unit_id\":\"openbw:"
+             << siegeTargetId_ << "\",\"hp\":" << hp << ",\"max_hp\":" << siegeInitialHp_
+             << ",\"state\":\"" << state << "\"}]}";
+        publisher_.publish(line.str());
     }
 
     struct BattleUnit {
@@ -732,6 +765,7 @@ private:
     uint64_t sequence_ = 0;
     int lastPublishedFrame_ = -1;
     int frameDelayMs_ = 42;
+    int siegeStartFrame_ = 48;
     std::string session_;
     std::string mapId_;
 };

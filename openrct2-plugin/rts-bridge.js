@@ -4,7 +4,8 @@
 
     const ACTION = "rtsbridge.applySnapshot";
     const PORT = 39999;
-    const MAP_ID = "demo-flat";
+    const SIEGE_ENABLED = false;
+    const MAP_ID = SIEGE_ENABLED ? "ride-siege" : "demo-flat";
     const MAX_LINE = 16384;
     const MAX_UNITS = 32;
     const ORIGIN_X = 0;
@@ -41,6 +42,51 @@
         });
     }
 
+    function validSiegeWire(snapshot) {
+        if (!snapshot || snapshot.v !== 2 || snapshot.kind !== "scenario.snapshot"
+            || snapshot.map_id !== "ride-siege" || !validAction(snapshot)
+            || !Number.isSafeInteger(snapshot.bw_tick) || snapshot.bw_tick < 0
+            || snapshot.units.length > 8 || !Array.isArray(snapshot.targets)
+            || snapshot.targets.length !== 1) return false;
+        if (!snapshot.units.every(function (unit) {
+            return unit.kind === "alien_scout" && unit.alive === true;
+        })) return false;
+        const target = snapshot.targets[0];
+        if (!target || target.id !== "carousel-1" || !/^openbw:[0-9]+$/.test(target.proxy_unit_id)
+            || target.max_hp !== 200 || !Number.isInteger(target.hp)
+            || target.hp < 0 || target.hp > target.max_hp) return false;
+        return (target.state === "intact" && target.hp === target.max_hp)
+            || (target.state === "damaged" && target.hp > 0 && target.hp < target.max_hp)
+            || (target.state === "destroyed" && target.hp === 0);
+    }
+
+    function carouselTracks(rideId) {
+        const found = [];
+        for (let x = 18; x <= 20; ++x) {
+            for (let y = 14; y <= 16; ++y) {
+                const tile = map.getTile(x, y);
+                for (let i = 0; i < tile.numElements; ++i) {
+                    const element = tile.getElement(i);
+                    if (element.type === "track" && element.ride === rideId)
+                        found.push({ x: x, y: y, z: element.baseHeight * 8, type: element.trackType });
+                }
+            }
+        }
+        return found;
+    }
+
+    function registeredCarousel() {
+        const matching = map.rides.filter(function (ride) { return ride.name === "Frontier Carousel"; });
+        if (matching.length !== 1) return null;
+        const ride = matching[0];
+        const tracks = carouselTracks(ride.id);
+        if (ride.id !== 100 || ride.type !== 33 || !ride.object
+            || ride.object.identifier !== "rct2.ride.mgr1" || ride.status !== "closed"
+            || ride.isEmpty !== true || tracks.length !== 9
+            || tracks.some(function (track) { return track.z !== 112 || track.type !== 266; })) return null;
+        return ride;
+    }
+
     function main() {
         if (typeof rtsBridge !== "object" || rtsBridge.version !== 1 || rtsBridge.assetVersion !== 1
             || typeof rtsBridge.applySnapshot !== "function"
@@ -65,6 +111,12 @@
         });
 
         if (network.mode !== "server") return;
+        const siegeRide = SIEGE_ENABLED ? registeredCarousel() : null;
+        if (SIEGE_ENABLED && !siegeRide) {
+            console.log("RIDE_SIEGE_ERROR expected closed empty Frontier Carousel fixture is missing or changed");
+            return;
+        }
+        if (SIEGE_ENABLED) console.log("RIDE_SIEGE_READY ride=" + siegeRide.id + " tracks=9 target=carousel-1");
         context.subscribe("network.join", function (event) {
             console.log("RTS Bridge player joined: " + event.player + "; active=" + network.numPlayers);
         });
@@ -73,7 +125,10 @@
         });
         let session = "";
         let lastSeq = 0;
+        let lastBwTick = -1;
         const retiredSessions = {};
+        const siege = { rideId: siegeRide ? siegeRide.id : -1, proxyId: "", hp: 200,
+            state: "intact", demolitionAttempted: false };
         let socket = null;
         let reconnectTicks = 0;
 
@@ -85,25 +140,72 @@
                 console.log("RTS Bridge dropped malformed JSON: " + error);
                 return;
             }
-            if (!validWire(snapshot)) {
+            if (!(SIEGE_ENABLED ? validSiegeWire(snapshot) : validWire(snapshot))) {
                 console.log("RTS Bridge dropped invalid snapshot");
                 return;
             }
             if (snapshot.session !== session) {
                 if (retiredSessions[snapshot.session]) return;
+                if (SIEGE_ENABLED && (siege.demolitionAttempted || siege.state === "destroyed")) {
+                    console.log("RIDE_SIEGE_ERROR new session requires a fresh, intact park");
+                    return;
+                }
                 if (session) retiredSessions[session] = true;
                 session = snapshot.session;
                 lastSeq = 0;
+                lastBwTick = -1;
+                if (SIEGE_ENABLED) {
+                    siege.hp = 200;
+                    siege.proxyId = "";
+                    siege.state = "intact";
+                }
                 console.log("RTS Bridge session " + session);
             }
-            if (snapshot.seq <= lastSeq) return;
+            if (snapshot.seq <= lastSeq || snapshot.bw_tick < lastBwTick) return;
+            if (SIEGE_ENABLED) {
+                const target = snapshot.targets[0];
+                if ((siege.proxyId && target.proxy_unit_id !== siege.proxyId)
+                    || target.hp > siege.hp || (siege.state === "destroyed" && target.state !== "destroyed")) {
+                    console.log("RIDE_SIEGE_ERROR rejected target identity or HP regression");
+                    return;
+                }
+                siege.proxyId = target.proxy_unit_id;
+                if (target.hp < siege.hp) {
+                    console.log("RIDE_SIEGE_DAMAGE target=carousel-1 hp=" + target.hp
+                        + " from=" + siege.hp + " bw_tick=" + snapshot.bw_tick);
+                    siege.state = "damaged";
+                }
+                siege.hp = target.hp;
+                if (target.state === "destroyed" && !siege.demolitionAttempted) {
+                    if (!registeredCarousel() || registeredCarousel().id !== siege.rideId) {
+                        console.log("RIDE_SIEGE_ERROR carousel identity changed before demolition");
+                        return;
+                    }
+                    siege.demolitionAttempted = true;
+                    siege.state = "destruction_pending";
+                    console.log("RIDE_SIEGE_DEMOLITION_PENDING ride=" + siege.rideId
+                        + " bw_tick=" + snapshot.bw_tick);
+                    context.executeAction("ridedemolish", { ride: siege.rideId, modifyType: 0 }, function (result) {
+                        if (result.error || map.getRide(siege.rideId) || carouselTracks(siege.rideId).length) {
+                            siege.state = "damaged";
+                            console.log("RIDE_SIEGE_DEMOLITION_FAILED ride=" + siege.rideId
+                                + " error=" + (result.errorMessage || "ride or track remains"));
+                        } else {
+                            siege.state = "destroyed";
+                            console.log("RIDE_SIEGE_DEMOLITION_SUCCEEDED ride=" + siege.rideId
+                                + " bw_tick=" + snapshot.bw_tick);
+                        }
+                    });
+                }
+            }
             lastSeq = snapshot.seq;
+            lastBwTick = snapshot.bw_tick;
 
             const units = snapshot.units.map(function (unit) {
                 return {
                     id: unit.id,
-                    x: Math.round(ORIGIN_X + unit.x * SCALE_X),
-                    y: Math.round(ORIGIN_Y + unit.y * SCALE_Y),
+                    x: Math.round((SIEGE_ENABLED ? -128 : ORIGIN_X) + unit.x * SCALE_X),
+                    y: Math.round((SIEGE_ENABLED ? -96 : ORIGIN_Y) + unit.y * SCALE_Y),
                     facing: unit.facing,
                     motion: unit.motion
                 };

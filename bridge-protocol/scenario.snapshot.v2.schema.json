@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:starcoaster:scenario.snapshot:v2",
+  "title": "StarCoaster authoritative scenario snapshot v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "kind", "session", "map_id", "seq", "bw_tick", "units", "targets"],
+  "properties": {
+    "v": { "const": 2 },
+    "kind": { "const": "scenario.snapshot" },
+    "session": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "map_id": { "const": "ride-siege" },
+    "seq": { "type": "integer", "minimum": 1 },
+    "bw_tick": { "type": "integer", "minimum": 0 },
+    "units": {
+      "type": "array", "maxItems": 8,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "kind", "x", "y", "facing", "motion", "alive"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^openbw:[0-9]+$" },
+          "kind": { "const": "alien_scout" },
+          "x": { "type": "integer", "minimum": 0 },
+          "y": { "type": "integer", "minimum": 0 },
+          "facing": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "motion": { "enum": ["idle", "walk"] },
+          "alive": { "const": true }
+        }
+      }
+    },
+    "targets": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "proxy_unit_id", "hp", "max_hp", "state"],
+        "properties": {
+          "id": { "const": "carousel-1" },
+          "proxy_unit_id": { "type": "string", "pattern": "^openbw:[0-9]+$" },
+          "hp": { "type": "integer", "minimum": 0 },
+          "max_hp": { "const": 200 },
+          "state": { "enum": ["intact", "damaged", "destroyed"] }
+        }
+      }
+    }
+  }
+}
