@@ -319,6 +319,8 @@ private:
         int lastHp = -1;
         bool alive = true;
         bool ordered = false;
+        bool lastAttackFrame = false;
+        bool lastAttacking = false;
     };
 
     void startBattle(BWAPI::Game* game, BWAPI::Position zerg, BWAPI::Position terran) {
@@ -350,13 +352,16 @@ private:
             std::cerr << "[battle] invalid opposing Zerg/Terran players" << std::endl;
             return;
         }
+        battleTerranOwner_ = enemy->getID();
+        logHostility(game, 0, "before-alliance-command");
         if (!self->isEnemy(enemy)) {
             const bool accepted = game->setAlliance(enemy, false, false);
             std::cerr << "[battle] setAlliance enemy accepted=" << accepted << std::endl;
         }
-        std::cerr << "[battle] players zerg=" << self->getID() << " terran=" << enemy->getID()
-                  << std::endl;
-        battleTerranOwner_ = enemy->getID();
+        std::cerr << "[battle] players zerg=" << self->getID() << " race=" << self->getRace().toString()
+                  << " type=" << self->getType().toString() << " terran=" << enemy->getID()
+                  << " race=" << enemy->getRace().toString() << " type=" << enemy->getType().toString() << std::endl;
+        logHostility(game, 0, "initial");
         battleTarget_ = terran;
         for (int index = 0; index < 4; ++index) {
             BWAPI::Position pos{ terran.x + (index % 2) * 24, terran.y + (index / 2) * 24 };
@@ -395,14 +400,18 @@ private:
                 ++it;
             }
         }
-        if (frame == 6) {
-            auto self = game->self();
-            auto enemy = game->getPlayer(battleTerranOwner_);
-            std::cerr << "[battle] hostility frame=" << frame << " zerg_to_terran="
-                      << (self && enemy ? self->isEnemy(enemy) : false) << " terran_to_zerg="
-                      << (self && enemy ? enemy->isEnemy(self) : false) << std::endl;
+        if (!battleSpawnLogged_ && battlePending_.empty()) {
+            battleSpawnLogged_ = true;
+            int marines = 0, zerglings = 0;
+            for (const auto& [id, unit] : battleUnits_) {
+                if (unit.kind == "terran_marine") ++marines;
+                else if (unit.kind == "zerg_zergling") ++zerglings;
+            }
+            std::cerr << "[battle] spawned marines=" << marines << " zerglings=" << zerglings << std::endl;
         }
+        if (frame == 6) logHostility(game, frame, "orders");
         int zergAlive = 0, terranAlive = 0;
+        int nearestDistanceSquared = 1000000000;
         for (auto& [id, tracked] : battleUnits_) {
             auto unit = tracked.unit;
             if (!unit || !unit->exists()) {
@@ -432,16 +441,58 @@ private:
             }
             const int hp = unit->getHitPoints();
             if (tracked.lastHp >= 0 && hp < tracked.lastHp) {
+                if (!battleDamageObserved_) {
+                    battleDamageObserved_ = true;
+                    logHostility(game, frame, "after-contact");
+                }
                 std::cerr << "[battle] damage id=" << id << " owner=" << tracked.owner << " kind=" << tracked.kind
                           << " from=" << tracked.lastHp << " to=" << hp << " frame=" << frame << std::endl;
             }
             tracked.lastHp = hp;
+            const bool attackFrame = unit->isAttackFrame();
+            const bool attacking = unit->isAttacking();
+            if (attackFrame && !tracked.lastAttackFrame) {
+                auto target = unit->getTarget();
+                auto orderTarget = unit->getOrderTarget();
+                std::cerr << "[battle] attack-frame frame=" << frame << " id=" << id << " owner=" << tracked.owner
+                          << " kind=" << tracked.kind << " hp=" << hp << " cooldown="
+                          << unit->getGroundWeaponCooldown() << " target=" << (target ? target->getID() : -1)
+                          << " orderTarget=" << (orderTarget ? orderTarget->getID() : -1)
+                          << " order=" << unit->getOrder().toString() << std::endl;
+            }
+            if (attacking && !tracked.lastAttacking) {
+                auto target = unit->getTarget();
+                std::cerr << "[battle] attack-start frame=" << frame << " id=" << id << " owner=" << tracked.owner
+                          << " kind=" << tracked.kind << " target=" << (target ? target->getID() : -1) << std::endl;
+            }
+            tracked.lastAttackFrame = attackFrame;
+            tracked.lastAttacking = attacking;
             if (frame % 24 == 0) {
                 const auto pos = unit->getPosition();
+                auto target = unit->getTarget();
+                auto orderTarget = unit->getOrderTarget();
                 std::cerr << "[battle] state frame=" << frame << " id=" << id << " owner=" << tracked.owner
-                          << " kind=" << tracked.kind << " hp=" << hp << " order=" << unit->getOrder().toString()
-                          << " attacking=" << unit->isAttacking() << " attackFrame=" << unit->isAttackFrame()
+                          << " kind=" << tracked.kind << " hp=" << hp << " max_hp=" << unit->getType().maxHitPoints()
+                          << " order=" << unit->getOrder().toString() << " cooldown=" << unit->getGroundWeaponCooldown()
+                          << " target=" << (target ? target->getID() : -1)
+                          << " orderTarget=" << (orderTarget ? orderTarget->getID() : -1)
+                          << " attacking=" << attacking << " attackFrame=" << attackFrame
                           << " x=" << pos.x << " y=" << pos.y << std::endl;
+            }
+        }
+        if (!battleBeforeContactLogged_ && zergAlive && terranAlive) {
+            for (const auto& [zergId, zerg] : battleUnits_) {
+                if (!zerg.alive || zerg.kind != "zerg_zergling" || !zerg.unit || !zerg.unit->exists()) continue;
+                for (const auto& [terranId, terran] : battleUnits_) {
+                    if (!terran.alive || terran.kind != "terran_marine" || !terran.unit || !terran.unit->exists()) continue;
+                    const auto a = zerg.unit->getPosition(), b = terran.unit->getPosition();
+                    const int dx = a.x - b.x, dy = a.y - b.y;
+                    nearestDistanceSquared = std::min(nearestDistanceSquared, dx * dx + dy * dy);
+                }
+            }
+            if (nearestDistanceSquared <= 192 * 192) {
+                battleBeforeContactLogged_ = true;
+                logHostility(game, frame, "before-contact");
             }
         }
         if (!battleComplete_ && frame >= 24 && battlePending_.empty() &&
@@ -451,6 +502,16 @@ private:
                       << " terran_alive=" << terranAlive << " result="
                       << (!zergAlive ? "terran" : !terranAlive ? "zerg" : "timeout") << std::endl;
         }
+    }
+
+    void logHostility(BWAPI::Game* game, int frame, const char* phase) {
+        auto self = game->self();
+        auto enemy = game->getPlayer(battleTerranOwner_);
+        std::cerr << "[battle] hostility frame=" << frame << " phase=" << phase
+                  << " zerg_to_terran=" << (self && enemy ? self->isEnemy(enemy) : false)
+                  << " terran_to_zerg=" << (self && enemy ? enemy->isEnemy(self) : false)
+                  << " zerg_ally=" << (self && enemy ? self->isAlly(enemy) : false)
+                  << " terran_ally=" << (self && enemy ? enemy->isAlly(self) : false) << std::endl;
     }
 
     struct PatrolUnit {
@@ -528,6 +589,9 @@ private:
     bool battle_ = false;
     bool probeEnemyOrders_ = false;
     bool battleComplete_ = false;
+    bool battleBeforeContactLogged_ = false;
+    bool battleDamageObserved_ = false;
+    bool battleSpawnLogged_ = false;
     std::map<int, PatrolUnit> units_;
     std::vector<PendingUnit> pending_;
     int demoUnits_ = 1;
