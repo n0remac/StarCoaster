@@ -173,6 +173,7 @@ public:
         const int targetX = environmentInteger("BRIDGE_TARGET_X", 640);
         const int targetY = environmentInteger("BRIDGE_TARGET_Y", 480);
         frameDelayMs_ = environmentInteger("BRIDGE_FRAME_MS", 42);
+        traceBattle_ = std::getenv("BRIDGE_BATTLE_TRACE") != nullptr;
         probeEnemyOrders_ = std::getenv("BRIDGE_PROBE_ENEMY_ORDERS") != nullptr;
         const char* scenario = std::getenv("BRIDGE_SCENARIO");
         battle_ = scenario && std::strcmp(scenario, "battle") == 0;
@@ -467,7 +468,7 @@ private:
             }
             tracked.lastAttackFrame = attackFrame;
             tracked.lastAttacking = attacking;
-            if (frame % 24 == 0) {
+            if (traceBattle_ || frame % 24 == 0) {
                 const auto pos = unit->getPosition();
                 auto target = unit->getTarget();
                 auto orderTarget = unit->getOrderTarget();
@@ -477,6 +478,7 @@ private:
                           << " target=" << (target ? target->getID() : -1)
                           << " orderTarget=" << (orderTarget ? orderTarget->getID() : -1)
                           << " attacking=" << attacking << " attackFrame=" << attackFrame
+                          << " facing=" << facingByte(unit->getAngle())
                           << " x=" << pos.x << " y=" << pos.y << std::endl;
             }
         }
@@ -588,6 +590,7 @@ private:
     int battleTerranOwner_ = -1;
     bool battle_ = false;
     bool probeEnemyOrders_ = false;
+    bool traceBattle_ = false;
     bool battleComplete_ = false;
     bool battleBeforeContactLogged_ = false;
     bool battleDamageObserved_ = false;
