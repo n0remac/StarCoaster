@@ -141,7 +141,29 @@ def actor_image(state, marine, zerg, frame):
     return zerg[motion, direction]
 
 
-def draw_frame(background, states, deaths, tick, outcome, marine, zerg, elapsed, duration):
+def foreground_trees(background):
+    """Extract the two known test-park trees without bundling RCT2 artwork.
+
+    The replay's static screenshot has already flattened scenery into the
+    ground. The tree colours in these bounded regions differ from the grass
+    and path palette, so they can be painted again at their world depth.
+    """
+    ground = set(background.crop((900, 100, 1050, 200)).getdata())
+    ground.update(background.crop((880, 270, 980, 310)).getdata())
+    trees = []
+    for x, y in ((432, 464), (464, 528)):
+        foot_x, foot_y = project(x, y, 0, 112, 112)
+        box = (foot_x - 70, foot_y - 240, foot_x + 70, foot_y + 6)
+        crop = background.crop(box).convert("RGBA")
+        alpha = Image.new("L", crop.size)
+        alpha.putdata([255 if pixel[:3] not in ground else 0 for pixel in crop.getdata()])
+        crop.putalpha(alpha)
+        trees.append((x + y, box[:2], crop))
+    return trees
+
+
+def draw_frame(background, states, deaths, tick, outcome, marine, zerg, elapsed, duration,
+               scenery=()):
     canvas = background.copy()
     overlay = Image.new("RGBA", canvas.size)
     draw = ImageDraw.Draw(overlay)
@@ -161,8 +183,17 @@ def draw_frame(background, states, deaths, tick, outcome, marine, zerg, elapsed,
             alive[state["kind"]] += 1
         z = 128 if state["x"] >= 576 and 448 <= state["y"] <= 544 else 112
         px, py = project(state["x"], state["y"], 0, z, 112)
-        shown.append((px + py, ident, state, px, py, death_frame))
-    for _depth, ident, state, px, py, death_frame in sorted(shown):
+        shown.append((state["x"] + state["y"], ident, state, px, py, death_frame))
+    # Paint actors and trees in world-depth order. Tree alpha only contains
+    # actual scenery pixels, retaining paths and grass visible through gaps.
+    layers = [(depth, 0, position, image) for depth, position, image in scenery]
+    layers += [(depth, 1, (ident, state, px, py, death_frame), None)
+               for depth, ident, state, px, py, death_frame in shown]
+    for _depth, kind, payload, tree in sorted(layers, key=lambda layer: (layer[0], layer[1])):
+        if kind == 0:
+            overlay.alpha_composite(tree, payload)
+            continue
+        ident, state, px, py, death_frame = payload
         if death_frame is not None and tick >= death_frame and state["kind"] == "terran_marine":
             image = marine["death", min(7, max(0, tick - death_frame))]
             dx, dy = -64, -64
@@ -221,6 +252,7 @@ def render(args) -> None:
     background = Image.open(args.background).convert("RGB")
     if background.size != (1280, 800):
         raise ValueError("expected a 1280x800 OpenRCT2 background capture")
+    scenery = foreground_trees(background) if args.background.resolve() == DEFAULT_BACKGROUND.resolve() else ()
     fps = 10
     frame_ms = 42
     lead_seconds = 1.4
@@ -236,8 +268,9 @@ def render(args) -> None:
         for number in range(int(duration * fps) + 1):
             elapsed = number / fps
             tick = max(0, int((elapsed - lead_seconds) * 1000 / frame_ms))
-            frame = draw_frame(background, timeline, deaths, tick, outcome, marine, zerg, elapsed, duration)
-            if number in (15, 36, 58, int(duration * fps)):
+            frame = draw_frame(background, timeline, deaths, tick, outcome, marine, zerg,
+                               elapsed, duration, scenery)
+            if number in (15, 26, 30, 36, 58, int(duration * fps)):
                 path = args.output / f"frame-{number:03}.png"
                 frame.save(path)
                 screenshots[str(number)] = path.name
@@ -255,6 +288,7 @@ def render(args) -> None:
     (args.output / "video-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     summary = {"representation": "OpenBW trace replay composited over a captured OpenRCT2 park scene",
+               "foreground_occlusion": "two depth-sorted test-park trees" if scenery else "none (custom background)",
                "commit_sha": commit,
                "renderer_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                "source_log": str(args.log), "source_log_sha256": hashlib.sha256(args.log.read_bytes()).hexdigest(),
