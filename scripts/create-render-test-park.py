@@ -17,20 +17,22 @@ PARK = DATA / "save/bridge-render-test.park"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scenario", choices=("render", "ride-siege"), default="render")
+    parser.add_argument("--scenario", choices=("render", "ride-siege", "frontier-defense"), default="render")
     parser.add_argument("--probe-demolition", action="store_true")
     args = parser.parse_args()
     if args.probe_demolition and args.scenario != "ride-siege":
         parser.error("--probe-demolition requires --scenario ride-siege")
-    data = DATA if args.scenario == "render" else ROOT / "run-data/ride-siege-generator"
-    park = PARK if args.scenario == "render" else data / "save/bridge-ride-siege.park"
+    data = DATA if args.scenario == "render" else ROOT / ("run-data/ride-siege-generator" if args.scenario == "ride-siege" else "run-data/frontier-defense-generator")
+    park = PARK if args.scenario == "render" else data / "save" / ("bridge-ride-siege.park" if args.scenario == "ride-siege" else "bridge-frontier-defense.park")
     rct2_data = Path(os.environ.get("RCT2_DATA_DIR", "/home/pi/games/rct2"))
     if not (rct2_data / "Data/g1.dat").is_file():
         raise RuntimeError(f"Missing RCT2 graphics at {rct2_data / 'Data/g1.dat'}")
     (data / "plugin").mkdir(parents=True, exist_ok=True)
     source = (ROOT / "scripts/render-test-park.js").read_text()
-    mode = "ride-siege-probe" if args.probe_demolition else args.scenario
+    mode = "ride-siege-probe" if args.probe_demolition else "ride-siege" if args.scenario == "frontier-defense" else args.scenario
     source = source.replace('var fixtureMode = "render";', f'var fixtureMode = "{mode}";')
+    if args.scenario == "frontier-defense":
+        source = source.replace('filename: "bridge-ride-siege"', 'filename: "bridge-frontier-defense"')
     (data / "plugin/render-test-park.js").write_text(source)
     (data / "config.ini").write_text("[network]\nadvertise = false\n")
     if not args.probe_demolition:
@@ -56,7 +58,7 @@ def main() -> None:
                     print(json.dumps(result))
                     return
                 if park.is_file() and park.stat().st_size > 0 and not args.probe_demolition:
-                    if args.scenario == "ride-siege":
+                    if args.scenario in ("ride-siege", "frontier-defense"):
                         if "RIDE_SIEGE_METADATA " not in contents:
                             time.sleep(0.2)
                             continue

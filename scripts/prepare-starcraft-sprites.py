@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract a local classic StarCraft Zergling pack. Never commit the output."""
+"""Extract local classic StarCraft unit sprites. Never commit the output."""
 
 import argparse
 import hashlib
@@ -18,11 +18,13 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "run-data/generated-assets/starcraft/zergling"
 RESOURCE = "unit/zerg/zergling.grp"
+MARINE_RESOURCE = "unit/terran/marine.grp"
 PALETTE = "Tileset/Badlands.wpe"
 # Contact-sheet inspection of the local classic Zergling GRP: directional
 # groups 0..10 form the run, while 11..16 crouch/collapse into death art.
 # Each complete directional group has 17 frames (north through south via east).
-FRAMES = {"idle": 0, **{f"walk{pose}": 17 * (pose + 1) for pose in range(10)}}
+FRAMES = {"idle": 0, **{f"walk{pose}": 17 * (pose + 1) for pose in range(10)},
+          **{f"death{pose}": 17 * (pose + 11) for pose in range(6)}}
 DIRECTIONS = {"east": (8, False), "south": (16, False),
               "west": (8, True), "north": (0, False),
               "southeast": (12, False), "southwest": (12, True),
@@ -108,29 +110,87 @@ def decode_grp(data: bytes, wpe: bytes, index: int) -> Image.Image:
     return image
 
 
+def prepare_marine(data: bytes, wpe: bytes, output: Path, palette: list[tuple[int, int, int]]):
+    """The classic Marine GRP has 13 directional groups and eight death frames."""
+    count, width, height = struct.unpack_from("<HHH", data)
+    if count != 229 or (width, height) != (64, 64):
+        raise ValueError(f"Unexpected Marine GRP: {count} frames, {width}x{height}")
+    directions = list(DIRECTIONS)
+    states = {"idle": [0], "walk": [17, 34], "attack": [51, 68, 85]}
+    selected = {}
+    registry = {"terran_marine": {}}
+
+    def save(frame: int, filename: str, mirror: bool = False):
+        image = decode_grp(data, wpe, frame)
+        if mirror:
+            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        bbox = image.getbbox()
+        if bbox is None:
+            raise ValueError(f"Empty Marine frame {frame}")
+        cropped = quantize(image.crop(bbox), palette)
+        cropped.save(output / filename)
+        selected[filename] = {"source_frame": frame, "source_group": frame // 17,
+                              "mirrored": mirror, "width": cropped.width, "height": cropped.height,
+                              "x": bbox[0] - width // 2, "y": bbox[1] - height // 2,
+                              "visible_pixels": sum(a != 0 for a in cropped.getchannel("A").getdata())}
+
+    for state, bases in states.items():
+        frames = {}
+        for direction, (direction_frame, mirror) in DIRECTIONS.items():
+            names = []
+            for pose, base in enumerate(bases):
+                filename = f"{state}{pose}_{direction}.png"
+                save(base + direction_frame, filename, mirror)
+                names.append(filename)
+            frames[direction] = names
+        registry["terran_marine"][state] = {"frames": frames,
+                                            "ticks_per_frame": 0 if state == "idle" else 4 if state == "walk" else 2}
+    death = []
+    for pose in range(8):
+        filename = f"death{pose}.png"
+        save(221 + pose, filename)
+        death.append(filename)
+    registry["terran_marine"]["death"] = {"frames": death, "ticks_per_frame": 2,
+                                            "directional": False}
+    return selected, registry, count, width, height
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--game-dir", type=Path,
                         default=Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft")))
-    parser.add_argument("--unit", choices=["zergling"], default="zergling")
-    parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--unit", choices=["zergling", "marine"], default="zergling")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if shutil.which("smpq") is None:
         parser.error("smpq is required (Debian package: smpq / StormLib)")
-    output = args.output.resolve()
+    output = (args.output or OUTPUT.parent / args.unit).resolve()
     output.mkdir(parents=True, exist_ok=True)
     source = output / ".source"
     source.mkdir(exist_ok=True)
-    grp_path, wpe_path = source / "zergling.grp", source / "Badlands.wpe"
-    archives = {RESOURCE: extract(args.game_dir, RESOURCE, grp_path),
+    resource = MARINE_RESOURCE if args.unit == "marine" else RESOURCE
+    grp_path, wpe_path = source / f"{args.unit}.grp", source / "Badlands.wpe"
+    archives = {resource: extract(args.game_dir, resource, grp_path),
                 PALETTE: extract(args.game_dir, PALETTE, wpe_path)}
     data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
     if len(wpe) != 1024:
         raise ValueError(f"Expected 1024-byte WPE palette, got {len(wpe)}")
     frame_count, canvas_width, canvas_height = struct.unpack_from("<HHH", data)
-    if frame_count < 17 * 11:
-        raise ValueError(f"Expected at least 11 directional groups, got {frame_count} frames")
+    if args.unit == "zergling" and frame_count < 17 * 17:
+        raise ValueError(f"Expected at least 17 directional groups, got {frame_count} frames")
     palette = openrct2_palette()
+    if args.unit == "marine":
+        selected, registry, frame_count, canvas_width, canvas_height = prepare_marine(data, wpe, output, palette)
+        manifest = {"unit": args.unit, "kind": "terran_marine", "source": resource,
+                    "palette": PALETTE, "archives": archives, "canvas": [canvas_width, canvas_height],
+                    "frame_count": frame_count, "source_sha256": hashlib.sha256(data).hexdigest(),
+                    "registry": registry, "frames": selected,
+                    "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
+                    "team_colour": "source palette indices 8..15 retained without player remap",
+                    "output_palette": "nearest OpenRCT2 standard palette colour, excluding special and primary remap indices"}
+        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        print(f"Prepared {len(selected)} Marine frames in {output} from {archives}")
+        return
     selected = {}
     for motion, base in FRAMES.items():
         for direction, (facing, mirror) in DIRECTIONS.items():
@@ -153,13 +213,15 @@ def main() -> None:
                                   "visible_pixels": sum(a != 0 for a in cropped.getchannel("A").getdata())}
     groups = [{"group": group, "first_frame": group * 17,
                "last_frame": min(frame_count - 1, group * 17 + 16),
-               "classification": "idle" if group == 0 else "walk" if group <= 10 else "non_locomotion"}
+               "classification": "idle" if group == 0 else "walk" if group <= 10 else "death" if group <= 16 else "non_locomotion"}
               for group in range((frame_count + 16) // 17)]
     directions = list(DIRECTIONS)
     registry = {"alien_scout": {"idle": {"frames": {direction: [f"idle_{direction}.png"]
                                                    for direction in directions}, "ticks_per_frame": 0},
                                 "walk": {"frames": {direction: [f"walk{pose}_{direction}.png" for pose in range(10)]
-                                                    for direction in directions}, "ticks_per_frame": 4}}}
+                                                    for direction in directions}, "ticks_per_frame": 4},
+                                "death": {"frames": {direction: [f"death{pose}_{direction}.png" for pose in range(6)]
+                                                     for direction in directions}, "ticks_per_frame": 3}}}
     manifest = {"unit": args.unit, "source": RESOURCE, "palette": PALETTE,
                 "archives": archives, "canvas": [canvas_width, canvas_height],
                 "frame_count": frame_count, "source_sha256": hashlib.sha256(data).hexdigest(),

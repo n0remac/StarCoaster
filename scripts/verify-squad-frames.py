@@ -9,10 +9,7 @@ import re
 import numpy as np
 from PIL import Image
 
-from squad_verification import local_purple_counts, project
-
-
-DIRECTIONS = ("east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast")
+from squad_verification import local_purple_counts, project, screen_direction
 
 
 def match_actor(screen: np.ndarray, source: Path, manifest: dict, actor: tuple,
@@ -20,7 +17,7 @@ def match_actor(screen: np.ndarray, source: Path, manifest: dict, actor: tuple,
     unit_id, x, y, facing, motion, z = actor
     if motion != "walk":
         return {"id": unit_id, "score": 0.0, "frame": None}
-    direction = DIRECTIONS[(((facing + 16) // 32) + rotation * 2) & 7]
+    direction = screen_direction(facing, rotation)
     px, py = project(x, y, rotation, z, center_z)
     best = (0.0, None, None)
     for pose in range(10):

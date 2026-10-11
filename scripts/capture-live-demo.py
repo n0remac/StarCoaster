@@ -15,7 +15,9 @@ import time
 from PIL import Image
 from video_capture import VideoConfig, VideoRecorder, check_dependencies
 from artifact_runs import ArtifactRun
-from squad_verification import animation_region_hashes, compare_clients, local_purple_counts, parse_applied, parse_projected, write_summary
+from squad_verification import animation_region_hashes, compare_clients, local_purple_counts, parse_applied, parse_projected, parse_combat_applied, write_summary
+from park_assault_artifacts import draw_diagnostics
+from park_assault_verification import analyze as analyze_park_assault
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -133,6 +135,10 @@ def capture_ride_siege(args: argparse.Namespace, video_config: VideoConfig | Non
             plugin_dir.mkdir(parents=True, exist_ok=True)
             camera = (ROOT / "scripts/demo-camera.js").read_text().replace(
                 "var siegeCamera = false;", "var siegeCamera = true;")
+            if label == "client-b" and args.rotate_client_b:
+                camera = camera.replace("var demoRotation = 0;", "var demoRotation = 1;")
+            if label == "client-b" and args.cycle_rotations:
+                camera = camera.replace("var cycleRotations = false;", "var cycleRotations = true;")
             (plugin_dir / "demo-camera.js").write_text(camera)
             command = [str(ROOT / "build/openrct2/openrct2"), "join", "127.0.0.1",
                        "--port=11753", f"--rct2-data-path={RCT2_DATA}",
@@ -239,6 +245,398 @@ def capture_ride_siege(args: argparse.Namespace, video_config: VideoConfig | Non
             raise recorder_failure
 
 
+def capture_frontier_defense(args: argparse.Namespace, video_config: VideoConfig | None) -> int:
+    """Record one real park server, two OpenBW faction controllers and two graphical clients."""
+    global OUT
+    subprocess.run([sys.executable, str(ROOT / "scripts/create-ride-siege-map.py"),
+                    "--scenario", "frontier-defense", "--output",
+                    str(ROOT / "run-data/frontier-defense-map/frontier-defense.scm")], cwd=ROOT, check=True)
+    park = Path(os.environ.get("DEMO_PARK", ROOT / "run-data/frontier-defense-generator/save/bridge-frontier-defense.park"))
+    if not park.is_file():
+        subprocess.run([sys.executable, str(ROOT / "scripts/create-render-test-park.py"),
+                        "--scenario", "frontier-defense"], cwd=ROOT, check=True)
+    default_out = ROOT / "run-data/visual-demo"
+    chosen_output = OUT if "DEMO_OUTPUT_DIR" in os.environ or OUT != default_out else None
+    artifact_run = ArtifactRun("live-capture", "Live Frontier defense: Marines and Zerglings",
+                               chosen_output, config=vars(args) | {"park": str(park),
+                                                                    "simulation": "two synchronized OpenBW BWAPI players"})
+    OUT = artifact_run.output
+    env = os.environ.copy() | {"RCT2_DATA_DIR": str(RCT2_DATA), "STARCRAFT_DATA_DIR": str(SC_DATA),
+                               "SDL_AUDIODRIVER": "dummy", "LIBGL_ALWAYS_SOFTWARE": "1",
+                               "BRIDGE_SCENARIO": "frontier_defense"}
+    (OUT / "scenario-config.json").write_text(json.dumps({
+        "scenario": "frontier-defense", "park": str(park), "map": "frontier-defense.scm",
+        "marines": 4, "zerglings": 8, "carousel_proxy": "Terran_Missile_Turret",
+        "openbw_transport": "LOCAL", "bw_to_park_offset": {"x": -128, "y": -96}
+    }, indent=2) + "\n")
+    running = []
+    recorder = VideoRecorder(video_config, OUT) if video_config else None
+    recording_started = False
+    status = "failed"
+    error_text = None
+
+    def shot(stage: str) -> None:
+        for label, display in (("client-a", ":91"), ("client-b", ":92")):
+            filename = f"{label}-{stage}.png"
+            subprocess.run(["scrot", "-z", "-o", str(OUT / filename)], check=True,
+                           env=env | {"DISPLAY": display})
+            if recorder: recorder.event("screenshot", client=label, filename=filename, stage=stage)
+
+    try:
+        for label, display in (("display-a", ":91"), ("display-b", ":92")):
+            running.append(start(label, ["Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], env))
+        time.sleep(1)
+        running.append(start("server", [str(ROOT / "scripts/run-openrct2-host.sh"), str(park)], env))
+        server = running[-1][0]
+        wait_for("server", "RIDE_SIEGE_READY", server)
+        clients = {}
+        for label, display in (("client-a", ":91"), ("client-b", ":92")):
+            client_env = env | {"DISPLAY": display}
+            plugin_dir = OUT / label / "plugin"
+            plugin_dir.mkdir(parents=True, exist_ok=True)
+            camera = (ROOT / "scripts/demo-camera.js").read_text().replace(
+                "var siegeCamera = false;", "var siegeCamera = true;")
+            if label == "client-b" and args.rotate_client_b:
+                camera = camera.replace("var demoRotation = 0;", "var demoRotation = 1;")
+            if label == "client-b" and args.cycle_rotations:
+                camera = camera.replace("var cycleRotations = false;", "var cycleRotations = true;")
+            (plugin_dir / "demo-camera.js").write_text(camera)
+            if label == "client-a":
+                (plugin_dir / "frontier-command-probe.js").write_text(
+                    (ROOT / "scripts/frontier-command-probe.js").read_text())
+            command = [str(ROOT / "build/openrct2/openrct2"), "join", "127.0.0.1",
+                       "--port=11753", f"--rct2-data-path={RCT2_DATA}",
+                       f"--openrct2-data-path={OPENRCT2_DATA}", f"--user-data-path={OUT / label}"]
+            for attempt in range(3):
+                process, output = start(label, command, client_env)
+                try:
+                    wait_for(label, "[Passthrough RTS Bridge] Started", process, 60)
+                    wait_for(label, "RIDE_SIEGE_CLIENT_BEFORE", process, 60)
+                except RuntimeError:
+                    transfer_failed = "Decompression error!" in (OUT / f"{label}.log").read_text(errors="replace")
+                    process.terminate(); process.wait(timeout=3); output.close()
+                    if not transfer_failed or attempt == 2: raise
+                    (OUT / f"{label}.log").rename(OUT / f"{label}-transfer-failed-{attempt + 1}.log")
+                else:
+                    running.append((process, output)); clients[label] = process; break
+        if recorder:
+            recorder.start(); recording_started = True
+        local_socket = str(OUT / "openbw-local.socket")
+        for side, port in (("zerg", 39999), ("terran", 40000)):
+            faction_env = env | {"BRIDGE_BWAPI_MENU": "MULTI_PLAYER", "BRIDGE_BWAPI_RACE": side.capitalize(),
+                                 "BRIDGE_BWAPI_SLOT": "0" if side == "zerg" else "1",
+                                 "BRIDGE_BWAPI_RUNTIME_DIR": str(OUT / "openbw" / side),
+                                 "OPENBW_LAN_MODE": "LOCAL", "OPENBW_LOCAL_PATH": local_socket,
+                                 "BRIDGE_PUBLISH_PORT": str(port)}
+            running.append(start(side, [str(ROOT / "scripts/run-bwapi.sh")], faction_env))
+        wait_for("zerg", "[frontier] spawned marines=4 zerglings=8", running[-2][0], 30)
+        wait_for("server", "RTS Bridge connected to BWAPI publisher", server, 20)
+        for label in clients: wait_for(label, "RTS Bridge apply tick=", clients[label], 20)
+        shot("initial")
+        wait_for("server", "RTS Bridge connected to Terran BWAPI controller", server, 10)
+        # Exercise the actual viewport tool, including OpenRCT2's right mouse path.
+        # Marine 1000's fixture foot position projects to (384, 336) on client A.
+        mouse_env = env | {"DISPLAY": ":91"}
+        subprocess.run(["xdotool", "mousemove", "--sync", "384", "336", "click", "1"],
+                       env=mouse_env, check=True)
+        wait_for("client-a", "RTS Bridge selected Marines=openbw:1000", clients["client-a"], 3)
+        subprocess.run(["xdotool", "mousemove", "--sync", "250", "300", "click", "3"],
+                       env=mouse_env, check=True)
+        wait_for("client-a", "unit=openbw:1000 accepted=true reason=ok", clients["client-a"], 5)
+        wait_for("client-a", "FRONTIER_COMMAND_MOVED", clients["client-a"], 15)
+        wait_for("client-a", "accepted=true reason=ok", clients["client-a"], 15)
+        wait_for("client-a", "FRONTIER_ATTACK_QUERY accepted=true", clients["client-a"], 10)
+        wait_for("client-a", "command request=888", clients["client-a"], 10)
+        wait_for("zerg", "kind=terran_marine", running[-2][0], 15)
+        wait_for("zerg", "[battle] attack-frame", running[-2][0], 20)
+        shot("firing")
+        wait_for("zerg", "[battle] destroyed", running[-2][0], 20)
+        shot("death")
+        wait_for("zerg", "[frontier] target-damage", running[-2][0], 35)
+        shot("damage")
+        wait_for("server", "RIDE_SIEGE_DEMOLITION_SUCCEEDED", server, 40)
+        for label in clients: wait_for(label, "RIDE_SIEGE_CLIENT_AFTER", clients[label], 20)
+        time.sleep(2)
+        shot("final")
+        zerg_log = (OUT / "zerg.log").read_text(errors="replace")
+        terran_log = (OUT / "terran.log").read_text(errors="replace")
+        server_log = (OUT / "server.log").read_text(errors="replace")
+        if not re.search(r"\[battle\] attack-frame .*kind=terran_marine", zerg_log):
+            raise RuntimeError("OpenBW produced no Marine attack frame")
+        if not re.search(r"\[battle\] damage .*kind=zerg_zergling .*from=(\d+) to=(\d+)", zerg_log):
+            raise RuntimeError("OpenBW produced no Zergling health loss")
+        if "[battle] destroyed" not in zerg_log or "[frontier] target-destroyed" not in zerg_log:
+            raise RuntimeError("OpenBW produced no unit death or carousel destruction")
+        if server_log.count("RIDE_SIEGE_DEMOLITION_SUCCEEDED") != 1:
+            raise RuntimeError("carousel was not demolished exactly once")
+        digest = re.compile(r"\[frontier\] state-digest frame=(\d+) hash=([0-9a-f]+) units=(\d+)")
+        zerg_digests = {int(f): (h, int(n)) for f, h, n in digest.findall(zerg_log)}
+        terran_digests = {int(f): (h, int(n)) for f, h, n in digest.findall(terran_log)}
+        common_frames = sorted(set(zerg_digests) & set(terran_digests))
+        if len(common_frames) < 5 or any(zerg_digests[f] != terran_digests[f] for f in common_frames):
+            raise RuntimeError("OpenBW faction endpoints disagreed on combat state")
+        states = {name: parse_combat_applied((OUT / f"{name}.log").read_text(errors="replace"))
+                  for name in ("server", "client-a", "client-b")}
+        common = set.intersection(*(set(value) for value in states.values()))
+        if len(common) < 10 or any(len({states[name][key] for name in states}) != 1 for key in common):
+            raise RuntimeError("OpenRCT2 clients disagreed on authoritative combat state")
+        initial = [key for key in common if len(states["server"][key]) == 12]
+        deaths = [key for key in common if any(unit[4] == "death" for unit in states["server"][key])]
+        if not initial or not deaths:
+            raise RuntimeError("12 initial actors or native death animation was not observed on both clients")
+        client_a_log = (OUT / "client-a.log").read_text(errors="replace")
+        if "FRONTIER_COMMAND_QUERY accepted=true" not in client_a_log or "FRONTIER_COMMAND_MOVED" not in client_a_log:
+            raise RuntimeError("OpenRCT2 client command was not executed in OpenBW")
+        if "FRONTIER_ATTACK_QUERY accepted=true" not in client_a_log \
+           or not re.search(r"command request=888 unit=openbw:[0-9]+ accepted=true reason=ok", client_a_log):
+            raise RuntimeError("Terran BWAPI did not accept the player attack order")
+        if "RTS Bridge selected Marines=openbw:1000" not in client_a_log \
+           or "unit=openbw:1000 accepted=true reason=ok" not in client_a_log:
+            raise RuntimeError("map selection or right-click Marine command failed")
+        if not any(abs(unit[1] - 576) + abs(unit[2] - 392) >= 12
+                   for key in common for unit in states["server"][key] if unit[0] == "openbw:1000"):
+            raise RuntimeError("map-selected Marine did not move in OpenBW on both clients")
+        report = {"status": "passed", "scenario": "frontier-defense", "live_openrct2": True,
+                  "initial_units": 12, "marine_attack_frames": len(re.findall(r"\[battle\] attack-frame .*kind=terran_marine", zerg_log)),
+                  "combat_deaths": zerg_log.count("[battle] destroyed"),
+                  "carousel_damage_events": zerg_log.count("[frontier] target-damage"),
+                  "carousel_demolitions": 1, "openbw_agreed_frames": len(common_frames),
+                  "openrct2_common_snapshots": len(common), "native_death_snapshots": len(deaths),
+                  "marine_command": "accepted and moved", "attack_command": "accepted by Terran BWAPI",
+                  "map_command": "selected, accepted and moved",
+                  "clients": list(clients)}
+        (OUT / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
+        print(json.dumps(report, indent=2), flush=True)
+        status = "passed"
+        return 0
+    except BaseException as error:
+        error_text = str(error)
+        (OUT / "verification.json").write_text(json.dumps({"status": "failed", "error": error_text}, indent=2) + "\n")
+        raise
+    finally:
+        recorder_error = None
+        try:
+            if recording_started: recorder.stop(test_success=status == "passed", test_error=error_text)
+        except BaseException as error:
+            recorder_error = error
+            status = "failed"
+            error_text = (error_text + "; " if error_text else "") + f"recording: {error}"
+            (OUT / "verification.json").write_text(json.dumps({"status": "failed", "error": error_text}, indent=2) + "\n")
+        finally:
+            for process, _ in reversed(running):
+                if process.poll() is None: process.terminate()
+            for process, output in reversed(running):
+                try: process.wait(timeout=3)
+                except subprocess.TimeoutExpired: process.kill(); process.wait()
+                output.close()
+            artifact_run.finalize(status, error_text)
+        if recorder_error is not None: raise recorder_error
+
+
+def capture_park_assault(args: argparse.Namespace, video_config: VideoConfig) -> int:
+    """Capture one 20-unit OpenBW assault on two real multiplayer clients."""
+    global OUT
+    for script in ("create-park-assault.py", "create-park-assault-map.py",
+                   "export-park-assault-navigation.py"):
+        subprocess.run([sys.executable, str(ROOT / "scripts" / script)], cwd=ROOT,
+                       check=True, stdout=subprocess.DEVNULL)
+    data = ROOT / "run-data/park-assault"
+    park = data / "save/frontier-outpost.park"
+    config = json.loads((data / "fixture.json").read_text())
+    default_out = ROOT / "run-data/visual-demo"
+    chosen_output = OUT if "DEMO_OUTPUT_DIR" in os.environ or OUT != default_out else None
+    artifact_run = ArtifactRun("live-capture", "Frontier Outpost: 20 Zerglings, three rides",
+                               chosen_output, config=vars(args) | {"park": str(park),
+                                                                    "simulation": "one OpenBW game",
+                                                                    "demolition": "three OpenRCT2 native actions"})
+    OUT = artifact_run.output
+    OUT.mkdir(parents=True, exist_ok=True)
+    subprocess.run([sys.executable, str(ROOT / "scripts/prepare-park-assault-plugin.py"),
+                    "--output", str(data / "rts-bridge-configured.js")], cwd=ROOT,
+                   check=True, stdout=subprocess.DEVNULL)
+    env = os.environ.copy() | {"RCT2_DATA_DIR": str(RCT2_DATA),
+                               "STARCRAFT_DATA_DIR": str(SC_DATA), "SDL_AUDIODRIVER": "dummy",
+                               "LIBGL_ALWAYS_SOFTWARE": "1", "BRIDGE_SCENARIO": "park_assault",
+                               "BRIDGE_FRAME_MS": "42", "BRIDGE_SERVER_DATA_DIR": str(OUT / "server-data"),
+                               "BRIDGE_BWAPI_RUNTIME_DIR": str(OUT / "openbw")}
+    scenario_config = json.loads((data / "scenario-config.json").read_text()) if (data / "scenario-config.json").is_file() else {}
+    scenario_config.update({"park": str(park), "map": str(data / "map/park-assault.scm"),
+                            "zerglings": 20, "proxy": "Terran_Barracks",
+                            "navigation_grid": str(data / "navigation.grid"),
+                            "bw_to_park_offset": config["transform"]})
+    (OUT / "scenario-config.json").write_text(json.dumps(scenario_config, indent=2) + "\n")
+    running = []
+    recorder = VideoRecorder(video_config, OUT)
+    recording_started = False
+    status = "failed"
+    error_text = None
+
+    def shot(stage: str) -> None:
+        for label, display in (("client-a", ":91"), ("client-b", ":92")):
+            name = f"{label}-{stage}.png"
+            subprocess.run(["scrot", "-z", "-o", str(OUT / name)], check=True,
+                           env=env | {"DISPLAY": display})
+            recorder.event("screenshot", client=label, filename=name, stage=stage)
+
+    def client_state(label: str, kind: str) -> dict[str, dict]:
+        log = (OUT / f"{label}.log").read_text(errors="replace")
+        marker = "PARK_ASSAULT_CLIENT_" + kind + " "
+        records = {}
+        for line in log.splitlines():
+            if marker in line:
+                value, _ = json.JSONDecoder().raw_decode(line.split(marker, 1)[1])
+                records[value["id"]] = value
+        return records
+
+    try:
+        for label, display in (("display-a", ":91"), ("display-b", ":92")):
+            running.append(start(label, ["Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], env))
+        time.sleep(1)
+        running.append(start("server", [str(ROOT / "scripts/run-openrct2-host.sh"), str(park)], env))
+        server = running[-1][0]
+        wait_for("server", "PARK_ASSAULT_READY", server, 40)
+        clients = {}
+        for label, display in (("client-a", ":91"), ("client-b", ":92")):
+            client_env = env | {"DISPLAY": display}
+            plugin_dir = OUT / label / "plugin"
+            plugin_dir.mkdir(parents=True, exist_ok=True)
+            camera = (ROOT / "scripts/park-assault-camera.js").read_text()
+            if label == "client-b":
+                camera = camera.replace("var closeup = false;", "var closeup = true;")
+            (plugin_dir / "park-assault-camera.js").write_text(camera)
+            command = [str(ROOT / "build/openrct2/openrct2"), "join", "127.0.0.1",
+                       "--port=11753", f"--rct2-data-path={RCT2_DATA}",
+                       f"--openrct2-data-path={OPENRCT2_DATA}", f"--user-data-path={OUT / label}"]
+            for attempt in range(3):
+                process, output = start(label, command, client_env)
+                try:
+                    wait_for(label, "[Passthrough RTS Bridge] Started", process, 60)
+                    wait_for(label, "PARK_ASSAULT_CAMERA role=", process, 60)
+                    wait_for(label, "PARK_ASSAULT_CLIENT_BEFORE", process, 60)
+                except RuntimeError:
+                    transfer_failed = "Decompression error!" in (OUT / f"{label}.log").read_text(errors="replace")
+                    process.terminate(); process.wait(timeout=3); output.close()
+                    if not transfer_failed or attempt == 2:
+                        raise
+                    (OUT / f"{label}.log").rename(OUT / f"{label}-transfer-failed-{attempt + 1}.log")
+                else:
+                    running.append((process, output))
+                    clients[label] = process
+                    break
+        for label in clients:
+            if set(client_state(label, "BEFORE")) != {"carousel-1", "shop-1", "ride-2"}:
+                raise RuntimeError(f"{label} did not confirm all three intact rides")
+        recorder.start()
+        recording_started = True
+        recorder.event("intact_park_overview")
+        shot("overview")
+        time.sleep(2)
+        bw_start_time = time.monotonic()
+        running.append(start("bwapi", [str(ROOT / "scripts/run-bwapi.sh")], env))
+        publisher = running[-1][0]
+        wait_for("bwapi", "[park-assault] initialized zerglings=20", publisher, 30)
+        wait_for("server", "RTS Bridge connected to BWAPI publisher", server, 20)
+        for label in clients:
+            wait_for(label, "RTS Bridge apply tick=", clients[label], 20)
+        wait_for("bwapi", "[park-assault] move-order", publisher, 15)
+        shot("approach")
+        recorder.event("twenty_zerglings_approach")
+        for target_id, stage in (("carousel-1", "carousel"), ("shop-1", "shop"),
+                                 ("ride-2", "ferris")):
+            wait_for("bwapi", f"[park-assault] target-damage id={target_id}", publisher, 45)
+            shot(stage + "-attack")
+            wait_for("server", f"PARK_ASSAULT_DEMOLITION_SUCCEEDED id={target_id}", server, 50)
+            for label, client in clients.items():
+                wait_for(label, f'PARK_ASSAULT_CLIENT_AFTER {{"id":"{target_id}"', client, 25)
+            shot(stage + "-destroyed")
+            recorder.event("native_demolition", target_id=target_id)
+        combat_end_time = time.monotonic()
+        time.sleep(2)
+        shot("final")
+        bw_log = (OUT / "bwapi.log").read_text(errors="replace")
+        server_log = (OUT / "server.log").read_text(errors="replace")
+        report = analyze_park_assault(bw_log, server_log, OUT)
+        draw_diagnostics(OUT)
+        for name in ("navigation-grid.json", "planned-paths.json"):
+            (OUT / name).write_bytes((data / name).read_bytes())
+        states = {name: parse_combat_applied((OUT / f"{name}.log").read_text(errors="replace"))
+                  for name in ("server", "client-a", "client-b")}
+        sequence_gaps = {}
+        for name, value in states.items():
+            sequences = sorted(seq for _session, seq in value)
+            sequence_gaps[name] = sum(current - previous - 1 for previous, current
+                                      in zip(sequences, sequences[1:]))
+        last_destroy_frame = max((int(frame) for frame in re.findall(
+            r"\[park-assault\] target-destroyed id=[a-z0-9-]+ proxy=\d+ frame=(\d+)", bw_log)), default=0)
+        frame_rate_lower_bound = round(last_destroy_frame / max(0.001, combat_end_time - bw_start_time), 2)
+        common = set.intersection(*(set(value) for value in states.values()))
+        disagreements = [key for key in common if len({states[name][key] for name in states}) != 1]
+        full = [key for key in common if len(states["server"][key]) == 20]
+        if len(common) < 20 or disagreements or len(full) < 5:
+            report["errors"].append("the two graphical clients did not agree on 20 native actors")
+        if any(sequence_gaps.values()):
+            report["errors"].append("one or more OpenRCT2 peers skipped bridge snapshot sequences")
+        client_results = {}
+        expected_ids = {target["id"]: target["ride_id"] for target in config["targets"]}
+        for label in clients:
+            before, after = client_state(label, "BEFORE"), client_state(label, "AFTER")
+            if set(before) != set(expected_ids) or set(after) != set(expected_ids):
+                report["errors"].append(f"{label} did not observe all three ride removals")
+                continue
+            for target_id, ride_id in expected_ids.items():
+                if before[target_id]["ride_id"] != ride_id or after[target_id]["ride_id"] != ride_id \
+                    or before[target_id]["tracks"] < 1 or after[target_id]["tracks"] != 0 \
+                    or before[target_id]["scenery"] != after[target_id]["scenery"]:
+                    report["errors"].append(f"{label} target or surviving scenery changed unexpectedly: {target_id}")
+            client_results[label] = {"before": before, "after": after,
+                                     "native_snapshots": len(states[label])}
+            log = (OUT / f"{label}.log").read_text(errors="replace")
+            if "desync" in log.lower() or "mismatch" in log.lower():
+                report["errors"].append(f"{label} logged a multiplayer synchronization error")
+        report.update({"live_openrct2": True, "graphical_clients": client_results,
+                       "common_snapshots": len(common), "twenty_actor_snapshots": len(full),
+                       "snapshot_disagreements": len(disagreements),
+                       "snapshot_sequence_gaps": sequence_gaps,
+                       "openbw_frame_rate_fps_lower_bound": frame_rate_lower_bound})
+        report["status"] = "failed" if report["errors"] else "passed"
+        (OUT / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
+        if report["status"] != "passed":
+            raise RuntimeError("live park assault verification failed: " + "; ".join(report["errors"]))
+        print(json.dumps(report, indent=2), flush=True)
+        status = "passed"
+        return 0
+    except BaseException as error:
+        error_text = str(error)
+        if not (OUT / "verification.json").is_file():
+            (OUT / "verification.json").write_text(json.dumps({"status": "failed", "scenario": "park-assault",
+                                                              "error": error_text}, indent=2) + "\n")
+        raise
+    finally:
+        recorder_error = None
+        try:
+            if recording_started:
+                recorder.stop(test_success=status == "passed", test_error=error_text)
+        except BaseException as error:
+            recorder_error = error
+            status = "failed"
+            error_text = (error_text + "; " if error_text else "") + f"recording: {error}"
+            (OUT / "verification.json").write_text(json.dumps({"status": "failed", "scenario": "park-assault",
+                                                              "error": error_text}, indent=2) + "\n")
+        finally:
+            for process, _ in reversed(running):
+                if process.poll() is None:
+                    process.terminate()
+            for process, output in reversed(running):
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill(); process.wait()
+                output.close()
+            artifact_run.finalize(status, error_text)
+        if recorder_error is not None:
+            raise recorder_error
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=float, default=65, help="live observation after both clients join")
@@ -247,8 +645,9 @@ def main() -> int:
     parser.add_argument("--verify-zergling", action="store_true", help="check actual screenshot pixels for local Zergling art")
     parser.add_argument("--verify-fallback", action="store_true", help="check CC0 scout pixels in the single-unit demo")
     parser.add_argument("--demo-units", type=int, choices=(1, 8), default=1)
-    parser.add_argument("--scenario", choices=("patrol", "ride-siege"), default="patrol")
+    parser.add_argument("--scenario", choices=("patrol", "ride-siege", "frontier-defense", "park-assault"), default="patrol")
     parser.add_argument("--verify-destruction", action="store_true")
+    parser.add_argument("--verify-combat", action="store_true")
     parser.add_argument("--verify-units", action="store_true", help="compare complete eight-unit snapshots and projected screenshot regions")
     parser.add_argument("--verify-animation", action="store_true", help="sample the walking sequence in both clients")
     parser.add_argument("--publisher-restart", action="store_true", help="capture despawn and return after a publisher restart")
@@ -264,8 +663,12 @@ def main() -> int:
         parser.error("--seconds must be at least 8")
     if args.publisher_restart and args.seconds < 35:
         parser.error("--publisher-restart requires --seconds of at least 35")
-    if args.verify_destruction and args.scenario != "ride-siege":
-        parser.error("--verify-destruction requires --scenario ride-siege")
+    if args.verify_destruction and args.scenario not in ("ride-siege", "park-assault"):
+        parser.error("--verify-destruction requires --scenario ride-siege or park-assault")
+    if args.verify_combat and args.scenario != "frontier-defense":
+        parser.error("--verify-combat requires --scenario frontier-defense")
+    if args.scenario == "park-assault" and not args.record_video:
+        parser.error("--scenario park-assault requires --record-video")
     video_config = None
     if args.record_video:
         try:
@@ -280,6 +683,10 @@ def main() -> int:
         raise RuntimeError(f"Missing StarCraft MPQs in {SC_DATA}")
     if args.scenario == "ride-siege":
         return capture_ride_siege(args, video_config)
+    if args.scenario == "frontier-defense":
+        return capture_frontier_defense(args, video_config)
+    if args.scenario == "park-assault":
+        return capture_park_assault(args, video_config)
     global OUT
     default_out = ROOT / "run-data/visual-demo"
     chosen_output = OUT if "DEMO_OUTPUT_DIR" in os.environ or OUT != default_out else None

@@ -1,282 +1,769 @@
+diff --git a/distribution/scripting/openrct2.d.ts b/distribution/scripting/openrct2.d.ts
+index 8483c78..c783ded 100644
+--- a/distribution/scripting/openrct2.d.ts
++++ b/distribution/scripting/openrct2.d.ts
+@@ -5043,6 +5043,7 @@ declare global {
+ 
+     interface ToolEventArgs {
+         readonly isDown: boolean;
++        readonly shift: boolean;
+         readonly screenCoords: ScreenCoordsXY;
+         readonly mapCoords?: CoordsXY;
+         readonly tileElementIndex?: number;
+@@ -5064,6 +5065,7 @@ declare global {
+ 
+         onStart?: () => void;
+         onDown?: (e: ToolEventArgs) => void;
++        onRightClick?: (e: ToolEventArgs) => void;
+         onMove?: (e: ToolEventArgs) => void;
+         onUp?: (e: ToolEventArgs) => void;
+         onFinish?: () => void;
 diff --git a/resources/g2/sprites.json b/resources/g2/sprites.json
-index 83e5f1c..29ccfa4 100644
+index 83e5f1c..e0e9941 100644
 --- a/resources/g2/sprites.json
 +++ b/resources/g2/sprites.json
-@@ -666,5 +666,269 @@
+@@ -666,5 +666,648 @@
          "path": "icons/walls.png",
          "x": 1,
          "y": 1
 +    },
 +    {
-+        "path": "bridge/idle_east.png", "x": -16, "y": -28
++        "path": "bridge/idle_east.png", "x": -13, "y": -10
 +    },
 +    {
-+        "path": "bridge/idle_south.png", "x": -16, "y": -28
++        "path": "bridge/idle_south.png", "x": -10, "y": -8
 +    },
 +    {
-+        "path": "bridge/idle_west.png", "x": -16, "y": -28
++        "path": "bridge/idle_west.png", "x": -17, "y": -10
 +    },
 +    {
-+        "path": "bridge/idle_north.png", "x": -16, "y": -28
++        "path": "bridge/idle_north.png", "x": -10, "y": -16
 +    },
 +    {
-+        "path": "bridge/walk0_east.png", "x": -16, "y": -28
++        "path": "bridge/walk0_east.png", "x": -7, "y": -15
 +    },
 +    {
-+        "path": "bridge/walk0_south.png", "x": -16, "y": -28
++        "path": "bridge/walk0_south.png", "x": -10, "y": -3
 +    },
 +    {
-+        "path": "bridge/walk0_west.png", "x": -16, "y": -28
++        "path": "bridge/walk0_west.png", "x": -23, "y": -15
 +    },
 +    {
-+        "path": "bridge/walk0_north.png", "x": -16, "y": -28
++        "path": "bridge/walk0_north.png", "x": -11, "y": -21
 +    },
 +    {
-+        "path": "bridge/walk1_east.png", "x": -16, "y": -28
++        "path": "bridge/walk1_east.png", "x": -7, "y": -15
 +    },
 +    {
-+        "path": "bridge/walk1_south.png", "x": -16, "y": -28
++        "path": "bridge/walk1_south.png", "x": -11, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk1_west.png", "x": -16, "y": -28
++        "path": "bridge/walk1_west.png", "x": -31, "y": -15
 +    },
 +    {
-+        "path": "bridge/walk1_north.png", "x": -16, "y": -28
++        "path": "bridge/walk1_north.png", "x": -11, "y": -28
 +    },
 +    {
-+        "path": "bridge/idle_southeast.png", "x": -16, "y": -28
++        "path": "bridge/idle_southeast.png", "x": -9, "y": -7
 +    },
 +    {
-+        "path": "bridge/idle_southwest.png", "x": -16, "y": -28
++        "path": "bridge/idle_southwest.png", "x": -16, "y": -7
 +    },
 +    {
-+        "path": "bridge/idle_northwest.png", "x": -16, "y": -28
++        "path": "bridge/idle_northwest.png", "x": -16, "y": -16
 +    },
 +    {
-+        "path": "bridge/idle_northeast.png", "x": -16, "y": -28
++        "path": "bridge/idle_northeast.png", "x": -9, "y": -16
 +    },
 +    {
-+        "path": "bridge/walk0_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk0_southeast.png", "x": -5, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk0_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk0_southwest.png", "x": -20, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk0_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk0_northwest.png", "x": -20, "y": -21
 +    },
 +    {
-+        "path": "bridge/walk0_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk0_northeast.png", "x": -5, "y": -21
 +    },
 +    {
-+        "path": "bridge/walk1_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk1_southeast.png", "x": -5, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk1_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk1_southwest.png", "x": -28, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk1_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk1_northwest.png", "x": -28, "y": -26
 +    },
 +    {
-+        "path": "bridge/walk1_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk1_northeast.png", "x": -5, "y": -26
 +    },
 +    {
-+        "path": "bridge/walk2_east.png", "x": -16, "y": -28
++        "path": "bridge/walk2_east.png", "x": -9, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk2_south.png", "x": -16, "y": -28
++        "path": "bridge/walk2_south.png", "x": -10, "y": -13
 +    },
 +    {
-+        "path": "bridge/walk2_west.png", "x": -16, "y": -28
++        "path": "bridge/walk2_west.png", "x": -24, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk2_north.png", "x": -16, "y": -28
++        "path": "bridge/walk2_north.png", "x": -11, "y": -18
 +    },
 +    {
-+        "path": "bridge/walk2_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk2_southeast.png", "x": -6, "y": -14
 +    },
 +    {
-+        "path": "bridge/walk2_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk2_southwest.png", "x": -20, "y": -14
 +    },
 +    {
-+        "path": "bridge/walk2_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk2_northwest.png", "x": -21, "y": -16
 +    },
 +    {
-+        "path": "bridge/walk2_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk2_northeast.png", "x": -6, "y": -16
 +    },
 +    {
-+        "path": "bridge/walk3_east.png", "x": -16, "y": -28
++        "path": "bridge/walk3_east.png", "x": -15, "y": -7
 +    },
 +    {
-+        "path": "bridge/walk3_south.png", "x": -16, "y": -28
++        "path": "bridge/walk3_south.png", "x": -10, "y": -15
 +    },
 +    {
-+        "path": "bridge/walk3_west.png", "x": -16, "y": -28
++        "path": "bridge/walk3_west.png", "x": -10, "y": -7
 +    },
 +    {
-+        "path": "bridge/walk3_north.png", "x": -16, "y": -28
++        "path": "bridge/walk3_north.png", "x": -10, "y": -7
 +    },
 +    {
-+        "path": "bridge/walk3_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk3_southeast.png", "x": -10, "y": -14
 +    },
 +    {
-+        "path": "bridge/walk3_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk3_southwest.png", "x": -11, "y": -14
 +    },
 +    {
-+        "path": "bridge/walk3_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk3_northwest.png", "x": -10, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk3_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk3_northeast.png", "x": -10, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk4_east.png", "x": -16, "y": -28
++        "path": "bridge/walk4_east.png", "x": -17, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk4_south.png", "x": -16, "y": -28
++        "path": "bridge/walk4_south.png", "x": -10, "y": -13
 +    },
 +    {
-+        "path": "bridge/walk4_west.png", "x": -16, "y": -28
++        "path": "bridge/walk4_west.png", "x": -11, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk4_north.png", "x": -16, "y": -28
++        "path": "bridge/walk4_north.png", "x": -10, "y": -7
 +    },
 +    {
-+        "path": "bridge/walk4_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk4_southeast.png", "x": -11, "y": -12
 +    },
 +    {
-+        "path": "bridge/walk4_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk4_southwest.png", "x": -11, "y": -12
 +    },
 +    {
-+        "path": "bridge/walk4_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk4_northwest.png", "x": -10, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk4_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk4_northeast.png", "x": -12, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk5_east.png", "x": -16, "y": -28
++        "path": "bridge/walk5_east.png", "x": -17, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk5_south.png", "x": -16, "y": -28
++        "path": "bridge/walk5_south.png", "x": -10, "y": -9
 +    },
 +    {
-+        "path": "bridge/walk5_west.png", "x": -16, "y": -28
++        "path": "bridge/walk5_west.png", "x": -10, "y": -6
 +    },
 +    {
-+        "path": "bridge/walk5_north.png", "x": -16, "y": -28
++        "path": "bridge/walk5_north.png", "x": -11, "y": -7
 +    },
 +    {
-+        "path": "bridge/walk5_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk5_southeast.png", "x": -11, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk5_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk5_southwest.png", "x": -11, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk5_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk5_northwest.png", "x": -10, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk5_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk5_northeast.png", "x": -12, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk6_east.png", "x": -16, "y": -28
++        "path": "bridge/walk6_east.png", "x": -20, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk6_south.png", "x": -16, "y": -28
++        "path": "bridge/walk6_south.png", "x": -10, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk6_west.png", "x": -16, "y": -28
++        "path": "bridge/walk6_west.png", "x": -13, "y": -8
 +    },
 +    {
-+        "path": "bridge/walk6_north.png", "x": -16, "y": -28
++        "path": "bridge/walk6_north.png", "x": -10, "y": -9
 +    },
 +    {
-+        "path": "bridge/walk6_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk6_southeast.png", "x": -15, "y": -9
 +    },
 +    {
-+        "path": "bridge/walk6_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk6_southwest.png", "x": -12, "y": -9
 +    },
 +    {
-+        "path": "bridge/walk6_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk6_northwest.png", "x": -11, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk6_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk6_northeast.png", "x": -15, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk7_east.png", "x": -16, "y": -28
++        "path": "bridge/walk7_east.png", "x": -21, "y": -9
 +    },
 +    {
-+        "path": "bridge/walk7_south.png", "x": -16, "y": -28
++        "path": "bridge/walk7_south.png", "x": -8, "y": -17
 +    },
 +    {
-+        "path": "bridge/walk7_west.png", "x": -16, "y": -28
++        "path": "bridge/walk7_west.png", "x": -16, "y": -9
 +    },
 +    {
-+        "path": "bridge/walk7_north.png", "x": -16, "y": -28
++        "path": "bridge/walk7_north.png", "x": -8, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk7_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk7_southeast.png", "x": -19, "y": -16
 +    },
 +    {
-+        "path": "bridge/walk7_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk7_southwest.png", "x": -14, "y": -16
 +    },
 +    {
-+        "path": "bridge/walk7_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk7_northwest.png", "x": -14, "y": -11
 +    },
 +    {
-+        "path": "bridge/walk7_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk7_northeast.png", "x": -19, "y": -11
 +    },
 +    {
-+        "path": "bridge/walk8_east.png", "x": -16, "y": -28
++        "path": "bridge/walk8_east.png", "x": -20, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk8_south.png", "x": -16, "y": -28
++        "path": "bridge/walk8_south.png", "x": -7, "y": -19
 +    },
 +    {
-+        "path": "bridge/walk8_west.png", "x": -16, "y": -28
++        "path": "bridge/walk8_west.png", "x": -14, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk8_north.png", "x": -16, "y": -28
++        "path": "bridge/walk8_north.png", "x": -6, "y": -11
 +    },
 +    {
-+        "path": "bridge/walk8_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk8_southeast.png", "x": -18, "y": -17
 +    },
 +    {
-+        "path": "bridge/walk8_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk8_southwest.png", "x": -14, "y": -17
 +    },
 +    {
-+        "path": "bridge/walk8_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk8_northwest.png", "x": -14, "y": -12
 +    },
 +    {
-+        "path": "bridge/walk8_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk8_northeast.png", "x": -18, "y": -12
 +    },
 +    {
-+        "path": "bridge/walk9_east.png", "x": -16, "y": -28
++        "path": "bridge/walk9_east.png", "x": -20, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk9_south.png", "x": -16, "y": -28
++        "path": "bridge/walk9_south.png", "x": -10, "y": -18
 +    },
 +    {
-+        "path": "bridge/walk9_west.png", "x": -16, "y": -28
++        "path": "bridge/walk9_west.png", "x": -9, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk9_north.png", "x": -16, "y": -28
++        "path": "bridge/walk9_north.png", "x": -9, "y": -10
 +    },
 +    {
-+        "path": "bridge/walk9_southeast.png", "x": -16, "y": -28
++        "path": "bridge/walk9_southeast.png", "x": -15, "y": -15
 +    },
 +    {
-+        "path": "bridge/walk9_southwest.png", "x": -16, "y": -28
++        "path": "bridge/walk9_southwest.png", "x": -12, "y": -15
 +    },
 +    {
-+        "path": "bridge/walk9_northwest.png", "x": -16, "y": -28
++        "path": "bridge/walk9_northwest.png", "x": -11, "y": -12
 +    },
 +    {
-+        "path": "bridge/walk9_northeast.png", "x": -16, "y": -28
++        "path": "bridge/walk9_northeast.png", "x": -14, "y": -12
++    }
++,
++    {
++        "path": "bridge/marine/idle0_east.png", "x": -8, "y": -12
++    },
++    {
++        "path": "bridge/marine/idle0_southeast.png", "x": -9, "y": -13
++    },
++    {
++        "path": "bridge/marine/idle0_south.png", "x": -11, "y": -13
++    },
++    {
++        "path": "bridge/marine/idle0_southwest.png", "x": -15, "y": -13
++    },
++    {
++        "path": "bridge/marine/idle0_west.png", "x": -13, "y": -12
++    },
++    {
++        "path": "bridge/marine/idle0_northwest.png", "x": -9, "y": -14
++    },
++    {
++        "path": "bridge/marine/idle0_north.png", "x": -9, "y": -13
++    },
++    {
++        "path": "bridge/marine/idle0_northeast.png", "x": -9, "y": -14
++    },
++    {
++        "path": "bridge/marine/walk0_east.png", "x": -9, "y": -12
++    },
++    {
++        "path": "bridge/marine/walk0_southeast.png", "x": -9, "y": -13
++    },
++    {
++        "path": "bridge/marine/walk0_south.png", "x": -10, "y": -13
++    },
++    {
++        "path": "bridge/marine/walk0_southwest.png", "x": -14, "y": -13
++    },
++    {
++        "path": "bridge/marine/walk0_west.png", "x": -16, "y": -12
++    },
++    {
++        "path": "bridge/marine/walk0_northwest.png", "x": -9, "y": -12
++    },
++    {
++        "path": "bridge/marine/walk0_north.png", "x": -8, "y": -14
++    },
++    {
++        "path": "bridge/marine/walk0_northeast.png", "x": -9, "y": -12
++    },
++    {
++        "path": "bridge/marine/walk1_east.png", "x": -9, "y": -12
++    },
++    {
++        "path": "bridge/marine/walk1_southeast.png", "x": -10, "y": -13
++    },
++    {
++        "path": "bridge/marine/walk1_south.png", "x": -8, "y": -13
++    },
++    {
++        "path": "bridge/marine/walk1_southwest.png", "x": -11, "y": -13
++    },
++    {
++        "path": "bridge/marine/walk1_west.png", "x": -17, "y": -12
++    },
++    {
++        "path": "bridge/marine/walk1_northwest.png", "x": -14, "y": -11
++    },
++    {
++        "path": "bridge/marine/walk1_north.png", "x": -8, "y": -14
++    },
++    {
++        "path": "bridge/marine/walk1_northeast.png", "x": -8, "y": -11
++    },
++    {
++        "path": "bridge/marine/attack0_east.png", "x": -9, "y": -12
++    },
++    {
++        "path": "bridge/marine/attack0_southeast.png", "x": -10, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack0_south.png", "x": -8, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack0_southwest.png", "x": -17, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack0_west.png", "x": -18, "y": -12
++    },
++    {
++        "path": "bridge/marine/attack0_northwest.png", "x": -17, "y": -14
++    },
++    {
++        "path": "bridge/marine/attack0_north.png", "x": -8, "y": -18
++    },
++    {
++        "path": "bridge/marine/attack0_northeast.png", "x": -8, "y": -14
++    },
++    {
++        "path": "bridge/marine/attack1_east.png", "x": -8, "y": -12
++    },
++    {
++        "path": "bridge/marine/attack1_southeast.png", "x": -9, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack1_south.png", "x": -10, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack1_southwest.png", "x": -14, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack1_west.png", "x": -9, "y": -12
++    },
++    {
++        "path": "bridge/marine/attack1_northwest.png", "x": -10, "y": -14
++    },
++    {
++        "path": "bridge/marine/attack1_north.png", "x": -11, "y": -11
++    },
++    {
++        "path": "bridge/marine/attack1_northeast.png", "x": -9, "y": -14
++    },
++    {
++        "path": "bridge/marine/attack2_east.png", "x": -8, "y": -12
++    },
++    {
++        "path": "bridge/marine/attack2_southeast.png", "x": -9, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack2_south.png", "x": -11, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack2_southwest.png", "x": -14, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack2_west.png", "x": -10, "y": -12
++    },
++    {
++        "path": "bridge/marine/attack2_northwest.png", "x": -10, "y": -13
++    },
++    {
++        "path": "bridge/marine/attack2_north.png", "x": -10, "y": -11
++    },
++    {
++        "path": "bridge/marine/attack2_northeast.png", "x": -9, "y": -13
++    },
++    {
++        "path": "bridge/marine/death0.png", "x": -10, "y": -13
++    },
++    {
++        "path": "bridge/marine/death1.png", "x": -9, "y": -13
++    },
++    {
++        "path": "bridge/marine/death2.png", "x": -15, "y": -15
++    },
++    {
++        "path": "bridge/marine/death3.png", "x": -20, "y": -18
++    },
++    {
++        "path": "bridge/marine/death4.png", "x": -25, "y": -17
++    },
++    {
++        "path": "bridge/marine/death5.png", "x": -30, "y": -15
++    },
++    {
++        "path": "bridge/marine/death6.png", "x": -32, "y": -13
++    },
++    {
++        "path": "bridge/marine/death7.png", "x": -32, "y": -12
++    },
++    {
++        "path": "bridge/death0_east.png", "x": -18, "y": -8
++    },
++    {
++        "path": "bridge/death0_southeast.png", "x": -12, "y": -15
++    },
++    {
++        "path": "bridge/death0_south.png", "x": -10, "y": -17
++    },
++    {
++        "path": "bridge/death0_southwest.png", "x": -11, "y": -15
++    },
++    {
++        "path": "bridge/death0_west.png", "x": -9, "y": -8
++    },
++    {
++        "path": "bridge/death0_northwest.png", "x": -11, "y": -10
++    },
++    {
++        "path": "bridge/death0_north.png", "x": -10, "y": -9
++    },
++    {
++        "path": "bridge/death0_northeast.png", "x": -13, "y": -10
++    },
++    {
++        "path": "bridge/death1_east.png", "x": -14, "y": -8
++    },
++    {
++        "path": "bridge/death1_southeast.png", "x": -14, "y": -8
++    },
++    {
++        "path": "bridge/death1_south.png", "x": -14, "y": -8
++    },
++    {
++        "path": "bridge/death1_southwest.png", "x": -10, "y": -8
++    },
++    {
++        "path": "bridge/death1_west.png", "x": -10, "y": -8
++    },
++    {
++        "path": "bridge/death1_northwest.png", "x": -10, "y": -8
++    },
++    {
++        "path": "bridge/death1_north.png", "x": -14, "y": -8
++    },
++    {
++        "path": "bridge/death1_northeast.png", "x": -14, "y": -8
++    },
++    {
++        "path": "bridge/death2_east.png", "x": -16, "y": -8
++    },
++    {
++        "path": "bridge/death2_southeast.png", "x": -16, "y": -8
++    },
++    {
++        "path": "bridge/death2_south.png", "x": -16, "y": -8
++    },
++    {
++        "path": "bridge/death2_southwest.png", "x": -11, "y": -8
++    },
++    {
++        "path": "bridge/death2_west.png", "x": -11, "y": -8
++    },
++    {
++        "path": "bridge/death2_northwest.png", "x": -11, "y": -8
++    },
++    {
++        "path": "bridge/death2_north.png", "x": -16, "y": -8
++    },
++    {
++        "path": "bridge/death2_northeast.png", "x": -16, "y": -8
++    },
++    {
++        "path": "bridge/death3_east.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death3_southeast.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death3_south.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death3_southwest.png", "x": -11, "y": -4
++    },
++    {
++        "path": "bridge/death3_west.png", "x": -11, "y": -4
++    },
++    {
++        "path": "bridge/death3_northwest.png", "x": -11, "y": -4
++    },
++    {
++        "path": "bridge/death3_north.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death3_northeast.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death4_east.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death4_southeast.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death4_south.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death4_southwest.png", "x": -12, "y": -4
++    },
++    {
++        "path": "bridge/death4_west.png", "x": -12, "y": -4
++    },
++    {
++        "path": "bridge/death4_northwest.png", "x": -12, "y": -4
++    },
++    {
++        "path": "bridge/death4_north.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death4_northeast.png", "x": -13, "y": -4
++    },
++    {
++        "path": "bridge/death5_east.png", "x": -7, "y": 3
++    },
++    {
++        "path": "bridge/death5_southeast.png", "x": -7, "y": 3
++    },
++    {
++        "path": "bridge/death5_south.png", "x": -7, "y": 3
++    },
++    {
++        "path": "bridge/death5_southwest.png", "x": -8, "y": 3
++    },
++    {
++        "path": "bridge/death5_west.png", "x": -8, "y": 3
++    },
++    {
++        "path": "bridge/death5_northwest.png", "x": -8, "y": 3
++    },
++    {
++        "path": "bridge/death5_north.png", "x": -7, "y": 3
++    },
++    {
++        "path": "bridge/death5_northeast.png", "x": -7, "y": 3
++    },
++    {
++        "path": "bridge/health/marine0.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine1.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine2.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine3.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine4.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine5.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine6.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine7.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine8.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine9.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/marine10.png", "x": -10, "y": -42
++    },
++    {
++        "path": "bridge/health/zergling0.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling1.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling2.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling3.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling4.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling5.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling6.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling7.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling8.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling9.png", "x": -10, "y": -34
++    },
++    {
++        "path": "bridge/health/zergling10.png", "x": -10, "y": -34
      }
  ]
+diff --git a/src/openrct2-ui/interface/ViewportInteraction.cpp b/src/openrct2-ui/interface/ViewportInteraction.cpp
+index c0aa8fb..990a6cf 100644
+--- a/src/openrct2-ui/interface/ViewportInteraction.cpp
++++ b/src/openrct2-ui/interface/ViewportInteraction.cpp
+@@ -12,6 +12,9 @@
+ #include "../ProvisionalElements.h"
+ #include "../UiStringIds.h"
+ #include "../windows/Windows.h"
++#ifdef ENABLE_SCRIPTING
++    #include "../scripting/CustomMenu.h"
++#endif
+ 
+ #include <openrct2/Context.h>
+ #include <openrct2/Game.h>
+@@ -556,6 +559,10 @@ namespace OpenRCT2::Ui
+      */
+     bool ViewportInteractionRightClick(const ScreenCoordsXY& screenCoords)
+     {
++#ifdef ENABLE_SCRIPTING
++        if (Scripting::ActiveCustomTool && Scripting::ActiveCustomTool->OnRightClick(screenCoords))
++            return true;
++#endif
+         CoordsXYE tileElement;
+         auto info = ViewportInteractionGetItemRight(screenCoords);
+ 
+diff --git a/src/openrct2-ui/scripting/CustomMenu.cpp b/src/openrct2-ui/scripting/CustomMenu.cpp
+index a45bf91..de932d7 100644
+--- a/src/openrct2-ui/scripting/CustomMenu.cpp
++++ b/src/openrct2-ui/scripting/CustomMenu.cpp
+@@ -13,6 +13,7 @@
+ 
+     #include <openrct2-ui/UiContext.h>
+     #include <openrct2-ui/input/ShortcutManager.h>
++    #include <openrct2-ui/input/InputManager.h>
+     #include <openrct2/core/EnumMap.hpp>
+     #include <openrct2/interface/Viewport.h>
+     #include <openrct2/scripting/ScriptUtil.hpp>
+@@ -176,6 +177,14 @@ namespace OpenRCT2::Scripting
+         InvokeEventHandler(onDown.callback, screenCoords);
+     }
+ 
++    bool CustomTool::OnRightClick(const ScreenCoordsXY& screenCoords)
++    {
++        if (!JS_IsFunction(Owner->GetContext(), onRightClick.callback))
++            return false;
++        InvokeEventHandler(onRightClick.callback, screenCoords);
++        return true;
++    }
++
+     void CustomTool::OnDrag(const ScreenCoordsXY& screenCoords)
+     {
+     }
+@@ -207,6 +216,7 @@ namespace OpenRCT2::Scripting
+ 
+             JSValue obj = JS_NewObject(ctx);
+             JS_SetPropertyStr(ctx, obj, "isDown", JS_NewBool(ctx, MouseDown));
++            JS_SetPropertyStr(ctx, obj, "shift", JS_NewBool(ctx, GetInputManager().isModifierKeyPressed(ModifierKey::shift)));
+             JS_SetPropertyStr(ctx, obj, "screenCoords", ToJSValue(ctx, screenCoords));
+             JS_SetPropertyStr(ctx, obj, "mapCoords", ToJSValue(ctx, info.Loc));
+ 
+@@ -279,6 +289,7 @@ namespace OpenRCT2::Scripting
+ 
+             customTool.onStart = JSToCallback(ctx, value, "onStart");
+             customTool.onDown = JSToCallback(ctx, value, "onDown");
++            customTool.onRightClick = JSToCallback(ctx, value, "onRightClick");
+             customTool.onMove = JSToCallback(ctx, value, "onMove");
+             customTool.onUp = JSToCallback(ctx, value, "onUp");
+             customTool.onFinish = JSToCallback(ctx, value, "onFinish");
+diff --git a/src/openrct2-ui/scripting/CustomMenu.h b/src/openrct2-ui/scripting/CustomMenu.h
+index 9f0fd1f..3bb2319 100644
+--- a/src/openrct2-ui/scripting/CustomMenu.h
++++ b/src/openrct2-ui/scripting/CustomMenu.h
+@@ -84,6 +84,7 @@ namespace OpenRCT2::Scripting
+         // Event handlers
+         JSCallback onStart;
+         JSCallback onDown;
++        JSCallback onRightClick;
+         JSCallback onMove;
+         JSCallback onUp;
+         JSCallback onFinish;
+@@ -91,6 +92,7 @@ namespace OpenRCT2::Scripting
+         void Start();
+         void OnUpdate(const ScreenCoordsXY& screenCoords);
+         void OnDown(const ScreenCoordsXY& screenCoords);
++        bool OnRightClick(const ScreenCoordsXY& screenCoords);
+         void OnDrag(const ScreenCoordsXY& screenCoords);
+         void OnUp(const ScreenCoordsXY& screenCoords);
+         void OnAbort();
 diff --git a/src/openrct2/SpriteIds.h b/src/openrct2/SpriteIds.h
-index 500f197..792abcf 100644
+index 500f197..ce9cb21 100644
 --- a/src/openrct2/SpriteIds.h
 +++ b/src/openrct2/SpriteIds.h
-@@ -1211,6 +1211,97 @@ enum : ImageIndex
+@@ -1211,6 +1211,225 @@ enum : ImageIndex
      SPR_G2_BUTTON_PATH_ADDITIONS,
      SPR_G2_BUTTON_WALLS,
  
@@ -371,11 +858,139 @@ index 500f197..792abcf 100644
 +    SPR_BRIDGE_SCOUT_WALK9_NORTHWEST,
 +    SPR_BRIDGE_SCOUT_WALK9_NORTHEAST,
 +
++    SPR_BRIDGE_MARINE_IDLE0_EAST,
++    SPR_BRIDGE_MARINE_IDLE0_SOUTHEAST,
++    SPR_BRIDGE_MARINE_IDLE0_SOUTH,
++    SPR_BRIDGE_MARINE_IDLE0_SOUTHWEST,
++    SPR_BRIDGE_MARINE_IDLE0_WEST,
++    SPR_BRIDGE_MARINE_IDLE0_NORTHWEST,
++    SPR_BRIDGE_MARINE_IDLE0_NORTH,
++    SPR_BRIDGE_MARINE_IDLE0_NORTHEAST,
++    SPR_BRIDGE_MARINE_WALK0_EAST,
++    SPR_BRIDGE_MARINE_WALK0_SOUTHEAST,
++    SPR_BRIDGE_MARINE_WALK0_SOUTH,
++    SPR_BRIDGE_MARINE_WALK0_SOUTHWEST,
++    SPR_BRIDGE_MARINE_WALK0_WEST,
++    SPR_BRIDGE_MARINE_WALK0_NORTHWEST,
++    SPR_BRIDGE_MARINE_WALK0_NORTH,
++    SPR_BRIDGE_MARINE_WALK0_NORTHEAST,
++    SPR_BRIDGE_MARINE_WALK1_EAST,
++    SPR_BRIDGE_MARINE_WALK1_SOUTHEAST,
++    SPR_BRIDGE_MARINE_WALK1_SOUTH,
++    SPR_BRIDGE_MARINE_WALK1_SOUTHWEST,
++    SPR_BRIDGE_MARINE_WALK1_WEST,
++    SPR_BRIDGE_MARINE_WALK1_NORTHWEST,
++    SPR_BRIDGE_MARINE_WALK1_NORTH,
++    SPR_BRIDGE_MARINE_WALK1_NORTHEAST,
++    SPR_BRIDGE_MARINE_ATTACK0_EAST,
++    SPR_BRIDGE_MARINE_ATTACK0_SOUTHEAST,
++    SPR_BRIDGE_MARINE_ATTACK0_SOUTH,
++    SPR_BRIDGE_MARINE_ATTACK0_SOUTHWEST,
++    SPR_BRIDGE_MARINE_ATTACK0_WEST,
++    SPR_BRIDGE_MARINE_ATTACK0_NORTHWEST,
++    SPR_BRIDGE_MARINE_ATTACK0_NORTH,
++    SPR_BRIDGE_MARINE_ATTACK0_NORTHEAST,
++    SPR_BRIDGE_MARINE_ATTACK1_EAST,
++    SPR_BRIDGE_MARINE_ATTACK1_SOUTHEAST,
++    SPR_BRIDGE_MARINE_ATTACK1_SOUTH,
++    SPR_BRIDGE_MARINE_ATTACK1_SOUTHWEST,
++    SPR_BRIDGE_MARINE_ATTACK1_WEST,
++    SPR_BRIDGE_MARINE_ATTACK1_NORTHWEST,
++    SPR_BRIDGE_MARINE_ATTACK1_NORTH,
++    SPR_BRIDGE_MARINE_ATTACK1_NORTHEAST,
++    SPR_BRIDGE_MARINE_ATTACK2_EAST,
++    SPR_BRIDGE_MARINE_ATTACK2_SOUTHEAST,
++    SPR_BRIDGE_MARINE_ATTACK2_SOUTH,
++    SPR_BRIDGE_MARINE_ATTACK2_SOUTHWEST,
++    SPR_BRIDGE_MARINE_ATTACK2_WEST,
++    SPR_BRIDGE_MARINE_ATTACK2_NORTHWEST,
++    SPR_BRIDGE_MARINE_ATTACK2_NORTH,
++    SPR_BRIDGE_MARINE_ATTACK2_NORTHEAST,
++    SPR_BRIDGE_MARINE_DEATH0,
++    SPR_BRIDGE_MARINE_DEATH1,
++    SPR_BRIDGE_MARINE_DEATH2,
++    SPR_BRIDGE_MARINE_DEATH3,
++    SPR_BRIDGE_MARINE_DEATH4,
++    SPR_BRIDGE_MARINE_DEATH5,
++    SPR_BRIDGE_MARINE_DEATH6,
++    SPR_BRIDGE_MARINE_DEATH7,
++
++    SPR_BRIDGE_SCOUT_DEATH0_EAST,
++    SPR_BRIDGE_SCOUT_DEATH0_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH0_SOUTH,
++    SPR_BRIDGE_SCOUT_DEATH0_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH0_WEST,
++    SPR_BRIDGE_SCOUT_DEATH0_NORTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH0_NORTH,
++    SPR_BRIDGE_SCOUT_DEATH0_NORTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH1_EAST,
++    SPR_BRIDGE_SCOUT_DEATH1_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH1_SOUTH,
++    SPR_BRIDGE_SCOUT_DEATH1_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH1_WEST,
++    SPR_BRIDGE_SCOUT_DEATH1_NORTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH1_NORTH,
++    SPR_BRIDGE_SCOUT_DEATH1_NORTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH2_EAST,
++    SPR_BRIDGE_SCOUT_DEATH2_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH2_SOUTH,
++    SPR_BRIDGE_SCOUT_DEATH2_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH2_WEST,
++    SPR_BRIDGE_SCOUT_DEATH2_NORTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH2_NORTH,
++    SPR_BRIDGE_SCOUT_DEATH2_NORTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH3_EAST,
++    SPR_BRIDGE_SCOUT_DEATH3_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH3_SOUTH,
++    SPR_BRIDGE_SCOUT_DEATH3_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH3_WEST,
++    SPR_BRIDGE_SCOUT_DEATH3_NORTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH3_NORTH,
++    SPR_BRIDGE_SCOUT_DEATH3_NORTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH4_EAST,
++    SPR_BRIDGE_SCOUT_DEATH4_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH4_SOUTH,
++    SPR_BRIDGE_SCOUT_DEATH4_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH4_WEST,
++    SPR_BRIDGE_SCOUT_DEATH4_NORTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH4_NORTH,
++    SPR_BRIDGE_SCOUT_DEATH4_NORTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH5_EAST,
++    SPR_BRIDGE_SCOUT_DEATH5_SOUTHEAST,
++    SPR_BRIDGE_SCOUT_DEATH5_SOUTH,
++    SPR_BRIDGE_SCOUT_DEATH5_SOUTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH5_WEST,
++    SPR_BRIDGE_SCOUT_DEATH5_NORTHWEST,
++    SPR_BRIDGE_SCOUT_DEATH5_NORTH,
++    SPR_BRIDGE_SCOUT_DEATH5_NORTHEAST,
++    SPR_BRIDGE_HEALTH_MARINE_0,
++    SPR_BRIDGE_HEALTH_MARINE_1,
++    SPR_BRIDGE_HEALTH_MARINE_2,
++    SPR_BRIDGE_HEALTH_MARINE_3,
++    SPR_BRIDGE_HEALTH_MARINE_4,
++    SPR_BRIDGE_HEALTH_MARINE_5,
++    SPR_BRIDGE_HEALTH_MARINE_6,
++    SPR_BRIDGE_HEALTH_MARINE_7,
++    SPR_BRIDGE_HEALTH_MARINE_8,
++    SPR_BRIDGE_HEALTH_MARINE_9,
++    SPR_BRIDGE_HEALTH_MARINE_10,
++    SPR_BRIDGE_HEALTH_ZERGLING_0,
++    SPR_BRIDGE_HEALTH_ZERGLING_1,
++    SPR_BRIDGE_HEALTH_ZERGLING_2,
++    SPR_BRIDGE_HEALTH_ZERGLING_3,
++    SPR_BRIDGE_HEALTH_ZERGLING_4,
++    SPR_BRIDGE_HEALTH_ZERGLING_5,
++    SPR_BRIDGE_HEALTH_ZERGLING_6,
++    SPR_BRIDGE_HEALTH_ZERGLING_7,
++    SPR_BRIDGE_HEALTH_ZERGLING_8,
++    SPR_BRIDGE_HEALTH_ZERGLING_9,
++    SPR_BRIDGE_HEALTH_ZERGLING_10,
++
      SPR_G2_END,
  
      // Main palettes
 diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
-index 7fd474f..c17e154 100644
+index 7fd474f..52376ce 100644
 --- a/src/openrct2/paint/Paint.Entity.cpp
 +++ b/src/openrct2/paint/Paint.Entity.cpp
 @@ -9,6 +9,9 @@
@@ -396,11 +1011,12 @@ index 7fd474f..c17e154 100644
  #include "Paint.h"
  #include "entity/Paint.Balloon.h"
  #include "entity/Paint.CrashSplashParticle.h"
-@@ -32,10 +36,163 @@
+@@ -32,10 +36,192 @@
  #include "entity/Paint.VehicleCrashParticle.h"
  
  #include <cassert>
 +#include <algorithm>
++#include <cmath>
 +#include <map>
 +#include <memory>
 +#include <sstream>
@@ -493,7 +1109,7 @@ index 7fd474f..c17e154 100644
 +            const auto previousVisual = previous->visual.find(actor.id);
 +            if (previousVisual != previous->visual.end())
 +            {
-+                if (actor.moving && old->second.moving)
++                if (actor.motion == old->second.motion && actor.attackFrames == old->second.attackFrames)
 +                    visual.animationStartTick = previousVisual->second.animationStartTick;
 +                const auto source = VisualPosition(old->second, previousVisual->second);
 +                const int64_t dx = static_cast<int64_t>(actor.x) - old->second.x;
@@ -531,7 +1147,9 @@ index 7fd474f..c17e154 100644
 +        InvalidateBridgeActor(actor);
 +        if (canonical.tellp() > 0) canonical << ';';
 +        canonical << actor.id << ',' << actor.x << ',' << actor.y << ',' << static_cast<int>(actor.facing)
-+                  << ',' << (actor.moving ? "walk" : "idle") << ',' << TileElementHeight({ actor.x, actor.y });
++                  << ',' << actor.motion << ',' << TileElementHeight({ actor.x, actor.y })
++                  << ',' << actor.kind << ',' << actor.hp << ',' << actor.maxHp << ',' << actor.owner
++                  << ',' << actor.attackFrames;
 +    }
 +    LOG_INFO("RTS Bridge apply tick=%u seq=%llu session=%s center_z=%d units=%s", tick,
 +        static_cast<unsigned long long>(seq), next->session.c_str(), TileElementHeight({ 480, 480 }), canonical.str().c_str());
@@ -545,7 +1163,7 @@ index 7fd474f..c17e154 100644
 +        auto it = snapshot->visual.find(actor.id);
 +        if (it != snapshot->visual.end())
 +        {
-+            if (!actor.moving && getGameState().currentTicks - it->second.blendStartTick >= it->second.blendDuration)
++            if (actor.motion == "idle" && getGameState().currentTicks - it->second.blendStartTick >= it->second.blendDuration)
 +                continue;
 +            BridgeActor old = actor;
 +            const auto position = VisualPosition(actor, it->second);
@@ -557,10 +1175,36 @@ index 7fd474f..c17e154 100644
 +    }
 +}
 +
++std::string BridgeHitTest(int32_t x, int32_t y, int32_t radius)
++{
++    if (radius < 0 || radius > 64) return {};
++    const auto snapshot = std::atomic_load(&gBridgeSnapshot);
++    std::string closest;
++    int64_t best = static_cast<int64_t>(radius) * radius + 1;
++    for (const auto& actor : snapshot->actors)
++    {
++        if (actor.motion == "death") continue;
++        const auto visual = snapshot->visual.find(actor.id);
++        if (visual == snapshot->visual.end()) continue;
++        const auto pos = VisualPosition(actor, visual->second);
++        const int64_t dx = static_cast<int64_t>(pos.x) - x;
++        const int64_t dy = static_cast<int64_t>(pos.y) - y;
++        const int64_t distance = dx * dx + dy * dy;
++        if (distance < best) { best = distance; closest = actor.id; }
++    }
++    return closest;
++}
++
++std::pair<std::string, std::vector<BridgeActor>> BridgeGetActors()
++{
++    const auto snapshot = std::atomic_load(&gBridgeSnapshot);
++    return { snapshot->session, snapshot->actors };
++}
++
  /**
   * Paint Quadrant
   *  rct2: 0x0069E8B0
-@@ -180,3 +337,44 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
+@@ -180,3 +366,101 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
          }
      }
  }
@@ -586,9 +1230,34 @@ index 7fd474f..c17e154 100644
 +        session.CurrentlyDrawnTileElement = nullptr;
 +        session.InteractionType = ViewportInteractionItem::none;
 +        const int32_t z = TileElementHeight(actorPos);
-+        const uint32_t direction = ((actor.facing + 16) / 32 + session.CurrentRotation * 2) & 7;
++        // BWAPI headings are in map coordinates. Project that heading through
++        // the same isometric transform as the actor's feet before selecting a
++        // screen-facing GRP frame. A world-west shot, for example, points
++        // northeast on the unrotated park viewport.
++        const double heading = static_cast<double>(actor.facing) * (2.0 * 3.14159265358979323846 / 256.0);
++        const double worldDx = std::cos(heading);
++        const double worldDy = std::sin(heading);
++        double rotatedDx = worldDx;
++        double rotatedDy = worldDy;
++        switch (session.CurrentRotation & 3)
++        {
++            case 1: rotatedDx = worldDy; rotatedDy = -worldDx; break;
++            case 2: rotatedDx = -worldDx; rotatedDy = -worldDy; break;
++            case 3: rotatedDx = -worldDy; rotatedDy = worldDx; break;
++        }
++        const double screenDx = rotatedDy - rotatedDx;
++        const double screenDy = (rotatedDx + rotatedDy) / 2.0;
++        const uint32_t direction = static_cast<uint32_t>(
++            std::lround(std::atan2(screenDy, screenDx) * (4.0 / 3.14159265358979323846)) + 8) & 7;
 +        const bool diagonal = (direction & 1) != 0;
-+        static_assert(SPR_G2_END - SPR_BRIDGE_SCOUT_IDLE_EAST == 88, "bridge sprite registry count differs from g2 range");
++        static_assert(SPR_BRIDGE_MARINE_IDLE0_EAST - SPR_BRIDGE_SCOUT_IDLE_EAST == 88,
++            "scout sprite registry count differs from g2 range");
++        static_assert(SPR_BRIDGE_SCOUT_DEATH0_EAST - SPR_BRIDGE_MARINE_IDLE0_EAST == 56,
++            "marine sprite registry count differs from g2 range");
++        static_assert(SPR_BRIDGE_HEALTH_MARINE_0 - SPR_BRIDGE_SCOUT_DEATH0_EAST == 48,
++            "scout death sprite registry count differs from g2 range");
++        static_assert(SPR_G2_END - SPR_BRIDGE_HEALTH_MARINE_0 == 22,
++            "health sprite registry count differs from g2 range");
 +        constexpr uint32_t walkCardinal[] = { SPR_BRIDGE_SCOUT_WALK0_EAST, SPR_BRIDGE_SCOUT_WALK1_EAST,
 +            SPR_BRIDGE_SCOUT_WALK2_EAST, SPR_BRIDGE_SCOUT_WALK3_EAST, SPR_BRIDGE_SCOUT_WALK4_EAST,
 +            SPR_BRIDGE_SCOUT_WALK5_EAST, SPR_BRIDGE_SCOUT_WALK6_EAST, SPR_BRIDGE_SCOUT_WALK7_EAST,
@@ -597,25 +1266,58 @@ index 7fd474f..c17e154 100644
 +            SPR_BRIDGE_SCOUT_WALK2_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK3_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK4_SOUTHEAST,
 +            SPR_BRIDGE_SCOUT_WALK5_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK6_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK7_SOUTHEAST,
 +            SPR_BRIDGE_SCOUT_WALK8_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK9_SOUTHEAST };
-+        const uint32_t frame = (getGameState().currentTicks - visual.animationStartTick) / 4 % 10;
-+        const uint32_t imageBase = !actor.moving
-+            ? (diagonal ? SPR_BRIDGE_SCOUT_IDLE_SOUTHEAST : SPR_BRIDGE_SCOUT_IDLE_EAST)
-+            : (diagonal ? walkDiagonal[frame] : walkCardinal[frame]);
-+        const uint32_t imageId = imageBase + direction / 2;
++        const uint32_t elapsed = getGameState().currentTicks - visual.animationStartTick;
++        uint32_t imageId = 0;
++        if (actor.kind == "terran_marine")
++        {
++            constexpr uint32_t marineBases[] = { SPR_BRIDGE_MARINE_IDLE0_EAST,
++                SPR_BRIDGE_MARINE_WALK0_EAST, SPR_BRIDGE_MARINE_WALK1_EAST,
++                SPR_BRIDGE_MARINE_ATTACK0_EAST, SPR_BRIDGE_MARINE_ATTACK1_EAST,
++                SPR_BRIDGE_MARINE_ATTACK2_EAST };
++            if (actor.motion == "death")
++                imageId = SPR_BRIDGE_MARINE_DEATH0 + std::min(7u, elapsed / 2);
++            else
++            {
++                uint32_t pose = 0;
++                if (actor.motion == "walk") pose = 1 + (elapsed / 4) % 2;
++                if (actor.motion == "attack") pose = 3 + (elapsed / 2) % 3;
++                imageId = marineBases[pose] + direction;
++            }
++        }
++        else
++        {
++            if (actor.motion == "death")
++                imageId = SPR_BRIDGE_SCOUT_DEATH0_EAST + std::min(5u, elapsed / 2) * 8 + direction;
++            else
++            {
++                const uint32_t frame = elapsed / 4 % 10;
++                const uint32_t imageBase = actor.motion != "walk"
++                    ? (diagonal ? SPR_BRIDGE_SCOUT_IDLE_SOUTHEAST : SPR_BRIDGE_SCOUT_IDLE_EAST)
++                    : (diagonal ? walkDiagonal[frame] : walkCardinal[frame]);
++                imageId = imageBase + direction / 2;
++            }
++        }
 +        PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, { { -8, -8, z }, { 16, 16, 24 } });
++        if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
++        {
++            const auto level = std::clamp((actor.hp * 10 + actor.maxHp / 2) / actor.maxHp, 0, 10);
++            const auto healthBase = actor.kind == "terran_marine" ? SPR_BRIDGE_HEALTH_MARINE_0 : SPR_BRIDGE_HEALTH_ZERGLING_0;
++            PaintAddImageAsChild(session, ImageId(healthBase + level), { 0, 0, z }, { { -8, -8, z }, { 16, 16, 24 } });
++        }
 +    }
 +}
 diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
-index b481242..f35ae7c 100644
+index b481242..5e3a595 100644
 --- a/src/openrct2/paint/Paint.Entity.h
 +++ b/src/openrct2/paint/Paint.Entity.h
-@@ -9,7 +9,23 @@
+@@ -9,7 +9,32 @@
  
  #pragma once
  
 +#include <cstdint>
 +#include <string>
 +#include <vector>
++#include <utility>
 +
  struct PaintSession;
  struct CoordsXY;
@@ -623,16 +1325,24 @@ index b481242..f35ae7c 100644
 +struct BridgeActor
 +{
 +    std::string id;
++    std::string kind = "alien_scout";
++    std::string motion = "idle";
 +    int32_t x;
 +    int32_t y;
 +    uint8_t facing;
-+    bool moving;
++    int32_t hp = 0;
++    int32_t maxHp = 0;
++    int32_t owner = -1;
++    int32_t attackFrames = 0;
++    bool alive = true;
 +};
 +
  void EntityPaintSetup(PaintSession& session, const CoordsXY& pos);
 +void PaintBridgeActors(PaintSession& session, const CoordsXY& pos);
 +void BridgeApplySnapshot(std::string session, uint64_t seq, std::vector<BridgeActor> actors);
 +void BridgeInvalidateAnimation();
++std::string BridgeHitTest(int32_t x, int32_t y, int32_t radius);
++std::pair<std::string, std::vector<BridgeActor>> BridgeGetActors();
 diff --git a/src/openrct2/paint/Paint.cpp b/src/openrct2/paint/Paint.cpp
 index 7aea6d1..6e3f788 100644
 --- a/src/openrct2/paint/Paint.cpp
@@ -685,12 +1395,14 @@ index 8820369..4962081c 100644
      {
          TryLoadSequence();
 diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
-index bb88d98..858e34f 100644
+index bb88d98..9560f5a 100644
 --- a/src/openrct2/scripting/ScriptEngine.cpp
 +++ b/src/openrct2/scripting/ScriptEngine.cpp
-@@ -28,7 +28,9 @@
+@@ -27,8 +27,11 @@
+     #include "../core/FileWatcher.h"
      #include "../core/Path.hpp"
      #include "../interface/InteractiveConsole.h"
++    #include "../interface/Viewport.h"
      #include "../platform/Platform.h"
 +    #include "../paint/Paint.Entity.h"
      #include "../ride/ted/PitchAndRoll.h"
@@ -698,7 +1410,7 @@ index bb88d98..858e34f 100644
      #include "bindings/entity/ScBalloon.hpp"
      #include "bindings/entity/ScEntity.hpp"
      #include "bindings/entity/ScGuest.hpp"
-@@ -66,7 +68,9 @@
+@@ -66,7 +69,9 @@
      #include "bindings/world/ScTileElement.hpp"
      #include "bindings/world/ScWeather.hpp"
  
@@ -708,7 +1420,7 @@ index bb88d98..858e34f 100644
      #include <stdexcept>
      #include <string>
  
-@@ -694,9 +698,104 @@ JSContext* ScriptEngine::CreateContext() const
+@@ -694,9 +699,161 @@ JSContext* ScriptEngine::CreateContext() const
      return newCtx;
  }
  
@@ -771,15 +1483,25 @@ index bb88d98..858e34f 100644
 +    {
 +        JSValue unit = JS_GetPropertyUint32(ctx, units, index);
 +        BridgeActor parsed{};
-+        std::string motion;
 +        int32_t facing = 0;
++        int32_t owner = -1;
++        int32_t hp = 0;
++        int32_t maxHp = 0;
++        int32_t attackFrames = 0;
 +        const bool valid = JS_IsObject(unit) && BridgeReadString(ctx, unit, "id", parsed.id)
 +            && parsed.id.size() > 7 && parsed.id.size() <= 32 && parsed.id.compare(0, 7, "openbw:") == 0
 +            && parsed.id.find_first_not_of("0123456789", 7) == std::string::npos && ids.insert(parsed.id).second
++            && BridgeReadString(ctx, unit, "kind", parsed.kind)
++            && (parsed.kind == "alien_scout" || parsed.kind == "zerg_zergling" || parsed.kind == "terran_marine")
 +            && BridgeReadInt(ctx, unit, "x", parsed.x) && BridgeReadInt(ctx, unit, "y", parsed.y)
 +            && parsed.x >= 0 && parsed.y >= 0 && parsed.x < mapSize.x && parsed.y < mapSize.y
 +            && BridgeReadInt(ctx, unit, "facing", facing) && facing >= 0 && facing <= 255
-+            && BridgeReadString(ctx, unit, "motion", motion) && (motion == "idle" || motion == "walk");
++            && BridgeReadString(ctx, unit, "motion", parsed.motion)
++            && (parsed.motion == "idle" || parsed.motion == "walk" || parsed.motion == "attack" || parsed.motion == "death")
++            && BridgeReadInt(ctx, unit, "owner", owner) && owner >= 0 && owner <= 11
++            && BridgeReadInt(ctx, unit, "hp", hp) && hp >= 0 && hp <= 10000
++            && BridgeReadInt(ctx, unit, "max_hp", maxHp) && maxHp >= hp && maxHp <= 10000
++            && BridgeReadInt(ctx, unit, "attack_frames", attackFrames) && attackFrames >= 0;
 +        JS_FreeValue(ctx, unit);
 +        if (!valid)
 +        {
@@ -787,7 +1509,10 @@ index bb88d98..858e34f 100644
 +            return JS_ThrowTypeError(ctx, "invalid bridge unit");
 +        }
 +        parsed.facing = static_cast<uint8_t>(facing);
-+        parsed.moving = motion == "walk";
++        parsed.owner = owner;
++        parsed.hp = hp;
++        parsed.maxHp = maxHp;
++        parsed.attackFrames = attackFrames;
 +        actors.push_back(std::move(parsed));
 +    }
 +    JS_FreeValue(ctx, units);
@@ -801,14 +1526,58 @@ index bb88d98..858e34f 100644
 +    return JS_UNDEFINED;
 +}
 +
++static JSValue BridgeHitTestJS(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
++{
++    int32_t x = 0, y = 0, radius = 20;
++    if (argc != 3 || JS_ToInt32(ctx, &x, argv[0]) != 0 || JS_ToInt32(ctx, &y, argv[1]) != 0
++        || JS_ToInt32(ctx, &radius, argv[2]) != 0 || radius < 0 || radius > 64)
++        return JS_ThrowTypeError(ctx, "expected world x, y and radius <= 64");
++    const auto id = BridgeHitTest(x, y, radius);
++    return id.empty() ? JS_NULL : JS_NewString(ctx, id.c_str());
++}
++
++static JSValue BridgeCursorWorldJS(JSContext* ctx, JSValueConst, int, JSValueConst*)
++{
++    const auto info = GetMapCoordinatesFromPos(ContextGetCursorPositionScaled(), ViewportInteractionItem::terrain);
++    if (info.interactionType == ViewportInteractionItem::none || !MapIsLocationValid(info.Loc)) return JS_NULL;
++    JSValue point = JS_NewObject(ctx);
++    JS_SetPropertyStr(ctx, point, "x", JS_NewInt32(ctx, info.Loc.x));
++    JS_SetPropertyStr(ctx, point, "y", JS_NewInt32(ctx, info.Loc.y));
++    return point;
++}
++
++static JSValue BridgeGetActorsJS(JSContext* ctx, JSValueConst, int, JSValueConst*)
++{
++    const auto [session, actors] = BridgeGetActors();
++    JSValue result = JS_NewObject(ctx);
++    JS_SetPropertyStr(ctx, result, "session", JS_NewString(ctx, session.c_str()));
++    JSValue units = JS_NewArray(ctx);
++    for (uint32_t index = 0; index < actors.size(); ++index)
++    {
++        const auto& actor = actors[index];
++        JSValue unit = JS_NewObject(ctx);
++        JS_SetPropertyStr(ctx, unit, "id", JS_NewString(ctx, actor.id.c_str()));
++        JS_SetPropertyStr(ctx, unit, "kind", JS_NewString(ctx, actor.kind.c_str()));
++        JS_SetPropertyStr(ctx, unit, "x", JS_NewInt32(ctx, actor.x));
++        JS_SetPropertyStr(ctx, unit, "y", JS_NewInt32(ctx, actor.y));
++        JS_SetPropertyStr(ctx, unit, "hp", JS_NewInt32(ctx, actor.hp));
++        JS_SetPropertyUint32(ctx, units, index, unit);
++    }
++    JS_SetPropertyStr(ctx, result, "units", units);
++    return result;
++}
++
  void ScriptEngine::InitialiseContext(JSContext* ctx) const
  {
      JSValue glb = JS_GetGlobalObject(ctx);
 +    JSValue bridge = JS_NewObject(ctx);
-+    JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 1));
-+    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 1));
++    JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 4));
++    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 3));
 +    JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
 +    JS_SetPropertyStr(ctx, bridge, "invalidateAnimation", JS_NewCFunction(ctx, BridgeInvalidateAnimationJS, "invalidateAnimation", 0));
++    JS_SetPropertyStr(ctx, bridge, "hitTest", JS_NewCFunction(ctx, BridgeHitTestJS, "hitTest", 3));
++    JS_SetPropertyStr(ctx, bridge, "cursorWorld", JS_NewCFunction(ctx, BridgeCursorWorldJS, "cursorWorld", 0));
++    JS_SetPropertyStr(ctx, bridge, "getActors", JS_NewCFunction(ctx, BridgeGetActorsJS, "getActors", 0));
 +    JS_SetPropertyStr(ctx, glb, "rtsBridge", bridge);
      JS_SetPropertyStr(ctx, glb, "cheats", gScCheats.New(ctx));
      JS_SetPropertyStr(ctx, glb, "climate", gScWeather.New(ctx));

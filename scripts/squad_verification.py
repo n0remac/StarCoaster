@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import hashlib
 from pathlib import Path
 import re
@@ -12,7 +13,21 @@ from PIL import Image
 
 
 APPLY = re.compile(r"RTS Bridge apply tick=(\d+) seq=(\d+) session=([0-9a-f]{32})(?: center_z=(-?[0-9]+))? units=([^\x1b\r\n]*)")
-UNIT = re.compile(r"(openbw:[0-9]+),(-?[0-9]+),(-?[0-9]+),([0-9]+),(idle|walk)(?:,(-?[0-9]+))?")
+UNIT = re.compile(r"(openbw:[0-9]+),(-?[0-9]+),(-?[0-9]+),([0-9]+),(idle|walk|attack|death)(?:,(-?[0-9]+))?")
+COMBAT_UNIT = re.compile(r"(openbw:[0-9]+),(-?[0-9]+),(-?[0-9]+),([0-9]+),(idle|walk|attack|death),(-?[0-9]+),(terran_marine|zerg_zergling),([0-9]+),([0-9]+),([0-9]+),([0-9]+)")
+
+
+def parse_combat_applied(text: str) -> dict[tuple[str, int], tuple[tuple, ...]]:
+    snapshots = {}
+    for _tick, seq, session, _center_z, body in APPLY.findall(text):
+        units = tuple(sorted((unit_id, int(x), int(y), int(facing), motion, int(z), kind,
+                              int(hp), int(max_hp), int(owner), int(attack_frames))
+                             for unit_id, x, y, facing, motion, z, kind, hp, max_hp, owner, attack_frames
+                             in COMBAT_UNIT.findall(body)))
+        if body and len(units) != len(body.split(";")):
+            continue
+        snapshots[session, int(seq)] = units
+    return snapshots
 
 
 def parse_applied(text: str) -> dict[tuple[str, int], tuple[tuple[str, int, int, int, str], ...]]:
@@ -57,6 +72,18 @@ def compare_clients(logs: dict[str, str], minimum_common: int) -> dict:
             "applied_counts": counts, "eight_unit_snapshots": len(full),
             "seven_unit_snapshots": len(seven), "empty_snapshots": len(empty),
             "stable_ids": stable_ids, "sessions": sorted({key[0] for key in common})}
+
+
+SPRITE_DIRECTIONS = ("east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast")
+
+
+def screen_direction(facing: int, rotation: int = 0) -> str:
+    """Select the GRP view reached by projecting a BWAPI heading into the park."""
+    angle = facing * math.tau / 256
+    dx, dy = math.cos(angle), math.sin(angle)
+    rx, ry = ((dx, dy), (dy, -dx), (-dx, -dy), (-dy, dx))[rotation & 3]
+    octant = round(math.atan2((rx + ry) / 2, ry - rx) * 4 / math.pi) % 8
+    return SPRITE_DIRECTIONS[octant]
 
 
 def project(x: int, y: int, rotation: int, z: int = 112, center_z: int = 112) -> tuple[int, int]:

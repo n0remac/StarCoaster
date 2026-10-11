@@ -18,15 +18,20 @@ def unit(unit_id: int, x: int, y: int, kind: int, owner: int) -> bytes:
     return UNIT.pack(unit_id, x, y, kind, 0, 0, 0, owner, 100, 100, 100, 0, 0, 0, 0, 0)
 
 
-def patch_chk(data: bytes) -> bytes:
+def patch_chk(data: bytes, scenario: str = "ride-siege") -> bytes:
     # The pinned map is 128x128 tiles. Player 0 is the Zerg simulation player,
     # player 1 is the hostile Terran structure owner. Keep the terrain unchanged.
     records = [unit(1, 320, 480, 214, 0), unit(2, 2200, 2200, 214, 1),
                unit(3, 736, 576, 124, 1)]  # Missile Turret (BW unit type 124).
-    records += [unit(10 + i, 544 + (i % 2) * 24, 488 + (i // 2) * 28, 37, 0)
+    zerg_x = 480 if scenario == "frontier-defense" else 544
+    records += [unit(10 + i, zerg_x + (i % 2) * 24, 488 + (i // 2) * 28, 37, 0)
                 for i in range(8)]  # Zergling (BW unit type 37).
+    if scenario == "frontier-defense":
+        # Marines defend the approach to the same proxy carousel. Marine is BW type 0.
+        records += [unit(30 + i, 704 + (i % 2) * 24, 488 + (i // 2) * 28, 0, 1)
+                    for i in range(4)]
     replacements = {
-        b"OWNR": bytes([6, 5] + [0] * 10),
+        b"OWNR": bytes(([6, 6] if scenario == "frontier-defense" else [6, 5]) + [0] * 10),
         b"SIDE": bytes([0, 1] + [0] * 10),
         b"UNIT": b"".join(records),
         b"TRIG": b"",  # The source map's tutorial triggers end the game at frame zero.
@@ -113,6 +118,7 @@ def pack_map(chk: bytes) -> bytes:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--scenario", choices=("ride-siege", "frontier-defense"), default="ride-siege")
     args = parser.parse_args()
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -121,7 +127,7 @@ def main() -> None:
         subprocess.run(["smpq", "-q", "-x", str(SOURCE), "staredit/scenario.chk"],
                        cwd=staging, check=True)
         chk = staging / "staredit/scenario.chk"
-        patched = patch_chk(chk.read_bytes())
+        patched = patch_chk(chk.read_bytes(), args.scenario)
         output.write_bytes(pack_map(patched))
         extracted = staging / "verified/staredit/scenario.chk"
         extracted.parent.mkdir(parents=True)

@@ -1,6 +1,6 @@
 # Passthrough RTS Bridge
 
-This project shows a squad of eight genuine OpenBW-simulated Zerglings inside a shared OpenRCT2 park. A headless OpenBW/BWAPI module owns movement; an OpenRCT2 multiplayer server distributes full snapshots to two modified graphical clients. The default demo still uses one unit. The public build renders an original CC0 alien scout. An opt-in local build renders graphics extracted from the user's classic StarCraft installation.
+This project shows genuine OpenBW Marines and Zerglings fighting around a real carousel inside a shared OpenRCT2 park. OpenBW/BWAPI owns movement and combat; an OpenRCT2 multiplayer server distributes full snapshots to two modified graphical clients. The earlier one-unit and eight-Zergling demos remain available. The public build uses original CC0 placeholder art; an opt-in local build renders graphics extracted from the user's classic StarCraft installation.
 
 Start with the [Rev 2 implementation specification](docs/specification.md), [repository layout](docs/repository-layout.md), [bootstrap guide](docs/bootstrap.md), and [local Zergling rendering guide](docs/rendering-phase.md). The [bridge protocol](bridge-protocol/README.md) has the first schema and fixture. The earlier Recoil/Minecraft proposal and Raspberry Pi assessment are kept in the [documentation archive](docs/archive/README.md) for historical reference.
 
@@ -27,3 +27,24 @@ python3 scripts/capture-live-demo.py --scenario ride-siege --verify-destruction 
 ```
 
 The final command publishes a unique artifact run automatically. See the [ride siege guide](docs/ride-siege.md) for the map construction, coordinate mapping, startup order, verification, and private viewer URL.
+
+## Park assault
+
+The [Frontier Outpost park assault](docs/park-assault.md) adds a 48 × 48 tile developed park, real paths and scenery, clearance-aware navigation, and three separately destructible park structures. One OpenBW simulation controls 20 Zerglings in three squads while two graphical OpenRCT2 clients show the same native ride demolitions.
+
+```sh
+python3 scripts/verify-park-assault-headless.py
+python3 scripts/capture-live-demo.py --scenario park-assault \
+  --verify-destruction --record-video --video-layout combined
+```
+
+## Native Marine defense
+
+The [Frontier defense guide](docs/frontier-defense.md) covers local Marine sprite extraction, the two faction OpenBW setup, map controls, and the verified two client recording. To run the complete live gate after building:
+
+```sh
+python3 scripts/capture-live-demo.py --scenario frontier-defense \
+  --record-video --video-layout combined --verify-combat
+```
+
+This capture uses native OpenRCT2 sprites and live OpenBW combat. The older composited battle replay is a separate historical feasibility artifact.

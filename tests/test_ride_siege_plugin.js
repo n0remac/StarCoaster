@@ -26,7 +26,7 @@ function fixture(rejectDemolition = false) {
         network: { mode: 'server', currentPlayer: { id: 1 }, numPlayers: 3,
             createSocket() { socket = { handlers: {}, on(name, cb) { this.handlers[name] = cb; },
                 connect(_port, _host, cb) { cb(); }, destroy() {} }; return socket; } },
-        rtsBridge: { version: 1, assetVersion: 1,
+        rtsBridge: { version: 4, assetVersion: 3,
             applySnapshot(value) { applied.push(value); }, invalidateAnimation() {} },
         context: { registerAction(_name, q, e) { query = q; execute = e; }, subscribe() {},
             executeAction(name, args, callback) {

@@ -135,3 +135,77 @@ func TestViewerIntegration(t *testing.T) {
 		t.Fatalf("malformed manifest: %d %s", code, body)
 	}
 }
+
+func TestParkAssaultDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	id := "20261011T172423Z-abcdef123456"
+	fixture(t, root, id, "live-capture", "passed", false)
+	manifest := filepath.Join(root, id, "run.json")
+	raw, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var run artifacts.Run
+	if err := json.Unmarshal(raw, &run); err != nil {
+		t.Fatal(err)
+	}
+	run.Diagnostics = []artifacts.File{
+		{Path: "navigation-grid.png", Label: "Navigation Grid"},
+		{Path: "observed-paths.json", Label: "Observed Paths"},
+	}
+	verification := "verification.json"
+	run.VerificationFile = &verification
+	raw, _ = json.Marshal(run)
+	if err := os.WriteFile(manifest, raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, id, "navigation-grid.png"), []byte("PNG"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, id, "observed-paths.json"), []byte(`{"2":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, id, verification), []byte(`{"scenario":"park-assault","attack_orders":20}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := artifacts.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(store, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	for _, item := range []struct{ name, mime string }{
+		{"navigation-grid.png", "image/png"}, {"observed-paths.json", "application/json"},
+	} {
+		response, err := http.Get(ts.URL + "/media/" + id + "/" + item.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != 200 || !strings.HasPrefix(response.Header.Get("Content-Type"), item.mime) {
+			t.Fatalf("diagnostic %s: %d %s", item.name, response.StatusCode, response.Header.Get("Content-Type"))
+		}
+	}
+	response, err := http.Get(ts.URL + "/runs/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	page := make([]byte, 1<<16)
+	n, _ := response.Body.Read(page)
+	if response.StatusCode != 200 || !strings.Contains(string(page[:n]), "Navigation and combat diagnostics") {
+		t.Fatalf("park assault gallery: %d", response.StatusCode)
+	}
+	response, err = http.Get(ts.URL + "/media/" + id + "/navigation-elements.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != 404 {
+		t.Fatalf("unlisted diagnostic served: %d", response.StatusCode)
+	}
+}

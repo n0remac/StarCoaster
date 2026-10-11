@@ -18,7 +18,7 @@ const sandbox = {
             return socket;
         }
     },
-    rtsBridge: { version: 1, assetVersion: 1,
+    rtsBridge: { version: 4, assetVersion: 3,
         applySnapshot(value) { applied.push(value); }, invalidateAnimation() {} },
     context: {
         registerAction(_name, q, e) { query = q; execute = e; },

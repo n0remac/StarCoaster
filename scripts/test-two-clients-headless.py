@@ -4,17 +4,17 @@
 import argparse
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 import time
+
+from squad_verification import parse_applied
 
 
 ROOT = Path(__file__).resolve().parent.parent
 PARK = ROOT / "upstream/openrct2/test/tests/testdata/parks/EverythingPark.park"
 OPENRCT2_DATA = ROOT / "build/openrct2-stage/usr/local/share/openrct2"
 OUTPUT = ROOT / "run-data/headless-multiplayer"
-APPLIED = re.compile(r"RTS Bridge apply tick=(\d+) seq=(\d+) id=(\S+) x=(\d+) y=(\d+)")
 
 
 def start(name: str, command: list[str], env: dict[str, str]) -> tuple[subprocess.Popen, object]:
@@ -32,16 +32,6 @@ def await_log(path: Path, fragment: str, process: subprocess.Popen, seconds: flo
             raise RuntimeError(f"process exited before '{fragment}' appeared; see {path}")
         time.sleep(0.1)
     raise RuntimeError(f"timed out waiting for '{fragment}'; see {path}")
-
-
-def read_states(path: Path) -> dict[int, tuple[int, str, int, int]]:
-    result = {}
-    for line in path.read_text(errors="replace").splitlines():
-        match = APPLIED.search(line)
-        if match:
-            tick, seq, unit, x, y = match.groups()
-            result[int(seq)] = (int(tick), unit, int(x), int(y))
-    return result
 
 
 def main() -> int:
@@ -111,7 +101,8 @@ def main() -> int:
         print(f"Logs: {OUTPUT}")
         return return_code
 
-    states = [read_states(paths[name]) for name in ("server", "client-a", "client-b")]
+    states = [parse_applied(paths[name].read_text(errors="replace"))
+              for name in ("server", "client-a", "client-b")]
     common = set(states[0]).intersection(states[1], states[2])
     mismatches = [seq for seq in common if len({item[seq] for item in states}) != 1]
     for name, values in zip(("server", "client-a", "client-b"), states):

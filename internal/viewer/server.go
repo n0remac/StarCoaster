@@ -24,6 +24,7 @@ type Server struct {
 
 func New(store *artifacts.Store, maxRuns int) (*Server, error) {
 	funcs := template.FuncMap{
+		"image": func(name string) bool { return strings.HasSuffix(name, ".png") },
 		"short": func(s string) string {
 			if len(s) > 8 {
 				return s[:8]

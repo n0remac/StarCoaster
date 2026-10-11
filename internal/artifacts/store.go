@@ -12,7 +12,12 @@ import (
 )
 
 var runID = regexp.MustCompile(`^\d{8}T\d{6}Z-[0-9a-f]{12}$`)
-var imageName = regexp.MustCompile(`^(client-[ab]-(early|later|final|t[0-9.]+)(-rot[0-3])?|frame-[0-9]+|park-background)\.png$`)
+var imageName = regexp.MustCompile(`^(client-[ab]-(initial|firing|death|damage|early|later|final|overview|approach|combat|carousel-(attack|destroyed)|shop-(attack|destroyed)|ferris-(attack|destroyed)|t[0-9.]+)(-rot[0-3])?|frame-[0-9]+|park-background)\.png$`)
+var diagnosticNames = map[string]bool{
+	"navigation-grid.png": true, "planned-paths.png": true, "observed-paths.png": true,
+	"navigation-grid.json": true, "planned-paths.json": true, "observed-paths.json": true,
+	"target-events.json": true, "navigation-events.json": true, "violations.json": true,
+}
 var ErrNotFound = errors.New("artifact not found")
 
 type File struct {
@@ -20,23 +25,24 @@ type File struct {
 	Label string `json:"label"`
 }
 type Run struct {
-	SchemaVersion     int            `json:"schema_version"`
-	ID                string         `json:"id"`
-	Type              string         `json:"type"`
-	Title             string         `json:"title"`
-	Status            string         `json:"status"`
-	StartedAt         string         `json:"started_at"`
-	FinishedAt        *string        `json:"finished_at"`
-	CommitSHA         string         `json:"commit_sha"`
-	Videos            []File         `json:"videos"`
-	Screenshots       []File         `json:"screenshots"`
-	VerificationFile  *string        `json:"verification_file"`
-	VideoMetadataFile *string        `json:"video_metadata_file"`
+	SchemaVersion      int            `json:"schema_version"`
+	ID                 string         `json:"id"`
+	Type               string         `json:"type"`
+	Title              string         `json:"title"`
+	Status             string         `json:"status"`
+	StartedAt          string         `json:"started_at"`
+	FinishedAt         *string        `json:"finished_at"`
+	CommitSHA          string         `json:"commit_sha"`
+	Videos             []File         `json:"videos"`
+	Screenshots        []File         `json:"screenshots"`
+	Diagnostics        []File         `json:"diagnostics,omitempty"`
+	VerificationFile   *string        `json:"verification_file"`
+	VideoMetadataFile  *string        `json:"video_metadata_file"`
 	ScenarioConfigFile *string        `json:"scenario_config_file,omitempty"`
-	Logs              []File         `json:"logs"`
-	Error             *string        `json:"error"`
-	CaptureConfig     map[string]any `json:"capture_config,omitempty"`
-	SizeBytes         int64          `json:"size_bytes"`
+	Logs               []File         `json:"logs"`
+	Error              *string        `json:"error"`
+	CaptureConfig      map[string]any `json:"capture_config,omitempty"`
+	SizeBytes          int64          `json:"size_bytes"`
 }
 type Detail struct {
 	Run
@@ -77,7 +83,12 @@ func validRun(r Run, id string) bool {
 			return false
 		}
 	}
-	allowedLogs := map[string]bool{"diagnostic-client-a.log": true, "diagnostic-client-b.log": true, "diagnostic-server.log": true, "diagnostic-bwapi.log": true, "diagnostic-bwapi-restart.log": true, "diagnostic-video-capture.log": true}
+	for _, f := range r.Diagnostics {
+		if !diagnosticNames[f.Path] {
+			return false
+		}
+	}
+	allowedLogs := map[string]bool{"diagnostic-client-a.log": true, "diagnostic-client-b.log": true, "diagnostic-server.log": true, "diagnostic-zerg.log": true, "diagnostic-terran.log": true, "diagnostic-bwapi.log": true, "diagnostic-bwapi-restart.log": true, "diagnostic-video-capture.log": true}
 	for _, f := range r.Logs {
 		if !allowedLogs[f.Path] {
 			return false
@@ -176,6 +187,15 @@ func (s *Store) file(r Run, name string) (string, error) {
 	return path, nil
 }
 func (s *Store) Media(r Run, name string) (string, string, error) {
+	for _, f := range r.Diagnostics {
+		if f.Path == name && diagnosticNames[name] {
+			path, err := s.file(r, name)
+			if strings.HasSuffix(name, ".png") {
+				return path, "image/png", err
+			}
+			return path, "application/json", err
+		}
+	}
 	if r.ScenarioConfigFile != nil && name == *r.ScenarioConfigFile {
 		path, err := s.file(r, name)
 		return path, "application/json", err

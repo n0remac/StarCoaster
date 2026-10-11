@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from squad_verification import compare_clients, parse_applied, parse_projected, project
+from squad_verification import compare_clients, parse_applied, parse_projected, project, screen_direction
 
 
 class SquadVerificationTests(unittest.TestCase):
@@ -25,6 +25,19 @@ class SquadVerificationTests(unittest.TestCase):
         self.assertEqual(project(480, 480, 0), (640, 400))
         self.assertEqual(project(480, 480, 1), (640, 400))
         self.assertNotEqual(project(512, 480, 0), project(512, 480, 1))
+
+    def test_world_west_attack_faces_projected_target_at_every_rotation(self):
+        # A Marine at (704, 516) firing toward a Zergling at (601, 516)
+        # produced facing=128 in the live OpenBW trace.
+        directions = ("northeast", "southeast", "southwest", "northwest")
+        for rotation, expected in enumerate(directions):
+            with self.subTest(rotation=rotation):
+                mx, my = project(704, 516, rotation)
+                zx, zy = project(601, 516, rotation)
+                self.assertEqual(screen_direction(128, rotation), expected)
+                self.assertEqual((zx > mx, zy > my),
+                                 {"northeast": (True, False), "southeast": (True, True),
+                                  "southwest": (False, True), "northwest": (False, False)}[expected])
 
     def test_projected_height_and_lifecycle(self):
         session = "b" * 32

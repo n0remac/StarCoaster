@@ -5,7 +5,7 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rct2_dir="${RCT2_DATA_DIR:?Set RCT2_DATA_DIR to your own RCT2 or RCT Classic installation directory}"
 park_file="${1:?Pass an existing .park, .sv6, or scenario file to host}"
 openrct2_data="$project_dir/build/openrct2-stage/usr/local/share/openrct2"
-server_data="$project_dir/run-data/openrct2-server"
+server_data="${BRIDGE_SERVER_DATA_DIR:-$project_dir/run-data/openrct2-server}"
 
 test -d "$rct2_dir" || { printf 'Missing RCT2 data directory: %s\n' "$rct2_dir" >&2; exit 1; }
 test -f "$park_file" || { printf 'Missing park file: %s\n' "$park_file" >&2; exit 1; }
@@ -14,8 +14,13 @@ test -x "$project_dir/build/openrct2/openrct2-cli" || { printf 'Missing OpenRCT2
 
 mkdir -p "$server_data/plugin"
 cp "$project_dir/openrct2-plugin/rts-bridge.js" "$server_data/plugin/rts-bridge.js"
-if test "${BRIDGE_SCENARIO:-patrol}" = ride_siege; then
+if test "${BRIDGE_SCENARIO:-patrol}" = park_assault; then
+  python3 "$project_dir/scripts/prepare-park-assault-plugin.py" \
+    --output "$server_data/plugin/rts-bridge.js" >/dev/null
+elif test "${BRIDGE_SCENARIO:-patrol}" = ride_siege; then
   sed -i 's/const SIEGE_ENABLED = false;/const SIEGE_ENABLED = true;/' "$server_data/plugin/rts-bridge.js"
+elif test "${BRIDGE_SCENARIO:-patrol}" = frontier_defense; then
+  sed -i 's/const FRONTIER_ENABLED = false;/const FRONTIER_ENABLED = true;/' "$server_data/plugin/rts-bridge.js"
 fi
 if ! test -f "$server_data/config.ini"; then
   printf '[network]\nadvertise = false\n' > "$server_data/config.ini"

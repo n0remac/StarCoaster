@@ -11,6 +11,16 @@ elif [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege ]]; then
   if [[ ! -f "$default_map" ]]; then
     python3 "$project_dir/scripts/create-ride-siege-map.py" --output "$default_map"
   fi
+elif [[ "${BRIDGE_SCENARIO:-patrol}" == frontier_defense ]]; then
+  default_map="$project_dir/run-data/frontier-defense-map/frontier-defense.scm"
+  if [[ ! -f "$default_map" ]]; then
+    python3 "$project_dir/scripts/create-ride-siege-map.py" --scenario frontier-defense --output "$default_map"
+  fi
+elif [[ "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then
+  default_map="$project_dir/run-data/park-assault/map/park-assault.scm"
+  if [[ ! -f "$default_map" ]]; then
+    python3 "$project_dir/scripts/create-park-assault-map.py" --output "$default_map"
+  fi
 fi
 map_file="${BRIDGE_MAP_FILE:-$default_map}"
 launcher="$project_dir/build/bwapi/bin/BWAPILauncher"
@@ -51,15 +61,21 @@ ai = $module
 auto_menu = ${BRIDGE_BWAPI_MENU:-SINGLE_PLAYER}
 map = maps/$map_name
 race = ${BRIDGE_BWAPI_RACE:-Zerg}
+player_slot = ${BRIDGE_BWAPI_SLOT:--1}
 enemy_count = 1
 enemy_race = Terran
-game_type = ${BRIDGE_BWAPI_GAME_TYPE:-$(if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege ]]; then printf USE_MAP_SETTINGS; else printf MELEE; fi)}
+game_type = ${BRIDGE_BWAPI_GAME_TYPE:-$(if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege || "${BRIDGE_SCENARIO:-patrol}" == frontier_defense || "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then printf USE_MAP_SETTINGS; else printf MELEE; fi)}
 auto_restart = OFF
 EOF
 
 export OPENBW_ENABLE_UI=0
 if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege ]]; then
   export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-ride-siege}"
+elif [[ "${BRIDGE_SCENARIO:-patrol}" == frontier_defense ]]; then
+  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-frontier-defense}"
+elif [[ "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then
+  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-park-assault}"
+  export BRIDGE_NAV_FILE="${BRIDGE_NAV_FILE:-$project_dir/run-data/park-assault/navigation.grid}"
 else
   export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-demo-flat}"
 fi

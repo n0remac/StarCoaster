@@ -1,0 +1,38 @@
+diff --git a/bwapi/BWAPI/Source/BWAPI/AutoMenuManager.cpp b/bwapi/BWAPI/Source/BWAPI/AutoMenuManager.cpp
+index f7f7fba..0bdc11b 100755
+--- a/bwapi/BWAPI/Source/BWAPI/AutoMenuManager.cpp
++++ b/bwapi/BWAPI/Source/BWAPI/AutoMenuManager.cpp
+@@ -294,13 +294,28 @@ void AutoMenuManager::startGame()
+             Broodwar->self()->setRace(race);
+         }
+         else {
+-          for (int i = 0; i < BW::PLAYABLE_PLAYER_COUNT; ++i)
++          // StarCoaster's two local endpoints must own reproducible map slots.
++          // switchToPlayer is valid here, before the multiplayer game starts.
++          const int requestedSlot = LoadConfigInt("auto_menu", "player_slot", -1);
++          if (requestedSlot >= 0)
+           {
+-            Player p = Broodwar->getPlayer(i);
+-            if (p->getType() == PlayerTypes::EitherPreferHuman)
++            if (requestedSlot >= BW::PLAYABLE_PLAYER_COUNT)
++              throw std::runtime_error("auto_menu player_slot is outside playable slots");
++            Player p = Broodwar->getPlayer(requestedSlot);
++            if (!p || p->getType() != PlayerTypes::EitherPreferHuman)
++              throw std::runtime_error("auto_menu player_slot is unavailable");
++            Broodwar->switchToPlayer(p);
++          }
++          else
++          {
++            for (int i = 0; i < BW::PLAYABLE_PLAYER_COUNT; ++i)
+             {
+-              Broodwar->switchToPlayer(p);
+-              break;
++              Player p = Broodwar->getPlayer(i);
++              if (p->getType() == PlayerTypes::EitherPreferHuman)
++              {
++                Broodwar->switchToPlayer(p);
++                break;
++              }
+             }
+           }
+         }

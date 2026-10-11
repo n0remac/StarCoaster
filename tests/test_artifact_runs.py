@@ -80,6 +80,23 @@ class ArtifactRunTests(unittest.TestCase):
             self.assertTrue((run.directory / "scenario-config.json").is_file())
             self.assertFalse((run.directory / "ride-siege.scm").exists())
 
+    def test_frontier_stages_and_faction_logs_are_published(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "legacy"
+            run = ArtifactRun("live-capture", "frontier", output, root / "artifacts")
+            for stage in ("initial", "firing", "death", "damage", "final"):
+                (output / f"client-b-{stage}.png").write_bytes(b"image")
+            for faction in ("zerg", "terran"):
+                (output / f"{faction}.log").write_text("combat event\npassword=private\n")
+            (output / "StarDat.mpq").write_bytes(b"private")
+            result = run.finalize("passed")
+            self.assertEqual(len(result["screenshots"]), 5)
+            self.assertEqual({item["path"] for item in result["logs"]},
+                             {"diagnostic-zerg.log", "diagnostic-terran.log"})
+            self.assertNotIn("private", (run.directory / "diagnostic-zerg.log").read_text())
+            self.assertFalse((run.directory / "StarDat.mpq").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

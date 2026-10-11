@@ -7,7 +7,6 @@ from collections import defaultdict
 from functools import lru_cache
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -18,7 +17,7 @@ import subprocess
 
 from PIL import Image, ImageDraw, ImageFont
 
-from squad_verification import project
+from squad_verification import SPRITE_DIRECTIONS as DIRS, project, screen_direction
 from video_capture import probe_video
 from artifact_runs import ArtifactRun
 
@@ -35,7 +34,6 @@ STATE = re.compile(
 DEATH = re.compile(r"\[battle\] destroyed id=(\d+) owner=(\d+) kind=(\w+) frame=(\d+)")
 OUTCOME = re.compile(r"\[battle\] outcome frame=(\d+) zerg_alive=(\d+) terran_alive=(\d+) result=(\w+)")
 DAMAGE = re.compile(r"\[battle\] damage id=(\d+) owner=(\d+) kind=(\w+) from=(\d+) to=(\d+) frame=(\d+)")
-DIRS = ("east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast")
 MARINE_DIRECTIONS = {"east": (8, False), "southeast": (12, False), "south": (16, False),
                      "southwest": (12, True), "west": (8, True), "northwest": (4, True),
                      "north": (0, False), "northeast": (4, False)}
@@ -120,16 +118,6 @@ def load_sprites(game_dir: Path, out: Path):
 def font(size: int):
     path = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
     return ImageFont.truetype(str(path), size) if path.is_file() else ImageFont.load_default()
-
-
-def screen_direction(facing: int) -> str:
-    """Project an OpenBW world-space heading into the park camera's eight views."""
-    angle = facing * math.tau / 256
-    world_dx, world_dy = math.cos(angle), math.sin(angle)
-    screen_dx = 2 * (world_dy - world_dx)
-    screen_dy = world_dx + world_dy
-    octant = round(math.atan2(screen_dy, screen_dx) * 4 / math.pi) % 8
-    return DIRS[octant]
 
 
 def actor_image(state, marine, zerg, frame):

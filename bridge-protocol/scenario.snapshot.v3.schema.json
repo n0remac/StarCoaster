@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:starcoaster:scenario.snapshot:v3",
+  "title": "StarCoaster live combat and park assault snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "kind", "session", "map_id", "seq", "bw_tick", "units", "targets", "events"],
+  "properties": {
+    "v": { "const": 3 },
+    "kind": { "const": "scenario.snapshot" },
+    "session": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "map_id": { "enum": ["demo-flat", "frontier-defense", "park-assault"] },
+    "seq": { "type": "integer", "minimum": 1 },
+    "bw_tick": { "type": "integer", "minimum": 0 },
+    "map_revision": { "type": "integer", "minimum": 1 },
+    "units": {
+      "type": "array", "maxItems": 32,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "kind", "owner", "x", "y", "facing", "motion", "hp", "max_hp", "alive", "attack_frames", "target_id"],
+        "properties": {
+          "id": { "$ref": "#/$defs/unitId" },
+          "kind": { "enum": ["terran_marine", "zerg_zergling"] },
+          "owner": { "type": "integer", "minimum": 0, "maximum": 11 },
+          "x": { "type": "integer", "minimum": 0 },
+          "y": { "type": "integer", "minimum": 0 },
+          "facing": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "motion": { "enum": ["idle", "walk", "attack", "death"] },
+          "hp": { "type": "integer", "minimum": 0 },
+          "max_hp": { "type": "integer", "minimum": 1, "maximum": 10000 },
+          "alive": { "type": "boolean" },
+          "attack_frames": { "type": "integer", "minimum": 0 },
+          "target_id": { "oneOf": [{ "$ref": "#/$defs/unitId" }, { "type": "null" }] }
+        }
+      }
+    },
+    "targets": {
+      "type": "array", "maxItems": 8,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "proxy_unit_id", "hp", "max_hp", "state"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" },
+          "proxy_unit_id": { "$ref": "#/$defs/unitId" },
+          "hp": { "type": "integer", "minimum": 0 },
+          "max_hp": { "type": "integer", "minimum": 1, "maximum": 10000 },
+          "state": { "enum": ["intact", "damaged", "destroyed"] }
+        }
+      }
+    },
+    "events": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "kind", "unit_id", "value", "bw_tick"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[0-9a-f]{32}:[0-9]+:(damage|death|attack_frame|destruction):[0-9]+$" },
+          "kind": { "enum": ["damage", "death", "attack_frame", "destruction"] },
+          "unit_id": { "$ref": "#/$defs/unitId" },
+          "value": { "type": "integer", "minimum": 0 },
+          "bw_tick": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "$defs": { "unitId": { "type": "string", "pattern": "^openbw:[0-9]+$" } },
+  "allOf": [
+    { "if": { "properties": { "map_id": { "const": "frontier-defense" } } },
+      "then": { "properties": { "targets": { "minItems": 1, "maxItems": 1,
+        "items": { "properties": { "id": { "const": "carousel-1" }, "max_hp": { "const": 200 } } } } } } },
+    { "if": { "properties": { "map_id": { "const": "park-assault" } } },
+      "then": { "required": ["map_revision"],
+        "properties": { "targets": { "minItems": 3 } } } }
+  ]
+}

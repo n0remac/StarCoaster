@@ -15,10 +15,13 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 ARTIFACT_ROOT = Path(os.environ.get("STARCOASTER_ARTIFACT_ROOT", ROOT / "run-data/artifacts"))
-LOG_NAMES = {"client-a.log", "client-b.log", "server.log", "bwapi.log",
+LOG_NAMES = {"client-a.log", "client-b.log", "server.log", "zerg.log", "terran.log", "bwapi.log",
              "bwapi-restart.log", "video-capture.log"}
 VIDEO_NAMES = {"combined.mp4", "client-a.mp4", "client-b.mp4"}
-IMAGE_NAME = re.compile(r"(?:client-[ab]-(?:early|later|final|t[\d.]+)(?:-rot[0-3])?|frame-\d+|park-background)\.png\Z")
+IMAGE_NAME = re.compile(r"(?:client-[ab]-(?:initial|firing|death|damage|early|later|final|overview|approach|combat|carousel-(?:attack|destroyed)|shop-(?:attack|destroyed)|ferris-(?:attack|destroyed)|t[\d.]+)(?:-rot[0-3])?|frame-\d+|park-background)\.png\Z")
+DIAGNOSTIC_NAMES = {"navigation-grid.png", "planned-paths.png", "observed-paths.png",
+                    "navigation-grid.json", "planned-paths.json", "observed-paths.json",
+                    "target-events.json", "navigation-events.json", "violations.json"}
 ID_PATTERN = re.compile(r"\d{8}T\d{6}Z-[0-9a-f]{12}\Z")
 
 
@@ -78,7 +81,7 @@ class ArtifactRun:
             "schema_version": 1, "id": ident, "type": kind, "title": title,
             "status": "running", "started_at": datetime.now(timezone.utc).isoformat(),
             "finished_at": None, "commit_sha": sha, "videos": [], "screenshots": [],
-            "verification_file": None, "video_metadata_file": None, "logs": [],
+            "verification_file": None, "video_metadata_file": None, "logs": [], "diagnostics": [],
             "scenario_config_file": None,
             "error": None, "capture_config": config or {}, "size_bytes": 0,
         }
@@ -112,7 +115,7 @@ class ArtifactRun:
                         if isinstance(item, dict) and "duration_seconds" in item and not item.get("validation_error")}
         if metadata.get("filename") in VIDEO_NAMES and metadata.get("duration_seconds"):
             valid_videos.add(metadata["filename"])
-        videos, screenshots, logs = [], [], []
+        videos, screenshots, logs, diagnostics = [], [], [], []
         sizes = 0
         candidates = list(self.output.iterdir())
         for path in candidates:
@@ -125,6 +128,9 @@ class ArtifactRun:
             elif IMAGE_NAME.fullmatch(name):
                 group = screenshots
                 label = name.removesuffix(".png").replace("-", " ").title()
+            elif name in DIAGNOSTIC_NAMES:
+                group = diagnostics
+                label = name.rsplit(".", 1)[0].replace("-", " ").title()
             elif name in LOG_NAMES:
                 # Logs are often noisy and can include environment data. Publish a
                 # small diagnostic excerpt with obvious secret-bearing lines removed.
@@ -150,6 +156,7 @@ class ArtifactRun:
         screenshots.sort(key=lambda item: (self.directory / item["path"]).stat().st_mtime_ns)
         self.manifest.update({"status": status, "finished_at": datetime.now(timezone.utc).isoformat(),
                               "error": error, "videos": videos, "screenshots": screenshots,
+                              "diagnostics": diagnostics,
                               "logs": logs, "size_bytes": sizes,
                               "verification_file": "verification.json" if (self.directory / "verification.json").is_file() else None,
                               "video_metadata_file": "video-metadata.json" if (self.directory / "video-metadata.json").is_file() else None,
