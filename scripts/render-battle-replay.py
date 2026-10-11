@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from squad_verification import project
 from video_capture import probe_video
+from artifact_runs import ArtifactRun
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -197,10 +198,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
     parser.add_argument("--background", type=Path, default=DEFAULT_BACKGROUND)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--game-dir", type=Path, default=Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft")))
     args = parser.parse_args()
+    artifact_run = ArtifactRun("battle-replay", "OpenBW battle trace replay",
+                               args.output, config={"log": str(args.log), "background": str(args.background)})
+    args.output = artifact_run.output
     args.output.mkdir(parents=True, exist_ok=True)
+    try:
+        render(args)
+    except BaseException as error:
+        status = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
+        artifact_run.finalize(status, f"{type(error).__name__}: {error}")
+        raise
+    else:
+        artifact_run.finalize("passed")
+
+
+def render(args) -> None:
     timeline, deaths, damage, outcome = read_trace(args.log)
     marine, zerg, assets = load_sprites(args.game_dir, args.output)
     background = Image.open(args.background).convert("RGB")

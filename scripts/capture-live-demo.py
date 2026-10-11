@@ -14,6 +14,7 @@ import time
 
 from PIL import Image
 from video_capture import VideoConfig, VideoRecorder, check_dependencies
+from artifact_runs import ArtifactRun
 from squad_verification import animation_region_hashes, compare_clients, local_purple_counts, parse_applied, parse_projected, write_summary
 
 
@@ -117,6 +118,12 @@ def main() -> int:
         raise RuntimeError(f"Missing RCT2 graphics at {RCT2_DATA / 'Data/g1.dat'}")
     if not all((SC_DATA / f).is_file() for f in ("StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq")):
         raise RuntimeError(f"Missing StarCraft MPQs in {SC_DATA}")
+    global OUT
+    default_out = ROOT / "run-data/visual-demo"
+    chosen_output = OUT if "DEMO_OUTPUT_DIR" in os.environ or OUT != default_out else None
+    artifact_run = ArtifactRun("live-capture", "Live OpenRCT2 graphical capture",
+                               chosen_output, config=vars(args))
+    OUT = artifact_run.output
     OUT.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["RCT2_DATA_DIR"] = str(RCT2_DATA)
@@ -128,6 +135,7 @@ def main() -> int:
     recorder = VideoRecorder(video_config, OUT) if video_config else None
     recording_started = False
     test_error = None
+    final_status = "failed"
     previous_sigterm = None
     if recorder:
         def interrupted(_signum, _frame):
@@ -361,18 +369,26 @@ def main() -> int:
                                              "ticks_per_frame": manifest["registry"]["alien_scout"]["walk"]["ticks_per_frame"]}
         write_summary(OUT / "verification.json", summary)
         print(f"common snapshots={summary['common_snapshots']}; authoritative mismatches=0", flush=True)
+        final_status = "passed"
         return 0
     except BaseException as error:
         test_error = f"{type(error).__name__}: {error}"
+        final_status = "interrupted" if isinstance(error, KeyboardInterrupt) or "interrupted by SIGTERM" in str(error) else "failed"
         (OUT / "verification.json").write_text(json.dumps({"status": "failed", "error": test_error}, indent=2) + "\n")
         raise
     finally:
         if previous_sigterm is not None:
             signal.signal(signal.SIGTERM, previous_sigterm)
         # Finalize MP4 atoms while both X displays still exist, including on test failure.
+        prior_exception = sys.exc_info()[1]
+        recorder_error = None
         try:
             if recording_started:
                 recorder.stop(test_success=test_error is None, test_error=test_error)
+        except BaseException as error:
+            recorder_error = error
+            final_status = "failed"
+            test_error = (test_error + "; " if test_error else "") + f"recording: {error}"
         finally:
             for process, _ in reversed(running):
                 if process.poll() is None:
@@ -384,6 +400,9 @@ def main() -> int:
                     process.kill()
                     process.wait()
                 output.close()
+            artifact_run.finalize(final_status, test_error)
+        if recorder_error is not None and prior_exception is None:
+            raise recorder_error
 
 
 if __name__ == "__main__":
