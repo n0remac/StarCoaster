@@ -13,3 +13,17 @@ To record both graphical clients in one side-by-side MP4, install FFmpeg (`sudo 
 ## Remote test viewer
 
 The StarCoaster artifact viewer collects new graphical captures and composited battle replays under `run-data/artifacts/` with unique run IDs. Its read-only Go server shows recent runs, validated MP4s with seeking, screenshots, verification results, event timelines, and filtered diagnostic logs. By default it listens on `127.0.0.1:8787` and is exposed privately with Tailscale Serve on port 8443. See the [viewer setup and Pi deployment guide](docs/test-viewer.md) for build, user service, Tailscale, API, and maintenance commands.
+
+## Live ride siege
+
+The ride siege demo starts from a separate park with a real, closed merry-go-round named **Frontier Carousel**. Eight OpenBW Zerglings attack a preplaced hostile Missile Turret proxy. OpenBW owns its 200 HP and weapon damage; after its death, the OpenRCT2 server issues one native `ridedemolish` action. Two graphical clients record the live synchronized result. The older patrol and composited battle replay demos remain available.
+
+```sh
+python3 scripts/create-render-test-park.py --scenario ride-siege
+python3 scripts/create-render-test-park.py --scenario ride-siege --probe-demolition
+python3 scripts/verify-ride-siege-headless.py
+python3 scripts/capture-live-demo.py --scenario ride-siege --verify-destruction \
+  --record-video --video-layout combined
+```
+
+The final command publishes a unique artifact run automatically. See the [ride siege guide](docs/ride-siege.md) for the map construction, coordinate mapping, startup order, verification, and private viewer URL.

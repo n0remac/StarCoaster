@@ -26,9 +26,13 @@ The current command lines continue to work. Without an output override, each inv
 DEMO_PARK=run-data/park-generator/save/bridge-render-test.park \
   python3 scripts/capture-live-demo.py --seconds 8 --record-video
 python3 scripts/render-battle-replay.py
+python3 scripts/capture-live-demo.py --scenario ride-siege --verify-destruction \
+  --record-video --video-layout combined
 ```
 
 `DEMO_OUTPUT_DIR=run-data/my-demo` and battle replay `--output run-data/my-replay` still write there. A separate unique artifact directory receives copies of approved files when the command exits, including failures. The original output is left at the requested path. The viewer only advertises an MP4 after FFmpeg has exited and `ffprobe` has validated it. Other runtime files, extracted sprites, archives, and build assets are not published.
+
+The ride siege capture is a live two-client interaction with a real OpenRCT2 ride. See the [ride siege guide](ride-siege.md). Its detail page shows the OpenBW target HP events, native demolition result, and each client's ride and track state, alongside the combined recording and screenshots.
 
 ## User service
 

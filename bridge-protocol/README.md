@@ -9,3 +9,7 @@ The publisher sends one UTF-8 JSON object per line over a TCP connection bound t
 The first BWAPI module publishes on every third simulation frame. The resulting rate depends on the simulator's frame speed. This cadence is tied to `bw_tick`, so pausing the simulation does not generate repeated snapshots for the same tick.
 
 Protocol v1 supports up to 32 actors. The default demo still publishes one Zergling; `BRIDGE_DEMO_UNITS=8` opts into the squad patrol.
+
+## Ride siege snapshot v2
+
+The separate [scenario snapshot v2 schema](scenario.snapshot.v2.schema.json) adds a `targets` array to the live actor snapshot. The current allowlist contains exactly `carousel-1` with a stable `proxy_unit_id`, `hp`, `max_hp`, and `intact`, `damaged`, or `destroyed` state. The bridge emits one full snapshot every third BW frame, including Zergling positions and the terminal destroyed state in subsequent packets. The server validates the session, monotonically increasing sequence and BW tick, stable proxy identity, and nonincreasing HP before coordinating one native ride demolition. The original v1 `units.snapshot` protocol and patrol demos remain available.
