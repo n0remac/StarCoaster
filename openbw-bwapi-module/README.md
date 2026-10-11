@@ -13,4 +13,4 @@ The module uses `BRIDGE_PUBLISH_PORT` (default `39999`), `BRIDGE_MAP_ID` (defaul
 
 The socket holds at most one pending full snapshot and drops a new snapshot when the receiver is slow. A later full snapshot repairs that loss. It never calls BWAPI from another thread. No StarCraft assets are shipped here.
 
-`BRIDGE_SCENARIO=battle` runs the opt-in Marine-versus-Zergling combat feasibility probe. Its result and the two-sided combat blocker are documented in [the battle gate record](../docs/battle-feasibility-2026-10-10.md). It does not yet publish battle snapshots. Run `scripts/test-battle-feasibility.py` to check the gate; a one-sided fight fails by design.
+`BRIDGE_SCENARIO=battle` runs the opt-in Marine-versus-Zergling combat feasibility probe on the pinned `testmap1.scm` map. Its [battle gate record](../docs/battle-feasibility-resolution-2026-10-10.md) documents genuine two-sided OpenBW combat and the map configuration that made hostility repeatable. It does not yet publish battle snapshots. Run `scripts/test-battle-feasibility.py` to check the gate; a one-sided fight fails by design.

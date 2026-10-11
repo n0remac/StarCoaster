@@ -1,4 +1,6 @@
-# Battle feasibility gate — 2026-10-10
+# Initial battle feasibility investigation — 2026-10-10
+
+This is the historical failing result at commit `0e63433`. The gate now passes using a battle-only map configuration; see [the resolution](battle-feasibility-resolution-2026-10-10.md).
 
 The first combat gate is **blocked** on the pinned OpenBW/BWAPI stack. The normal single-unit and eight-Zergling patrol smoke tests still pass. No protocol, renderer, park, or capture work was started for the battle.
 
