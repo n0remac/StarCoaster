@@ -15,3 +15,5 @@ STARCRAFT_DATA_DIR=/path/to/starcraft-data \
 ```
 
 The renderer defaults to `run-data/final-render-demo/client-a-t20.png` as its empty park background. Pass `--background` to use another 1280×800 OpenRCT2 capture from the same camera angle. The source artwork and generated frames remain outside Git.
+
+OpenBW facing values describe directions on its map. The replay projects those headings through the park camera before choosing an eight-direction sprite frame, so firing Marines and advancing Zerglings face their targets on screen.

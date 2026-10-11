@@ -7,6 +7,7 @@ from collections import defaultdict
 from functools import lru_cache
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -120,8 +121,18 @@ def font(size: int):
     return ImageFont.truetype(str(path), size) if path.is_file() else ImageFont.load_default()
 
 
+def screen_direction(facing: int) -> str:
+    """Project an OpenBW world-space heading into the park camera's eight views."""
+    angle = facing * math.tau / 256
+    world_dx, world_dy = math.cos(angle), math.sin(angle)
+    screen_dx = 2 * (world_dy - world_dx)
+    screen_dy = world_dx + world_dy
+    octant = round(math.atan2(screen_dy, screen_dx) * 4 / math.pi) % 8
+    return DIRS[octant]
+
+
 def actor_image(state, marine, zerg, frame):
-    direction = DIRS[((state["facing"] + 16) // 32) & 7]
+    direction = screen_direction(state["facing"])
     if state["kind"] == "terran_marine":
         animation = "attack" if state["attack_frame"] else "walk" if state["order"] not in ("PlayerGuard", "AttackUnit") else "idle"
         return marine[animation, direction], -64, -64
