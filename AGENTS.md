@@ -13,16 +13,12 @@ OpenRCT2 owns the park, scenery, rides, multiplayer state, and rendering. OpenBW
 ## Standard commands
 
 ```sh
-scripts/build-bwapi.sh
-scripts/build-openrct2.sh
-scripts/build-bridge-module.sh
-/usr/local/go/bin/go build -o build/world-bridge ./cmd/world-bridge
-scripts/run-frontier-outpost.sh
-/usr/local/go/bin/go test ./...
-ctest --test-dir build/bridge-module --output-on-failure
-python3 -m unittest discover -s tests -p 'test_*.py'
-for file in tests/test_*plugin.js tests/test_plugin_snapshots.js; do node "$file" || exit; done
-tests/test_frontier_native_navigation_live.sh
+scripts/project.sh build
+scripts/project.sh park
+scripts/project.sh run
+scripts/project.sh test
+scripts/project.sh test-live
+scripts/project.sh record --duration 85
 ```
 
 Use the relevant unit tests before live graphical tests. Preserve navigation, combat, synchronization, and rendering regressions when refactoring. Park changes must keep structure footprints, spawn points, chokepoints, and destructible openings aligned with the scenario and native map. Keep generated parks and captures deterministic where possible.

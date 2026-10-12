@@ -1,50 +1,35 @@
-# Passthrough RTS Bridge
+# StarCoaster
 
-This project shows genuine OpenBW Marines and Zerglings fighting around a real carousel inside a shared OpenRCT2 park. OpenBW/BWAPI owns movement and combat; an OpenRCT2 multiplayer server distributes full snapshots to two modified graphical clients. The earlier one-unit and eight-Zergling demos remain available. The public build uses original CC0 placeholder art; an opt-in local build renders graphics extracted from the user's classic StarCraft installation.
+StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Six OpenBW Marines defend Frontier Carousel against twelve Zerglings in a deterministic 64 × 64 Frontier Outpost. The player selects Marines and gives move, attack, attack move, hold, and stop orders in OpenRCT2. OpenBW runs unit movement and combat; the OpenRCT2 server owns the park and native demolition; the Go bridge synchronizes both engines and two clients.
 
-Start with the [Rev 2 implementation specification](docs/specification.md), [repository layout](docs/repository-layout.md), [bootstrap guide](docs/bootstrap.md), [world bridge startup mode](docs/world-bridge.md), [OpenBW adapter status](docs/openbw-adapter-status.md), and [local Zergling rendering guide](docs/rendering-phase.md). The [bridge protocol](bridge-protocol/README.md) has the wire schemas and fixtures. The earlier Recoil/Minecraft proposal and Raspberry Pi assessment are kept in the [documentation archive](docs/archive/README.md) for historical reference.
+## Build and play
 
-The working tree keeps pinned upstream checkouts under ignored `upstream/`; `scripts/fetch-upstream.py` restores them after cloning this Git repository. The tracked source includes build scripts, a BWAPI module, an OpenRCT2 native render patch, and a server-distributed plugin. A 65-second rendering run on this Pi showed the locally extracted Zergling on two graphical clients, including scenery occlusion, elevation, all four camera rotations, animation, publisher removal, and return. All 657 common snapshots matched in session, tick, identity, motion, and position with no desync warning. See the [rendering guide](docs/rendering-phase.md) and [earlier flat-map test record](docs/headless-test-2026-10-10.md).
-
-To repeat the squad recording here after building, run `DEMO_PARK=run-data/park-generator/save/bridge-render-test.park DEMO_OUTPUT_DIR=run-data/squad-demo python3 scripts/capture-live-demo.py --seconds 65 --demo-units 8 --verify-units --verify-animation --cycle-rotations --publisher-restart --record-video --video-layout combined --video-fps 10 --video-crf 28`. It uses the user-supplied game data at `/home/pi/games/starcraft` and `/home/pi/games/rct2`, starts two virtual displays, and saves MP4, screenshots, logs, and verification metadata under ignored `run-data/squad-demo/`. The game assets and captured RCT2 graphics are kept out of Git. See [squad phase](docs/squad-phase.md).
-
-To record both graphical clients in one side-by-side MP4, install FFmpeg (`sudo apt-get install ffmpeg`) and add `--record-video`. Set `DEMO_OUTPUT_DIR=run-data/zergling-video` to choose an artifact directory. The video, `video-capture.log`, and `video-metadata.json` sit beside the original PNG screenshots; the PNGs remain the source for exact sprite checks. See [video capture and remote viewing](docs/rendering-phase.md#video-capture-and-remote-review).
-
-## Remote test viewer
-
-The StarCoaster artifact viewer collects new graphical captures and composited battle replays under `run-data/artifacts/` with unique run IDs. Its read-only Go server shows recent runs, validated MP4s with seeking, screenshots, verification results, event timelines, and filtered diagnostic logs. By default it listens on `127.0.0.1:8787` and is exposed privately with Tailscale Serve on port 8443. See the [viewer setup and Pi deployment guide](docs/test-viewer.md) for build, user service, Tailscale, API, and maintenance commands.
-
-## Live ride siege
-
-The ride siege demo starts from a separate park with a real, closed merry-go-round named **Frontier Carousel**. Eight OpenBW Zerglings attack a preplaced hostile Missile Turret proxy. OpenBW owns its 200 HP and weapon damage; after its death, the OpenRCT2 server issues one native `ridedemolish` action. Two graphical clients record the live synchronized result. The older patrol and composited battle replay demos remain available.
+Provide your own licensed RCT2 and classic StarCraft data, then set `RCT2_DATA_DIR` and `STARCRAFT_DATA_DIR`. A fresh clone also needs the pinned upstream checkouts from `python3 scripts/fetch-upstream.py`. See the [bootstrap guide](docs/bootstrap.md) for system packages and local sprite options.
 
 ```sh
-python3 scripts/create-render-test-park.py --scenario ride-siege
-python3 scripts/create-render-test-park.py --scenario ride-siege --probe-demolition
-python3 scripts/verify-ride-siege-headless.py
-python3 scripts/capture-live-demo.py --scenario ride-siege --verify-destruction \
-  --record-video --video-layout combined
+scripts/project.sh build
+scripts/project.sh park
+scripts/project.sh run
 ```
 
-The final command publishes a unique artifact run automatically. See the [ride siege guide](docs/ride-siege.md) for the map construction, coordinate mapping, startup order, verification, and private viewer URL.
+The launcher starts the OpenRCT2 host, OpenBW publisher and controller, and Go bridge. Set `BRIDGE_LAUNCH_CLIENT=1` with a graphical `DISPLAY` to join the local game. Frontier Outpost starts at `run-data/frontier-playable/save/frontier-outpost-playable.park`. Generated parks, extracted art, logs, and recordings stay under ignored `run-data/`.
 
-## Park assault
-
-The [Frontier Outpost park assault](docs/park-assault.md) adds a 48 × 48 tile developed park, real paths and scenery, clearance-aware navigation, and three separately destructible park structures. One OpenBW simulation controls 20 Zerglings in three squads while two graphical OpenRCT2 clients show the same native ride demolitions.
+## Test and record
 
 ```sh
-python3 scripts/verify-park-assault-headless.py
-python3 scripts/capture-live-demo.py --scenario park-assault \
-  --verify-destruction --record-video --video-layout combined
+scripts/project.sh test
+scripts/project.sh test-live
+scripts/project.sh record --duration 85
 ```
 
-## Native Marine defense
+`test` runs Go, C++, Python, and JavaScript regressions. `test-live` additionally exercises native navigation, generic park demolition with two clients, and Frontier victory, reconnect, and restart. Live tests require built engines and game data. `record` launches two graphical clients and publishes screenshots, video, logs, and verification results to the [artifact viewer](docs/test-viewer.md). Use `--help` on the recorder for capture settings. The [first playable report](docs/first-playable-verification.md) records the earlier graphical defeat and controls demonstration; [v0.2 baseline](docs/consolidation-baseline.md) records its starting regressions.
 
-The [Frontier defense guide](docs/frontier-defense.md) covers local Marine sprite extraction, the two faction OpenBW setup, map controls, and the verified two client recording. To run the complete live gate after building:
+## Project map
 
-```sh
-python3 scripts/capture-live-demo.py --scenario frontier-defense \
-  --record-video --video-layout combined --verify-combat
-```
+- `openrct2-plugin/`, `openrct2-patches/`: park discovery, multiplayer controls, rendering, and demolition.
+- `openbw-bwapi-module/`: native actor simulation adapter and navigation updates.
+- `cmd/world-bridge/`, `internal/world/`: synchronization, world model, and scenario outcome.
+- `scenarios/`: Frontier configuration; `scripts/`: builds, park generation, demos, and captures; `tests/`: regressions.
+- `bridge-protocol/`: wire schemas; `docs/archive/`: historical specifications and experiments.
 
-This capture uses native OpenRCT2 sprites and live OpenBW combat. The older composited battle replay is a separate historical feasibility artifact.
+The [world bridge guide](docs/world-bridge.md), [park assault guide](docs/park-assault.md), and [licensing inventory](docs/licensing.md) cover design details and remaining limits. Original CC0 placeholder art is tracked; proprietary game files, extracted sprites, and locally built asset packs are never committed.
