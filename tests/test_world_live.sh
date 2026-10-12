@@ -6,12 +6,12 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
-park_file="${PARK_FILE:-$project_dir/run-data/park-assault/save/frontier-outpost.park}"
+park_file="${PARK_FILE:-$project_dir/run-data/frontier-playable/save/frontier-outpost-playable.park}"
 test -f "$park_file"
 run_dir="$project_dir/run-data/world-live-$(date +%s)"
 mkdir -p "$run_dir/client-a/plugin" "$run_dir/client-b/plugin"
-python3 scripts/create-world-base-map.py --output "$run_dir/marines-only.scm" \
-  --zerglings 0 --marines 4
+python3 scripts/create-world-base-map.py --output "$run_dir/world-live.scm" \
+  --scenario scenarios/frontier-outpost.json
 cp scripts/world-target-probe.js scripts/world-client-probe.js "$run_dir/client-a/plugin/"
 cp scripts/world-client-probe.js "$run_dir/client-b/plugin/"
 for client in client-a client-b; do
@@ -32,7 +32,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-BRIDGE_MAX_TARGETS=128 BRIDGE_MAP_FILE="$run_dir/marines-only.scm" \
+BRIDGE_MAX_TARGETS=128 BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_MAP_FILE="$run_dir/world-live.scm" \
   timeout 300s scripts/run-world-session.sh "$park_file" > "$run_dir/session.log" 2>&1 &
 session_pid=$!
 
@@ -62,7 +62,7 @@ for name in client-a client-b; do
 done
 
 wait_for 'WORLD_TARGET_ATTACK_QUERY accepted=true' "$run_dir/client-a.log" 90
-wait_for 'WORLD_REMOVAL id=openrct2:ride:1#1 state=confirmed' "$run_dir/session.log" 180
+wait_for 'WORLD_REMOVAL id=openrct2:ride:0#1 state=confirmed' "$run_dir/session.log" 180
 wait_for 'WORLD_CLIENT_RIDES' "$run_dir/client-a.log" 20
 wait_for 'WORLD_CLIENT_RIDES' "$run_dir/client-b.log" 20
 python3 - "$run_dir/client-a.log" "$run_dir/client-b.log" <<'PY'
@@ -78,8 +78,8 @@ while time.monotonic() < deadline:
     for name in sys.argv[1:]:
         matches = re.findall(r"WORLD_CLIENT_RIDES (\[[0-9, ]+\])", Path(name).read_text(errors="replace"))
         states.append(json.loads(matches[-1]) if matches else None)
-    if states[0] is not None and states[0] == states[1] and 1 not in states[0]:
-        print("WORLD_LIVE_PASS clients agree after native ride 1 removal")
+    if states[0] is not None and states[0] == states[1] and 0 not in states[0]:
+        print("WORLD_LIVE_PASS clients agree after native carousel removal")
         break
     time.sleep(1)
 else:

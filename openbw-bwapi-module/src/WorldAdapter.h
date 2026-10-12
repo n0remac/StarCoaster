@@ -242,7 +242,18 @@ private:
         auto self = game->self();
         auto enemy = targetOwner(game);
         if (self && enemy && !self->isEnemy(enemy)) game->setAlliance(enemy, false, false);
-        for (const auto& [id, entity] : entities_) {
+        // Rides are the largest park structures and should remain targetable
+        // when a dense park exceeds the configured proxy capacity. The rest
+        // retain stable ID order across clients and reconnects.
+        std::vector<std::string> ids;
+        ids.reserve(entities_.size());
+        for (const auto& [id, entity] : entities_) ids.push_back(id);
+        std::stable_sort(ids.begin(), ids.end(), [&](const std::string& a, const std::string& b) {
+            return (entities_.at(a).value("kind", "") == "ride")
+                && (entities_.at(b).value("kind", "") != "ride");
+        });
+        for (const auto& id : ids) {
+            const auto& entity = entities_.at(id);
             if (!entity.value("destructible", false)) continue;
             if (!entity.at("combat").value("targetable", false)) {
                 reportUnsupported(id, "not_targetable"); continue;
