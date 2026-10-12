@@ -14,7 +14,7 @@ index 4cd76d6..3af379a 100644
  
  	std::array<int, 0x100> random_counts;
  	int total_random_counts;
-@@ -20825,6 +20830,67 @@ struct game_load_functions : state_functions {
+@@ -20825,6 +20830,69 @@ struct game_load_functions : state_functions {
  
  	}
  
@@ -63,7 +63,9 @@ index 4cd76d6..3af379a 100644
 +				st.tiles_mega_tile_index[tile] = clone | (st.park_base_mega_tile_index[tile] & 0x8000);
 +				uint16_t flags = st.park_base_tile_flags[tile];
 +				flags &= ~(tile_t::flag_walkable | tile_t::flag_unwalkable | tile_t::flag_partially_walkable);
-+				flags |= walkable_count > 12 ? tile_t::flag_walkable : tile_t::flag_unwalkable;
++				// Park walls can leave a narrow clear strip. Region creation
++				// must include that tile; VF4 still blocks its solid mini-tiles.
++				flags |= walkable_count ? tile_t::flag_walkable : tile_t::flag_unwalkable;
 +				if (walkable_count && walkable_count != 16) flags |= tile_t::flag_partially_walkable;
 +				st.tiles[tile].flags = flags;
 +			}

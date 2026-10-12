@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 // Runs in the Terran BWAPI player slot of the same OpenBW multiplayer game.
 // Every command is applied in onFrame and BWAPI enforces player ownership.
@@ -34,7 +35,7 @@ public:
             const ssize_t count = ::recv(socket_, bytes, sizeof(bytes), 0);
             if (count > 0) {
                 incoming_.append(bytes, static_cast<size_t>(count));
-                if (incoming_.size() > 1048576) { closeSocket(); return; }
+                if (incoming_.size() > 16777216) { closeSocket(); return; }
             } else if (count == 0) { closeSocket(); return; }
             else if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             else { closeSocket(); return; }
@@ -44,16 +45,18 @@ public:
         while (processed++ < 32 && (newline = incoming_.find('\n')) != std::string::npos) {
             const auto line = incoming_.substr(0, newline);
             incoming_.erase(0, newline + 1);
-            if (line.size() > 131072) { closeSocket(); return; }
+            if (line.size() > 16777216) { closeSocket(); return; }
             try { handle(game, json::parse(line)); }
             catch (const std::exception& error) {
                 std::cerr << "[world-control] malformed message: " << error.what() << std::endl;
             }
         }
+        applyScheduledNavigation(game);
         flush();
     }
 private:
     struct TargetLink { std::string proxyID; int x = 0, y = 0; };
+    struct ScheduledRemoval { json message; std::string id; int frame = 0; };
     void connect(BWAPI::Game* game) {
         const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (fd < 0) return;
@@ -73,7 +76,7 @@ private:
     void closeSocket() {
         if (socket_ >= 0) ::close(socket_);
         socket_ = -1;
-        incoming_.clear(); outgoing_.clear(); session_.clear(); revision_ = 0;
+        incoming_.clear(); outgoing_.clear(); session_.clear(); pendingRemovals_.clear(); revision_ = 0;
     }
     void flush() {
         while (socket_ >= 0 && !outgoing_.empty()) {
@@ -102,6 +105,7 @@ private:
             revision_ = message.at("revision").get<uint64_t>();
             targetLinks_.clear();
             navigation_.reset(game->mapWidth(), game->mapHeight());
+            pendingRemovals_.clear();
             return;
         }
         if (kind == "navigation.terrain.update") {
@@ -138,12 +142,14 @@ private:
         if (kind == "navigation.obstacle.remove") {
             const auto id = message.at("payload").value("id", "");
             const bool valid = !session_.empty() && message.value("session", "") == session_ && !id.empty();
-            if (valid) navigation_.remove(id);
-            const bool applied = valid && game->setParkNavigation(navigation_.mask());
-            navigation_.markNative(applied);
-            send("world.ack", session_.empty() ? "openbw-controller" : session_,
-                revision_ ? revision_ : 1, {{"op_id", message.at("op_id")}, {"accepted", applied},
-                    {"error", applied ? "" : "native_navigation_update_failed"}});
+            const int applyFrame = message.at("payload").value("apply_frame", 0);
+            if (!valid || applyFrame < game->getFrameCount() + 2) {
+                send("world.ack", session_.empty() ? "openbw-controller" : session_,
+                    revision_ ? revision_ : 1, {{"op_id", message.at("op_id")}, {"accepted", false},
+                        {"error", valid ? "navigation_update_late" : "invalid_navigation_update"}});
+                return;
+            }
+            pendingRemovals_.push_back({message, id, applyFrame});
             return;
         }
         if (kind == "entity.state" || kind == "entity.remove") {
@@ -251,6 +257,20 @@ private:
              {"player_id", command.value("player_id", -1)},
              {"request_id", command.value("request_id", -1)}});
     }
+    void applyScheduledNavigation(BWAPI::Game* game) {
+        for (auto it = pendingRemovals_.begin(); it != pendingRemovals_.end();) {
+            if (game->getFrameCount() < it->frame) { ++it; continue; }
+            navigation_.remove(it->id);
+            const bool applied = game->setParkNavigation(navigation_.mask());
+            navigation_.markNative(applied);
+            std::cerr << "[world-control] navigation-applied id=" << it->id
+                      << " frame=" << game->getFrameCount() << " accepted=" << applied << std::endl;
+            send("world.ack", session_, revision_ ? revision_ : 1,
+                {{"op_id", it->message.at("op_id")}, {"accepted", applied},
+                    {"error", applied ? "" : "native_navigation_update_failed"}});
+            it = pendingRemovals_.erase(it);
+        }
+    }
     bool validCommandSerial(const std::string& commandID) const {
         const auto prefix = session_ + ":";
         if (commandID.compare(0, prefix.size(), prefix) != 0) return false;
@@ -264,6 +284,7 @@ private:
     uint64_t sequence_ = 0, revision_ = 0, lastCommandSerial_ = 0;
     std::string session_, incoming_, outgoing_;
     std::map<std::string, TargetLink> targetLinks_;
+    std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
     starcoaster::NavigationAdapter navigation_;
 };

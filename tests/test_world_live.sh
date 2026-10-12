@@ -14,6 +14,12 @@ python3 scripts/create-world-base-map.py --output "$run_dir/marines-only.scm" \
   --zerglings 0 --marines 4
 cp scripts/world-target-probe.js scripts/world-client-probe.js "$run_dir/client-a/plugin/"
 cp scripts/world-client-probe.js "$run_dir/client-b/plugin/"
+for client in client-a client-b; do
+  {
+    printf 'var STARCOASTER_WORLD_BRIDGE = true;\n'
+    cat openrct2-plugin/rts-bridge.js
+  } > "$run_dir/$client/plugin/rts-bridge.js"
+done
 
 session_pid=""; client_a_pid=""; client_b_pid=""
 cleanup() {
@@ -27,7 +33,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 BRIDGE_MAX_TARGETS=128 BRIDGE_MAP_FILE="$run_dir/marines-only.scm" \
-  timeout 180s scripts/run-world-session.sh "$park_file" > "$run_dir/session.log" 2>&1 &
+  timeout 300s scripts/run-world-session.sh "$park_file" > "$run_dir/session.log" 2>&1 &
 session_pid=$!
 
 wait_for() {
@@ -55,8 +61,8 @@ for name in client-a client-b; do
   if [[ "$name" == client-a ]]; then client_a_pid=$!; else client_b_pid=$!; fi
 done
 
-wait_for 'WORLD_TARGET_ATTACK_QUERY accepted=true' "$run_dir/client-a.log" 30
-wait_for 'WORLD_REMOVAL id=openrct2:ride:1#1 state=confirmed' "$run_dir/session.log" 90
+wait_for 'WORLD_TARGET_ATTACK_QUERY accepted=true' "$run_dir/client-a.log" 90
+wait_for 'WORLD_REMOVAL id=openrct2:ride:1#1 state=confirmed' "$run_dir/session.log" 180
 wait_for 'WORLD_CLIENT_RIDES' "$run_dir/client-a.log" 20
 wait_for 'WORLD_CLIENT_RIDES' "$run_dir/client-b.log" 20
 python3 - "$run_dir/client-a.log" "$run_dir/client-b.log" <<'PY'

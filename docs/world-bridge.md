@@ -29,15 +29,15 @@ The bridge fits park coordinates into the base map and converts OpenBW actor coo
 
 ## Current limits
 
-The startup path is usable for compatible parks and static terrain. OpenBW stores the discovered collision rectangles separately from target IDs, but this mode reports `navigation: metadata_only`: the native path regions and local collision are not rebuilt from them. The civilian proxy retains its built-in hitbox, so the combat target and physical obstacle do not match a large ride's footprint. The reusable map terrain stays fixed. `entity.upsert`, `entity.remove`, `entity.transform`, and `navigation.terrain.update` are defined in the protocol and rejected with `live_update_unsupported` until both engines can commit them together. Continuous guest/staff transfers are deferred. A failed native demolition remains failed; an authoritative resync can recreate a target for a later attempt.
+The startup path is usable for compatible parks and static terrain. The patched OpenBW/BWAPI adapter now applies park collision rectangles to native 8-pixel walkability and rebuilds its path regions on startup and after confirmed demolition. `world.ready` reports `navigation: native` only after both OpenBW processes acknowledge that update; Frontier Outpost rejects readiness otherwise. The civilian proxy retains its built-in hitbox, so the combat target and physical obstacle do not match a large ride's footprint. The reusable base-map terrain stays fixed. `entity.upsert`, `entity.remove`, `entity.transform`, and live `navigation.terrain.update` are defined in the protocol and rejected with `live_update_unsupported` until both engines can commit them together. Continuous guest/staff transfers are deferred. A failed native demolition remains failed; an authoritative resync can recreate a target for a later attempt.
 
-OpenBW builds its path regions from map walkability during map initialization in `upstream/openbw/bwgame.h::regions_create`. The BWAPI game wrapper currently exposes walkability as a read-only query. Replacing the region graph and invalidating active paths after world.v1 snapshot arrival requires an isolated engine and BWAPI patch; this adapter does not claim the carousel, wall-gap, or blocked-corridor navigation tests. See [adapter status and measurements](openbw-adapter-status.md).
+OpenBW builds its path regions in `upstream/openbw/bwgame.h::regions_create`. The native patches replace the walkability mask, invalidate active paths, and rebuild regions when park geometry changes. The [first playable verification](first-playable-verification.md) reports measured movement through the park and identifies any still failing demolition routes.
 
 ### Troubleshooting
 
 - `no_enemy_player` or zero targets: regenerate `world-base-v4.scm`; older base maps have no third target-owner slot.
 - `proxy_not_created`: OpenBW rejected a native civilian placement. Inspect `world.ready.unsupported_reasons` and lower or raise `BRIDGE_MAX_TARGETS` only after checking the specific park geometry.
-- `navigation=metadata_only`: park obstacle rectangles are registered but OpenBW movement still follows the reusable base map.
+- `navigation=metadata_only`: a native mask update failed or was unavailable; Frontier Outpost does not start in this state.
 - `invalid_target` on a Marine order: the controller could not uniquely associate that logical target with a local native proxy, or the target was already removed.
 - After a bridge restart, wait for a fresh `WORLD_READY` line before sending new commands. The adapters reconnect and reconcile from OpenRCT2's current snapshot.
 

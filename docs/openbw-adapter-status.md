@@ -1,5 +1,11 @@
 # OpenBW adapter status and measurements
 
+> Historical measurement: the capacity run below predates the native
+> navigation patches now shipped in `openbw-bwapi-module/`. Frontier Outpost
+> currently reports `navigation=native` after OpenBW and the Terran controller
+> apply the park mask. See [first playable verification](first-playable-verification.md)
+> for observed movement and the remaining route failures.
+
 Measured on 2026-10-12 against `frontier-outpost.park` and the reusable `world-base-v4.scm`. This is an implementation report, not a declaration that the proposed milestone is complete.
 
 ## What runs now
@@ -8,7 +14,11 @@ The generic `world.v1` snapshot stages and validates a desired world before reco
 
 The target link between the two BWAPI processes includes logical entity ID, publisher proxy ID, and proxy location. The Terran controller accepts a target only when exactly one enemy civilian matches the link and no other linked target is nearby. This is a guarded compatibility mechanism, not a durable native cross-process unit identifier. Crowded or ambiguous placements are rejected.
 
-`WorldNavigation.h` validates and stores multi-rectangle footprints, passability, overlap counts, and individual removals. It does **not** inject those footprints into native OpenBW pathfinding or collision. `world.ready.navigation` deliberately reports `metadata_only`.
+At the time of these capacity measurements, `WorldNavigation.h` stored
+footprints without applying them to OpenBW. The current adapter submits the
+combined 8-pixel mask to the patched native VF4 collision and region builder
+at startup and after confirmed demolition. `world.ready.navigation` reports
+`native` only after both OpenBW processes acknowledge the mask.
 
 ## Capacity and performance
 
@@ -42,10 +52,10 @@ Local evidence: `run-data/world-adapter-test/session-cap256.log`, `session-cap51
 | Zergling AI without scenario target IDs | Passed | Example controller selects from the generic target registry. It remains embedded in the adapter and can be disabled for tests. |
 | Attack and death animations | Partial | Snapshot publishes native attack state and brief death state; full renderer asset and animation validation remains. |
 | Destruction removes intended OpenRCT2 object exactly once | Passed for tested ride | Ride 1 death produced one confirmed native removal; two clients agreed on resulting ride set. |
-| Carousel and scenery full-footprint avoidance | Failed | Native OpenBW collision still uses base-map and proxy hitboxes. |
-| Walls, narrow gaps, and blocked corridors route correctly | Failed | Native path regions are not rebuilt from park geometry. |
-| Confirmed destruction unblocks native routes | Failed | Geometry registry removes the obstacle, but native routes never consumed it. |
-| Navigation capability reports enforced behavior | Passed | Reports `metadata_only`, never active navigation. |
+| Carousel and scenery full-footprint avoidance | Historical failure; now passed for the tested carousel | `tests/test_frontier_native_navigation_live.sh` observed Marines avoid the intact carousel and traverse its footprint after confirmed demolition. |
+| Walls, narrow gaps, and blocked corridors route correctly | Historical failure; now passed for the tested Frontier routes | The live native navigation probe observed a legitimate opening, rejected a blocked corridor, and observed six Marines crossing the newly opened wall tile. |
+| Confirmed destruction unblocks native routes | Historical failure; now passed for the tested wall and carousel | Both OpenBW processes applied removal at the same acknowledged frame; see `run-data/frontier-native-nav-1791834732/verification.json`. |
+| Navigation capability reports enforced behavior | Passed | Frontier Outpost reports `navigation=native` only after both OpenBW processes acknowledge the mask. `metadata_only` is retained only as a historical fallback state for generic sessions that cannot apply a mask. |
 | At least 100 mixed units through snapshots | Passed | Both clients received 100 on separated-army fixture. |
 | Unsupported targets are reported | Passed | `world.ready` reports total and reason counts plus bounded example IDs. |
 | Server and two clients agree on unit states and demolition | Partial | Two clients received the 100-unit snapshot and matching post-demolition ride sets; complete long-running equality comparison was not rerun. |
@@ -53,9 +63,13 @@ Local evidence: `run-data/world-adapter-test/session-cap256.log`, `session-cap51
 
 ## Required work for milestone completion
 
-OpenBW builds path regions in `upstream/openbw/bwgame.h::regions_create` from map walkability during map initialization. The world snapshot arrives after that initialization. The BWAPI wrapper exposes walkability as a read-only query. An isolated OpenBW/BWAPI engine patch must apply park footprints to both local collision and region/path selection, invalidate active paths, and pass measured carousel, wall-gap, multiple-obstacle, removal, and blocked-corridor tests. No such engine patch is included yet.
+The `0002-native-navigation-openbw.patch` and
+`0003-native-navigation-bwapi.patch` add dynamic VF4 masks and path region
+rebuilding. The historical failures in the table above are superseded by the
+live probe results. Those results cover the Frontier fixture and do not prove
+every terrain, scenery, and height combination in arbitrary parks.
 
-Combat still uses a Terran Civilian's native hitbox. A multi-tile ride has one health pool and one demolition identity but can be attacked only through that small proxy. Path objects remain non-targetable. Target placement limits, cross-process target identity, and client click-to-target geometry need stronger solutions. Live construction remains explicitly unsupported. The requested recorded graphical demonstration has not been captured; the headless logs verify combat and multiplayer state only.
+Combat still uses a Terran Civilian's native hitbox. A multi-tile ride has one health pool and one demolition identity but can be attacked only through that small proxy. Path objects remain non-targetable. Target placement limits, cross-process target identity, and client click-to-target geometry need stronger solutions. Live construction remains explicitly unsupported. The graphical two-client Frontier Outpost demonstration is available in the [first playable verification report](first-playable-verification.md) and the Pi artifact viewer.
 
 ## Reproduce checks
 

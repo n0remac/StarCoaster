@@ -46,6 +46,7 @@ type service struct {
 	stage           *staging
 	next            uint64
 	pending         map[string]world.CombatEvent
+	pendingFrames   map[string]int
 	proxies         map[string]string
 	targetLinks     map[string]targetLink
 	pendingLinks    map[string]string
@@ -327,6 +328,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		}
 		s.stage = nil
 		s.pending = map[string]world.CombatEvent{}
+		s.pendingFrames = map[string]int{}
 		s.proxies = map[string]string{}
 		s.targetLinks = map[string]targetLink{}
 		s.pendingLinks = map[string]string{}
@@ -374,13 +376,18 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.ack(p, m, true, "")
 		_ = s.emit(s.bw, "combat.result", m.Session, s.registry.Revision, result)
 		if result.State == "removal_confirmed" {
-			_ = s.emit(s.bw, "navigation.obstacle.remove", m.Session, s.registry.Revision, map[string]string{"id": result.EntityID})
-			_ = s.emit(s.controller, "navigation.obstacle.remove", m.Session, s.registry.Revision, map[string]string{"id": result.EntityID})
+			// Both OpenBW players must rebuild paths on the same simulation frame.
+			// A local update on only one frame diverges their unit positions.
+			applyFrame := s.pendingFrames[result.EventID] + 96
+			payload := map[string]any{"id": result.EntityID, "apply_frame": applyFrame}
+			_ = s.emit(s.bw, "navigation.obstacle.remove", m.Session, s.registry.Revision, payload)
+			_ = s.emit(s.controller, "navigation.obstacle.remove", m.Session, s.registry.Revision, payload)
 			if result.EntityID == s.objectiveID { s.announceOutcome(s.lastMarines, s.lastZerglings) }
 		} else {
 			s.ready = false
 			_ = s.emit(s.park, "world.resync", m.Session, s.registry.Revision, map[string]string{"reason": "removal_failed"})
 		}
+		delete(s.pendingFrames, result.EventID)
 	case "entity.upsert", "entity.remove", "entity.transform", "entity.state", "navigation.terrain.update":
 		// The envelope and model are versioned for future live updates. Applying
 		// one side before OpenBW accepts its geometry would split authority.
@@ -557,6 +564,8 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.pending[event.ID] = event
+		if s.pendingFrames == nil { s.pendingFrames = map[string]int{} }
+		s.pendingFrames[event.ID] = m.BWTick
 		s.registry.RemovalState[event.EntityID] = "destruction_requested"
 		s.ack(p, m, true, "")
 		if err := s.emit(s.park, "combat.event", m.Session, s.registry.Revision, event); err == nil {

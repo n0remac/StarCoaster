@@ -45,6 +45,12 @@ const sandbox = {
                     if (elements[i].type === 'track') elements.splice(i, 1);
                 callback({}); return;
             }
+            if (name === 'wallremove') {
+                const elements = at(5, 1);
+                for (let i = elements.length - 1; i >= 0; i--)
+                    if (elements[i].type === 'wall') elements.splice(i, 1);
+                callback({}); return;
+            }
             const action = registered.get(name); assert.ok(action, name);
             const result = action.query({ player: 1, args }); if (!result.error) action.execute({ player: 1, args });
             callback(result);
@@ -97,9 +103,12 @@ const squadCommands = sent.filter(m => m.kind === 'combat.command');
 assert.equal(squadCommands.length, beforeSquad + 1, 'squad order uses one command');
 assert.deepEqual([...squadCommands.at(-1).payload.unit_ids], squad);
 const rideTarget = all.find(e => e.kind === 'ride');
+const wallTarget = all.find(e => e.kind === 'wall');
+const sceneryTarget = all.find(e => e.kind === 'small_scenery');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.ready', session: sid,
-    payload: { entities: 5, targets: 1, target_ids: [rideTarget.id], navigation: 'native' } }) + '\n');
-assert.equal(actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets[0].id, rideTarget.id);
+    payload: { entities: 5, targets: 3, target_ids: [rideTarget.id, wallTarget.id, sceneryTarget.id], navigation: 'native' } }) + '\n');
+assert.ok(actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets
+    .some(target => target.id === rideTarget.id));
 const structureArgs = { session: sid, request: 3, unit_ids: ['openbw:1000'],
     verb: 'attack', target_entity_id: rideTarget.id };
 assert.equal(command.query({ player: 1, args: structureArgs }).error, undefined);
@@ -123,6 +132,17 @@ assert.equal(sent.find(m => m.kind === 'combat.result').revision, 2);
 assert.ok(at(4, 1).some(element => element.type === 'small_scenery'));
 assert.ok(at(5, 1).some(element => element.type === 'wall'));
 assert.ok(at(5, 2).some(element => element.type === 'footpath'));
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid,
+    payload: { id: 'death:wall', entity_id: wallTarget.id, proxy_id: 'openbw:10',
+        type: 'destruction', health: 0 } }) + '\n');
+drain();
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'entity.remove', session: sid,
+    payload: { id: wallTarget.id } }) + '\n');
+const survivors = actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets;
+assert.ok(survivors.some(target => target.id === sceneryTarget.id),
+    'rediscovery during demolition retains other active targets');
+assert.ok(!survivors.some(target => target.id === wallTarget.id),
+    'demolished wall leaves the target catalog');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid, payload: event }) + '\n');
 assert.equal(actions.filter(a => a.name === 'ridedemolish').length, 1, 'duplicate death cannot demolish twice');
 ride = { id: 17, name: 'A New Carousel', type: 33, classification: 'ride',

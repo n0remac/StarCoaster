@@ -159,7 +159,9 @@
                     destructible: item.kind !== "guest" && item.kind !== "staff",
                     combat: { targetable: item.kind !== "path" && item.kind !== "guest" && item.kind !== "staff", health: 100 },
                     removal: item.removal, revision: revision };
-                item.id = id; item.entity = entity; entities[id] = item; activeItems[key] = item; result.push(entity);
+                item.id = id; item.entity = entity;
+                item.activeTarget = !!(entities[id] && entities[id].activeTarget);
+                entities[id] = item; activeItems[key] = item; result.push(entity);
             });
             Object.keys(activeKeys).forEach(function (key) { if (!now[key]) { delete activeKeys[key]; delete activeItems[key]; } });
             return { entities: result, terrain: terrain };
@@ -536,6 +538,7 @@
         let targetCatalogSession = "";
         let outcomeState = null;
         let shownOutcome = "";
+        let commandFeedback = "";
         const pendingCommands = {};
         context.registerAction(ACTION, function (event) {
             if (network.mode === "server" && event.player !== network.currentPlayer.id) {
@@ -680,9 +683,12 @@
                     ? {} : { error: 1, errorMessage: "Invalid Marine command result" };
             }, function (event) {
                 const args = event.args;
-                if (args.player === network.currentPlayer.id)
+                if (args.player === network.currentPlayer.id) {
+                    commandFeedback = args.accepted ? "Order " + args.request + " accepted"
+                        : "Order " + args.request + " rejected: " + args.reason;
                     console.log("RTS Bridge Marine command request=" + args.request + " unit=" + args.unit
                         + " accepted=" + args.accepted + " reason=" + args.reason);
+                }
                 return {};
             });
         }
@@ -708,6 +714,7 @@
 
         if ((FRONTIER_ENABLED || WORLD_ENABLED) && typeof ui !== "undefined") {
             let selected = [];
+            let highlightedTiles = "";
             let nextRequest = 0;
             let selectingMultiple = false;
             let selectionSession = "";
@@ -716,24 +723,38 @@
             let attackMove = false;
             const controlGroups = {};
             const squadWindow = WORLD_ENABLED ? ui.openWindow({ classification: "starcoaster-squad",
-                width: 248, height: 88, title: "Frontier Outpost", widgets: [
+                width: 248, height: 104, title: "Frontier Outpost", widgets: [
                     { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
                         text: "Waiting for battlefield" },
                     { type: "label", x: 8, y: 38, width: 232, height: 14,
                         text: "Drag select | A attack move | H hold | S stop" },
                     { type: "label", name: "objective", x: 8, y: 57, width: 232, height: 14,
-                        text: "Defend Frontier Carousel" }
+                        text: "Defend Frontier Carousel" },
+                    { type: "label", name: "command", x: 8, y: 75, width: 232, height: 14,
+                        text: "Select Marines to issue orders" }
                 ] }) : null;
             function pointFrom(event) { return event.mapCoords || rtsBridge.cursorWorld(); }
             function refreshSelection() {
                 if (selectionSession !== controlSession) {
                     selectionSession = controlSession; selected = [];
                     Object.keys(controlGroups).forEach(function (number) { delete controlGroups[number]; });
+                    commandFeedback = "";
                 }
                 selected = selected.filter(function (id) {
                     const unit = controlUnits[id];
                     return unit && unit.kind === "terran_marine" && unit.hp > 0;
                 });
+                if (WORLD_ENABLED) {
+                    const tiles = selected.map(function (id) {
+                        const unit = controlUnits[id];
+                        return { x: Math.floor(unit.x / 32) * 32, y: Math.floor(unit.y / 32) * 32 };
+                    });
+                    const key = JSON.stringify(tiles);
+                    if (key !== highlightedTiles) {
+                        ui.tileSelection.tiles = tiles;
+                        highlightedTiles = key;
+                    }
+                }
                 if (squadWindow) {
                     const info = squadWindow.findWidget("selection");
                     if (info) info.text = selected.length + " Marine" + (selected.length === 1 ? "" : "s")
@@ -741,6 +762,8 @@
                     const objective = squadWindow.findWidget("objective");
                     if (objective) objective.text = outcomeState === "victory" ? "Victory: Outpost defended"
                         : outcomeState === "defeat" ? "Defeat: Outpost lost" : "Defend Frontier Carousel";
+                    const command = squadWindow.findWidget("command");
+                    if (command) command.text = commandFeedback || "Select Marines to issue orders";
                 }
                 if (outcomeState && shownOutcome !== controlSession + ":" + outcomeState) {
                     shownOutcome = controlSession + ":" + outcomeState;
@@ -751,7 +774,7 @@
             context.subscribe("interval.tick", refreshSelection);
             function chooseAt(point, shift) {
                 refreshSelection();
-                const id = point && rtsBridge.hitTest(point.x, point.y, 22);
+                const id = point && rtsBridge.hitTest(point.x, point.y, 48);
                 const unit = id && controlUnits[id];
                 if (!unit || unit.kind !== "terran_marine" || unit.hp <= 0) {
                     if (!shift && !selectingMultiple) selected = [];
@@ -765,12 +788,17 @@
             }
             function chooseRectangle(start, end, shift) {
                 refreshSelection();
-                const lowX = Math.min(start.x, end.x), highX = Math.max(start.x, end.x);
-                const lowY = Math.min(start.y, end.y), highY = Math.max(start.y, end.y);
+                // A screen rectangle is a diamond in park coordinates. The
+                // isometric screen axes are x+y and y-x for every rotation.
+                const lowSum = Math.min(start.x + start.y, end.x + end.y);
+                const highSum = Math.max(start.x + start.y, end.x + end.y);
+                const lowDiff = Math.min(start.y - start.x, end.y - end.x);
+                const highDiff = Math.max(start.y - start.x, end.y - end.x);
                 const inside = Object.keys(controlUnits).filter(function (id) {
                     const unit = controlUnits[id];
                     return unit.kind === "terran_marine" && unit.hp > 0 && unit.owner === terranOwner
-                        && unit.x >= lowX && unit.x <= highX && unit.y >= lowY && unit.y <= highY;
+                        && unit.x + unit.y >= lowSum && unit.x + unit.y <= highSum
+                        && unit.y - unit.x >= lowDiff && unit.y - unit.x <= highDiff;
                 });
                 selected = shift ? selected.concat(inside.filter(function (id) { return !selected.includes(id); })) : inside;
                 console.log("RTS Bridge selected Marines=" + selected.join(","));
@@ -804,7 +832,7 @@
             function orderAt(point) {
                 refreshSelection();
                 if (!selected.length || !point) return;
-                const hit = rtsBridge.hitTest(point.x, point.y, 22);
+                const hit = rtsBridge.hitTest(point.x, point.y, 48);
                 const target = hit && controlUnits[hit];
                 const structure = WORLD_ENABLED && Object.keys(worldTargetIds).filter(function (id) {
                     return worldTargetIds[id].geometry.rects.some(function (rect) {
@@ -826,12 +854,21 @@
                     if (result.error) ui.showError("Marine command", result.errorMessage);
                 });
             }
-            ui.activateTool({ id: "starcoaster.select-marine", cursor: "cross_hair", filter: ["terrain", "footpath"],
+            ui.activateTool({ id: "starcoaster.select-marine", cursor: "cross_hair",
+                filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
                 onDown: function (event) {
                     dragStart = pointFrom(event); dragEnd = dragStart;
                     if (!WORLD_ENABLED) chooseAt(dragStart, event.shift);
                 },
-                onMove: function (event) { if (dragStart && event.isDown) dragEnd = pointFrom(event) || dragEnd; },
+                onMove: function (event) {
+                    if (dragStart && event.isDown) {
+                        dragEnd = pointFrom(event) || dragEnd;
+                        if (WORLD_ENABLED && dragEnd) ui.tileSelection.range = {
+                            leftTop: { x: Math.min(dragStart.x, dragEnd.x), y: Math.min(dragStart.y, dragEnd.y) },
+                            rightBottom: { x: Math.max(dragStart.x, dragEnd.x), y: Math.max(dragStart.y, dragEnd.y) }
+                        };
+                    }
+                },
                 onUp: function (event) {
                     const end = pointFrom(event) || dragEnd;
                     if (WORLD_ENABLED && dragStart && end) {
@@ -839,7 +876,11 @@
                             chooseRectangle(dragStart, end, event.shift);
                         else chooseAt(end, event.shift);
                     }
+                    if (WORLD_ENABLED) ui.tileSelection.range = null;
                     dragStart = null; dragEnd = null;
+                },
+                onFinish: function () {
+                    if (WORLD_ENABLED) { ui.tileSelection.range = null; ui.tileSelection.tiles = []; }
                 },
                 onRightClick: function (event) { orderAt(pointFrom(event)); } });
         }
