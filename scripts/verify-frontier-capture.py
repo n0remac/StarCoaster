@@ -18,7 +18,8 @@ def snapshots(text):
 def main(directory):
     out = Path(directory)
     server = (out / "server.log").read_text(errors="replace")
-    client = [(out / f"client-{letter}.log").read_text(errors="replace") for letter in "ab"]
+    client = [(out / f"client-{letter}.log").read_text(errors="replace")
+              if (out / f"client-{letter}.log").exists() else "" for letter in "ab"]
     a, b = [snapshots(text) for text in client]
     common = sorted(set(a) & set(b))
     matching = [seq for seq in common if a[seq] == b[seq]]
@@ -50,7 +51,7 @@ def main(directory):
     full_selection = any(len(re.findall(r"openbw:1\d{3}", line)) == 6 for line in selection)
     commands = re.findall(r"\[world-control\] command=[^\s]+ unit=\d+ verb=([^ ]+) accepted=(\d)", server)
     carousel_removed = "WORLD_REMOVAL id=openrct2:ride:0#1 state=confirmed" in server
-    wall_removed = "WORLD_REMOVAL id=openrct2:wall:31:896:1120:112:1#1 state=confirmed" in server
+    wall_removed = "WORLD_REMOVAL id=openrct2:wall:31:896:1120:112:0#1 state=confirmed" in server
     # The ride occupies nine full tiles: x=576..671, y=544..639.
     demolition_seq = None
     wall_applied_seq = None
@@ -61,7 +62,7 @@ def main(directory):
             latest_seq = int(match.group(1))
         if "WORLD_REMOVAL id=openrct2:ride:0#1 state=confirmed" in line:
             demolition_seq = latest_seq
-        if "navigation-applied id=openrct2:wall:31:896:1120:112:1#1" in line:
+        if "navigation-applied id=openrct2:wall:31:896:1120:112:0#1" in line:
             wall_applied_seq = latest_seq
     opened_footprint = []
     if demolition_seq is not None:
@@ -103,7 +104,9 @@ def main(directory):
         "mismatched_sequences": mismatches[:20],
         "opened_carousel_footprint_samples": opened_footprint[:12],
         "opened_wall_crossing_samples": opened_wall_crossings[:12],
-        "video": "combined.mp4", "input_method": "X11 graphical interface",
+        "video": next((item["filename"] for item in json.loads((out / "video-metadata.json").read_text()).get("outputs", [])
+                       if item.get("filename")), None) if (out / "video-metadata.json").exists() else None,
+        "input_method": "X11 graphical interface",
     }
     result["demonstration_complete"] = (result["native_navigation_ready"]
         and result["initial_marines"] == 6 and result["initial_zerglings"] == 12
@@ -112,7 +115,9 @@ def main(directory):
         and marine_attack > 0 and zerg_damage and bool(death_ids) and carousel_removed
         and result["outcome"] and bool(opened_footprint or opened_wall_crossings)
         and len(common) >= 10 and not mismatches)
-    result["status"] = "passed" if result["demonstration_complete"] else "incomplete"
+    result["capture_complete"] = (result["native_navigation_ready"] and len(a) >= 10
+                                  and (not b or len(common) >= 10 and not mismatches))
+    result["status"] = "passed" if result["demonstration_complete"] else "capture_only" if result["capture_complete"] else "incomplete"
     (out / "verification.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
 

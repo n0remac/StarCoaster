@@ -14,8 +14,6 @@ import subprocess
 import time
 
 
-INPUT_WIDTH = 1280
-INPUT_HEIGHT = 800
 DISPLAYS = {"client-a": ":91.0", "client-b": ":92.0"}
 
 
@@ -30,14 +28,18 @@ class VideoConfig:
     width: int = 960
     crf: int = 32
     preset: str = "veryfast"
+    input_width: int = 1280
+    input_height: int = 800
 
     def __post_init__(self) -> None:
-        if self.layout not in ("combined", "separate"):
-            raise ValueError("video layout must be combined or separate")
+        if self.layout not in ("single", "combined", "separate"):
+            raise ValueError("video layout must be single, combined, or separate")
         if not 1 <= self.fps <= 60:
             raise ValueError("video FPS must be between 1 and 60")
-        if not 2 <= self.width <= INPUT_WIDTH or self.width % 2:
-            raise ValueError("per-client video width must be even and between 2 and 1280")
+        if self.input_width < 320 or self.input_height < 240:
+            raise ValueError("capture display must be at least 320x240")
+        if not 2 <= self.width <= self.input_width or self.width % 2:
+            raise ValueError("per-client video width must be even and fit the capture display")
         if not 0 <= self.crf <= 51:
             raise ValueError("video CRF must be between 0 and 51")
         if self.preset not in ("ultrafast", "superfast", "veryfast", "faster", "fast",
@@ -47,7 +49,7 @@ class VideoConfig:
     @property
     def height(self) -> int:
         # Nearest even height keeps the original aspect ratio as closely as possible.
-        return max(2, 2 * round(self.width * INPUT_HEIGHT / INPUT_WIDTH / 2))
+        return max(2, 2 * round(self.width * self.input_height / self.input_width / 2))
 
     @property
     def resolution(self) -> tuple[int, int]:
@@ -65,15 +67,17 @@ def check_dependencies() -> None:
 
 
 def command_for(config: VideoConfig, output: Path, client: str | None = None) -> list[str]:
-    if config.layout == "separate" and client not in DISPLAYS:
-        raise ValueError("separate recording requires client-a or client-b")
+    if config.layout in ("separate", "single") and client not in DISPLAYS:
+        raise ValueError("single or separate recording requires a client")
+    if config.layout == "single" and client != "client-a":
+        raise ValueError("single recording uses client-a")
     if config.layout == "combined" and client is not None:
         raise ValueError("combined recording has no individual client")
     command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin", "-y"]
     displays = DISPLAYS.values() if client is None else (DISPLAYS[client],)
     for display in displays:
         command += ["-f", "x11grab", "-framerate", str(config.fps),
-                    "-video_size", f"{INPUT_WIDTH}x{INPUT_HEIGHT}", "-i", display]
+                    "-video_size", f"{config.input_width}x{config.input_height}", "-i", display]
     if client is None:
         filters = (f"[0:v]scale={config.width}:{config.height}:flags=fast_bilinear[a];"
                    f"[1:v]scale={config.width}:{config.height}:flags=fast_bilinear[b];"
@@ -127,8 +131,9 @@ class VideoRecorder:
     def start(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.log = (self.output_dir / "video-capture.log").open("w")
-        targets = [(None, "combined.mp4")] if self.config.layout == "combined" else [
-            ("client-a", "client-a.mp4"), ("client-b", "client-b.mp4")]
+        targets = ([(None, "combined.mp4")] if self.config.layout == "combined" else
+                   [("client-a", "client-a.mp4")] if self.config.layout == "single" else
+                   [("client-a", "client-a.mp4"), ("client-b", "client-b.mp4")])
         self.start_utc = utc_now()
         self.start_monotonic = time.monotonic()
         try:
@@ -203,6 +208,7 @@ class VideoRecorder:
             "capture_start_monotonic_seconds": self.start_monotonic,
             "recording_duration_seconds": round(end_monotonic - self.start_monotonic, 3),
             "layout": self.config.layout, "resolution": list(self.config.resolution),
+            "input_resolution": [self.config.input_width, self.config.input_height],
             "requested_fps": self.config.fps,
             "encoder": {"codec": "libx264", "crf": self.config.crf,
                         "preset": self.config.preset, "pixel_format": "yuv420p"},

@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Record the normal Frontier Outpost launcher and two graphical clients."""
+"""Capture the normal Frontier Outpost launcher with one or two graphical clients."""
 
 import argparse
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import subprocess
 import time
 
 from artifact_runs import ArtifactRun
+from video_capture import VideoConfig, VideoRecorder, check_dependencies
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,23 +33,53 @@ def wait_for(path, marker, process, seconds):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--duration", type=int, default=85)
+    parser.add_argument("--video-layout", choices=("single", "combined", "separate"), default="combined")
+    parser.add_argument("--video-fps", type=int, default=15)
+    parser.add_argument("--video-width", type=int, default=960)
+    parser.add_argument("--video-crf", type=int, default=30)
+    parser.add_argument("--video-preset", default="ultrafast")
+    parser.add_argument("--display-width", type=int, default=1280)
+    parser.add_argument("--display-height", type=int, default=800)
+    parser.add_argument("--graphics", choices=("software", "native"), default="software")
+    parser.add_argument("--frame-ms", type=int, default=70)
+    parser.add_argument("--no-video", action="store_true", help="capture screenshots and logs without FFmpeg")
+    parser.add_argument("--cycle-rotations", action="store_true", help="save screenshots from all four park views")
     args = parser.parse_args()
     if not 15 <= args.duration <= 300:
         parser.error("duration must be 15–300 seconds")
+    if not 10 <= args.frame_ms <= 200:
+        parser.error("frame pacing must be 10–200 ms")
+    try:
+        video_config = VideoConfig(args.video_layout, args.video_fps, args.video_width,
+                                   args.video_crf, args.video_preset,
+                                   args.display_width, args.display_height)
+        if not args.no_video:
+            check_dependencies()
+    except (ValueError, RuntimeError) as exc:
+        parser.error(str(exc))
     rct2 = Path(os.environ.get("RCT2_DATA_DIR", "/home/pi/games/rct2"))
     starcraft = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
     if not rct2.is_dir() or not starcraft.is_dir():
         parser.error("RCT2_DATA_DIR and STARCRAFT_DATA_DIR must point to installed game data")
-    run = ArtifactRun("live-capture", "Frontier Outpost first playable",
+    run = ArtifactRun("live-capture", "Frontier Outpost v0.2",
                       config={"scenario": "frontier-outpost", "duration": args.duration,
-                              "launcher": "scripts/run-frontier-outpost.sh", "input": "X11 mouse and keyboard"})
+                              "launcher": "scripts/run-frontier-outpost.sh", "input": "X11 mouse and keyboard",
+                              "video": None if args.no_video else video_config.__dict__,
+                              "graphics": args.graphics, "frame_ms": args.frame_ms})
     out = run.output
     env = os.environ.copy() | {"RCT2_DATA_DIR": str(rct2), "STARCRAFT_DATA_DIR": str(starcraft),
                                "BRIDGE_LAUNCH_CLIENT": "0", "BRIDGE_SERVER_DATA_DIR": str(out / "server-data"),
-                               "SDL_AUDIODRIVER": "dummy", "LIBGL_ALWAYS_SOFTWARE": "1",
-                               "BRIDGE_FRAME_MS": os.environ.get("BRIDGE_FRAME_MS", "70")}
+                               "SDL_AUDIODRIVER": "dummy", "BRIDGE_FRAME_MS": str(args.frame_ms)}
+    if args.graphics == "software":
+        env["LIBGL_ALWAYS_SOFTWARE"] = "1"
+    else:
+        env.pop("LIBGL_ALWAYS_SOFTWARE", None)
+    displays = (("client-a", ":91"),) if args.video_layout == "single" else (
+        ("client-a", ":91"), ("client-b", ":92"))
     processes = []
     logs = []
+    recorder = VideoRecorder(video_config, out) if not args.no_video else None
+    recording = False
 
     def start(name, command, process_env):
         log = (out / f"{name}.log").open("w")
@@ -60,8 +92,9 @@ def main():
     status = "failed"
     error = None
     try:
-        for name, display in (("display-a", ":91"), ("display-b", ":92")):
-            start(name, ["Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], env)
+        for name, display in displays:
+            start("display-" + name[-1], ["Xvfb", display, "-screen", "0",
+                                           f"{args.display_width}x{args.display_height}x24", "-nolisten", "tcp"], env)
         time.sleep(1)
         session = start("server", [str(ROOT / "scripts/run-frontier-outpost.sh")], env)
         until = time.monotonic() + 25
@@ -76,11 +109,14 @@ def main():
         else:
             raise TimeoutError("OpenRCT2 host did not open port 11753")
         clients = {}
-        for name, display in (("client-a", ":91"), ("client-b", ":92")):
+        for name, display in displays:
             data_dir = out / name
             (data_dir / "plugin").mkdir(parents=True, exist_ok=True)
             source = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
             (data_dir / "plugin/rts-bridge.js").write_text("var STARCOASTER_WORLD_BRIDGE = true;\n" + source)
+            if args.cycle_rotations:
+                (data_dir / "plugin/frontier-camera.js").write_text(
+                    (ROOT / "scripts/frontier-camera.js").read_text())
             command = [str(ROOT / "build/openrct2/openrct2"), "join", "127.0.0.1",
                        "--port=11753", f"--rct2-data-path={rct2}",
                        f"--openrct2-data-path={DATA}", f"--user-data-path={data_dir}"]
@@ -102,54 +138,78 @@ def main():
                     break
         wait_for(out / "server.log", "WORLD_READY", session, 45)
         time.sleep(2)
-        for display in (":91", ":92"):
+        for _, display in displays:
             subprocess.run(["xdotool", "mousemove", "1144", "112", "click", "1"],
                            env=env | {"DISPLAY": display}, check=True)
-        print(f"Recording {out}; X11 displays :91 and :92 are live", flush=True)
-        subprocess.run(["scrot", "-z", "-o", str(out / "client-a-initial.png")],
-                       env=env | {"DISPLAY": ":91"}, check=True)
-        subprocess.run(["scrot", "-z", "-o", str(out / "client-b-initial.png")],
-                       env=env | {"DISPLAY": ":92"}, check=True)
-        video = start("video-capture", ["ffmpeg", "-nostdin", "-y", "-loglevel", "warning",
-                       "-f", "x11grab", "-framerate", "10", "-video_size", "1280x800", "-i", ":91",
-                       "-f", "x11grab", "-framerate", "10", "-video_size", "1280x800", "-i", ":92",
-                       "-filter_complex", "[0:v][1:v]xstack=inputs=2:layout=0_0|w0_0[v]",
-                       "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
-                       "-t", str(args.duration), str(out / "combined.mp4")], env)
-        video.wait(timeout=args.duration + 30)
-        for name, display in (("client-a", ":91"), ("client-b", ":92")):
+        print(f"Recording {out}; displays {[display for _, display in displays]}", flush=True)
+        for name, display in displays:
+            subprocess.run(["scrot", "-z", "-o", str(out / f"{name}-initial.png")],
+                           env=env | {"DISPLAY": display}, check=True)
+        if recorder:
+            recorder.start()
+            recording = True
+        seen_rotations = {name: set() for name, _ in displays}
+        rotation_offsets = {name: len(re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
+                              (out / f"{name}.log").read_text(errors="replace")))
+                            for name, _ in displays}
+        until = time.monotonic() + args.duration
+        while time.monotonic() < until:
+            if recorder:
+                recorder.check_alive()
+            if args.cycle_rotations:
+                for name, display in displays:
+                    rotations = re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
+                                           (out / f"{name}.log").read_text(errors="replace"))
+                    fresh = rotations[rotation_offsets[name]:]
+                    rotation_offsets[name] = len(rotations)
+                    if fresh:
+                        rotation = fresh[-1]
+                        if rotation not in seen_rotations[name]:
+                            time.sleep(0.15)  # allow the viewport to repaint
+                            seen_rotations[name].add(rotation)
+                            filename = f"{name}-t{len(seen_rotations[name])}-rot{rotation}.png"
+                            subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                           env=env | {"DISPLAY": display}, check=True)
+                            if recorder:
+                                recorder.event("rotation_screenshot", client=name, rotation=int(rotation), filename=filename)
+            time.sleep(min(0.25, max(0, until - time.monotonic())))
+        if args.cycle_rotations and any(len(values) != 4 for values in seen_rotations.values()):
+            raise RuntimeError(f"not all camera rotations were captured: {seen_rotations}")
+        if recorder:
+            recording = False
+            recorder.stop(True)
+        for name, display in displays:
             subprocess.run(["scrot", "-z", "-o", str(out / f"{name}-final.png")],
                            env=env | {"DISPLAY": display}, check=True)
         snapshot = (out / "server.log").read_text(errors="replace")
-        clients = [(out / f"client-{letter}.log").read_text(errors="replace") for letter in "ab"]
+        client_logs = [(out / f"{name}.log").read_text(errors="replace") for name, _ in displays]
         report = {"status": "recorded", "scenario": "frontier-outpost",
                   "world_ready": "navigation=native" in snapshot and "WORLD_READY" in snapshot,
                   "outcome": "defeat" if "outcome=defeat" in snapshot else "victory" if "outcome=victory" in snapshot else None,
                   "demolitions": snapshot.count("WORLD_REMOVAL id="),
-                  "client_snapshots": [text.count("RTS Bridge apply tick=") for text in clients],
-                  "client_selection": "selected Marines=openbw:" in clients[0],
-                  "accepted_marine_order": "accepted=true reason=ok" in clients[0],
-                  "marine_attack_frames": clients[0].count(",attack,112,terran_marine,"),
-                  "video": "combined.mp4", "input_method": "graphical X11 interface"}
+                  "client_snapshots": [text.count("RTS Bridge apply tick=") for text in client_logs],
+                  "client_selection": "selected Marines=openbw:" in client_logs[0],
+                  "accepted_marine_order": "accepted=true reason=ok" in client_logs[0],
+                  "marine_attack_frames": client_logs[0].count(",attack,112,terran_marine,"),
+                  "video_layout": None if args.no_video else args.video_layout,
+                  "input_method": "graphical X11 interface"}
         (out / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
         (out / "scenario-config.json").write_text((ROOT / "scenarios/frontier-outpost.json").read_text())
-        # The artifact viewer validates video metadata before listing an MP4.
-        probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                "-of", "default=noprint_wrappers=1:nokey=1", str(out / "combined.mp4")],
-                               capture_output=True, text=True, check=True)
-        (out / "video-metadata.json").write_text(json.dumps({"filename": "combined.mp4",
-                    "duration_seconds": float(probe.stdout.strip()), "outputs": [{"filename": "combined.mp4",
-                    "duration_seconds": float(probe.stdout.strip())}]}, indent=2) + "\n")
         subprocess.run(["python3", str(ROOT / "scripts/verify-frontier-capture.py"), str(out)],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         detailed = json.loads((out / "verification.json").read_text())
-        status = "passed" if detailed["demonstration_complete"] else "failed"
+        status = "passed" if detailed["capture_complete"] else "failed"
         if status == "failed":
-            error = "Required gameplay demonstration evidence is incomplete; see verification.json"
+            error = "Graphical capture or client synchronization is incomplete; see verification.json"
     except Exception as exc:
         error = str(exc)
         print(error, flush=True)
     finally:
+        if recording and recorder:
+            try:
+                recorder.stop(False, error)
+            except Exception as capture_error:
+                error = f"{error}; {capture_error}" if error else str(capture_error)
         for process in reversed(processes):
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -163,6 +223,8 @@ def main():
             log.close()
         run.finalize(status, error)
         print(f"Artifact: {run.directory} status={status}", flush=True)
+    if status != "passed":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

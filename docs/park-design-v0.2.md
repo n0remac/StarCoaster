@@ -7,3 +7,5 @@ OpenRCT2 paints wall direction 0 on a tile's west edge, 1 on its south edge, 2 o
 The generated playable park contains 214 wall segments, 350 connected path tiles, 15 ride track tiles, and 45 small scenery elements. `tests/test_frontier_native_navigation_live.sh` passed all six observed OpenBW movement checks after regeneration, including crossing the removed gate at x=896 and walking through the demolished carousel footprint. Its logs and position samples are in `run-data/frontier-native-nav-1791847495/`.
 
 The legacy 48 × 48 park assault fixture remains a separate regression. Its six southern Zergling starting points moved north of the corrected south wall collision strip; all 20 routes and demolition fixture tests pass.
+
+The graphical run `run-data/artifacts/20261012T233122Z-01c58848c6db/` contains screenshots at all four OpenRCT2 camera rotations for both clients. Visual inspection found continuous perimeter fence lines, joined barrier corners, and the intentional entrance and gate openings in each view. The same run records a two-client combat video and matching state snapshots.

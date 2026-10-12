@@ -24,6 +24,8 @@ scripts/project.sh record --duration 85
 
 `test` runs Go, C++, Python, and JavaScript regressions. `test-live` additionally exercises native navigation, generic park demolition with two clients, and Frontier victory, reconnect, and restart. Live tests require built engines and game data. `record` launches two graphical clients and publishes screenshots, video, logs, and verification results to the [artifact viewer](docs/test-viewer.md). Use `--help` on the recorder for capture settings. The [first playable report](docs/first-playable-verification.md) records the earlier graphical defeat and controls demonstration; [v0.2 baseline](docs/consolidation-baseline.md) records its starting regressions.
 
+For a lighter capture, use `scripts/project.sh record --video-layout single --video-fps 15 --video-width 800`. The [recording benchmark](docs/recording-performance-v0.2.md) compares 15 and 30 FPS against gameplay without video; the [park design report](docs/park-design-v0.2.md) records the four camera views and geometry checks.
+
 ## Project map
 
 - `openrct2-plugin/`, `openrct2-patches/`: park discovery, multiplayer controls, rendering, and demolition.

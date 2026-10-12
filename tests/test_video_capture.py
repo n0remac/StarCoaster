@@ -37,11 +37,20 @@ class VideoConfigTests(unittest.TestCase):
         self.assertIn(":92.0", b)
         self.assertEqual(a[a.index("-vf") + 1], "scale=640:400:flags=fast_bilinear")
 
+    def test_single_client_and_capture_resolution(self):
+        config = video.VideoConfig(layout="single", fps=30, width=800,
+                                   input_width=1024, input_height=768)
+        self.assertEqual(config.resolution, (800, 600))
+        command = video.command_for(config, Path("client-a.mp4"), "client-a")
+        self.assertEqual(command.count("-i"), 1)
+        self.assertIn("1024x768", command)
+        self.assertIn(":91.0", command)
+
     def test_even_aspect_ratio_and_invalid_values(self):
         self.assertEqual(video.VideoConfig(width=962).resolution, (1924, 602))
         for kwargs in ({"fps": 0}, {"fps": 61}, {"width": 0}, {"width": 961},
                        {"width": 1282}, {"crf": 52}, {"preset": "invalid"},
-                       {"layout": "both"}):
+                       {"layout": "both"}, {"input_width": 300}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 video.VideoConfig(**kwargs)
 
