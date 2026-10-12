@@ -28,7 +28,7 @@ const sandbox = {
         if (kind === 'wall') return [{ index: 3, identifier: 'rct2.scenery_wall.wall' }];
         return [];
     } },
-    network: { mode: 'server', currentPlayer: { id: 1 }, createSocket() {
+    network: { mode: 'server', currentPlayer: { id: 1 }, players: [{ id: 1 }], createSocket() {
         socket = { handlers: {}, on(kind, callback) { this.handlers[kind] = callback; },
             connect(_port, _host, callback) { callback(); }, destroy() {},
             write(line) { const m = JSON.parse(line); sent.push(m);
@@ -70,6 +70,23 @@ socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: si
     payload: { seq: 1, bw_tick: 3, units: [{ id: 'openbw:7', kind: 'zerg_zergling', owner: 0,
         x: 48, y: 48, facing: 0, motion: 'walk', hp: 35, max_hp: 35, attack_frames: 0 }] } }) + '\n');
 assert.equal(applied.length, 1, 'combat actors use synchronized native action');
+const many = Array.from({ length: 100 }, function (_, index) {
+    const marine = index % 2 === 0;
+    return { id: 'openbw:' + (1000 + index), kind: marine ? 'terran_marine' : 'zerg_zergling',
+        owner: marine ? 1 : 0, x: 32 + (index % 10) * 16, y: 32 + Math.floor(index / 10) * 16,
+        facing: 0, motion: 'idle', hp: marine ? 40 : 35,
+        max_hp: marine ? 40 : 35, attack_frames: 0 };
+});
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
+    payload: { seq: 2, bw_tick: 6, units: many } }) + '\n');
+assert.equal(applied.at(-1).units.length, 100, 'world actor transport accepts 100 mixed units');
+const command = registered.get('rtsbridge.marineCommand');
+assert.equal(command.query({ player: 1, args: { session: sid, request: 1,
+    unit_ids: ['openbw:1000'], verb: 'attack', target_id: 'openbw:1001' } }).error, undefined);
+command.execute({ player: 1, args: { session: sid, request: 1,
+    unit_ids: ['openbw:1000'], verb: 'attack', target_id: 'openbw:1001' } });
+drain();
+assert.equal(sent.find(m => m.kind === 'combat.command').payload.target_id, 'openbw:1001');
 const rideEntity = all.find(e => e.kind === 'ride');
 const event = { id: 'death:1', entity_id: rideEntity.id, proxy_id: 'openbw:8', type: 'destruction', health: 0 };
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid, payload: event }) + '\n');

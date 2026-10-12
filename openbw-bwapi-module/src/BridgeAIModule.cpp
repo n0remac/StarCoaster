@@ -1,6 +1,7 @@
 #include <BWAPI.h>
 #include "ParkAssaultNavigation.h"
 #include "WorldAdapter.h"
+#include "WorldUnitController.h"
 
 #include <algorithm>
 
@@ -224,6 +225,8 @@ public:
         }
         if (worldMode_) {
             game->enableFlag(BWAPI::Flag::CompleteMapInformation);
+            const char* role = std::getenv("BRIDGE_WORLD_ROLE");
+            worldControllerMode_ = role && std::strcmp(role, "controller") == 0;
             return;
         }
         terranController_ = frontier_ && game->self()->getRace() == BWAPI::Races::Terran;
@@ -294,7 +297,11 @@ public:
         publisher_.poll();
         auto* game = BWAPI::Broodwar.operator->();
         if (!game) return;
-        if (worldMode_) { worldAdapter_.onFrame(game); return; }
+        if (worldMode_) {
+            if (worldControllerMode_) worldUnitController_.onFrame(game);
+            else worldAdapter_.onFrame(game);
+            return;
+        }
         if (frontier_ && !canonicalReady_ && game->getFrameCount() >= 2) prepareCanonicalUnits(game);
         if (terranController_) {
             for (const auto& line : publisher_.receiveLines()) executeMarineOrder(game, line);
@@ -1381,7 +1388,9 @@ private:
     bool siege_ = false;
     bool parkAssault_ = false;
     bool worldMode_ = false;
+    bool worldControllerMode_ = false;
     WorldAdapter worldAdapter_;
+    WorldUnitController worldUnitController_;
     bool assaultNavReady_ = false;
     bool assaultReady_ = false;
     bool assaultStartWarning_ = false;

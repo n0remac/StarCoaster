@@ -1476,12 +1476,12 @@ index bb88d98..9560f5a 100644
 +    JSValue lengthValue = JS_GetPropertyStr(ctx, units, "length");
 +    int32_t length = -1;
 +    const bool validLength = JS_IsArray(units) && JS_ToInt32(ctx, &length, lengthValue) == 0 && length >= 0
-+        && length <= 32;
++        && length <= 256;
 +    JS_FreeValue(ctx, lengthValue);
 +    if (!validLength)
 +    {
 +        JS_FreeValue(ctx, units);
-+        return JS_ThrowTypeError(ctx, "bridge snapshot must contain at most 32 units");
++        return JS_ThrowTypeError(ctx, "bridge snapshot must contain at most 256 units");
 +    }
 +
 +    std::vector<BridgeActor> actors;

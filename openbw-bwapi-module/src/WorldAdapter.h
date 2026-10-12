@@ -2,6 +2,9 @@
 
 #include <BWAPI.h>
 #include <nlohmann/json.hpp>
+#include "WorldState.h"
+#include "WorldNavigation.h"
+#include "WorldActorRegistry.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -9,8 +12,10 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -22,11 +27,14 @@
 // thread. The socket callback never touches game state.
 class WorldAdapter {
     using json = nlohmann::json;
-    struct Target { std::string id; BWAPI::Unit unit = nullptr; int proxyID = -1; int lastHP = 0; bool reported = false; bool confirmed = false; };
-    struct PendingTarget { std::string id; int x = 0; int y = 0; int health = 0; bool reused = false; };
+    struct Target { std::string id; BWAPI::Unit unit = nullptr; int proxyID = -1; int lastHP = 0;
+        bool reported = false; std::string lifecycle = "active"; int x = 0, y = 0; };
+    struct PendingTarget { std::string id; int x = 0; int y = 0; int health = 0;
+        bool requested = false; int requestedFrame = 0; std::set<int> beforeIDs; };
 public:
     ~WorldAdapter() { if (socket_ >= 0) ::close(socket_); }
     void onFrame(BWAPI::Game* game) {
+        actorRegistry_.prepare(game);
         if (socket_ < 0) connect(game);
         if (socket_ < 0) return;
         char data[8192];
@@ -38,7 +46,8 @@ public:
             else { disconnect(); return; }
         }
         size_t newline;
-        while ((newline = incoming_.find('\n')) != std::string::npos) {
+        int processed = 0;
+        while (processed++ < 64 && (newline = incoming_.find('\n')) != std::string::npos) {
             const auto line = incoming_.substr(0,newline); incoming_.erase(0,newline+1);
             if (line.size() > 1048576) { disconnect(); return; }
             try { handle(game,json::parse(line)); } catch (const std::exception& e) { std::cerr << "[world] invalid message: " << e.what() << std::endl; }
@@ -49,26 +58,22 @@ public:
         const int frame = game->getFrameCount();
         for (auto& [id,target] : targets_) {
             const int hp = target.unit && target.unit->exists() ? target.unit->getHitPoints() : 0;
-            if (hp != target.lastHP) { target.lastHP=hp; send("entity.state",{{"id",id},{"proxy_id","openbw:"+std::to_string(target.proxyID)},{"health",hp}},revision_,frame); }
-            if (hp==0 && !target.reported) {
+            if (hp != target.lastHP) { target.lastHP=hp; send("entity.state",{{"id",id},{"proxy_id","openbw:"+std::to_string(target.proxyID)},
+                {"proxy_x",target.x},{"proxy_y",target.y},{"health",hp}},revision_,frame); }
+            if (hp==0 && !target.reported && target.lifecycle=="active") {
                 target.reported=true;
+                target.lifecycle="destroyed_in_openbw";
                 send("combat.event",{{"id",session_+":"+std::to_string(frame)+":destruction:"+std::to_string(++event_)},
                     {"entity_id",id},{"proxy_id","openbw:"+std::to_string(target.proxyID)},
                     {"type","destruction"},{"health",0}},revision_,frame);
                 std::cerr << "[world] target destroyed id=" << id << " frame=" << frame << std::endl;
             }
         }
-        // A generic smoke combat loop uses native BWAPI orders and damage. It
-        // runs only when a hostile Zergling already exists on the base map.
-        if (frame%24==0) {
-            for (auto unit : game->getAllUnits()) {
-                if (!unit || !unit->exists() || unit->getPlayer()!=game->self()
-                    || unit->getType()!=BWAPI::UnitTypes::Zerg_Zergling) continue;
-                auto current=std::find_if(targets_.begin(),targets_.end(),[](const auto& item) {
-                    return item.second.unit && item.second.unit->exists();
-                });
-                if (current!=targets_.end()) unit->attack(current->second.unit);
-            }
+        if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI")) assaultAI(game);
+        for (auto unit:game->getAllUnits()) {
+            if (unit && unit->exists() && (unit->getType()==BWAPI::UnitTypes::Zerg_Zergling
+                || unit->getType()==BWAPI::UnitTypes::Terran_Marine) && unit->isAttackFrame())
+                ++attackFrames_[unit->getID()];
         }
         if (frame%3==0) publishActors(game,frame);
     }
@@ -82,7 +87,7 @@ private:
             {"map_width",game->mapWidth()},{"map_height",game->mapHeight()}},1,0);
         std::cerr << "[world] connected to bridge service" << std::endl;
     }
-    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); ready_=false; initializing_=false; pending_.clear(); targets_.clear(); }
+    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); ready_=false; }
     void flush() {
         while (socket_>=0 && !outgoing_.empty()) {
             const ssize_t n=::send(socket_,outgoing_.data(),outgoing_.size(),MSG_NOSIGNAL);
@@ -108,43 +113,53 @@ private:
         if (kind=="world.ack") return;
         if (kind=="world.snapshot.begin") {
             const int width=payload.at("width"), height=payload.at("height"), chunks=payload.at("chunks");
-            if (width<1 || height<1 || width>1024 || height>1024 || chunks<1 || chunks>100000) { ack(message,false,"invalid_dimensions"); return; }
-            session_=message.at("session").get<std::string>(); revision_=message.at("revision").get<uint64_t>();
-            expectedChunks_=chunks; receivedChunks_=0; width_=width; height_=height; entities_.clear(); terrain_.clear(); targets_.clear(); obstacles_.clear(); chunkOps_.clear(); ready_=false;
+            std::string error;
+            if (!stager_.begin(message.at("session"),message.at("revision"),width,height,chunks,session_,revision_,error)) {
+                ack(message,false,error); return;
+            }
+            ready_=false;
             ack(message,true); return;
         }
-        if (message.value("session","")!=session_ || message.at("revision").get<uint64_t>()<revision_) { ack(message,false,"stale_session"); return; }
-        if (kind=="world.snapshot.chunk") {
-            const auto opID=message.at("op_id").get<std::string>();
-            if (chunkOps_.count(opID)) { ack(message,true); return; }
-            if (receivedChunks_>=expectedChunks_ || payload.value("index",-1)!=receivedChunks_) { ack(message,false,"unexpected_chunk"); return; }
-            for (const auto& e : payload.value("entities",json::array())) {
-                const auto id=e.at("id").get<std::string>(); if (entities_.count(id)) { ack(message,false,"duplicate_entity"); return; }
-                entities_[id]=e;
+        if (kind=="world.snapshot.chunk" || kind=="world.snapshot.end") {
+            if (!stager_.active() || message.value("session","")!=stager_.session()
+                || message.at("revision").get<uint64_t>()!=stager_.revision()) {
+                ack(message,false,"stale_or_missing_snapshot"); return;
             }
-            for (const auto& cell : payload.value("terrain",json::array())) terrain_.push_back(cell);
-            ++receivedChunks_; chunkOps_.insert(opID); ack(message,true); return;
+        } else if (message.value("session","")!=session_ || message.at("revision").get<uint64_t>()<revision_) {
+            ack(message,false,"stale_session"); return;
+        }
+        if (kind=="world.snapshot.chunk") {
+            std::string error;
+            if (!stager_.chunk(message.at("op_id"),payload.value("index",-1),
+                payload.value("entities",json::array()),payload.value("terrain",json::array()),error)) {
+                ack(message,false,error); return;
+            }
+            ack(message,true); return;
         }
         if (kind=="world.snapshot.end") {
-            if (receivedChunks_!=expectedChunks_ || payload.value("entities",-1)!=static_cast<int>(entities_.size())
-                || payload.value("terrain",-1)!=static_cast<int>(terrain_.size())) { ack(message,false,"incomplete_snapshot"); return; }
-            for (const auto& [id,e]:entities_) {
-                if (e.at("collision").value("blocks",false)) {
-                    const auto rects=e.at("geometry").value("rects",json::array());
-                    if (!rects.empty()) obstacles_[id]=rects;
-                }
+            starcoaster::DesiredWorld desired;
+            std::string error;
+            if (!stager_.finish(payload.value("entities",-1),payload.value("terrain",-1),desired,error)) {
+                ack(message,false,error); return;
             }
-            requestTargets(game); ack(message,true); return;
+            reconcile(game,desired); ack(message,true); return;
         }
         if (kind=="combat.result") {
-            const auto id=payload.value("entity_id",""); if (targets_.count(id)) targets_[id].confirmed=payload.value("state","")=="removal_confirmed";
+            const auto id=payload.value("entity_id","");
+            if (!targets_.count(id)) { ack(message,false,"unknown_entity"); return; }
+            const auto state=payload.value("state","");
+            if (state=="removal_confirmed") {
+                targets_[id].lifecycle="proxy_retired";
+                if (targets_[id].unit && targets_[id].unit->exists()) game->removeUnit(targets_[id].unit);
+            } else if (state=="removal_failed") targets_[id].lifecycle="park_removal_failed";
+            else { ack(message,false,"invalid_result_state"); return; }
             revision_=std::max(revision_,message.at("revision").get<uint64_t>());
             ack(message,true); return;
         }
         if (kind=="navigation.obstacle.remove") {
             const auto id=payload.value("id","");
             if (!entities_.count(id)) { ack(message,false,"unknown_entity"); return; }
-            obstacles_.erase(id);
+            navigation_.remove(id);
             revision_=std::max(revision_,message.at("revision").get<uint64_t>());
             ack(message,true); return;
         }
@@ -156,61 +171,196 @@ private:
         }
         ack(message,false,"unsupported_operation");
     }
-    void requestTargets(BWAPI::Game* game) {
-        unsupported_=json::array(); unsupportedTotal_=0; unsupportedReasons_=json::object(); pending_.clear(); usedUnits_.clear();
-        auto self=game->self(); auto enemy=game->enemy();
-        if (!enemy) for (auto player : game->getPlayers()) if (player && player!=self && player->getType().toString()=="Player") { enemy=player; break; }
-        if (self && enemy && !self->isEnemy(enemy)) game->setAlliance(enemy,false,false);
-        for (const auto& [id,e] : entities_) {
-            if (!e.value("destructible",false)) continue;
-            if (!e.at("combat").value("targetable",false)) { reportUnsupported(id,"not_targetable"); continue; }
-            if (!enemy) { reportUnsupported(id,"no_enemy_player"); continue; }
-            const auto& geometry=e.at("geometry"); const auto rects=geometry.value("rects",json::array());
-            if (rects.empty()) { reportUnsupported(id,"empty_footprint"); continue; }
-            int minX=1<<30,minY=1<<30,maxX=0,maxY=0;
-            for (const auto& rect:rects) { const int x=rect.at("x"),y=rect.at("y"),w=rect.at("width"),h=rect.at("height"); minX=std::min(minX,x); minY=std::min(minY,y); maxX=std::max(maxX,x+w); maxY=std::max(maxY,y+h); }
-            const int x=(minX+maxX)/2,y=(minY+maxY)/2;
-            if (x<0 || y<0 || x>=game->mapWidth()*32 || y>=game->mapHeight()*32) { reportUnsupported(id,"outside_base_map"); continue; }
-            if (pending_.size()>=128) { reportUnsupported(id,"target_capacity"); continue; }
-            bool alreadyPresent=false;
-            for (auto unit:game->getAllUnits()) {
-                if (!unit || !unit->exists() || unit->getPlayer()!=enemy || unit->getType()!=BWAPI::UnitTypes::Terran_Civilian) continue;
-                const auto p=unit->getPosition();
-                if (std::abs(p.x-x)<=16 && std::abs(p.y-y)<=16) { alreadyPresent=true; break; }
-            }
-            if (!alreadyPresent) game->createUnit(enemy,BWAPI::UnitTypes::Terran_Civilian,{x,y});
-            // Multiplayer createUnit returns null even for an accepted command.
-            // Identify the spawned engine unit on a later frame instead.
-            pending_.push_back({id,x,y,e.at("combat").value("health",40),alreadyPresent});
-        }
-        initializing_=true; requestedFrame_=game->getFrameCount();
-        std::cerr << "[world] requested targets=" << pending_.size() << " unsupported=" << unsupportedTotal_ << std::endl;
-    }
-    void resolveTargets(BWAPI::Game* game) {
-        auto enemy=game->enemy();
-        if (!enemy) for (auto player : game->getPlayers()) if (player && player!=game->self() && player->getType().toString()=="Player") { enemy=player; break; }
-        for (auto it=pending_.begin();it!=pending_.end();) {
-            BWAPI::Unit found=nullptr;
-            for (auto unit:game->getAllUnits()) {
-                if (!unit || !unit->exists() || unit->getPlayer()!=enemy || unit->getType()!=BWAPI::UnitTypes::Terran_Civilian || usedUnits_.count(unit->getID())) continue;
-                const auto p=unit->getPosition(); if (std::abs(p.x-it->x)<=16 && std::abs(p.y-it->y)<=16) { found=unit; break; }
-            }
-            if (found) {
-                if (!it->reused && it->health>0 && it->health<=100000) found->setHitPoints(it->health);
-                usedUnits_.insert(found->getID()); targets_[it->id]={it->id,found,found->getID(),found->getHitPoints(),false,false};
-                send("entity.state",{{"id",it->id},{"proxy_id","openbw:"+std::to_string(found->getID())},{"health",found->getHitPoints()}},revision_,game->getFrameCount());
-                std::cerr << "[world] target id=" << it->id << " proxy=" << found->getID() << std::endl;
-                it=pending_.erase(it);
+    void reconcile(BWAPI::Game* game, const starcoaster::DesiredWorld& desired) {
+        const bool newSession = !session_.empty() && session_ != desired.session;
+        const auto plan = starcoaster::planReconciliation(desired_, desired);
+        for (auto it = targets_.begin(); it != targets_.end();) {
+            if (newSession || !desired.entities.count(it->first)
+                || it->second.lifecycle == "proxy_retired"
+                || it->second.lifecycle == "park_removal_failed"
+                || (it->second.unit && !it->second.unit->exists())) {
+                if (it->second.unit && it->second.unit->exists()) game->removeUnit(it->second.unit);
+                usedUnits_.erase(it->second.proxyID);
+                it = targets_.erase(it);
             } else ++it;
         }
-        if (!pending_.empty() && game->getFrameCount()-requestedFrame_<12) return;
-        for (const auto& target:pending_) reportUnsupported(target.id,"proxy_not_created");
-        pending_.clear(); initializing_=false; ready_=true;
-        send("world.ready",{{"entities",entities_.size()},{"targets",targets_.size()},
-            {"obstacles",obstacles_.size()},{"navigation","metadata_only"},
-            {"unsupported",unsupported_},{"unsupported_total",unsupportedTotal_},
-            {"unsupported_reasons",unsupportedReasons_}},revision_,game->getFrameCount());
-        std::cerr << "[world] ready targets=" << targets_.size() << " unsupported=" << unsupportedTotal_ << std::endl;
+        for (auto& pending : pending_)
+            if (newSession || !desired.entities.count(pending.id)) pending.id.clear();
+        desired_ = desired;
+        session_ = desired.session;
+        revision_ = desired.revision;
+        width_ = desired.width;
+        height_ = desired.height;
+        entities_.clear();
+        navigation_.replace(desired);
+        for (const auto& [id, entity] : desired.entities) {
+            entities_[id] = entity.raw;
+        }
+        unsupported_ = json::array();
+        unsupportedTotal_ = 0;
+        unsupportedReasons_ = json::object();
+        requestTargets(game);
+        initializing_ = true;
+        ready_ = false;
+        std::cerr << "[world] reconcile keep=" << plan.keep.size()
+                  << " changed=" << plan.changed.size()
+                  << " create=" << plan.create.size()
+                  << " retire=" << plan.retire.size() << std::endl;
+    }
+    void requestTargets(BWAPI::Game* game) {
+        auto self = game->self();
+        auto enemy = targetOwner(game);
+        if (self && enemy && !self->isEnemy(enemy)) game->setAlliance(enemy, false, false);
+        for (const auto& [id, entity] : entities_) {
+            if (!entity.value("destructible", false)) continue;
+            if (!entity.at("combat").value("targetable", false)) {
+                reportUnsupported(id, "not_targetable"); continue;
+            }
+            if (!enemy) { reportUnsupported(id, "no_enemy_player"); continue; }
+            auto current = targets_.find(id);
+            if (current != targets_.end()) {
+                if (current->second.lifecycle == "park_removal_failed") {
+                    reportUnsupported(id, "removal_failed_reconcile_required"); continue;
+                }
+                if (current->second.unit && current->second.unit->exists()) {
+                    const int maximum = entity.at("combat").value("health", 40);
+                    if (maximum > 0 && current->second.unit->getHitPoints() > maximum)
+                        current->second.unit->setHitPoints(maximum);
+                    send("entity.state", {{"id", id},
+                        {"proxy_id", "openbw:" + std::to_string(current->second.proxyID)},
+                        {"proxy_x", current->second.unit->getPosition().x},
+                        {"proxy_y", current->second.unit->getPosition().y},
+                        {"health", current->second.unit->getHitPoints()}},
+                        revision_, game->getFrameCount());
+                    continue;
+                }
+            }
+            if (std::any_of(pending_.begin(), pending_.end(),
+                [&](const PendingTarget& pending) { return pending.id == id; })) continue;
+            const auto rects = entity.at("geometry").value("rects", json::array());
+            if (rects.empty()) { reportUnsupported(id, "empty_footprint"); continue; }
+            int minX = INT_MAX, minY = INT_MAX, maxX = 0, maxY = 0;
+            for (const auto& rect : rects) {
+                const int x = rect.at("x"), y = rect.at("y");
+                const int w = rect.at("width"), h = rect.at("height");
+                minX = std::min(minX, x); minY = std::min(minY, y);
+                maxX = std::max(maxX, x + w); maxY = std::max(maxY, y + h);
+            }
+            const int x = (minX + maxX) / 2, y = (minY + maxY) / 2;
+            if (x < 0 || y < 0 || x >= game->mapWidth() * 32 || y >= game->mapHeight() * 32) {
+                reportUnsupported(id, "outside_base_map"); continue;
+            }
+            if (targets_.size() + pending_.size() >= static_cast<size_t>(targetLimit())) {
+                reportUnsupported(id, "configured_target_capacity"); continue;
+            }
+            pending_.push_back({id, x, y, entity.at("combat").value("health", 40)});
+        }
+        std::cerr << "[world] requested targets=" << pending_.size()
+                  << " unsupported=" << unsupportedTotal_ << std::endl;
+    }
+    void resolveTargets(BWAPI::Game* game) {
+        auto enemy = targetOwner(game);
+        std::set<int> before;
+        for (auto unit : game->getAllUnits())
+            if (unit && unit->exists()) before.insert(unit->getID());
+        for (size_t index = 0; index < pending_.size();) {
+            const auto& pending = pending_[index];
+            if (!pending.requested) { ++index; continue; }
+            BWAPI::Unit found = nullptr;
+            for (auto unit : game->getAllUnits()) {
+                if (!unit || !unit->exists() || unit->getPlayer() != enemy
+                    || unit->getType() != BWAPI::UnitTypes::Terran_Civilian
+                    || pending.beforeIDs.count(unit->getID()) || usedUnits_.count(unit->getID())) continue;
+                const auto position = unit->getPosition();
+                if (std::abs(position.x - pending.x) <= 16 && std::abs(position.y - pending.y) <= 16) {
+                    found = unit; break;
+                }
+            }
+            if (found) {
+                associateTarget(game, pending, found);
+                pending_.erase(pending_.begin() + index);
+            } else if (game->getFrameCount() - pending.requestedFrame >= 12) {
+                if (!pending.id.empty()) reportUnsupported(pending.id, "proxy_not_created");
+                pending_.erase(pending_.begin() + index);
+            } else ++index;
+        }
+        int outstanding = static_cast<int>(std::count_if(pending_.begin(), pending_.end(),
+            [](const PendingTarget& pending) { return pending.requested; }));
+        for (size_t index = 0; index < pending_.size() && outstanding < 8;) {
+            auto& pending = pending_[index];
+            if (pending.requested) { ++index; continue; }
+            if (pending.id.empty()) { pending_.erase(pending_.begin() + index); continue; }
+            const bool nearbyRequest = std::any_of(pending_.begin(), pending_.end(),
+                [&](const PendingTarget& other) {
+                    return &other != &pending && other.requested
+                        && std::abs(other.x - pending.x) <= 48
+                        && std::abs(other.y - pending.y) <= 48;
+                });
+            if (nearbyRequest) { ++index; continue; }
+            pending.beforeIDs = before;
+            pending.requested = true;
+            pending.requestedFrame = game->getFrameCount();
+            auto immediate = enemy
+                ? game->createUnit(enemy, BWAPI::UnitTypes::Terran_Civilian, {pending.x, pending.y})
+                : nullptr;
+            if (immediate) {
+                associateTarget(game, pending, immediate);
+                pending_.erase(pending_.begin() + index);
+            } else { ++outstanding; ++index; }
+        }
+        if (!pending_.empty()) return;
+        initializing_ = false;
+        ready_ = unsupportedReasons_.value("removal_failed_reconcile_required", 0) == 0;
+        send("world.ready", {{"entities", entities_.size()}, {"targets", targets_.size()},
+            {"obstacles", navigation_.objects()}, {"navigation", navigation_.capability()},
+            {"reconciled", ready_}, {"target_capacity", targetLimit()},
+            {"unsupported", unsupported_}, {"unsupported_total", unsupportedTotal_},
+            {"unsupported_reasons", unsupportedReasons_}}, revision_, game->getFrameCount());
+        std::cerr << "[world] ready targets=" << targets_.size()
+                  << " unsupported=" << unsupportedTotal_ << std::endl;
+    }
+    void associateTarget(BWAPI::Game* game, const PendingTarget& pending, BWAPI::Unit unit) {
+        if (pending.id.empty() || !entities_.count(pending.id)) game->removeUnit(unit);
+        else {
+            if (pending.health > 0 && pending.health <= 100000) unit->setHitPoints(pending.health);
+            usedUnits_.insert(unit->getID());
+            targets_[pending.id] = {pending.id, unit, unit->getID(), unit->getHitPoints(), false, "active",
+                unit->getPosition().x, unit->getPosition().y};
+            send("entity.state", {{"id", pending.id},
+                {"proxy_id", "openbw:" + std::to_string(unit->getID())},
+                {"proxy_x", unit->getPosition().x},
+                {"proxy_y", unit->getPosition().y},
+                {"health", unit->getHitPoints()}}, revision_, game->getFrameCount());
+            std::cerr << "[world] target id=" << pending.id << " proxy=" << unit->getID() << std::endl;
+        }
+    }
+    int targetLimit() const {
+        const char* value = std::getenv("BRIDGE_MAX_TARGETS");
+        if (!value || !*value) return 512;
+        char* end = nullptr;
+        const long parsed = std::strtol(value, &end, 10);
+        return end && !*end && parsed >= 1 && parsed <= 1500 ? static_cast<int>(parsed) : 512;
+    }
+    BWAPI::Player targetOwner(BWAPI::Game* game) const {
+        // The reusable world map reserves computer slot 2 for park targets.
+        for (auto player : game->getPlayers())
+            if (player && player->getID() == 2 && player != game->self()) return player;
+        return nullptr;
+    }
+    void assaultAI(BWAPI::Game* game) {
+        for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists() || unit->getPlayer() != game->self()
+                || unit->getType() != BWAPI::UnitTypes::Zerg_Zergling) continue;
+            BWAPI::Unit nearest = nullptr;
+            int best = INT_MAX;
+            for (const auto& [id, target] : targets_) {
+                if (target.lifecycle != "active" || !target.unit || !target.unit->exists()) continue;
+                const auto a = unit->getPosition(), b = target.unit->getPosition();
+                const int distance = std::abs(a.x - b.x) + std::abs(a.y - b.y);
+                if (distance < best) { best = distance; nearest = target.unit; }
+            }
+            if (nearest) unit->attack(nearest);
+        }
     }
     void reportUnsupported(const std::string& id,const std::string& reason) {
         ++unsupportedTotal_;
@@ -219,29 +369,62 @@ private:
     }
     void publishActors(BWAPI::Game* game,int frame) {
         json units=json::array();
+        std::set<int> observed;
+        int total=0;
         for (auto unit:game->getAllUnits()) {
             if (!unit || !unit->exists()) continue;
             const auto type=unit->getType();
             if (type!=BWAPI::UnitTypes::Zerg_Zergling && type!=BWAPI::UnitTypes::Terran_Marine) continue;
-            if (units.size()>=32) break;
+            ++total;
+            observed.insert(unit->getID());
+            if (units.size()>=256) continue;
             const auto position=unit->getPosition();
             const double turns=std::fmod(unit->getAngle()/(2.0*3.14159265358979323846)+1.0,1.0);
             const int facing=static_cast<int>(std::lround(turns*256.0))&255;
             const int hp=std::max(0,unit->getHitPoints());
-            units.push_back({{"id","openbw:"+std::to_string(unit->getID())},
+            const auto actorID=actorRegistry_.id(unit);
+            if (actorID.empty()) continue;
+            auto target=unit->getTarget();
+            if (!target) target=unit->getOrderTarget();
+            std::string targetEntity;
+            if (target) for (const auto& [id,combat]:targets_)
+                if (combat.proxyID==target->getID()) { targetEntity=id; break; }
+            json actor={{"id",actorID},
                 {"kind",type==BWAPI::UnitTypes::Zerg_Zergling?"zerg_zergling":"terran_marine"},
                 {"owner",unit->getPlayer()?unit->getPlayer()->getID():0},
                 {"x",position.x},{"y",position.y},{"facing",facing},
-                {"motion",unit->isMoving()?"walk":"idle"},
-                {"hp",hp},{"max_hp",type.maxHitPoints()},{"attack_frames",0}});
+                {"motion",unit->isAttacking()?"attack":unit->isMoving()?"walk":"idle"},
+                {"hp",hp},{"max_hp",type.maxHitPoints()},{"alive",true},
+                {"attack_frames",attackFrames_[unit->getID()]},
+                {"target_id",target?json(actorRegistry_.id(target)):json(nullptr)},
+                {"target_entity_id",targetEntity.empty()?json(nullptr):json(targetEntity)}};
+            units.push_back(actor);
+            lastActors_[unit->getID()]={actor,frame};
         }
-        send("combat.snapshot",{{"seq",++snapshotSequence_},{"bw_tick",frame},{"units",units}},revision_,frame);
+        for (auto it=lastActors_.begin();it!=lastActors_.end();) {
+            if (observed.count(it->first)) { ++it; continue; }
+            if (frame-it->second.second>16) { attackFrames_.erase(it->first); it=lastActors_.erase(it); continue; }
+            if (units.size()<256) {
+                json dead=it->second.first;
+                dead["motion"]="death"; dead["alive"]=false; dead["hp"]=0;
+                units.push_back(std::move(dead));
+            }
+            ++it;
+        }
+        send("combat.snapshot",{{"seq",++snapshotSequence_},{"bw_tick",frame},
+            {"unit_total",total},{"unit_omitted",std::max(0,total-static_cast<int>(units.size()))},
+            {"units",units}},revision_,frame);
     }
-    int socket_=-1,expectedChunks_=0,receivedChunks_=0,width_=0,height_=0;
-    bool ready_=false,initializing_=false; int requestedFrame_=0; uint64_t revision_=1,sequence_=0,event_=0,snapshotSequence_=0;
+    int socket_=-1,width_=0,height_=0;
+    bool ready_=false,initializing_=false; uint64_t revision_=1,sequence_=0,event_=0,snapshotSequence_=0;
     std::string incoming_,outgoing_,session_;
-    std::map<std::string,json> entities_; std::vector<json> terrain_; std::map<std::string,Target> targets_;
-    std::map<std::string,json> obstacles_;
-    std::vector<PendingTarget> pending_; std::set<int> usedUnits_; std::set<std::string> chunkOps_; json unsupported_=json::array();
+    starcoaster::SnapshotStager stager_;
+    starcoaster::DesiredWorld desired_;
+    std::map<std::string,json> entities_; std::map<std::string,Target> targets_;
+    starcoaster::NavigationAdapter navigation_;
+    WorldActorRegistry actorRegistry_;
+    std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();
+    std::map<int,int> attackFrames_;
+    std::map<int,std::pair<json,int>> lastActors_;
 };

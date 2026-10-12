@@ -22,7 +22,7 @@
     const SCALE_Y = 1;
     const WORLD_ENABLED = typeof STARCOASTER_WORLD_BRIDGE !== "undefined" && STARCOASTER_WORLD_BRIDGE === true;
 
-    function startWorldAdapter() {
+    function startWorldAdapter(onCommandSender, onCommandResult, onEntities) {
         const session = Array.from({ length: 4 }, function () {
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
@@ -38,6 +38,7 @@
             socket.write(JSON.stringify(inFlight) + "\n");
         }
         function send(kind, payload, rev) { queue.push(envelope(kind, payload, rev)); sendNext(); }
+        onCommandSender(function (payload) { send("combat.command", payload); });
         function rotate(offset, direction) {
             if (direction === 1) return { x: offset.y, y: -offset.x };
             if (direction === 2) return { x: -offset.x, y: -offset.y };
@@ -182,6 +183,7 @@
         });
         function snapshot() {
             const current = discover(), chunks = [];
+            onEntities(current.entities);
             let entityChunk = [];
             current.entities.forEach(function (entity) {
                 const next = entityChunk.concat([entity]);
@@ -225,12 +227,21 @@
             if (!message || message.v !== 1 || message.session !== session) return;
             if (message.kind === "world.ack") {
                 if (!inFlight || message.payload.op_id !== inFlight.op_id) return;
-                if (!message.payload.accepted) { console.log("WORLD_ERROR " + message.payload.error); socket.destroy({}); return; }
+                if (!message.payload.accepted) {
+                    if (inFlight.kind === "combat.command") {
+                        onCommandResult({ command_id: inFlight.payload.command_id,
+                            player_id: inFlight.payload.player_id, request_id: inFlight.payload.request_id,
+                            accepted: false, reason: message.payload.error || "command_rejected" });
+                        inFlight = null; sendNext(); return;
+                    }
+                    console.log("WORLD_ERROR " + message.payload.error); socket.destroy({}); return;
+                }
                 inFlight = null; sendNext();
             } else if (message.kind === "world.resync") {
                 queue.length = 0; inFlight = null; snapshot();
             }
             else if (message.kind === "combat.event") combatEvent(message);
+            else if (message.kind === "combat.result" && message.payload.command_id) onCommandResult(message.payload);
             else if (message.kind === "combat.snapshot") {
                 const state = message.payload;
                 if (!state || !Number.isSafeInteger(state.seq) || state.seq <= lastCombatSeq
@@ -270,7 +281,8 @@
 
     function validUnits(args, combat) {
         if (!args || typeof args.session !== "string" || !/^[0-9a-f]{32}$/.test(args.session)
-            || !Number.isSafeInteger(args.seq) || args.seq < 1 || !Array.isArray(args.units) || args.units.length > MAX_UNITS) {
+            || !Number.isSafeInteger(args.seq) || args.seq < 1 || !Array.isArray(args.units)
+            || args.units.length > (WORLD_ENABLED && combat ? 256 : MAX_UNITS)) {
             return false;
         }
         const ids = {};
@@ -488,6 +500,8 @@
         let commandSocket = null;
         let commandConnected = false;
         let commandSerial = 0;
+        let worldCommandSender = null;
+        let worldTargetIds = {};
         const pendingCommands = {};
         context.registerAction(ACTION, function (event) {
             if (network.mode === "server" && event.player !== network.currentPlayer.id) {
@@ -505,7 +519,7 @@
             return {};
         });
 
-        if (FRONTIER_ENABLED) {
+        if (FRONTIER_ENABLED || WORLD_ENABLED) {
             context.registerAction(COMMAND_ACTION, function (event) {
                 const args = event.args;
                 if (network.mode === "server" && (!Array.isArray(network.players)
@@ -513,7 +527,9 @@
                     return { error: 1, errorMessage: "Player is not connected" };
                 if (!args || args.session !== controlSession || !Number.isSafeInteger(args.request)
                     || args.request < 1 || !Array.isArray(args.unit_ids) || args.unit_ids.length < 1
-                    || args.unit_ids.length > 4 || !["move", "attack", "hold"].includes(args.verb))
+                    || args.unit_ids.length > 4 || !(WORLD_ENABLED
+                        ? ["move", "attack", "attack_move", "hold", "stop"].includes(args.verb)
+                        : ["move", "attack", "hold"].includes(args.verb)))
                     return { error: 1, errorMessage: "Invalid Marine command" };
                 const unique = {};
                 if (!args.unit_ids.every(function (id) {
@@ -523,15 +539,19 @@
                     unique[id] = true;
                     return true;
                 })) return { error: 1, errorMessage: "Marine is unavailable" };
-                if (args.verb === "move" && (!Number.isInteger(args.x) || !Number.isInteger(args.y)
-                    || args.x < 0 || args.y < 0 || args.x >= 4096 || args.y >= 4096))
+                if ((args.verb === "move" || args.verb === "attack_move")
+                    && (!Number.isInteger(args.x) || !Number.isInteger(args.y)
+                    || args.x < 0 || args.y < 0 || args.x >= map.size.x * 32 || args.y >= map.size.y * 32))
                     return { error: 1, errorMessage: "Invalid destination" };
                 if (args.verb === "attack") {
                     const target = controlUnits[args.target_id];
-                    if (!target || target.kind !== "zerg_zergling" || target.hp <= 0)
+                    const structure = WORLD_ENABLED && typeof args.target_entity_id === "string"
+                        && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.target_entity_id)
+                        && (network.mode !== "server" || worldTargetIds[args.target_entity_id]);
+                    if ((!target || target.kind !== "zerg_zergling" || target.hp <= 0) && !structure)
                         return { error: 1, errorMessage: "Invalid Zergling target" };
                 }
-                if (network.mode === "server" && !commandConnected)
+                if (network.mode === "server" && !(WORLD_ENABLED ? worldCommandSender : commandConnected))
                     return { error: 1, errorMessage: "Terran controller disconnected" };
                 return {};
             }, function (event) {
@@ -539,6 +559,18 @@
                 const args = event.args;
                 args.unit_ids.forEach(function (id) {
                     const serial = ++commandSerial;
+                    if (WORLD_ENABLED) {
+                        const commandId = args.session + ":" + serial;
+                        pendingCommands[commandId] = { player: event.player, request: args.request, unit: id };
+                        const payload = { command_id: commandId, player_id: event.player,
+                            request_id: args.request, unit_ids: [id], verb: "unit." + args.verb };
+                        if (args.verb === "move" || args.verb === "attack_move") {
+                            payload.x = args.x; payload.y = args.y;
+                        } else if (args.verb === "attack")
+                            payload.target_id = args.target_entity_id || args.target_id;
+                        worldCommandSender(payload);
+                        return;
+                    }
                     const x = args.verb === "attack" ? Number(args.target_id.slice(7))
                         : args.verb === "move" ? args.x : 0;
                     const y = args.verb === "move" ? args.y : 0;
@@ -557,7 +589,7 @@
                 const args = event.args;
                 return args && Number.isSafeInteger(args.player) && Number.isSafeInteger(args.request)
                     && /^openbw:[0-9]+$/.test(args.unit) && typeof args.accepted === "boolean"
-                    && /^(ok|invalid_marine|invalid_target|bwapi_rejected)$/.test(args.reason)
+                    && /^[a-z_]{2,64}$/.test(args.reason)
                     ? {} : { error: 1, errorMessage: "Invalid Marine command result" };
             }, function (event) {
                 const args = event.args;
@@ -573,7 +605,7 @@
             if (++animationTicks % 4 === 0) rtsBridge.invalidateAnimation();
         });
 
-        if (FRONTIER_ENABLED && typeof ui !== "undefined") {
+        if ((FRONTIER_ENABLED || WORLD_ENABLED) && typeof ui !== "undefined") {
             let selected = [];
             let nextRequest = 0;
             let selectingMultiple = false;
@@ -605,10 +637,20 @@
                 if (!selected.length || !point) return;
                 const hit = rtsBridge.hitTest(point.x, point.y, 22);
                 const target = hit && controlUnits[hit];
+                const structure = WORLD_ENABLED && Object.keys(worldTargetIds).filter(function (id) {
+                    return worldTargetIds[id].geometry.rects.some(function (rect) {
+                        return point.x >= rect.x && point.y >= rect.y
+                            && point.x < rect.x + rect.width && point.y < rect.y + rect.height;
+                    });
+                })[0];
                 const args = { session: controlSession, request: ++nextRequest,
                     unit_ids: selected, verb: target && target.kind === "zerg_zergling" ? "attack" : "move" };
                 if (args.verb === "attack") args.target_id = hit;
-                else { args.x = point.x + 128; args.y = point.y + 96; }
+                else if (structure) { args.verb = "attack"; args.target_entity_id = structure; }
+                else {
+                    args.x = point.x + (WORLD_ENABLED ? 0 : 128);
+                    args.y = point.y + (WORLD_ENABLED ? 0 : 96);
+                }
                 context.executeAction(COMMAND_ACTION, args, function (result) {
                     if (result.error) ui.showError("Marine command", result.errorMessage);
                 });
@@ -619,7 +661,25 @@
         }
 
         if (network.mode !== "server") return;
-        if (WORLD_ENABLED) { startWorldAdapter(); return; }
+        if (WORLD_ENABLED) {
+            startWorldAdapter(function (sender) { worldCommandSender = sender; }, function (result) {
+                const original = pendingCommands[result.command_id];
+                if (!original) return;
+                delete pendingCommands[result.command_id];
+                context.executeAction(RESULT_ACTION, { player: original.player, request: original.request,
+                    unit: original.unit, accepted: result.accepted === true,
+                    reason: /^[a-z_]{2,64}$/.test(result.reason || "") ? result.reason : "command_rejected" },
+                function (actionResult) {
+                    if (actionResult.error) console.log("WORLD_COMMAND_RESULT_ERROR " + actionResult.errorMessage);
+                });
+            }, function (discovered) {
+                worldTargetIds = {};
+                discovered.forEach(function (entity) {
+                    if (entity.destructible && entity.combat.targetable) worldTargetIds[entity.id] = entity;
+                });
+            });
+            return;
+        }
         const siegeRide = (SIEGE_ENABLED || FRONTIER_ENABLED) ? registeredCarousel() : null;
         if ((SIEGE_ENABLED || FRONTIER_ENABLED) && !siegeRide) {
             console.log("RIDE_SIEGE_ERROR expected closed empty Frontier Carousel fixture is missing or changed");

@@ -99,6 +99,8 @@ type Ready struct {
 	Targets            int            `json:"targets"`
 	Obstacles          int            `json:"obstacles,omitempty"`
 	Navigation         string         `json:"navigation,omitempty"`
+	Reconciled         *bool          `json:"reconciled,omitempty"`
+	TargetCapacity     int            `json:"target_capacity,omitempty"`
 	Unsupported        []string       `json:"unsupported,omitempty"`
 	UnsupportedTotal   int            `json:"unsupported_total,omitempty"`
 	UnsupportedReasons map[string]int `json:"unsupported_reasons,omitempty"`

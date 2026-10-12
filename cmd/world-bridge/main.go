@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"regexp"
 	"sync"
 	"time"
 
@@ -36,20 +37,86 @@ type staging struct {
 	seen     map[string]bool
 }
 type service struct {
-	mu        sync.Mutex
-	park, bw  *peer
-	registry  *world.Registry
-	mapping   world.Mapping
-	stage     *staging
-	next      uint64
-	pending   map[string]world.CombatEvent
-	proxies   map[string]string
-	ready     bool
-	bwWidth   int
-	bwHeight  int
-	transform world.Transform
-	retired   map[string]bool
+	mu              sync.Mutex
+	park, bw        *peer
+	controller      *peer
+	registry        *world.Registry
+	mapping         world.Mapping
+	stage           *staging
+	next            uint64
+	pending         map[string]world.CombatEvent
+	proxies         map[string]string
+	targetLinks     map[string]targetLink
+	pendingLinks    map[string]string
+	pendingReady    *world.Ready
+	ready           bool
+	bwResyncPending bool
+	bwWidth         int
+	bwHeight        int
+	transform       world.Transform
+	retired         map[string]bool
+	commands        map[string]worldCommand
 }
+
+type worldCommand struct {
+	CommandID     string   `json:"command_id"`
+	PlayerID      int      `json:"player_id"`
+	RequestID     int      `json:"request_id"`
+	UnitIDs       []string `json:"unit_ids"`
+	Verb          string   `json:"verb"`
+	TargetID      string   `json:"target_id,omitempty"`
+	TargetProxyID string   `json:"target_proxy_id,omitempty"`
+	X             int      `json:"x,omitempty"`
+	Y             int      `json:"y,omitempty"`
+}
+
+type targetLink struct {
+	ID      string `json:"id"`
+	ProxyID string `json:"proxy_id"`
+	X       int    `json:"proxy_x"`
+	Y       int    `json:"proxy_y"`
+}
+
+func (s *service) sendTargetLinks(p *peer) {
+	for _, link := range s.targetLinks {
+		s.sendTargetLink(p, s.registry.Session, s.registry.Revision, link)
+	}
+}
+
+func (s *service) sendTargetLink(p *peer, session string, revision uint64, link targetLink) {
+	if p == nil {
+		return
+	}
+	opID := s.operation()
+	if p.send(world.Message("entity.state", session, opID, "bridge", revision, link)) == nil {
+		if s.pendingLinks == nil {
+			s.pendingLinks = map[string]string{}
+		}
+		s.pendingLinks[opID] = link.ID
+	}
+}
+
+func (s *service) publishReady() {
+	if s.pendingReady == nil || s.controller == nil || len(s.pendingLinks) != 0 {
+		return
+	}
+	ready := *s.pendingReady
+	s.pendingReady = nil
+	s.ready = true
+	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
+	log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
+}
+
+func (s *service) failCommands(reason string) {
+	for _, command := range s.commands {
+		_ = s.emit(s.park, "combat.result", s.registry.Session, s.registry.Revision,
+			map[string]any{"command_id": command.CommandID, "player_id": command.PlayerID,
+				"request_id": command.RequestID, "accepted": false, "reason": reason})
+	}
+	s.commands = map[string]worldCommand{}
+}
+
+var unitIDPattern = regexp.MustCompile(`^openbw:[0-9]+$`)
 
 func (s *service) operation() string { s.next++; return fmt.Sprintf("bridge:%d", s.next) }
 func (s *service) emit(p *peer, kind, session string, rev uint64, payload any) error {
@@ -81,7 +148,8 @@ func (s *service) consume(role string, p *peer) {
 			continue
 		}
 		s.mu.Lock()
-		if (role == "park" && s.park == p) || (role == "bw" && s.bw == p) {
+		if (role == "park" && s.park == p) || (role == "bw" && s.bw == p) ||
+			(role == "controller" && s.controller == p) {
 			s.handle(role, p, m)
 		}
 		s.mu.Unlock()
@@ -95,6 +163,11 @@ func (s *service) consume(role string, p *peer) {
 		s.bw = nil
 		s.ready = false
 	}
+	if role == "controller" && s.controller == p {
+		s.controller = nil
+		s.pendingLinks = map[string]string{}
+		s.failCommands("controller_disconnected")
+	}
 	s.mu.Unlock()
 	_ = p.Close()
 	log.Printf("%s disconnected: %v", role, scanner.Err())
@@ -102,8 +175,10 @@ func (s *service) consume(role string, p *peer) {
 func (s *service) handle(role string, p *peer, m world.Envelope) {
 	if role == "park" {
 		s.parkMessage(p, m)
-	} else {
+	} else if role == "bw" {
 		s.bwMessage(p, m)
+	} else {
+		s.controllerMessage(p, m)
 	}
 }
 func (s *service) parkMessage(p *peer, m world.Envelope) {
@@ -159,6 +234,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			return
 		}
 		previousSession := s.registry.Session
+		s.failCommands("world_resynchronized")
 		if err := s.registry.Replace(m.Session, m.Revision, s.stage.begin.Width, s.stage.begin.Height, s.stage.entities, s.stage.terrain); err != nil {
 			s.ack(p, m, false, err.Error())
 			return
@@ -172,9 +248,13 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.stage = nil
 		s.pending = map[string]world.CombatEvent{}
 		s.proxies = map[string]string{}
+		s.targetLinks = map[string]targetLink{}
+		s.pendingLinks = map[string]string{}
+		s.pendingReady = nil
 		s.ack(p, m, true, "")
 		log.Printf("park snapshot session=%s revision=%d entities=%d terrain=%d", m.Session, m.Revision, len(s.registry.Entities), len(s.registry.Terrain))
 		s.forwardSnapshot()
+		_ = s.emit(s.controller, "world.hello", m.Session, m.Revision, map[string]any{"role": "controller"})
 	case "combat.result":
 		var result world.CombatResult
 		if m.Decode(&result) != nil {
@@ -201,6 +281,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			}
 			s.registry.Destroyed[result.EntityID] = true
 			s.registry.Revision = m.Revision
+			delete(s.targetLinks, result.EntityID)
+			_ = s.emit(s.controller, "entity.remove", m.Session, m.Revision, map[string]string{"id": result.EntityID})
 		}
 		s.registry.RemovalState[result.EntityID] = result.State
 		delete(s.pending, result.EventID)
@@ -208,11 +290,60 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		_ = s.emit(s.bw, "combat.result", m.Session, s.registry.Revision, result)
 		if result.State == "removal_confirmed" {
 			_ = s.emit(s.bw, "navigation.obstacle.remove", m.Session, s.registry.Revision, map[string]string{"id": result.EntityID})
+		} else {
+			s.ready = false
+			_ = s.emit(s.park, "world.resync", m.Session, s.registry.Revision, map[string]string{"reason": "removal_failed"})
 		}
 	case "entity.upsert", "entity.remove", "entity.transform", "entity.state", "navigation.terrain.update":
 		// The envelope and model are versioned for future live updates. Applying
 		// one side before OpenBW accepts its geometry would split authority.
 		s.ack(p, m, false, "live_update_unsupported")
+	case "combat.command":
+		var command worldCommand
+		if m.Decode(&command) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
+			!s.ready || s.controller == nil || command.CommandID == "" || len(command.CommandID) > 128 ||
+			command.PlayerID < 0 || command.RequestID < 1 || len(command.UnitIDs) < 1 ||
+			len(command.UnitIDs) > 32 || s.commands[command.CommandID].CommandID != "" {
+			s.ack(p, m, false, "invalid_or_unavailable_command")
+			return
+		}
+		for _, id := range command.UnitIDs {
+			if !unitIDPattern.MatchString(id) {
+				s.ack(p, m, false, "invalid_unit_id")
+				return
+			}
+		}
+		switch command.Verb {
+		case "unit.move", "unit.attack_move":
+			if command.X < 0 || command.Y < 0 || command.X >= s.registry.Width*32 || command.Y >= s.registry.Height*32 {
+				s.ack(p, m, false, "invalid_destination")
+				return
+			}
+			command.X = s.transform.Pixel(command.X)
+			command.Y = s.transform.Pixel(command.Y)
+		case "unit.attack":
+			if proxy := s.proxies[command.TargetID]; proxy != "" && !s.registry.Destroyed[command.TargetID] {
+				command.TargetProxyID = proxy
+			} else if unitIDPattern.MatchString(command.TargetID) {
+				command.TargetProxyID = command.TargetID
+			} else {
+				s.ack(p, m, false, "unknown_target")
+				return
+			}
+		case "unit.hold", "unit.stop":
+		default:
+			s.ack(p, m, false, "unsupported_command")
+			return
+		}
+		if s.commands == nil {
+			s.commands = map[string]worldCommand{}
+		}
+		if err := s.emit(s.controller, "combat.command", m.Session, m.Revision, command); err != nil {
+			s.ack(p, m, false, "controller_disconnected")
+			return
+		}
+		s.commands[command.CommandID] = command
+		s.ack(p, m, true, "")
 	default:
 		s.ack(p, m, false, "unsupported_operation")
 	}
@@ -222,6 +353,7 @@ func (s *service) forwardSnapshot() {
 		return
 	}
 	r := s.registry
+	s.bwResyncPending = false
 	rev := r.Revision
 	s.transform = world.Fit(r.Width, r.Height, s.bwWidth, s.bwHeight)
 	derivedTerrain := s.transform.Terrain(r.Terrain)
@@ -287,9 +419,10 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 	case "world.ack":
 		var a world.Ack
 		_ = m.Decode(&a)
-		if !a.Accepted {
+		if !a.Accepted && !s.bwResyncPending {
 			log.Printf("OpenBW rejected %s: %s", a.OpID, a.Error)
 			s.ready = false
+			s.bwResyncPending = true
 			_ = s.emit(s.park, "world.resync", s.registry.Session, s.registry.Revision, map[string]string{"reason": a.Error})
 		}
 	case "world.ready":
@@ -302,10 +435,15 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			s.ack(p, m, false, "invalid_ready")
 			return
 		}
-		s.ready = true
+		if ready.Reconciled != nil && !*ready.Reconciled {
+			s.ready = false
+			s.ack(p, m, true, "")
+			_ = s.emit(s.park, "world.resync", m.Session, m.Revision, map[string]string{"reason": "openbw_reconciliation_incomplete"})
+			return
+		}
 		s.ack(p, m, true, "")
-		_ = s.emit(s.park, "world.ready", m.Session, m.Revision, ready)
-		log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
+		s.pendingReady = &ready
+		s.publishReady()
 	case "combat.event":
 		var event world.CombatEvent
 		if m.Decode(&event) != nil || event.Type != "destruction" || m.Session != s.registry.Session || !s.ready {
@@ -328,11 +466,10 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			s.registry.RemovalState[event.EntityID] = "removal_pending"
 		}
 	case "entity.state":
-		var payload struct {
-			ID      string `json:"id"`
-			ProxyID string `json:"proxy_id"`
-		}
-		if m.Decode(&payload) != nil || s.registry.Entities[payload.ID].ID == "" || payload.ProxyID == "" {
+		var payload targetLink
+		if m.Decode(&payload) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
+			s.registry.Entities[payload.ID].ID == "" || payload.ProxyID == "" ||
+			payload.X < 0 || payload.Y < 0 || payload.X >= s.bwWidth*32 || payload.Y >= s.bwHeight*32 {
 			s.ack(p, m, false, "unknown_entity")
 			return
 		}
@@ -341,13 +478,20 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.proxies[payload.ID] = payload.ProxyID
+		if s.targetLinks == nil {
+			s.targetLinks = map[string]targetLink{}
+		}
+		s.targetLinks[payload.ID] = payload
 		s.ack(p, m, true, "")
+		s.sendTargetLink(s.controller, m.Session, m.Revision, payload)
 	case "combat.snapshot":
-		if m.Session == s.registry.Session && s.ready && len(m.Payload) <= 32768 {
+		if m.Session == s.registry.Session && s.ready && len(m.Payload) <= 131072 {
 			var snapshot struct {
-				Seq    uint64           `json:"seq"`
-				BWTick int              `json:"bw_tick"`
-				Units  []map[string]any `json:"units"`
+				Seq         uint64           `json:"seq"`
+				BWTick      int              `json:"bw_tick"`
+				UnitTotal   int              `json:"unit_total"`
+				UnitOmitted int              `json:"unit_omitted"`
+				Units       []map[string]any `json:"units"`
 			}
 			if m.Decode(&snapshot) == nil {
 				for _, unit := range snapshot.Units {
@@ -361,6 +505,61 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 				_ = s.emit(s.park, "combat.snapshot", m.Session, s.registry.Revision, snapshot)
 			}
 		}
+	default:
+		s.ack(p, m, false, "unsupported_operation")
+	}
+}
+func (s *service) controllerMessage(p *peer, m world.Envelope) {
+	if m.Source != "openbw" {
+		s.ack(p, m, false, "wrong_authority")
+		return
+	}
+	switch m.Kind {
+	case "world.hello":
+		s.ack(p, m, true, "")
+		if s.registry.Session != "" {
+			_ = s.emit(p, "world.hello", s.registry.Session, s.registry.Revision,
+				map[string]any{"role": "controller"})
+			s.sendTargetLinks(p)
+			s.publishReady()
+		}
+	case "world.ack":
+		var answer world.Ack
+		if m.Decode(&answer) != nil || m.Session != s.registry.Session {
+			return
+		}
+		if _, exists := s.pendingLinks[answer.OpID]; !exists {
+			return
+		}
+		delete(s.pendingLinks, answer.OpID)
+		if !answer.Accepted {
+			s.ready = false
+			s.pendingReady = nil
+			_ = s.emit(s.park, "world.resync", m.Session, s.registry.Revision,
+				map[string]string{"reason": "controller_target_link_rejected"})
+			return
+		}
+		s.publishReady()
+	case "combat.result":
+		var result struct {
+			CommandID string `json:"command_id"`
+			PlayerID  int    `json:"player_id"`
+			RequestID int    `json:"request_id"`
+			Accepted  bool   `json:"accepted"`
+			Reason    string `json:"reason"`
+		}
+		if m.Decode(&result) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision {
+			s.ack(p, m, false, "stale_command_result")
+			return
+		}
+		command, found := s.commands[result.CommandID]
+		if !found || command.PlayerID != result.PlayerID || command.RequestID != result.RequestID {
+			s.ack(p, m, false, "unknown_command")
+			return
+		}
+		delete(s.commands, result.CommandID)
+		s.ack(p, m, true, "")
+		_ = s.emit(s.park, "combat.result", m.Session, m.Revision, result)
 	default:
 		s.ack(p, m, false, "unsupported_operation")
 	}
@@ -380,12 +579,18 @@ func (s *service) serve(listener net.Listener, role string) {
 			}
 			s.park = p
 			s.stage = nil
-		} else {
+		} else if role == "bw" {
 			if s.bw != nil {
 				_ = s.bw.Close()
 			}
 			s.bw = p
 			s.ready = false
+		} else {
+			if s.controller != nil {
+				_ = s.controller.Close()
+			}
+			s.controller = p
+			s.pendingLinks = map[string]string{}
 		}
 		s.mu.Unlock()
 		log.Printf("%s connected", role)
@@ -395,6 +600,7 @@ func (s *service) serve(listener net.Listener, role string) {
 func main() {
 	parkAddress := flag.String("park", "127.0.0.1:40010", "OpenRCT2 adapter listener")
 	bwAddress := flag.String("openbw", "127.0.0.1:40011", "OpenBW adapter listener")
+	controllerAddress := flag.String("controller", "127.0.0.1:40012", "OpenBW player controller listener")
 	rulesPath := flag.String("rules", "", "optional JSON mapping overrides")
 	flag.Parse()
 	mapping := world.DefaultMapping()
@@ -419,8 +625,14 @@ func main() {
 		log.Fatal(err)
 	}
 	defer bw.Close()
+	controller, err := net.Listen("tcp", *controllerAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer controller.Close()
 	s := &service{registry: world.NewRegistry(), mapping: mapping, pending: map[string]world.CombatEvent{}, proxies: map[string]string{}}
-	log.Printf("world.v1 listening park=%s openbw=%s", *parkAddress, *bwAddress)
+	log.Printf("world.v1 listening park=%s openbw=%s controller=%s", *parkAddress, *bwAddress, *controllerAddress)
 	go s.serve(bw, "bw")
+	go s.serve(controller, "controller")
 	s.serve(park, "park")
 }

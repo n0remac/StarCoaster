@@ -22,7 +22,7 @@ elif [[ "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then
     python3 "$project_dir/scripts/create-park-assault-map.py" --output "$default_map"
   fi
 elif [[ "${BRIDGE_SCENARIO:-patrol}" == world ]]; then
-  default_map="$project_dir/run-data/world-base/world-base.scm"
+  default_map="$project_dir/run-data/world-base/world-base-v4.scm"
   if [[ ! -f "$default_map" ]]; then
     python3 "$project_dir/scripts/create-world-base-map.py" --output "$default_map"
   fi
