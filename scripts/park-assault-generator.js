@@ -70,11 +70,42 @@ registerPlugin({
         function scenery() {
             var paths = {};
             function path(x, y) { paths[x + "," + y] = true; }
-            // Perimeter loop with spokes and two intersections. All tiles are real paths.
-            for (var x = 14; x <= 50; x++) { path(x, 14); path(x, 50); path(x, 31); }
-            for (var y = 14; y <= 50; y++) { path(14, y); path(50, y); path(32, y); }
-            for (var x2 = 17; x2 <= 46; x2++) { path(x2, 24); path(x2, 43); }
-            for (var y2 = 17; y2 <= 46; y2++) { path(24, y2); path(44, y2); }
+            function horizontal(y, x0, x1) {
+                for (var x = x0; x <= x1; x++) path(x, y);
+            }
+            function vertical(x, y0, y1) {
+                for (var y = y0; y <= y1; y++) path(x, y);
+            }
+            function plaza(x0, y0, x1, y1) {
+                for (var y = y0; y <= y1; y++) horizontal(y, x0, x1);
+            }
+            // Three connected districts branch from a bent central promenade.
+            // Keep the carousel's 3x3 track footprint clear inside its plaza.
+            horizontal(22, 15, 31);
+            vertical(17, 16, 22); vertical(23, 16, 22);
+            horizontal(16, 17, 23);
+            horizontal(21, 18, 22);
+            for (var cy = 18; cy <= 20; cy++) { path(17, cy); path(23, cy); }
+            vertical(15, 22, 31); horizontal(31, 15, 26);
+            plaza(14, 28, 18, 29); horizontal(34, 14, 25);
+            vertical(14, 29, 34); vertical(25, 31, 34);
+            vertical(31, 22, 42); horizontal(42, 31, 39);
+            horizontal(26, 31, 45); vertical(45, 26, 36);
+            // Food court: two shop fronts share a small paved square.
+            plaza(36, 23, 44, 25); vertical(36, 18, 23);
+            horizontal(18, 36, 45); vertical(45, 18, 25);
+            horizontal(21, 36, 40); horizontal(21, 43, 45);
+            // Ferris wheel garden and the south entrance join the promenade.
+            horizontal(36, 39, 49); vertical(39, 36, 44);
+            horizontal(44, 39, 49); vertical(49, 36, 44);
+            horizontal(42, 31, 39); vertical(34, 42, 50);
+            horizontal(50, 34, 36); vertical(36, 44, 50);
+            // Meandering outer walk offers a second route around each district.
+            horizontal(14, 15, 28); vertical(28, 14, 22);
+            horizontal(14, 28, 48); vertical(48, 14, 18);
+            horizontal(18, 45, 48); vertical(49, 18, 36);
+            horizontal(46, 15, 34); vertical(15, 34, 46);
+            horizontal(46, 34, 49);
             Object.keys(paths).forEach(function (key) {
                 var point = key.split(",").map(Number);
                 var e = add(point[0], point[1], "footpath", 14, 16, 4);
@@ -87,34 +118,54 @@ registerPlugin({
             var fence = object("wall", "rct2.scenery_wall.wpf").index;
             var solid = object("wall", "rct2.scenery_wall.wbr1").index;
             var gate = playable ? object("wall", "rct2.scenery_wall.wbr2").index : solid;
+            var wallTiles = {};
             function wall(x, y, direction, index) {
                 var e = add(x, y, "wall", 14, 18, index);
                 e.direction = direction;
+                wallTiles[x + "," + y] = true;
             }
-            // Edged perimeter with two clear entrances on the west and south.
+            // Native edge directions: 0 west, 1 south, 2 east, 3 north.
+            // Segments on adjacent tiles share an endpoint in world space.
             for (var px = 12; px <= 53; px++) {
-                if (px < 29 || px > 39) wall(px, 12, 0, fence);
-                if (px < 33 || px > 36) wall(px, 53, 0, fence);
+                if (px < 29 || px > 39) wall(px, 12, 3, fence);
+                if (px < 33 || px > 36) wall(px, 53, 1, fence);
             }
             for (var py = 12; py <= 53; py++) {
-                if (py < 19 || py > 24) wall(12, py, 1, fence);
-                wall(53, py, 1, fence);
+                if (py < 19 || py > 24) wall(12, py, 0, fence);
+                wall(53, py, 2, fence);
             }
-            // Long direct barrier, offset return, and a one tile chokepoint.
-            for (var wy = 16; wy <= 39; wy++) if (playable ? wy !== 35 : (wy < 34 || wy > 36)) wall(28, wy, 1, solid);
-            if (playable) wall(28, 35, 1, gate);
-            for (var wx = 29; wx <= 43; wx++) if (wx < 31 || wx > 33) wall(wx, 35, 0, solid);
-            for (var bx = 29; bx <= 44; bx++) if (bx < 34 || bx > 40) wall(bx, 17, 0, solid);
-            for (var mx = 17; mx <= 26; mx++) if (mx < 22 || mx > 24) wall(mx, 38, 0, fence);
-            for (var my = 38; my <= 46; my++) if (my < 40 || my > 42) wall(21, my, 1, fence);
+            // Defense barrier retains the destructible tile and the long
+            // blocked corridor used by the native navigation regression.
+            for (var wy = 16; wy <= 39; wy++) if (playable ? wy !== 35 : (wy < 34 || wy > 36)) wall(28, wy, 0, solid);
+            if (playable) wall(28, 35, 0, gate);
+            for (var wx = 28; wx <= 43; wx++) if (wx < 31 || wx > 33) wall(wx, 35, 3, solid);
+            // Continuous food court rear boundary with a deliberate shop gap.
+            for (var bx = 35; bx <= 46; bx++) if (bx < 40 || bx > 42) wall(bx, 16, 3, solid);
+            wall(35, 16, 0, solid); wall(46, 16, 2, solid);
+            // Low fence around the Marine staging garden; east side is open.
+            for (var mx = 14; mx <= 25; mx++) if (mx < 19 || mx > 21) wall(mx, 36, 1, fence);
+            for (var my = 27; my <= 35; my++) wall(13, my, 0, fence);
+            for (var my2 = 27; my2 <= 29; my2++) wall(25, my2, 2, fence);
             var plants = [
                 [16, 16, "tap"], [17, 28, "tbr"], [18, 45, "tcf"], [20, 27, "tg1"],
                 [22, 16, "tf1"], [25, 27, "tg2"], [26, 46, "tco"], [29, 19, "tbr"],
                 [30, 47, "tf2"], [34, 18, "tap"], [35, 27, "tg3"], [49, 46, "tcf"],
                 [38, 28, "tf1"], [48, 47, "tbr"], [46, 18, "tco"], [47, 27, "tg4"],
-                [48, 40, "tf2"], [18, 34, "tg5"], [35, 39, "tf1"], [45, 45, "tg3"]
+                [48, 40, "tf2"], [18, 34, "tg5"], [35, 39, "tf1"], [45, 45, "tg3"],
+                [10, 16, "tap"], [10, 25, "tco"], [10, 35, "tbr"], [10, 46, "tcf"],
+                [54, 16, "tap"], [54, 25, "tco"], [54, 35, "tbr"], [54, 46, "tcf"],
+                [16, 18, "tf1"], [16, 20, "tg2"], [24, 18, "tg3"], [24, 20, "tf2"],
+                [18, 23, "tg4"], [20, 23, "tg1"], [22, 23, "tg5"],
+                [35, 19, "tco"], [37, 20, "tg1"], [40, 20, "tf1"],
+                [41, 24, "tg3"], [43, 24, "tf2"], [46, 24, "tbr"],
+                [18, 27, "tf1"], [20, 28, "tg4"], [22, 28, "tg2"],
+                [18, 35, "tf2"], [20, 35, "tg1"], [22, 35, "tg5"],
+                [38, 38, "tg4"], [39, 40, "tf1"], [44, 41, "tg2"],
+                [46, 38, "tf2"], [47, 42, "tg3"], [38, 46, "tco"],
+                [26, 44, "tap"], [29, 45, "tg5"], [31, 47, "tbr"]
             ];
             plants.forEach(function (p) {
+                if (paths[p[0] + "," + p[1]] || wallTiles[p[0] + "," + p[1]]) return;
                 var e = add(p[0], p[1], "small_scenery", 14, 26,
                     object("small_scenery", "rct2.scenery_small." + p[2]).index);
                 e.quadrant = 0;
@@ -138,7 +189,8 @@ registerPlugin({
                     attack_approaches: [], footprint_tiles: tiles.map(function (tile) { return { x: tile.x, y: tile.y }; }),
                     tiles: tiles };
             });
-            return { name: "Frontier Outpost", bounds: bounds, tile_size: 32,
+            return { name: "Frontier Outpost", layout_version: playable ? 2 : 1,
+                bounds: bounds, tile_size: 32,
                 cell_size: 8, transform: playable ? { x: 1024, y: 1024 } : { x: -128, y: -96 }, targets: targets };
         }
         function navigationElements() {

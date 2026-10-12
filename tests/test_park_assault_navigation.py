@@ -52,7 +52,8 @@ class ParkAssaultNavigationTest(unittest.TestCase):
         self.assertGreater(len(detour), 2)
         self.assertTrue(all(grid.line_clear(grid.cell(a), grid.cell(b))
                             for a, b in zip(detour, detour[1:])))
-        self.assertGreater(max(point.y for point in detour), finish.y + 200)
+        self.assertTrue(min(point.y for point in detour) < finish.y - 200
+                        or max(point.y for point in detour) > finish.y + 200)
         near = [cell for cell, raw in grid.raw.items() if raw["walkable"] and not grid.clear[cell]
                 and any(grid.raw.get((cell[0] + dx, cell[1] + dy), {}).get("classification") == "wall"
                         for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)))]

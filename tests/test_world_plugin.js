@@ -68,8 +68,9 @@ assert.deepEqual([...new Set(all.map(e => e.kind))].sort(), ['large_scenery', 'p
 const large = all.find(e => e.kind === 'large_scenery');
 assert.equal(large.geometry.cells.length, 2, 'multi-tile object retains one identity');
 assert.equal(large.geometry.rects[0].width, 64, 'adjacent cells merge into one collision rectangle');
-assert.equal(all.find(e => e.kind === 'wall').geometry.rects[0].width, 4,
-    'wall collision uses a thin segment rather than a whole tile');
+assert.deepEqual(JSON.parse(JSON.stringify(all.find(e => e.kind === 'wall').geometry.rects[0])),
+    { x: 160, y: 60, width: 32, height: 4 },
+    'south-edge wall collision matches OpenRCT2 painting');
 assert.equal(sent.filter(m => m.kind === 'world.snapshot.chunk').length, begin.payload.chunks);
 const sid = begin.session;
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,

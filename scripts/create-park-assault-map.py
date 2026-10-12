@@ -29,7 +29,7 @@ def positions() -> list[tuple[str, int, int]]:
                       9 * 32 + 8 + index // 3 * 24))
     for index in range(6):
         units.append(("gamma", 33 * 32 + 8 + index % 3 * 24,
-                      54 * 32 + 8 + index // 3 * 24))
+                      51 * 32 + 8 + index // 3 * 24))
     return units
 
 

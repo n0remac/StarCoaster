@@ -106,12 +106,14 @@ class ParkGrid:
                             cell.update(classification="footpath", traversal_cost=0.85,
                                         source=f"path:{x},{y}")
             elif kind == "wall":
-                # OpenRCT2 direction 0 follows the tile's north edge; 1 follows
-                # its west edge. A full cell strip represents a solid boundary.
-                if element["direction"] % 2 == 0:
-                    positions = ((cx, base_y) for cx in range(base_x, base_x + 4))
+                # Native OpenRCT2 wall edges: 0 west, 1 south, 2 east, 3 north.
+                direction = element["direction"]
+                if direction % 2 == 0:
+                    edge_x = base_x + (3 if direction == 2 else 0)
+                    positions = ((edge_x, cy) for cy in range(base_y, base_y + 4))
                 else:
-                    positions = ((base_x, cy) for cy in range(base_y, base_y + 4))
+                    edge_y = base_y + (3 if direction == 1 else 0)
+                    positions = ((cx, edge_y) for cx in range(base_x, base_x + 4))
                 for cx, cy in positions:
                     block(cx, cy, "wall", f"wall:{x},{y}:{element['direction']}:{element['object_id']}")
             elif kind == "small_scenery":

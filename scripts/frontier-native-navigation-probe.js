@@ -5,7 +5,7 @@ registerPlugin({ name: "Frontier Native Navigation Probe", version: "1.0.0",
     targetApiVersion: 124, minApiVersion: 124, main: function () {
     if (network.mode !== "client") return;
     const ids = [1000, 1001, 1002, 1003, 1004, 1005].map(function (n) { return "openbw:" + n; });
-    const wall = "openrct2:wall:31:896:1120:112:1#1";
+    const wall = "openrct2:wall:31:896:1120:112:0#1";
     const carousel = "openrct2:ride:0#1";
     let phase = 0, request = 0, started = 0, lastOrder = 0, tick = 0;
     function actors() {

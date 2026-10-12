@@ -105,11 +105,13 @@
                             cells: [], rects: [], removal: removal };
                     }
                     grouped[key].cells.push({ x: x, y: y });
+                    // Match Paint.Wall.cpp's tile edges: 0 west, 1 south,
+                    // 2 east, 3 north. The rectangle is also OpenBW's mask.
                     if (kind === "wall") grouped[key].rects.push(direction === 0
-                        ? { x: x * 32, y: y * 32, width: 32, height: 4 }
-                        : direction === 1 ? { x: x * 32, y: y * 32, width: 4, height: 32 }
-                        : direction === 2 ? { x: x * 32, y: y * 32 + 28, width: 32, height: 4 }
-                        : { x: x * 32 + 28, y: y * 32, width: 4, height: 32 });
+                        ? { x: x * 32, y: y * 32, width: 4, height: 32 }
+                        : direction === 1 ? { x: x * 32, y: y * 32 + 28, width: 32, height: 4 }
+                        : direction === 2 ? { x: x * 32 + 28, y: y * 32, width: 4, height: 32 }
+                        : { x: x * 32, y: y * 32, width: 32, height: 4 });
                 }
             }
             Object.keys(rides).forEach(function (id) {
@@ -583,6 +585,11 @@
                 event.args.targets.forEach(function (item) {
                     worldTargetIds[item.id] = { geometry: { rects: item.rects } };
                 });
+                if (network.mode === "server") console.log("WORLD_TARGET_CATALOG session="
+                    + targetCatalogSession + " targets=" + event.args.targets.length
+                    + " rides=" + event.args.targets.filter(function (item) {
+                        return item.id.indexOf("openrct2:ride:") === 0;
+                    }).length);
                 return {};
             });
             if (WORLD_ENABLED) context.registerAction(OUTCOME_ACTION, function (event) {
@@ -638,7 +645,7 @@
                         && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.target_entity_id)
                         && targetCatalogSession === args.session && worldTargetIds[args.target_entity_id];
                     if ((!target || target.kind !== "zerg_zergling" || target.hp <= 0) && !structure)
-                        return { error: 1, errorMessage: "Invalid Zergling target" };
+                        return { error: 1, errorMessage: "Invalid attack target" };
                 }
                 if (network.mode === "server" && !(WORLD_ENABLED ? worldCommandSender : commandConnected))
                     return { error: 1, errorMessage: "Terran controller disconnected" };
