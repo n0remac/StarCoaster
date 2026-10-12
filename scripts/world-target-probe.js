@@ -3,16 +3,23 @@ registerPlugin({ name: "World Bridge Target Probe", version: "1.0.0", authors: [
     type: "local", licence: "MIT", targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         if (network.mode !== "client") return;
-        var ticks = 0, sent = false, attempts = 0;
+        var ticks = 0, sent = false, attempts = 0, observed = false;
         context.subscribe("interval.tick", function () {
-            if (sent || ++ticks % 5 !== 0 || !rtsBridge || attempts >= 30) return;
+            if (sent || ++ticks % 20 !== 0 || !rtsBridge || attempts >= 100) return;
             var snapshot = rtsBridge.getActors();
             if (!snapshot.session) return;
             var marines = snapshot.units.filter(function (unit) {
                 return unit.kind === "terran_marine" && unit.hp > 0;
             });
+            if (!observed) {
+                observed = true;
+                console.log("WORLD_TARGET_PROBE actors=" + snapshot.units.length
+                    + " marines=" + marines.length + " session=" + snapshot.session);
+            }
             if (!marines.length) return;
             attempts++;
+            if (attempts === 1 || attempts % 10 === 0)
+                console.log("WORLD_TARGET_ATTACK_REQUEST attempt=" + attempts);
             context.executeAction("rtsbridge.marineCommand", {
                 session: snapshot.session, request: 7000 + attempts,
                 unit_ids: marines.map(function (unit) { return unit.id; }),

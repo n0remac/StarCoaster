@@ -72,8 +72,7 @@ public:
                 std::cerr << "[world] target destroyed id=" << id << " frame=" << frame << std::endl;
             }
         }
-        if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI")
-            && (scenarioObjectiveID_.empty() || (encounterStarted_ && frame >= assaultNotBeforeFrame_))) assaultAI(game);
+        if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI") && assault_.active(frame)) assaultAI(game);
         for (auto unit:game->getAllUnits()) {
             if (unit && unit->exists() && (unit->getType()==BWAPI::UnitTypes::Zerg_Zergling
                 || unit->getType()==BWAPI::UnitTypes::Terran_Marine) && unit->isAttackFrame())
@@ -122,18 +121,16 @@ private:
                 ack(message,false,error); return;
             }
             ready_=false;
-            scenarioObjectiveID_=payload.value("objective_id", "");
-            encounterStarted_=scenarioObjectiveID_.empty();
-            assaultNotBeforeFrame_=0;
+            assault_.configure(payload.value("objective_id", ""));
             ack(message,true); return;
         }
         if (kind=="world.start") {
             if (!ready_ || message.value("session", "") != session_) {
                 ack(message,false,"world_not_ready"); return;
             }
-            encounterStarted_=true;
-            assaultNotBeforeFrame_=game->getFrameCount()
-                + std::max(0, std::min(600, payload.value("delay_frames", 0)));
+            if (!assault_.start(game->getFrameCount(), payload.value("delay_frames", 0))) {
+                ack(message,false,"scenario_not_configured"); return;
+            }
             ack(message,true); return;
         }
         if (kind=="world.snapshot.chunk" || kind=="world.snapshot.end") {
@@ -429,7 +426,7 @@ private:
         for (const auto& [id, target] : targets_) {
             if (target.lifecycle != "active" || !target.unit || !target.unit->exists()) continue;
             alternatives.push_back(target.unit);
-            if (id == scenarioObjectiveID_) objective = target.unit;
+            if (id == assault_.objectiveID()) objective = target.unit;
         }
         for (auto unit : game->getAllUnits())
             if (unit && unit->exists() && unit->getType() == BWAPI::UnitTypes::Terran_Marine)
@@ -499,9 +496,6 @@ private:
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
     WorldAssaultController assault_;
-    std::string scenarioObjectiveID_;
-    int assaultNotBeforeFrame_ = 0;
-    bool encounterStarted_ = true;
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();
     std::map<int,int> attackFrames_;

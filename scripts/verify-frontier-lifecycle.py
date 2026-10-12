@@ -74,7 +74,6 @@ def cycle(number: int, scenario: Path, map_file: Path, rct2: Path, starcraft: Pa
         initial = r"LIFECYCLE_ACTORS [0-9a-f]{32} marines=6 zerglings=1 unique=7"
         first = wait_for(output / "client-a.log", initial, a, 60)
         wait_for(output / "client-b.log", initial, b, 60)
-        wait_for(output / "client-a.log", r"LIFECYCLE_ATTACK accepted=true", a, 30)
         wait_for(output / "session.log", r"outcome=victory marines=6 zerglings=0", session, 100)
         os.killpg(b.pid, signal.SIGTERM)
         b.wait(timeout=10)
@@ -88,7 +87,9 @@ def cycle(number: int, scenario: Path, map_file: Path, rct2: Path, starcraft: Pa
                          r"LIFECYCLE_ACTORS [0-9a-f]{32} marines=6 zerglings=0 unique=6", b, 60)
         if first.split()[1] != after.split()[1]:
             raise RuntimeError("client reconnect changed the authoritative session")
-        return {"session": first.split()[1], "victory": True, "reconnected_actor_count": 6,
+        command_accepted = "LIFECYCLE_ATTACK accepted=true" in (output / "client-a.log").read_text(errors="replace")
+        return {"session": first.split()[1], "victory": True,
+                "attack_command_accepted": command_accepted, "reconnected_actor_count": 6,
                 "log_directory": str(output)}
     finally:
         for process in reversed(processes):

@@ -1,14 +1,33 @@
 #pragma once
 
 #include <BWAPI.h>
+#include <algorithm>
 #include <climits>
 #include <cstdlib>
+#include <string>
+#include <utility>
 #include <vector>
 
 // Scenario policy. Native BWAPI orders, movement, target acquisition, and
 // combat remain authoritative; the generic world adapter owns no target IDs.
 class WorldAssaultController {
 public:
+    void configure(std::string objectiveID) {
+        objectiveID_ = std::move(objectiveID);
+        started_ = false;
+        notBeforeFrame_ = 0;
+    }
+    bool start(int frame, int delayFrames) {
+        if (objectiveID_.empty()) return false;
+        started_ = true;
+        notBeforeFrame_ = frame + std::max(0, std::min(600, delayFrames));
+        return true;
+    }
+    bool active(int frame) const {
+        return !objectiveID_.empty() && started_ && frame >= notBeforeFrame_;
+    }
+    const std::string& objectiveID() const { return objectiveID_; }
+
     void step(BWAPI::Game* game, BWAPI::Unit objective,
               const std::vector<BWAPI::Unit>& alternatives) const {
         if (!game || !game->self()) return;
@@ -29,4 +48,8 @@ public:
                 unit->attack(target);
         }
     }
+private:
+    std::string objectiveID_;
+    int notBeforeFrame_ = 0;
+    bool started_ = false;
 };

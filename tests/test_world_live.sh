@@ -32,7 +32,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-BRIDGE_MAX_TARGETS=128 BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_MAP_FILE="$run_dir/world-live.scm" \
+BRIDGE_MAX_TARGETS=32 BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_MAP_FILE="$run_dir/world-live.scm" \
   timeout 300s scripts/run-world-session.sh "$park_file" > "$run_dir/session.log" 2>&1 &
 session_pid=$!
 
