@@ -62,6 +62,7 @@ struct DesiredWorld {
     uint64_t revision = 0;
     int width = 0, height = 0;
     int terrainCount = 0;
+    std::vector<uint8_t> unwalkableTerrain;
     std::map<std::string, Entity> entities;
 };
 
@@ -84,6 +85,7 @@ public:
         desired_.revision = revision;
         desired_.width = width;
         desired_.height = height;
+        desired_.unwalkableTerrain.assign(static_cast<size_t>(width) * height, 0);
         expected_ = chunks;
         received_ = 0;
         seen_.clear();
@@ -108,6 +110,8 @@ public:
                 const int x = value.at("x"), y = value.at("y");
                 if (x < 0 || y < 0 || x >= desired_.width || y >= desired_.height)
                     throw std::invalid_argument("invalid_terrain_cell");
+                desired_.unwalkableTerrain[static_cast<size_t>(y) * desired_.width + x]
+                    = !value.value("walkable", true);
             }
         } catch (const std::exception& exception) {
             error = exception.what();

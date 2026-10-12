@@ -85,11 +85,17 @@ func TestTargetLinkIsForwardedAndValidated(t *testing.T) {
 	}
 	s.bwMessage(nil, world.Message("world.ready", "session-a", "bw:ready", "openbw", 3,
 		world.Ready{Entities: 1, Targets: 1}))
+	s.pendingNavigation = "bridge:navigation"
 	if s.ready || s.pendingReady == nil {
 		t.Fatal("world was announced ready before the controller acknowledged its target link")
 	}
 	s.controllerMessage(nil, world.Message("world.ack", "session-a", "controller:ack", "openbw", 3,
 		world.Ack{OpID: forwarded.OpID, Accepted: true}))
+	if s.ready {
+		t.Fatal("target acknowledgement bypassed controller navigation")
+	}
+	s.controllerMessage(nil, world.Message("world.ack", "session-a", "controller:navigation", "openbw", 3,
+		world.Ack{OpID: "bridge:navigation", Accepted: true}))
 	if !s.ready || s.pendingReady != nil {
 		t.Fatal("acknowledged target link did not release world readiness")
 	}

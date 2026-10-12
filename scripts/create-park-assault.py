@@ -34,13 +34,15 @@ def wait_for_marker(log: Path, marker: str, park: Path | None, process: subproce
     raise TimeoutError(f"Park generation timed out; see {log}")
 
 
-def run(probe: bool) -> dict:
+def run(probe: bool, playable: bool = False) -> dict:
     output = DATA / ("demolition-probe" if probe else "generator")
     (output / "plugin").mkdir(parents=True, exist_ok=True)
     (output / "config.ini").write_text("[network]\nadvertise = false\n")
     source = (ROOT / "scripts/park-assault-generator.js").read_text()
     if probe:
         source = source.replace("var probe = false;", "var probe = true;")
+    if playable:
+        source = source.replace("var playable = false;", "var playable = true;")
     (output / "plugin/park-assault-generator.js").write_text(source)
     log = output / "openrct2.log"
     if not probe:
@@ -53,8 +55,9 @@ def run(probe: bool) -> dict:
     with log.open("w") as stream:
         process = subprocess.Popen(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT)
         try:
+            filename = "frontier-outpost-playable.park" if playable else "frontier-outpost.park"
             return wait_for_marker(log, "PARK_ASSAULT_PROBE " if probe else "PARK_ASSAULT_METADATA ",
-                                   None if probe else output / "save/frontier-outpost.park", process)
+                                   None if probe else output / "save" / filename, process)
         finally:
             process.terminate()
             try:
@@ -67,19 +70,24 @@ def run(probe: bool) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe-demolition", action="store_true")
+    parser.add_argument("--playable", action="store_true", help="generate the 64x64 first-playable park")
     args = parser.parse_args()
+    global DATA, PARK
+    if args.playable:
+        DATA = ROOT / "run-data/frontier-playable"
+        PARK = DATA / "save/frontier-outpost-playable.park"
     DATA.mkdir(parents=True, exist_ok=True)
     if args.probe_demolition:
         if not PARK.is_file():
             raise RuntimeError(f"Generate {PARK} first")
-        result = run(True)
-        if len(result) != 3 or any(row["error"] or not row["removed"] or row["before"] < 1 or row["after"]
+        result = run(True, args.playable)
+        if len(result) != (4 if args.playable else 3) or any(row["error"] or not row["removed"] or row["before"] < 1 or row["after"]
                                    for row in result):
             raise RuntimeError(f"Native demolition probe failed: {result}")
         (DATA / "demolition-probe.json").write_text(json.dumps(result, indent=2) + "\n")
     else:
-        result = run(False)
-        generated = DATA / "generator/save/frontier-outpost.park"
+        result = run(False, args.playable)
+        generated = DATA / "generator/save" / ("frontier-outpost-playable.park" if args.playable else "frontier-outpost.park")
         PARK.parent.mkdir(parents=True, exist_ok=True)
         generated.replace(PARK)
         contents = (DATA / "generator/openrct2.log").read_text(errors="replace")

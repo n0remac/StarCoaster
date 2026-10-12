@@ -5,7 +5,14 @@ registerPlugin({
     main: function () {
         var started = false;
         var savePending = false;
+        var resizePending = false;
+        var preparation = false;
+        var sourceRides = [];
+        var cleanupBusy = false;
+        var sourcePeopleCleared = false;
+        var resizeRequested = false;
         var probe = false; // The Python launcher substitutes this literal for an isolated probe.
+        var playable = false; // The playable launcher substitutes this literal.
         var bounds = { min_x: 8, min_y: 8, max_x: 55, max_y: 55 };
         var specs = [
             { id: "carousel-1", name: "Frontier Carousel", object: "rct2.ride.mgr1", x: 19, y: 18, track: 266, expected: 9,
@@ -15,6 +22,9 @@ registerPlugin({
             { id: "ride-2", name: "Frontier Ferris Wheel", object: "rct2.ride.fwh1", x: 42, y: 39, track: 265, expected: 4,
                 proxy_type: "Terran_Armory", proxy_unit_type: 123, proxy_hp: 750, collision: { width: 96, height: 55 } }
         ];
+        if (playable) specs.push({ id: "shop-2", name: "Frontier Drink Stand", object: "rct2.ride.drnks", x: 42, y: 22,
+            track: 262, expected: 1, proxy_type: "Terran_Missile_Turret", proxy_unit_type: 124,
+            proxy_hp: 200, collision: { width: 33, height: 49 } });
         function fail(message) { console.log("PARK_ASSAULT_FAILED " + message); }
         function object(type, identifier) {
             var matches = objectManager.getAllObjects(type).filter(function (entry) {
@@ -70,8 +80,13 @@ registerPlugin({
                 var e = add(point[0], point[1], "footpath", 14, 16, 4);
                 e.surfaceObject = 4; e.railingsObject = 0; e.edges = 15;
             });
+            if (playable && !objectManager.getAllObjects("wall").some(function (entry) {
+                return entry.identifier === "rct2.scenery_wall.wbr2";
+            }) && !objectManager.load("rct2.scenery_wall.wbr2"))
+                throw new Error("destructible wall object unavailable");
             var fence = object("wall", "rct2.scenery_wall.wpf").index;
             var solid = object("wall", "rct2.scenery_wall.wbr1").index;
+            var gate = playable ? object("wall", "rct2.scenery_wall.wbr2").index : solid;
             function wall(x, y, direction, index) {
                 var e = add(x, y, "wall", 14, 18, index);
                 e.direction = direction;
@@ -86,7 +101,8 @@ registerPlugin({
                 wall(53, py, 1, fence);
             }
             // Long direct barrier, offset return, and a one tile chokepoint.
-            for (var wy = 16; wy <= 39; wy++) if (wy < 34 || wy > 36) wall(28, wy, 1, solid);
+            for (var wy = 16; wy <= 39; wy++) if (playable ? wy !== 35 : (wy < 34 || wy > 36)) wall(28, wy, 1, solid);
+            if (playable) wall(28, 35, 1, gate);
             for (var wx = 29; wx <= 43; wx++) if (wx < 31 || wx > 33) wall(wx, 35, 0, solid);
             for (var bx = 29; bx <= 44; bx++) if (bx < 34 || bx > 40) wall(bx, 17, 0, solid);
             for (var mx = 17; mx <= 26; mx++) if (mx < 22 || mx > 24) wall(mx, 38, 0, fence);
@@ -123,7 +139,7 @@ registerPlugin({
                     tiles: tiles };
             });
             return { name: "Frontier Outpost", bounds: bounds, tile_size: 32,
-                cell_size: 8, transform: { x: -128, y: -96 }, targets: targets };
+                cell_size: 8, transform: playable ? { x: 1024, y: 1024 } : { x: -128, y: -96 }, targets: targets };
         }
         function navigationElements() {
             var wallObjects = objectManager.getAllObjects("wall");
@@ -137,7 +153,7 @@ registerPlugin({
                         var e = tile.getElement(i);
                         if (e.type === "surface") { surface = e; continue; }
                         if (e.type !== "footpath" && e.type !== "wall"
-                            && e.type !== "small_scenery" && e.type !== "track") continue;
+                            && e.type !== "small_scenery" && e.type !== "large_scenery" && e.type !== "track") continue;
                         var record = { x: x, y: y, type: e.type, z: e.baseHeight * 8 };
                         if (e.type === "track") { record.ride_id = e.ride; record.track_type = e.trackType; }
                         if (e.type === "wall") {
@@ -147,6 +163,11 @@ registerPlugin({
                         if (e.type === "small_scenery") {
                             record.quadrant = e.quadrant;
                             record.object_id = smallObjects.filter(function (o) { return o.index === e.object; })[0].identifier;
+                        }
+                        if (e.type === "large_scenery") {
+                            record.sequence = e.sequence; record.direction = e.direction;
+                            record.object_id = objectManager.getAllObjects("large_scenery")
+                                .filter(function (o) { return o.index === e.object; })[0].identifier;
                         }
                         if (e.type === "footpath") record.edges = e.edges;
                         elements.push(record);
@@ -160,12 +181,7 @@ registerPlugin({
         }
         function createAt(index) {
             if (index === specs.length) {
-                try {
-                    console.log("PARK_ASSAULT_NAV " + JSON.stringify(navigationElements()));
-                    console.log("PARK_ASSAULT_METADATA " + JSON.stringify(metadata()));
-                    savePending = true;
-                }
-                catch (error) { fail(String(error)); }
+                placeLarge(0);
                 return;
             }
             var spec = specs[index];
@@ -188,6 +204,27 @@ registerPlugin({
                 });
             });
         }
+        function placeLarge(index) {
+            var placements = playable ? [[17, 35, "rct2.scenery_large.sip"],
+                [9, 29, "rct2.scenery_large.ssig4"]] : [];
+            if (index === placements.length) {
+                try {
+                    console.log("PARK_ASSAULT_NAV " + JSON.stringify(navigationElements()));
+                    console.log("PARK_ASSAULT_METADATA " + JSON.stringify(metadata()));
+                    savePending = true;
+                } catch (error) { fail(String(error)); }
+                return;
+            }
+            var placement = placements[index], entry;
+            try { entry = object("large_scenery", placement[2]); }
+            catch (error) { fail(String(error)); return; }
+            context.executeAction("largesceneryplace", { x: placement[0] * 32, y: placement[1] * 32,
+                z: 112, direction: 0, object: entry.index, primaryColour: 0,
+                secondaryColour: 0, tertiaryColour: 0 }, function (result) {
+                if (result.error) fail("largesceneryplace " + placement[2] + " " + JSON.stringify(result));
+                else placeLarge(index + 1);
+            });
+        }
         function probeNext(index, results) {
             if (index === specs.length) { console.log("PARK_ASSAULT_PROBE " + JSON.stringify(results)); return; }
             var spec = specs[index];
@@ -203,12 +240,46 @@ registerPlugin({
         }
         context.subscribe("interval.tick", function () {
             if (network.mode !== "server") return;
-            if (savePending) { savePending = false; context.saveGame({ filename: "frontier-outpost" }); return; }
+            if (savePending) { savePending = false; context.saveGame({ filename: playable ? "frontier-outpost-playable" : "frontier-outpost" }); return; }
+            if (resizePending) { resizePending = false; populate(); return; }
+            if (preparation) {
+                if (cleanupBusy) return;
+                if (sourceRides.length) {
+                    const rideId = sourceRides.shift();
+                    cleanupBusy = true;
+                    context.executeAction("ridedemolish", { ride: rideId, modifyType: 0 }, function (result) {
+                        if (result.error) fail("source ride demolition " + rideId + " " + JSON.stringify(result));
+                        cleanupBusy = false;
+                    });
+                    return;
+                }
+                if (!sourcePeopleCleared) {
+                    ["guest", "staff", "car"].forEach(function (kind) {
+                        map.getAllEntities(kind).forEach(function (entity) { entity.remove(); });
+                    });
+                    sourcePeopleCleared = true;
+                    return;
+                }
+                if (!resizeRequested) {
+                    resizeRequested = true;
+                    context.executeAction("mapchangesize", { targetSizeX: 64, targetSizeY: 64,
+                        shiftX: 0, shiftY: 0 }, function (result) {
+                        if (result.error || map.size.x !== 64 || map.size.y !== 64)
+                            fail("mapchangesize " + JSON.stringify(result) + " size=" + JSON.stringify(map.size));
+                        else { preparation = false; resizePending = true; }
+                    });
+                }
+                return;
+            }
             if (started) return;
             started = true;
             if (probe) { try { metadata(); probeNext(0, []); } catch (error) { fail(String(error)); } return; }
+            if (playable) { sourceRides = map.rides.map(function (ride) { return ride.id; }); preparation = true; }
+            else populate();
+        });
+        function populate() {
             try { park.name = "Frontier Outpost"; scenery(); createAt(0); }
             catch (error) { fail(String(error)); }
-        });
+        }
     }
 });

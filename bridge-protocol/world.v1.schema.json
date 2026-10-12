@@ -6,7 +6,7 @@
   "required": ["v", "kind", "session", "op_id", "source", "revision", "payload"],
   "properties": {
     "v": { "const": 1 },
-    "kind": { "enum": ["world.hello", "world.snapshot.begin", "world.snapshot.chunk", "world.snapshot.end", "world.ready", "world.resync", "world.ack", "world.error", "entity.upsert", "entity.remove", "entity.transform", "entity.state", "combat.command", "combat.snapshot", "combat.event", "combat.result", "navigation.obstacle.upsert", "navigation.obstacle.remove", "navigation.terrain.update"] },
+    "kind": { "enum": ["world.hello", "world.snapshot.begin", "world.snapshot.chunk", "world.snapshot.end", "world.ready", "world.start", "world.outcome", "world.resync", "world.ack", "world.error", "entity.upsert", "entity.remove", "entity.transform", "entity.state", "combat.command", "combat.snapshot", "combat.event", "combat.result", "navigation.obstacle.upsert", "navigation.obstacle.remove", "navigation.terrain.update"] },
     "session": { "type": "string", "minLength": 1, "maxLength": 128 },
     "op_id": { "type": "string", "minLength": 1, "maxLength": 128 },
     "source": { "enum": ["openrct2", "openbw", "bridge"] },

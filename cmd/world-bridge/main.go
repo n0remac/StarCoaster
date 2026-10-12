@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"sort"
 	"sync"
 	"time"
 
@@ -49,11 +50,18 @@ type service struct {
 	targetLinks     map[string]targetLink
 	pendingLinks    map[string]string
 	pendingReady    *world.Ready
+	pendingNavigation string
+	controllerNavigationReady bool
 	ready           bool
 	bwResyncPending bool
 	bwWidth         int
 	bwHeight        int
 	transform       world.Transform
+	scenario        *world.Scenario
+	objectiveID     string
+	outcome         string
+	lastMarines     int
+	lastZerglings   int
 	retired         map[string]bool
 	commands        map[string]worldCommand
 }
@@ -83,6 +91,43 @@ func (s *service) sendTargetLinks(p *peer) {
 	}
 }
 
+func (s *service) sendControllerNavigation(p *peer) {
+	if p == nil || s.registry.Session == "" || s.bwWidth < 1 || s.bwHeight < 1 {
+		return
+	}
+	type obstacle struct {
+		ID    string       `json:"id"`
+		Rects []world.Rect `json:"rects"`
+	}
+	obstacles := make([]obstacle, 0)
+	for _, id := range s.registry.IDs() {
+		entity := s.registry.Entities[id]
+		if !entity.Collision.Blocks || s.registry.Destroyed[id] || len(entity.Geometry.Rects) == 0 {
+			continue
+		}
+		derived := s.transform.Entity(entity)
+		obstacles = append(obstacles, obstacle{ID: id, Rects: derived.Geometry.Rects})
+	}
+	type terrainCell struct {
+		X int `json:"x"`
+		Y int `json:"y"`
+	}
+	blockedTerrain := make([]terrainCell, 0)
+	for _, cell := range s.transform.Terrain(s.registry.Terrain) {
+		if !cell.Walkable {
+			blockedTerrain = append(blockedTerrain, terrainCell{X: cell.X, Y: cell.Y})
+		}
+	}
+	opID := s.operation()
+	message := world.Message("navigation.terrain.update", s.registry.Session, opID, "bridge",
+		s.registry.Revision, map[string]any{"width": s.bwWidth, "height": s.bwHeight,
+			"obstacles": obstacles, "terrain": blockedTerrain})
+	if p.send(message) == nil {
+		s.pendingNavigation = opID
+		s.controllerNavigationReady = false
+	}
+}
+
 func (s *service) sendTargetLink(p *peer, session string, revision uint64, link targetLink) {
 	if p == nil {
 		return
@@ -97,14 +142,47 @@ func (s *service) sendTargetLink(p *peer, session string, revision uint64, link 
 }
 
 func (s *service) publishReady() {
-	if s.pendingReady == nil || s.controller == nil || len(s.pendingLinks) != 0 {
+	if s.pendingReady == nil || s.controller == nil || !s.controllerNavigationReady || len(s.pendingLinks) != 0 {
 		return
 	}
 	ready := *s.pendingReady
 	s.pendingReady = nil
+	ready.TargetIDs = make([]string, 0, len(s.proxies))
+	for id := range s.proxies {
+		if !s.registry.Destroyed[id] { ready.TargetIDs = append(ready.TargetIDs, id) }
+	}
+	sort.Strings(ready.TargetIDs)
+	if s.scenario != nil {
+		if err := s.scenario.CheckReady(s.registry, s.proxies, ready); err != nil {
+			s.ready = false
+			log.Printf("scenario %s cannot start: %v", s.scenario.ID, err)
+			_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision,
+				map[string]string{"reason": err.Error()})
+			return
+		}
+	}
 	s.ready = true
+	if s.scenario != nil {
+		_ = s.emit(s.bw, "world.start", s.registry.Session, s.registry.Revision,
+			map[string]any{"scenario_id": s.scenario.ID, "delay_frames": s.scenario.InitialAI.DelayFrames})
+	}
 	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
 	log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
+}
+
+func (s *service) announceOutcome(marines, zerglings int) {
+	if s.scenario == nil || s.outcome != "" || s.objectiveID == "" || !s.ready {
+		return
+	}
+	state := s.scenario.Outcome(s.registry.Destroyed[s.objectiveID], marines, zerglings)
+	if state == "" {
+		return
+	}
+	s.outcome = state
+	_ = s.emit(s.park, "world.outcome", s.registry.Session, s.registry.Revision,
+		map[string]any{"scenario_id": s.scenario.ID, "state": state,
+			"objective_id": s.objectiveID, "marines": marines, "zerglings": zerglings})
+	log.Printf("scenario %s outcome=%s marines=%d zerglings=%d", s.scenario.ID, state, marines, zerglings)
 }
 
 func (s *service) failCommands(reason string) {
@@ -165,6 +243,8 @@ func (s *service) consume(role string, p *peer) {
 	}
 	if role == "controller" && s.controller == p {
 		s.controller = nil
+		s.pendingNavigation = ""
+		s.controllerNavigationReady = false
 		s.pendingLinks = map[string]string{}
 		s.failCommands("controller_disconnected")
 	}
@@ -251,10 +331,14 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.targetLinks = map[string]targetLink{}
 		s.pendingLinks = map[string]string{}
 		s.pendingReady = nil
+		if previousSession != m.Session { s.outcome = ""; s.lastMarines = 0; s.lastZerglings = 0 }
+		s.pendingNavigation = ""
+		s.controllerNavigationReady = false
 		s.ack(p, m, true, "")
 		log.Printf("park snapshot session=%s revision=%d entities=%d terrain=%d", m.Session, m.Revision, len(s.registry.Entities), len(s.registry.Terrain))
 		s.forwardSnapshot()
 		_ = s.emit(s.controller, "world.hello", m.Session, m.Revision, map[string]any{"role": "controller"})
+		s.sendControllerNavigation(s.controller)
 	case "combat.result":
 		var result world.CombatResult
 		if m.Decode(&result) != nil {
@@ -283,6 +367,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.registry.Revision = m.Revision
 			delete(s.targetLinks, result.EntityID)
 			_ = s.emit(s.controller, "entity.remove", m.Session, m.Revision, map[string]string{"id": result.EntityID})
+			_ = s.emit(s.park, "entity.remove", m.Session, m.Revision, map[string]string{"id": result.EntityID})
 		}
 		s.registry.RemovalState[result.EntityID] = result.State
 		delete(s.pending, result.EventID)
@@ -290,6 +375,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		_ = s.emit(s.bw, "combat.result", m.Session, s.registry.Revision, result)
 		if result.State == "removal_confirmed" {
 			_ = s.emit(s.bw, "navigation.obstacle.remove", m.Session, s.registry.Revision, map[string]string{"id": result.EntityID})
+			_ = s.emit(s.controller, "navigation.obstacle.remove", m.Session, s.registry.Revision, map[string]string{"id": result.EntityID})
+			if result.EntityID == s.objectiveID { s.announceOutcome(s.lastMarines, s.lastZerglings) }
 		} else {
 			s.ready = false
 			_ = s.emit(s.park, "world.resync", m.Session, s.registry.Revision, map[string]string{"reason": "removal_failed"})
@@ -301,7 +388,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 	case "combat.command":
 		var command worldCommand
 		if m.Decode(&command) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
-			!s.ready || s.controller == nil || command.CommandID == "" || len(command.CommandID) > 128 ||
+			!s.ready || s.outcome != "" || s.controller == nil || command.CommandID == "" || len(command.CommandID) > 128 ||
 			command.PlayerID < 0 || command.RequestID < 1 || len(command.UnitIDs) < 1 ||
 			len(command.UnitIDs) > 32 || s.commands[command.CommandID].CommandID != "" {
 			s.ack(p, m, false, "invalid_or_unavailable_command")
@@ -319,8 +406,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				s.ack(p, m, false, "invalid_destination")
 				return
 			}
-			command.X = s.transform.Pixel(command.X)
-			command.Y = s.transform.Pixel(command.Y)
+			command.X = s.transform.X(command.X)
+			command.Y = s.transform.Y(command.Y)
 		case "unit.attack":
 			if proxy := s.proxies[command.TargetID]; proxy != "" && !s.registry.Destroyed[command.TargetID] {
 				command.TargetProxyID = proxy
@@ -386,7 +473,17 @@ func (s *service) forwardSnapshot() {
 		}
 		chunks = append(chunks, world.SnapshotChunk{Terrain: derivedTerrain[start:end]})
 	}
-	if err := s.emit(s.bw, "world.snapshot.begin", r.Session, rev, world.SnapshotBegin{Width: derivedWidth, Height: derivedHeight, Chunks: len(chunks)}); err != nil {
+	begin := world.SnapshotBegin{Width: derivedWidth, Height: derivedHeight, Chunks: len(chunks)}
+	if s.scenario != nil {
+		id, err := s.scenario.ObjectiveEntityID(r, s.scenario.InitialAI.Objective)
+		if err != nil {
+			log.Printf("scenario objective: %v", err)
+		} else {
+			begin.ObjectiveID = id
+			s.objectiveID = id
+		}
+	}
+	if err := s.emit(s.bw, "world.snapshot.begin", r.Session, rev, begin); err != nil {
 		log.Printf("OpenBW begin: %v", err)
 		return
 	}
@@ -494,12 +591,24 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 				Units       []map[string]any `json:"units"`
 			}
 			if m.Decode(&snapshot) == nil {
+				if s.scenario != nil && snapshot.UnitOmitted == 0 && snapshot.UnitTotal <= len(snapshot.Units) {
+					marines, zerglings := 0, 0
+					for _, unit := range snapshot.Units {
+						if unit["alive"] != true { continue }
+						switch unit["kind"] {
+						case "terran_marine": marines++
+						case "zerg_zergling": zerglings++
+						}
+					}
+					s.lastMarines, s.lastZerglings = marines, zerglings
+					s.announceOutcome(marines, zerglings)
+				}
 				for _, unit := range snapshot.Units {
 					if x, ok := unit["x"].(float64); ok {
-						unit["x"] = s.transform.InversePixel(int(x))
+						unit["x"] = s.transform.InverseX(int(x))
 					}
 					if y, ok := unit["y"].(float64); ok {
-						unit["y"] = s.transform.InversePixel(int(y))
+						unit["y"] = s.transform.InverseY(int(y))
 					}
 				}
 				_ = s.emit(s.park, "combat.snapshot", m.Session, s.registry.Revision, snapshot)
@@ -520,12 +629,25 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		if s.registry.Session != "" {
 			_ = s.emit(p, "world.hello", s.registry.Session, s.registry.Revision,
 				map[string]any{"role": "controller"})
+			s.sendControllerNavigation(p)
 			s.sendTargetLinks(p)
 			s.publishReady()
 		}
 	case "world.ack":
 		var answer world.Ack
 		if m.Decode(&answer) != nil || m.Session != s.registry.Session {
+			return
+		}
+		if answer.OpID == s.pendingNavigation {
+			s.pendingNavigation = ""
+			s.controllerNavigationReady = answer.Accepted
+			if !answer.Accepted {
+				s.ready = false
+				s.pendingReady = nil
+				_ = s.emit(s.park, "world.error", m.Session, s.registry.Revision,
+					map[string]string{"reason": "controller_navigation_rejected: " + answer.Error})
+			}
+			s.publishReady()
 			return
 		}
 		if _, exists := s.pendingLinks[answer.OpID]; !exists {
@@ -602,7 +724,16 @@ func main() {
 	bwAddress := flag.String("openbw", "127.0.0.1:40011", "OpenBW adapter listener")
 	controllerAddress := flag.String("controller", "127.0.0.1:40012", "OpenBW player controller listener")
 	rulesPath := flag.String("rules", "", "optional JSON mapping overrides")
+	scenarioPath := flag.String("scenario", "", "optional first-playable scenario configuration")
 	flag.Parse()
+	var scenario *world.Scenario
+	if *scenarioPath != "" {
+		var err error
+		scenario, err = world.LoadScenario(*scenarioPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
 	mapping := world.DefaultMapping()
 	if *rulesPath != "" {
 		data, err := os.ReadFile(*rulesPath)
@@ -630,7 +761,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer controller.Close()
-	s := &service{registry: world.NewRegistry(), mapping: mapping, pending: map[string]world.CombatEvent{}, proxies: map[string]string{}}
+	s := &service{registry: world.NewRegistry(), mapping: mapping, pending: map[string]world.CombatEvent{}, proxies: map[string]string{}, scenario: scenario}
 	log.Printf("world.v1 listening park=%s openbw=%s controller=%s", *parkAddress, *bwAddress, *controllerAddress)
 	go s.serve(bw, "bw")
 	go s.serve(controller, "controller")

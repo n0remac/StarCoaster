@@ -5,6 +5,8 @@
     const ACTION = "rtsbridge.applySnapshot";
     const COMMAND_ACTION = "rtsbridge.marineCommand";
     const RESULT_ACTION = "rtsbridge.commandResult";
+    const OUTCOME_ACTION = "rtsbridge.worldOutcome";
+    const TARGET_ACTION = "rtsbridge.targetCatalog";
     const PORT = 39999;
     const SIEGE_ENABLED = false;
     const FRONTIER_ENABLED = false;
@@ -123,7 +125,8 @@
             ["guest", "staff"].forEach(function (kind) {
                 if (typeof map.getAllEntities !== "function") return;
                 map.getAllEntities(kind).forEach(function (actor) {
-                    if (!Number.isInteger(actor.x) || !Number.isInteger(actor.y) || actor.x < 0 || actor.y < 0) return;
+                    if (!Number.isInteger(actor.x) || !Number.isInteger(actor.y) || actor.x < 0 || actor.y < 0
+                        || actor.x >= map.size.x * 32 || actor.y >= map.size.y * 32) return;
                     const key = kind + ":" + actor.id;
                     grouped[key] = { key: key, kind: kind, type: kind, x: actor.x, y: actor.y,
                         z: actor.z || 0, direction: 0, cells: [], rects: [], removal: { action: "" } };
@@ -183,7 +186,7 @@
         });
         function snapshot() {
             const current = discover(), chunks = [];
-            onEntities(current.entities);
+            onEntities(current.entities, session);
             let entityChunk = [];
             current.entities.forEach(function (entity) {
                 const next = entityChunk.concat([entity]);
@@ -252,11 +255,38 @@
             }
             else if (message.kind === "world.ready") {
                 lastCombatSeq = 0;
+                const targets = (message.payload.target_ids || []).map(function (id) {
+                    const item = entities[id];
+                    return item ? { id: id, rects: item.entity.geometry.rects } : null;
+                }).filter(function (item) { return item !== null; });
+                Object.keys(entities).forEach(function (id) { entities[id].activeTarget = false; });
+                targets.forEach(function (item) { entities[item.id].activeTarget = true; });
+                context.executeAction(TARGET_ACTION, { session: session, targets: targets }, function (result) {
+                    if (result.error) console.log("WORLD_TARGET_CATALOG_ERROR " + result.errorMessage);
+                });
                 console.log("WORLD_READY entities=" + message.payload.entities
                     + " targets=" + message.payload.targets + " obstacles=" + message.payload.obstacles
                     + " navigation=" + message.payload.navigation
-                    + " unsupported=" + message.payload.unsupported_total);
+                    + " unsupported=" + (message.payload.unsupported_total || 0));
             }
+            else if (message.kind === "world.outcome" && message.payload
+                && ["victory", "defeat"].includes(message.payload.state))
+                context.executeAction(OUTCOME_ACTION, { session: session,
+                    scenario_id: message.payload.scenario_id, state: message.payload.state,
+                    objective_id: message.payload.objective_id }, function (result) {
+                    if (result.error) console.log("WORLD_OUTCOME_ERROR " + result.errorMessage);
+                });
+            else if (message.kind === "entity.remove") {
+                const removed = message.payload && message.payload.id;
+                if (typeof removed === "string") context.executeAction(TARGET_ACTION, {
+                    session: session, targets: Object.keys(entities).filter(function (id) {
+                        return id !== removed && entities[id].activeTarget === true;
+                    }).map(function (id) { return { id: id, rects: entities[id].entity.geometry.rects }; })
+                }, function () {});
+                if (entities[removed]) entities[removed].activeTarget = false;
+            }
+            else if (message.kind === "world.error")
+                console.log("WORLD_NOT_READY " + message.payload.reason);
         }
         function connect() {
             if (socket) return;
@@ -497,11 +527,15 @@
         let controlSession = "";
         let controlUnits = {};
         let terranOwner = -1;
+        let commanderPlayer = -1;
         let commandSocket = null;
         let commandConnected = false;
         let commandSerial = 0;
         let worldCommandSender = null;
         let worldTargetIds = {};
+        let targetCatalogSession = "";
+        let outcomeState = null;
+        let shownOutcome = "";
         const pendingCommands = {};
         context.registerAction(ACTION, function (event) {
             if (network.mode === "server" && event.player !== network.currentPlayer.id) {
@@ -511,6 +545,7 @@
         }, function (event) {
             if (!validAction(event.args)) return { error: 1, errorMessage: "Invalid RTS bridge snapshot" };
             rtsBridge.applySnapshot(event.args);
+            if (controlSession !== event.args.session) { outcomeState = null; shownOutcome = ""; }
             controlSession = event.args.session;
             controlUnits = {};
             event.args.units.forEach(function (unit) { controlUnits[unit.id] = unit; });
@@ -520,14 +555,65 @@
         });
 
         if (FRONTIER_ENABLED || WORLD_ENABLED) {
+            if (WORLD_ENABLED) context.registerAction(TARGET_ACTION, function (event) {
+                const args = event.args;
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may publish structure targets" };
+                if (!args || typeof args.session !== "string" || !/^[0-9a-f]{32}$/.test(args.session)
+                    || !Array.isArray(args.targets) || args.targets.length > 128
+                    || !args.targets.every(function (item) {
+                        return item && typeof item.id === "string" && item.id.length <= 256
+                            && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(item.id)
+                            && Array.isArray(item.rects) && item.rects.length > 0 && item.rects.length <= 8192
+                            && item.rects.every(function (rect) {
+                                return Number.isInteger(rect.x) && Number.isInteger(rect.y)
+                                    && Number.isInteger(rect.width) && Number.isInteger(rect.height)
+                                    && rect.x >= 0 && rect.y >= 0 && rect.width > 0 && rect.height > 0
+                                    && rect.x + rect.width <= map.size.x * 32
+                                    && rect.y + rect.height <= map.size.y * 32;
+                            });
+                    })) return { error: 1, errorMessage: "Invalid structure target catalog" };
+                return {};
+            }, function (event) {
+                targetCatalogSession = event.args.session;
+                worldTargetIds = {};
+                event.args.targets.forEach(function (item) {
+                    worldTargetIds[item.id] = { geometry: { rects: item.rects } };
+                });
+                return {};
+            });
+            if (WORLD_ENABLED) context.registerAction(OUTCOME_ACTION, function (event) {
+                const args = event.args;
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may report battle outcomes" };
+                return args && args.session === controlSession
+                    && typeof args.scenario_id === "string" && /^[a-z0-9-]{1,64}$/.test(args.scenario_id)
+                    && ["victory", "defeat"].includes(args.state)
+                    && typeof args.objective_id === "string" && args.objective_id.length > 0
+                    ? {} : { error: 1, errorMessage: "Invalid battle outcome" };
+            }, function (event) {
+                outcomeState = event.args.state;
+                return {};
+            });
             context.registerAction(COMMAND_ACTION, function (event) {
                 const args = event.args;
+                if (WORLD_ENABLED && outcomeState) return { error: 1, errorMessage: "Battle has ended" };
                 if (network.mode === "server" && (!Array.isArray(network.players)
                     || !network.players.some(function (player) { return player.id === event.player; })))
                     return { error: 1, errorMessage: "Player is not connected" };
+                if (network.mode === "server" && WORLD_ENABLED) {
+                    const connected = network.players.map(function (player) { return player.id; });
+                    if (!connected.includes(commanderPlayer)) commanderPlayer = -1;
+                    if (commanderPlayer < 0) {
+                        const clients = connected.filter(function (id) { return id !== network.currentPlayer.id; }).sort(function (a, b) { return a - b; });
+                        commanderPlayer = clients.length ? clients[0] : network.currentPlayer.id;
+                    }
+                    if (event.player !== commanderPlayer)
+                        return { error: 1, errorMessage: "Only the Terran commander may order Marines" };
+                }
                 if (!args || args.session !== controlSession || !Number.isSafeInteger(args.request)
                     || args.request < 1 || !Array.isArray(args.unit_ids) || args.unit_ids.length < 1
-                    || args.unit_ids.length > 4 || !(WORLD_ENABLED
+                    || args.unit_ids.length > (WORLD_ENABLED ? 32 : 4) || !(WORLD_ENABLED
                         ? ["move", "attack", "attack_move", "hold", "stop"].includes(args.verb)
                         : ["move", "attack", "hold"].includes(args.verb)))
                     return { error: 1, errorMessage: "Invalid Marine command" };
@@ -547,7 +633,7 @@
                     const target = controlUnits[args.target_id];
                     const structure = WORLD_ENABLED && typeof args.target_entity_id === "string"
                         && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.target_entity_id)
-                        && (network.mode !== "server" || worldTargetIds[args.target_entity_id]);
+                        && targetCatalogSession === args.session && worldTargetIds[args.target_entity_id];
                     if ((!target || target.kind !== "zerg_zergling" || target.hp <= 0) && !structure)
                         return { error: 1, errorMessage: "Invalid Zergling target" };
                 }
@@ -557,20 +643,21 @@
             }, function (event) {
                 if (network.mode !== "server") return {};
                 const args = event.args;
+                if (WORLD_ENABLED) {
+                    const commandId = args.session + ":" + (++commandSerial);
+                    pendingCommands[commandId] = { player: event.player, request: args.request,
+                        unit: args.unit_ids[0] };
+                    const payload = { command_id: commandId, player_id: event.player,
+                        request_id: args.request, unit_ids: args.unit_ids.slice(), verb: "unit." + args.verb };
+                    if (args.verb === "move" || args.verb === "attack_move") {
+                        payload.x = args.x; payload.y = args.y;
+                    } else if (args.verb === "attack")
+                        payload.target_id = args.target_entity_id || args.target_id;
+                    worldCommandSender(payload);
+                    return {};
+                }
                 args.unit_ids.forEach(function (id) {
                     const serial = ++commandSerial;
-                    if (WORLD_ENABLED) {
-                        const commandId = args.session + ":" + serial;
-                        pendingCommands[commandId] = { player: event.player, request: args.request, unit: id };
-                        const payload = { command_id: commandId, player_id: event.player,
-                            request_id: args.request, unit_ids: [id], verb: "unit." + args.verb };
-                        if (args.verb === "move" || args.verb === "attack_move") {
-                            payload.x = args.x; payload.y = args.y;
-                        } else if (args.verb === "attack")
-                            payload.target_id = args.target_entity_id || args.target_id;
-                        worldCommandSender(payload);
-                        return;
-                    }
                     const x = args.verb === "attack" ? Number(args.target_id.slice(7))
                         : args.verb === "move" ? args.x : 0;
                     const y = args.verb === "move" ? args.y : 0;
@@ -601,15 +688,69 @@
         }
 
         let animationTicks = 0;
+        let cameraSession = "";
         context.subscribe("interval.tick", function () {
             if (++animationTicks % 4 === 0) rtsBridge.invalidateAnimation();
+            if (WORLD_ENABLED && network.mode === "server" && targetCatalogSession
+                && animationTicks % 80 === 0) context.executeAction(TARGET_ACTION, {
+                    session: targetCatalogSession,
+                    targets: Object.keys(worldTargetIds).map(function (id) {
+                        return { id: id, rects: worldTargetIds[id].geometry.rects };
+                    })
+                }, function () {});
+            if (WORLD_ENABLED && network.mode === "client" && controlSession
+                && cameraSession !== controlSession && typeof ui !== "undefined" && ui.mainViewport) {
+                ui.mainViewport.zoom = 1;
+                ui.mainViewport.moveTo({ x: map.size.x * 16, y: map.size.y * 16 });
+                cameraSession = controlSession;
+            }
         });
 
         if ((FRONTIER_ENABLED || WORLD_ENABLED) && typeof ui !== "undefined") {
             let selected = [];
             let nextRequest = 0;
             let selectingMultiple = false;
+            let selectionSession = "";
+            let dragStart = null;
+            let dragEnd = null;
+            let attackMove = false;
+            const controlGroups = {};
+            const squadWindow = WORLD_ENABLED ? ui.openWindow({ classification: "starcoaster-squad",
+                width: 248, height: 88, title: "Frontier Outpost", widgets: [
+                    { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
+                        text: "Waiting for battlefield" },
+                    { type: "label", x: 8, y: 38, width: 232, height: 14,
+                        text: "Drag select | A attack move | H hold | S stop" },
+                    { type: "label", name: "objective", x: 8, y: 57, width: 232, height: 14,
+                        text: "Defend Frontier Carousel" }
+                ] }) : null;
+            function pointFrom(event) { return event.mapCoords || rtsBridge.cursorWorld(); }
+            function refreshSelection() {
+                if (selectionSession !== controlSession) {
+                    selectionSession = controlSession; selected = [];
+                    Object.keys(controlGroups).forEach(function (number) { delete controlGroups[number]; });
+                }
+                selected = selected.filter(function (id) {
+                    const unit = controlUnits[id];
+                    return unit && unit.kind === "terran_marine" && unit.hp > 0;
+                });
+                if (squadWindow) {
+                    const info = squadWindow.findWidget("selection");
+                    if (info) info.text = selected.length + " Marine" + (selected.length === 1 ? "" : "s")
+                        + " selected" + (selected.length === 1 ? " | HP " + controlUnits[selected[0]].hp : "");
+                    const objective = squadWindow.findWidget("objective");
+                    if (objective) objective.text = outcomeState === "victory" ? "Victory: Outpost defended"
+                        : outcomeState === "defeat" ? "Defeat: Outpost lost" : "Defend Frontier Carousel";
+                }
+                if (outcomeState && shownOutcome !== controlSession + ":" + outcomeState) {
+                    shownOutcome = controlSession + ":" + outcomeState;
+                    ui.showError("Frontier Outpost", outcomeState === "victory"
+                        ? "Victory! The carousel survived." : "Defeat! The outpost has fallen.");
+                }
+            }
+            context.subscribe("interval.tick", refreshSelection);
             function chooseAt(point, shift) {
+                refreshSelection();
                 const id = point && rtsBridge.hitTest(point.x, point.y, 22);
                 const unit = id && controlUnits[id];
                 if (!unit || unit.kind !== "terran_marine" || unit.hp <= 0) {
@@ -620,6 +761,18 @@
                     selected = selected.includes(id) ? selected.filter(function (entry) { return entry !== id; })
                         : selected.concat(id);
                 } else selected = [id];
+                console.log("RTS Bridge selected Marines=" + selected.join(","));
+            }
+            function chooseRectangle(start, end, shift) {
+                refreshSelection();
+                const lowX = Math.min(start.x, end.x), highX = Math.max(start.x, end.x);
+                const lowY = Math.min(start.y, end.y), highY = Math.max(start.y, end.y);
+                const inside = Object.keys(controlUnits).filter(function (id) {
+                    const unit = controlUnits[id];
+                    return unit.kind === "terran_marine" && unit.hp > 0 && unit.owner === terranOwner
+                        && unit.x >= lowX && unit.x <= highX && unit.y >= lowY && unit.y <= highY;
+                });
+                selected = shift ? selected.concat(inside.filter(function (id) { return !selected.includes(id); })) : inside;
                 console.log("RTS Bridge selected Marines=" + selected.join(","));
             }
             ui.registerShortcut({ id: "starcoaster.select-multiple", text: "Toggle Marine squad selection",
@@ -633,7 +786,23 @@
                         { session: controlSession, request: ++nextRequest, unit_ids: selected, verb: "hold" },
                         function (result) { if (result.error) ui.showError("Marine command", result.errorMessage); });
                 } });
+            ui.registerShortcut({ id: "starcoaster.stop", text: "Stop Marines", bindings: ["S"],
+                callback: function () {
+                    refreshSelection();
+                    if (selected.length) context.executeAction(COMMAND_ACTION,
+                        { session: controlSession, request: ++nextRequest, unit_ids: selected.slice(), verb: "stop" },
+                        function (result) { if (result.error) ui.showError("Marine command", result.errorMessage); });
+                } });
+            ui.registerShortcut({ id: "starcoaster.attack-move", text: "Marine attack move", bindings: ["A"],
+                callback: function () { attackMove = true; } });
+            ui.registerShortcut({ id: "starcoaster.save-group-1", text: "Save Marine group 1", bindings: ["CTRL+1"],
+                callback: function () { refreshSelection(); controlGroups[1] = selected.slice(); } });
+            ui.registerShortcut({ id: "starcoaster.recall-group-1", text: "Select Marine group 1", bindings: ["1"],
+                callback: function () { refreshSelection(); selected = (controlGroups[1] || []).filter(function (id) {
+                    return controlUnits[id] && controlUnits[id].hp > 0;
+                }); } });
             function orderAt(point) {
+                refreshSelection();
                 if (!selected.length || !point) return;
                 const hit = rtsBridge.hitTest(point.x, point.y, 22);
                 const target = hit && controlUnits[hit];
@@ -644,20 +813,35 @@
                     });
                 })[0];
                 const args = { session: controlSession, request: ++nextRequest,
-                    unit_ids: selected, verb: target && target.kind === "zerg_zergling" ? "attack" : "move" };
+                    unit_ids: selected.slice(), verb: target && target.kind === "zerg_zergling" ? "attack" : "move" };
                 if (args.verb === "attack") args.target_id = hit;
                 else if (structure) { args.verb = "attack"; args.target_entity_id = structure; }
                 else {
+                    if (attackMove) args.verb = "attack_move";
                     args.x = point.x + (WORLD_ENABLED ? 0 : 128);
                     args.y = point.y + (WORLD_ENABLED ? 0 : 96);
                 }
+                attackMove = false;
                 context.executeAction(COMMAND_ACTION, args, function (result) {
                     if (result.error) ui.showError("Marine command", result.errorMessage);
                 });
             }
             ui.activateTool({ id: "starcoaster.select-marine", cursor: "cross_hair", filter: ["terrain", "footpath"],
-                onDown: function (event) { chooseAt(event.mapCoords, event.shift); },
-                onRightClick: function (event) { orderAt(event.mapCoords); } });
+                onDown: function (event) {
+                    dragStart = pointFrom(event); dragEnd = dragStart;
+                    if (!WORLD_ENABLED) chooseAt(dragStart, event.shift);
+                },
+                onMove: function (event) { if (dragStart && event.isDown) dragEnd = pointFrom(event) || dragEnd; },
+                onUp: function (event) {
+                    const end = pointFrom(event) || dragEnd;
+                    if (WORLD_ENABLED && dragStart && end) {
+                        if (Math.abs(end.x - dragStart.x) >= 24 || Math.abs(end.y - dragStart.y) >= 24)
+                            chooseRectangle(dragStart, end, event.shift);
+                        else chooseAt(end, event.shift);
+                    }
+                    dragStart = null; dragEnd = null;
+                },
+                onRightClick: function (event) { orderAt(pointFrom(event)); } });
         }
 
         if (network.mode !== "server") return;
@@ -672,11 +856,10 @@
                 function (actionResult) {
                     if (actionResult.error) console.log("WORLD_COMMAND_RESULT_ERROR " + actionResult.errorMessage);
                 });
-            }, function (discovered) {
+            }, function (_discovered, worldSession) {
                 worldTargetIds = {};
-                discovered.forEach(function (entity) {
-                    if (entity.destructible && entity.combat.targetable) worldTargetIds[entity.id] = entity;
-                });
+                targetCatalogSession = worldSession;
+                context.executeAction(TARGET_ACTION, { session: worldSession, targets: [] }, function () {});
             });
             return;
         }

@@ -1,0 +1,72 @@
+diff --git a/bwapi/BWAPI/Source/BWAPI/GameImpl.cpp b/bwapi/BWAPI/Source/BWAPI/GameImpl.cpp
+index 1d2b903..a81971c 100755
+--- a/bwapi/BWAPI/Source/BWAPI/GameImpl.cpp
++++ b/bwapi/BWAPI/Source/BWAPI/GameImpl.cpp
+@@ -369,7 +369,11 @@ namespace BWAPI
+   //--------------------------------------------- IS WALKABLE ------------------------------------------------
+   bool GameImpl::isWalkable(int x, int y) const
+   {
+-    return map.walkable(x, y);
++    return bwgame.walkable(x, y);
++  }
++  bool GameImpl::setParkNavigation(const std::vector<uint8_t>& blocked)
++  {
++    return bwgame.setParkNavigation(blocked);
+   }
+   //--------------------------------------------- GET GROUND HEIGHT ------------------------------------------
+   int GameImpl::getGroundHeight(int x, int y) const
+diff --git a/bwapi/BWAPI/Source/BWAPI/GameImpl.h b/bwapi/BWAPI/Source/BWAPI/GameImpl.h
+index a201469..ff6d214 100755
+--- a/bwapi/BWAPI/Source/BWAPI/GameImpl.h
++++ b/bwapi/BWAPI/Source/BWAPI/GameImpl.h
+@@ -132,6 +132,7 @@ namespace BWAPI
+       virtual std::string mapHash() const override;
+ 
+       virtual bool  isWalkable(int x, int y) const override;
++      virtual bool  setParkNavigation(const std::vector<uint8_t>& blocked) override;
+       virtual int   getGroundHeight(int x, int y) const override;
+       virtual bool  isBuildable(int x, int y, bool includeBuildings = false) const override;
+       virtual bool  isVisible(int x, int y) const override;
+diff --git a/bwapi/OpenBWData/BW/BWData.cpp b/bwapi/OpenBWData/BW/BWData.cpp
+index 99c60a2..dc0fc7b 100644
+--- a/bwapi/OpenBWData/BW/BWData.cpp
++++ b/bwapi/OpenBWData/BW/BWData.cpp
+@@ -1222,6 +1222,12 @@ bool Game::walkable(int walk_x, int walk_y) const
+   return impl->funcs.is_walkable({walk_x * 8, walk_y * 8});
+ }
+ 
++bool Game::setParkNavigation(const std::vector<uint8_t>& blocked)
++{
++  bwgame::game_load_functions loader(impl->st);
++  return loader.set_park_navigation({blocked.begin(), blocked.end()});
++}
++
+ bool Game::hasCreep(int tile_x, int tile_y) const
+ {
+   return impl->funcs.tile_has_creep({int(tile_x * 32u), int(tile_y * 32u)});
+diff --git a/bwapi/OpenBWData/BW/BWData.h b/bwapi/OpenBWData/BW/BWData.h
+index 7749ee1..0202869 100644
+--- a/bwapi/OpenBWData/BW/BWData.h
++++ b/bwapi/OpenBWData/BW/BWData.h
+@@ -226,6 +226,7 @@ struct Game {
+   activeTile getActiveTile(int tile_x, int tile_y) const;
+   bool buildable(int tile_x, int tile_y) const;
+   bool walkable(int walk_x, int walk_y) const;
++  bool setParkNavigation(const std::vector<uint8_t>& blocked);
+   bool hasCreep(int tile_x, int tile_y) const;
+   bool isOccupied(int tile_x, int tile_y) const;
+   int groundHeight(int tile_x, int tile_y) const;
+diff --git a/bwapi/include/BWAPI/Game.h b/bwapi/include/BWAPI/Game.h
+index ccf26f5..ac0f68b 100755
+--- a/bwapi/include/BWAPI/Game.h
++++ b/bwapi/include/BWAPI/Game.h
+@@ -549,6 +549,9 @@ namespace BWAPI
+     ///
+     /// @returns true if the mini-tile is walkable and false if it is impassable for ground units.
+ /*43*/    virtual bool isWalkable(int walkX, int walkY) const = 0;
++    /// OpenBW extension: replace the native 8-pixel walkability mask and
++    /// rebuild regions after authoritative park geometry changes.
++    virtual bool setParkNavigation(const std::vector<uint8_t>& blocked) = 0;
+     /// @overload
+     bool isWalkable(BWAPI::WalkPosition position) const;
+ 

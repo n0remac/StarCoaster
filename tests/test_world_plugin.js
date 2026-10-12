@@ -87,6 +87,32 @@ command.execute({ player: 1, args: { session: sid, request: 1,
     unit_ids: ['openbw:1000'], verb: 'attack', target_id: 'openbw:1001' } });
 drain();
 assert.equal(sent.find(m => m.kind === 'combat.command').payload.target_id, 'openbw:1001');
+const squad = ['openbw:1000', 'openbw:1002', 'openbw:1004', 'openbw:1006', 'openbw:1008', 'openbw:1010'];
+const beforeSquad = sent.filter(m => m.kind === 'combat.command').length;
+const squadArgs = { session: sid, request: 2, unit_ids: squad, verb: 'attack_move', x: 80, y: 80 };
+assert.equal(command.query({ player: 1, args: squadArgs }).error, undefined);
+command.execute({ player: 1, args: squadArgs });
+drain();
+const squadCommands = sent.filter(m => m.kind === 'combat.command');
+assert.equal(squadCommands.length, beforeSquad + 1, 'squad order uses one command');
+assert.deepEqual([...squadCommands.at(-1).payload.unit_ids], squad);
+const rideTarget = all.find(e => e.kind === 'ride');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.ready', session: sid,
+    payload: { entities: 5, targets: 1, target_ids: [rideTarget.id], navigation: 'native' } }) + '\n');
+assert.equal(actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets[0].id, rideTarget.id);
+const structureArgs = { session: sid, request: 3, unit_ids: ['openbw:1000'],
+    verb: 'attack', target_entity_id: rideTarget.id };
+assert.equal(command.query({ player: 1, args: structureArgs }).error, undefined);
+command.execute({ player: 1, args: structureArgs });
+drain();
+assert.equal(sent.filter(m => m.kind === 'combat.command').at(-1).payload.target_id, rideTarget.id);
+sandbox.network.players.push({ id: 2 });
+assert.match(command.query({ player: 2, args: squadArgs }).errorMessage, /commander/);
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
+    payload: { scenario_id: 'frontier-outpost', state: 'victory', objective_id: 'openrct2:ride:17#1' } }) + '\n');
+assert.equal(actions.filter(a => a.name === 'rtsbridge.worldOutcome').length, 1,
+    'authoritative outcome uses a replicated OpenRCT2 action');
+assert.match(command.query({ player: 1, args: squadArgs }).errorMessage, /ended/);
 const rideEntity = all.find(e => e.kind === 'ride');
 const event = { id: 'death:1', entity_id: rideEntity.id, proxy_id: 'openbw:8', type: 'destruction', health: 0 };
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid, payload: event }) + '\n');

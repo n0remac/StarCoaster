@@ -70,6 +70,10 @@ func TestMappingDefaultsAndOverrides(t *testing.T) {
 	if terrain.Destructible || terrain.Combat.Targetable {
 		t.Fatal("terrain became destructible")
 	}
+	path := m.Apply(Entity{Kind: "path"})
+	if path.Destructible || path.Combat.Targetable || path.Collision.Blocks {
+		t.Fatalf("path should be passable and passive: %+v", path)
+	}
 }
 
 func TestOpenBWEntityCanUseUnifiedModelButNotParkAuthority(t *testing.T) {

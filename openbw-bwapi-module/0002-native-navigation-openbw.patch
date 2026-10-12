@@ -1,0 +1,84 @@
+diff --git a/bwgame.h b/bwgame.h
+index 4cd76d6..3af379a 100644
+--- a/bwgame.h
++++ b/bwgame.h
+@@ -233,6 +233,11 @@ struct state_base_copyable {
+ 
+ 	a_vector<tile_t> tiles;
+ 	a_vector<uint16_t> tiles_mega_tile_index;
++	// StarCoaster keeps the original terrain indices so a confirmed park
++	// demolition can restore each affected mini-tile exactly.
++	a_vector<uint16_t> park_base_mega_tile_index;
++	a_vector<uint16_t> park_overlay_mega_tile_index;
++	a_vector<uint16_t> park_base_tile_flags;
+ 
+ 	std::array<int, 0x100> random_counts;
+ 	int total_random_counts;
+@@ -20825,6 +20830,67 @@ struct game_load_functions : state_functions {
+ 
+ 	}
+ 
++	// Replace the 8-pixel park collision mask using native VF4 mini-tiles and
++	// rebuild OpenBW's normal pathfinding regions. Call on the game thread.
++	bool set_park_navigation(const a_vector<uint8_t>& blocked) {
++		const size_t walk_width = game_st.map_walk_width;
++		const size_t walk_height = game_st.map_walk_height;
++		const size_t tile_count = game_st.map_tile_width * game_st.map_tile_height;
++		if (blocked.size() != walk_width * walk_height || st.tiles.size() != tile_count) return false;
++		if (st.park_base_mega_tile_index.empty()) {
++			st.park_base_mega_tile_index = st.tiles_mega_tile_index;
++			st.park_base_tile_flags.resize(tile_count);
++			st.park_overlay_mega_tile_index.resize(tile_count);
++			for (size_t i = 0; i != tile_count; ++i) st.park_base_tile_flags[i] = st.tiles[i].flags;
++		}
++		for (size_t ty = 0; ty != game_st.map_tile_height; ++ty) {
++			for (size_t tx = 0; tx != game_st.map_tile_width; ++tx) {
++				const size_t tile = ty * game_st.map_tile_width + tx;
++				bool any = false;
++				for (size_t sy = 0; sy != 4; ++sy)
++					for (size_t sx = 0; sx != 4; ++sx)
++						any |= blocked[(ty * 4 + sy) * walk_width + tx * 4 + sx] != 0;
++				if (!any) {
++					st.tiles_mega_tile_index[tile] = st.park_base_mega_tile_index[tile];
++					st.tiles[tile].flags = st.park_base_tile_flags[tile];
++					continue;
++				}
++				uint16_t& clone = st.park_overlay_mega_tile_index[tile];
++				if (!clone) {
++					if (game_st.vf4.size() >= 0x8000) return false;
++					clone = static_cast<uint16_t>(game_st.vf4.size());
++					game_st.vf4.push_back(game_st.vf4[st.park_base_mega_tile_index[tile] & 0x7fff]);
++				}
++				auto& overlay = game_st.vf4[clone];
++				overlay = game_st.vf4[st.park_base_mega_tile_index[tile] & 0x7fff];
++				int walkable_count = 0;
++				for (size_t sy = 0; sy != 4; ++sy) {
++					for (size_t sx = 0; sx != 4; ++sx) {
++						auto& flags = overlay.flags[sy * 4 + sx];
++						if (blocked[(ty * 4 + sy) * walk_width + tx * 4 + sx])
++							flags &= ~vf4_entry::flag_walkable;
++						if (flags & vf4_entry::flag_walkable) ++walkable_count;
++					}
++				}
++				st.tiles_mega_tile_index[tile] = clone | (st.park_base_mega_tile_index[tile] & 0x8000);
++				uint16_t flags = st.park_base_tile_flags[tile];
++				flags &= ~(tile_t::flag_walkable | tile_t::flag_unwalkable | tile_t::flag_partially_walkable);
++				flags |= walkable_count > 12 ? tile_t::flag_walkable : tile_t::flag_unwalkable;
++				if (walkable_count && walkable_count != 16) flags |= tile_t::flag_partially_walkable;
++				st.tiles[tile].flags = flags;
++			}
++		}
++		for (auto* u : ptr(st.visible_units)) {
++			if (u->path) {
++				free_path(u);
++				u->movement_state = movement_states::UM_Repath;
++			}
++		}
++		game_st.regions = regions_t{};
++		regions_create();
++		return true;
++	}
++
+ 	int get_unit_strength(const unit_type_t* unit_type, const weapon_type_t* weapon_type) {
+ 		switch (unit_type->id) {
+ 		case UnitTypes::Terran_Vulture_Spider_Mine:

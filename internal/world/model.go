@@ -71,9 +71,10 @@ type SnapshotChunk struct {
 	Terrain  []Terrain `json:"terrain,omitempty"`
 }
 type SnapshotBegin struct {
-	Width  int `json:"width"`
-	Height int `json:"height"`
-	Chunks int `json:"chunks"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Chunks      int    `json:"chunks"`
+	ObjectiveID string `json:"objective_id,omitempty"`
 }
 type SnapshotEnd struct {
 	Entities int `json:"entities"`
@@ -97,10 +98,13 @@ type Ack struct {
 type Ready struct {
 	Entities           int            `json:"entities"`
 	Targets            int            `json:"targets"`
+	Marines            int            `json:"marines,omitempty"`
+	Zerglings          int            `json:"zerglings,omitempty"`
 	Obstacles          int            `json:"obstacles,omitempty"`
 	Navigation         string         `json:"navigation,omitempty"`
 	Reconciled         *bool          `json:"reconciled,omitempty"`
 	TargetCapacity     int            `json:"target_capacity,omitempty"`
+	TargetIDs          []string       `json:"target_ids,omitempty"`
 	Unsupported        []string       `json:"unsupported,omitempty"`
 	UnsupportedTotal   int            `json:"unsupported_total,omitempty"`
 	UnsupportedReasons map[string]int `json:"unsupported_reasons,omitempty"`

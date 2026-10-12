@@ -9,16 +9,27 @@
 
 namespace starcoaster {
 
-// Geometry registry for the future native engine hook. Counting overlapping
-// contributions ensures removing one object cannot clear another footprint.
-// The current OpenBW pathfinder does not consume this registry.
+// Count overlapping 8-pixel collision contributions before submitting a
+// complete mask to OpenBW's native VF4 walkability and region builder.
 class NavigationAdapter {
 public:
-    void replace(const DesiredWorld& world) {
-        width_ = world.width * 4;
-        height_ = world.height * 4;
-        counts_.assign(width_ * height_, 0);
+    void reset(int width, int height) {
+        width_ = width * 4;
+        height_ = height * 4;
+        counts_.assign(static_cast<size_t>(width_) * height_, 0);
+        terrain_.assign(counts_.size(), 0);
         obstacles_.clear();
+        native_ = false;
+    }
+    void replace(const DesiredWorld& world) {
+        reset(world.width, world.height);
+        for (int y = 0; y < world.height; ++y)
+            for (int x = 0; x < world.width; ++x)
+                if (world.unwalkableTerrain.size() == static_cast<size_t>(world.width * world.height)
+                    && world.unwalkableTerrain[static_cast<size_t>(y) * world.width + x])
+                    for (int sy = 0; sy < 4; ++sy)
+                        for (int sx = 0; sx < 4; ++sx)
+                            terrain_[(y * 4 + sy) * width_ + x * 4 + sx] = 1;
         for (const auto& [id, entity] : world.entities)
             if (entity.blocks && !entity.rectangles.empty()) upsert(id, entity.rectangles);
     }
@@ -50,12 +61,19 @@ public:
         const int toY = std::min(height_ - 1, (y + clearance) / 8);
         for (int row = fromY; row <= toY; ++row)
             for (int column = fromX; column <= toX; ++column)
-                if (counts_[row * width_ + column] > 0) return true;
+                if (counts_[row * width_ + column] > 0 || terrain_[row * width_ + column]) return true;
         return false;
     }
     size_t objects() const { return obstacles_.size(); }
     const std::map<std::string, std::vector<Rect>>& obstacles() const { return obstacles_; }
-    const char* capability() const { return "metadata_only"; }
+    std::vector<uint8_t> mask() const {
+        std::vector<uint8_t> result(counts_.size());
+        for (size_t i = 0; i < result.size(); ++i)
+            result[i] = counts_[i] > 0 || terrain_[i];
+        return result;
+    }
+    void markNative(bool applied) { native_ = applied; }
+    const char* capability() const { return native_ ? "native" : "metadata_only"; }
 private:
     void contribute(const Rect& rectangle, int amount) {
         const int fromX = rectangle.x / 8;
@@ -68,7 +86,9 @@ private:
     }
     int width_ = 0, height_ = 0;
     std::vector<int> counts_;
+    std::vector<uint8_t> terrain_;
     std::map<std::string, std::vector<Rect>> obstacles_;
+    bool native_ = false;
 };
 
 } // namespace starcoaster

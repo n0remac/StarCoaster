@@ -23,7 +23,7 @@ func DefaultMapping() Mapping {
 		{Kind: "terrain", Destructible: pointer(false), Targetable: pointer(false), Blocks: pointer(false)},
 		{Kind: "guest", Destructible: pointer(false), Targetable: pointer(false), Blocks: pointer(false)},
 		{Kind: "staff", Destructible: pointer(false), Targetable: pointer(false), Blocks: pointer(false)},
-		{Kind: "path", Targetable: pointer(false), Blocks: pointer(false)},
+		{Kind: "path", Destructible: pointer(false), Targetable: pointer(false), Blocks: pointer(false)},
 		{Kind: "wall", Health: 80}, {Kind: "small_scenery", Health: 60}, {Kind: "large_scenery", Health: 160},
 		{Kind: "ride", Health: 400}, {Kind: "shop", Health: 180}, {Kind: "facility", Health: 180},
 	}}

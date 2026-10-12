@@ -5,6 +5,7 @@
 #include "WorldState.h"
 #include "WorldNavigation.h"
 #include "WorldActorRegistry.h"
+#include "WorldAssaultController.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -69,7 +70,8 @@ public:
                 std::cerr << "[world] target destroyed id=" << id << " frame=" << frame << std::endl;
             }
         }
-        if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI")) assaultAI(game);
+        if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI")
+            && (scenarioObjectiveID_.empty() || (encounterStarted_ && frame >= assaultNotBeforeFrame_))) assaultAI(game);
         for (auto unit:game->getAllUnits()) {
             if (unit && unit->exists() && (unit->getType()==BWAPI::UnitTypes::Zerg_Zergling
                 || unit->getType()==BWAPI::UnitTypes::Terran_Marine) && unit->isAttackFrame())
@@ -118,6 +120,18 @@ private:
                 ack(message,false,error); return;
             }
             ready_=false;
+            scenarioObjectiveID_=payload.value("objective_id", "");
+            encounterStarted_=scenarioObjectiveID_.empty();
+            assaultNotBeforeFrame_=0;
+            ack(message,true); return;
+        }
+        if (kind=="world.start") {
+            if (!ready_ || message.value("session", "") != session_) {
+                ack(message,false,"world_not_ready"); return;
+            }
+            encounterStarted_=true;
+            assaultNotBeforeFrame_=game->getFrameCount()
+                + std::max(0, std::min(600, payload.value("delay_frames", 0)));
             ack(message,true); return;
         }
         if (kind=="world.snapshot.chunk" || kind=="world.snapshot.end") {
@@ -160,6 +174,9 @@ private:
             const auto id=payload.value("id","");
             if (!entities_.count(id)) { ack(message,false,"unknown_entity"); return; }
             navigation_.remove(id);
+            const bool applied = game->setParkNavigation(navigation_.mask());
+            navigation_.markNative(applied);
+            if (!applied) { ack(message,false,"native_navigation_update_failed"); return; }
             revision_=std::max(revision_,message.at("revision").get<uint64_t>());
             ack(message,true); return;
         }
@@ -193,6 +210,7 @@ private:
         height_ = desired.height;
         entities_.clear();
         navigation_.replace(desired);
+        navigation_.markNative(game->setParkNavigation(navigation_.mask()));
         for (const auto& [id, entity] : desired.entities) {
             entities_[id] = entity.raw;
         }
@@ -246,12 +264,15 @@ private:
                 minX = std::min(minX, x); minY = std::min(minY, y);
                 maxX = std::max(maxX, x + w); maxY = std::max(maxY, y + h);
             }
-            const int x = (minX + maxX) / 2, y = (minY + maxY) / 2;
+            int x = (minX + maxX) / 2, y = (minY + maxY) / 2;
             if (x < 0 || y < 0 || x >= game->mapWidth() * 32 || y >= game->mapHeight() * 32) {
                 reportUnsupported(id, "outside_base_map"); continue;
             }
             if (targets_.size() + pending_.size() >= static_cast<size_t>(targetLimit())) {
                 reportUnsupported(id, "configured_target_capacity"); continue;
+            }
+            if (!findProxyPosition(game, x, y)) {
+                reportUnsupported(id, "no_valid_proxy_position"); continue;
             }
             pending_.push_back({id, x, y, entity.at("combat").value("health", 40)});
         }
@@ -311,7 +332,14 @@ private:
         if (!pending_.empty()) return;
         initializing_ = false;
         ready_ = unsupportedReasons_.value("removal_failed_reconcile_required", 0) == 0;
+        int marines = 0, zerglings = 0;
+        for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists()) continue;
+            if (unit->getType() == BWAPI::UnitTypes::Terran_Marine) ++marines;
+            else if (unit->getType() == BWAPI::UnitTypes::Zerg_Zergling) ++zerglings;
+        }
         send("world.ready", {{"entities", entities_.size()}, {"targets", targets_.size()},
+            {"marines", marines}, {"zerglings", zerglings},
             {"obstacles", navigation_.objects()}, {"navigation", navigation_.capability()},
             {"reconciled", ready_}, {"target_capacity", targetLimit()},
             {"unsupported", unsupported_}, {"unsupported_total", unsupportedTotal_},
@@ -334,6 +362,31 @@ private:
             std::cerr << "[world] target id=" << pending.id << " proxy=" << unit->getID() << std::endl;
         }
     }
+    bool findProxyPosition(BWAPI::Game* game, int& x, int& y) const {
+        const int centerX = x, centerY = y;
+        const auto available = [&](int px, int py) {
+            if (px < 16 || py < 16 || px >= game->mapWidth() * 32 - 16
+                || py >= game->mapHeight() * 32 - 16
+                || navigation_.blocked(px, py, 12)
+                || !game->isWalkable(px / 8, py / 8)) return false;
+            for (const auto& pending : pending_)
+                if (std::abs(px - pending.x) <= 24 && std::abs(py - pending.y) <= 24) return false;
+            for (const auto& [id, target] : targets_)
+                if (target.unit && target.unit->exists()
+                    && std::abs(px - target.x) <= 24 && std::abs(py - target.y) <= 24) return false;
+            return true;
+        };
+        for (int radius = 0; radius <= 128; radius += 8) {
+            for (int dy = -radius; dy <= radius; dy += 8) {
+                for (int dx = -radius; dx <= radius; dx += 8) {
+                    if (std::max(std::abs(dx), std::abs(dy)) != radius) continue;
+                    const int px = centerX + dx, py = centerY + dy;
+                    if (available(px, py)) { x = px; y = py; return true; }
+                }
+            }
+        }
+        return false;
+    }
     int targetLimit() const {
         const char* value = std::getenv("BRIDGE_MAX_TARGETS");
         if (!value || !*value) return 512;
@@ -342,25 +395,22 @@ private:
         return end && !*end && parsed >= 1 && parsed <= 1500 ? static_cast<int>(parsed) : 512;
     }
     BWAPI::Player targetOwner(BWAPI::Game* game) const {
-        // The reusable world map reserves computer slot 2 for park targets.
-        for (auto player : game->getPlayers())
-            if (player && player->getID() == 2 && player != game->self()) return player;
-        return nullptr;
+        // Neutral ownership prevents Marines from autonomously destroying the
+        // park, while explicit native attack orders remain available to both armies.
+        return game->neutral();
     }
     void assaultAI(BWAPI::Game* game) {
-        for (auto unit : game->getAllUnits()) {
-            if (!unit || !unit->exists() || unit->getPlayer() != game->self()
-                || unit->getType() != BWAPI::UnitTypes::Zerg_Zergling) continue;
-            BWAPI::Unit nearest = nullptr;
-            int best = INT_MAX;
-            for (const auto& [id, target] : targets_) {
-                if (target.lifecycle != "active" || !target.unit || !target.unit->exists()) continue;
-                const auto a = unit->getPosition(), b = target.unit->getPosition();
-                const int distance = std::abs(a.x - b.x) + std::abs(a.y - b.y);
-                if (distance < best) { best = distance; nearest = target.unit; }
-            }
-            if (nearest) unit->attack(nearest);
+        BWAPI::Unit objective = nullptr;
+        std::vector<BWAPI::Unit> alternatives;
+        for (const auto& [id, target] : targets_) {
+            if (target.lifecycle != "active" || !target.unit || !target.unit->exists()) continue;
+            alternatives.push_back(target.unit);
+            if (id == scenarioObjectiveID_) objective = target.unit;
         }
+        for (auto unit : game->getAllUnits())
+            if (unit && unit->exists() && unit->getType() == BWAPI::UnitTypes::Terran_Marine)
+                alternatives.push_back(unit);
+        assault_.step(game, objective, alternatives);
     }
     void reportUnsupported(const std::string& id,const std::string& reason) {
         ++unsupportedTotal_;
@@ -423,6 +473,10 @@ private:
     std::map<std::string,json> entities_; std::map<std::string,Target> targets_;
     starcoaster::NavigationAdapter navigation_;
     WorldActorRegistry actorRegistry_;
+    WorldAssaultController assault_;
+    std::string scenarioObjectiveID_;
+    int assaultNotBeforeFrame_ = 0;
+    bool encounterStarted_ = true;
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();
     std::map<int,int> attackFrames_;

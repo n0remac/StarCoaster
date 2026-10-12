@@ -3,6 +3,7 @@
 #include <BWAPI.h>
 #include <nlohmann/json.hpp>
 #include "WorldActorRegistry.h"
+#include "WorldNavigation.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -100,6 +101,49 @@ private:
             session_ = announced;
             revision_ = message.at("revision").get<uint64_t>();
             targetLinks_.clear();
+            navigation_.reset(game->mapWidth(), game->mapHeight());
+            return;
+        }
+        if (kind == "navigation.terrain.update") {
+            const auto& payload = message.at("payload");
+            const bool valid = !session_.empty() && message.value("session", "") == session_
+                && payload.value("width", 0) == game->mapWidth()
+                && payload.value("height", 0) == game->mapHeight();
+            bool applied = false;
+            if (valid) {
+                starcoaster::DesiredWorld world;
+                world.width = game->mapWidth(); world.height = game->mapHeight();
+                world.unwalkableTerrain.assign(static_cast<size_t>(world.width) * world.height, 0);
+                for (const auto& cell : payload.value("terrain", json::array())) {
+                    const int x = cell.at("x"), y = cell.at("y");
+                    if (x < 0 || y < 0 || x >= world.width || y >= world.height) continue;
+                    world.unwalkableTerrain[static_cast<size_t>(y) * world.width + x] = 1;
+                }
+                for (const auto& object : payload.value("obstacles", json::array())) {
+                    starcoaster::Entity entity;
+                    entity.id = object.at("id").get<std::string>(); entity.blocks = true;
+                    for (const auto& rect : object.at("rects"))
+                        entity.rectangles.push_back({rect.at("x"), rect.at("y"), rect.at("width"), rect.at("height")});
+                    world.entities.emplace(entity.id, std::move(entity));
+                }
+                navigation_.replace(world);
+                applied = game->setParkNavigation(navigation_.mask());
+                navigation_.markNative(applied);
+            }
+            send("world.ack", session_.empty() ? "openbw-controller" : session_,
+                revision_ ? revision_ : 1, {{"op_id", message.at("op_id")}, {"accepted", applied},
+                    {"error", applied ? "" : "native_navigation_update_failed"}});
+            return;
+        }
+        if (kind == "navigation.obstacle.remove") {
+            const auto id = message.at("payload").value("id", "");
+            const bool valid = !session_.empty() && message.value("session", "") == session_ && !id.empty();
+            if (valid) navigation_.remove(id);
+            const bool applied = valid && game->setParkNavigation(navigation_.mask());
+            navigation_.markNative(applied);
+            send("world.ack", session_.empty() ? "openbw-controller" : session_,
+                revision_ ? revision_ : 1, {{"op_id", message.at("op_id")}, {"accepted", applied},
+                    {"error", applied ? "" : "native_navigation_update_failed"}});
             return;
         }
         if (kind == "entity.state" || kind == "entity.remove") {
@@ -221,4 +265,5 @@ private:
     std::string session_, incoming_, outgoing_;
     std::map<std::string, TargetLink> targetLinks_;
     WorldActorRegistry actorRegistry_;
+    starcoaster::NavigationAdapter navigation_;
 };
