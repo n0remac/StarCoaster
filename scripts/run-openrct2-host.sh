@@ -21,6 +21,8 @@ elif test "${BRIDGE_SCENARIO:-patrol}" = ride_siege; then
   sed -i 's/const SIEGE_ENABLED = false;/const SIEGE_ENABLED = true;/' "$server_data/plugin/rts-bridge.js"
 elif test "${BRIDGE_SCENARIO:-patrol}" = frontier_defense; then
   sed -i 's/const FRONTIER_ENABLED = false;/const FRONTIER_ENABLED = true;/' "$server_data/plugin/rts-bridge.js"
+elif test "${BRIDGE_SCENARIO:-patrol}" = world; then
+  sed -i '1i var STARCOASTER_WORLD_BRIDGE = true;' "$server_data/plugin/rts-bridge.js"
 fi
 if ! test -f "$server_data/config.ini"; then
   printf '[network]\nadvertise = false\n' > "$server_data/config.ini"

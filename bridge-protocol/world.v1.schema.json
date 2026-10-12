@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starcoaster.local/bridge-protocol/world.v1.schema.json",
+  "title": "StarCoaster world.v1 envelope",
+  "type": "object",
+  "required": ["v", "kind", "session", "op_id", "source", "revision", "payload"],
+  "properties": {
+    "v": { "const": 1 },
+    "kind": { "enum": ["world.hello", "world.snapshot.begin", "world.snapshot.chunk", "world.snapshot.end", "world.ready", "world.resync", "world.ack", "world.error", "entity.upsert", "entity.remove", "entity.transform", "entity.state", "combat.command", "combat.snapshot", "combat.event", "combat.result", "navigation.obstacle.upsert", "navigation.obstacle.remove", "navigation.terrain.update"] },
+    "session": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "op_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "source": { "enum": ["openrct2", "openbw", "bridge"] },
+    "revision": { "type": "integer", "minimum": 1 },
+    "bw_tick": { "type": "integer", "minimum": 0 },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "point": { "type": "object", "required": ["x", "y"], "properties": { "x": { "type": "integer" }, "y": { "type": "integer" } }, "additionalProperties": false },
+    "rect": { "type": "object", "required": ["x", "y", "width", "height"], "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+    "entity": {
+      "type": "object",
+      "required": ["id", "source", "source_id", "kind", "type", "owner", "position", "elevation", "geometry", "collision", "destructible", "combat", "revision"],
+      "properties": {
+        "id": { "type": "string" }, "source": { "enum": ["openrct2", "openbw"] },
+        "source_id": { "type": "string" }, "kind": { "type": "string" }, "type": { "type": "string" },
+        "owner": { "type": "integer" }, "position": { "$ref": "#/$defs/point" }, "rotation": { "type": "integer", "minimum": 0, "maximum": 255 }, "elevation": { "type": "integer" },
+        "geometry": { "type": "object", "properties": { "cells": { "type": "array", "items": { "$ref": "#/$defs/point" } }, "rects": { "type": "array", "items": { "$ref": "#/$defs/rect" } } } },
+        "collision": { "type": "object", "required": ["blocks"], "properties": { "blocks": { "type": "boolean" } } },
+        "destructible": { "type": "boolean" },
+        "combat": { "type": "object", "required": ["targetable", "health"], "properties": { "targetable": { "type": "boolean" }, "health": { "type": "integer", "minimum": 0 }, "armor": { "type": "integer", "minimum": 0 }, "damage_scale": { "type": "number", "minimum": 0, "maximum": 100 } } },
+        "removal": { "type": "object", "properties": { "action": { "type": "string" }, "args": { "type": "object", "additionalProperties": { "type": "integer" } }, "effect": { "type": "string" } } },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "terrain": { "type": "object", "required": ["x", "y", "height", "water", "surface", "walkable"], "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "height": { "type": "integer" }, "water": { "type": "integer" }, "surface": { "type": "integer" }, "walkable": { "type": "boolean" } } }
+  }
+}

@@ -1,5 +1,6 @@
 #include <BWAPI.h>
 #include "ParkAssaultNavigation.h"
+#include "WorldAdapter.h"
 
 #include <algorithm>
 
@@ -207,7 +208,8 @@ public:
         frontier_ = scenario && std::strcmp(scenario, "frontier_defense") == 0;
         siege_ = scenario && std::strcmp(scenario, "ride_siege") == 0;
         parkAssault_ = scenario && std::strcmp(scenario, "park_assault") == 0;
-        if (scenario && *scenario && !battle_ && !frontier_ && !siege_ && !parkAssault_
+        worldMode_ = scenario && std::strcmp(scenario, "world") == 0;
+        if (scenario && *scenario && !battle_ && !frontier_ && !siege_ && !parkAssault_ && !worldMode_
             && std::strcmp(scenario, "patrol") != 0) {
             std::cerr << "[bridge] unknown BRIDGE_SCENARIO=" << scenario << std::endl;
             return;
@@ -218,6 +220,10 @@ public:
         auto* game = BWAPI::Broodwar.operator->();
         if (!game || game->isReplay() || !game->self()) {
             std::cerr << "[bridge] no active player; unit creation skipped" << std::endl;
+            return;
+        }
+        if (worldMode_) {
+            game->enableFlag(BWAPI::Flag::CompleteMapInformation);
             return;
         }
         terranController_ = frontier_ && game->self()->getRace() == BWAPI::Races::Terran;
@@ -288,6 +294,7 @@ public:
         publisher_.poll();
         auto* game = BWAPI::Broodwar.operator->();
         if (!game) return;
+        if (worldMode_) { worldAdapter_.onFrame(game); return; }
         if (frontier_ && !canonicalReady_ && game->getFrameCount() >= 2) prepareCanonicalUnits(game);
         if (terranController_) {
             for (const auto& line : publisher_.receiveLines()) executeMarineOrder(game, line);
@@ -1373,6 +1380,8 @@ private:
     std::vector<std::string> combatEvents_;
     bool siege_ = false;
     bool parkAssault_ = false;
+    bool worldMode_ = false;
+    WorldAdapter worldAdapter_;
     bool assaultNavReady_ = false;
     bool assaultReady_ = false;
     bool assaultStartWarning_ = false;

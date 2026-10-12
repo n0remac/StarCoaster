@@ -21,6 +21,11 @@ elif [[ "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then
   if [[ ! -f "$default_map" ]]; then
     python3 "$project_dir/scripts/create-park-assault-map.py" --output "$default_map"
   fi
+elif [[ "${BRIDGE_SCENARIO:-patrol}" == world ]]; then
+  default_map="$project_dir/run-data/world-base/world-base.scm"
+  if [[ ! -f "$default_map" ]]; then
+    python3 "$project_dir/scripts/create-world-base-map.py" --output "$default_map"
+  fi
 fi
 map_file="${BRIDGE_MAP_FILE:-$default_map}"
 launcher="$project_dir/build/bwapi/bin/BWAPILauncher"
@@ -64,7 +69,7 @@ race = ${BRIDGE_BWAPI_RACE:-Zerg}
 player_slot = ${BRIDGE_BWAPI_SLOT:--1}
 enemy_count = 1
 enemy_race = Terran
-game_type = ${BRIDGE_BWAPI_GAME_TYPE:-$(if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege || "${BRIDGE_SCENARIO:-patrol}" == frontier_defense || "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then printf USE_MAP_SETTINGS; else printf MELEE; fi)}
+game_type = ${BRIDGE_BWAPI_GAME_TYPE:-$(if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege || "${BRIDGE_SCENARIO:-patrol}" == frontier_defense || "${BRIDGE_SCENARIO:-patrol}" == park_assault || "${BRIDGE_SCENARIO:-patrol}" == world ]]; then printf USE_MAP_SETTINGS; else printf MELEE; fi)}
 auto_restart = OFF
 EOF
 
@@ -76,6 +81,8 @@ elif [[ "${BRIDGE_SCENARIO:-patrol}" == frontier_defense ]]; then
 elif [[ "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then
   export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-park-assault}"
   export BRIDGE_NAV_FILE="${BRIDGE_NAV_FILE:-$project_dir/run-data/park-assault/navigation.grid}"
+elif [[ "${BRIDGE_SCENARIO:-patrol}" == world ]]; then
+  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-world-base}"
 else
   export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-demo-flat}"
 fi

@@ -1,0 +1,7 @@
+{
+  "rules": [
+    { "kind": "shop", "health": 240 },
+    { "kind": "wall", "health": 90, "blocks": true, "armor": 1, "damage_scale": 0.75, "effect": "wall_break" },
+    { "kind": "small_scenery", "type": "rct2.scenery_small.fir", "destructible": false }
+  ]
+}

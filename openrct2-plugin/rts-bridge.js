@@ -20,6 +20,253 @@
     const ORIGIN_Y = 0;
     const SCALE_X = 1;
     const SCALE_Y = 1;
+    const WORLD_ENABLED = typeof STARCOASTER_WORLD_BRIDGE !== "undefined" && STARCOASTER_WORLD_BRIDGE === true;
+
+    function startWorldAdapter() {
+        const session = Array.from({ length: 4 }, function () {
+            return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
+        }).join("");
+        let revision = 1, serial = 0, socket = null, buffer = "", inFlight = null, lastCombatSeq = 0, retryTicks = 0;
+        const queue = [], generations = {}, activeKeys = {}, activeItems = {}, entities = {}, completed = {};
+        function envelope(kind, payload, rev) {
+            return { v: 1, kind: kind, session: session, op_id: "park:" + (++serial),
+                source: "openrct2", revision: rev || revision, payload: payload };
+        }
+        function sendNext() {
+            if (!socket || inFlight || !queue.length) return;
+            inFlight = queue.shift();
+            socket.write(JSON.stringify(inFlight) + "\n");
+        }
+        function send(kind, payload, rev) { queue.push(envelope(kind, payload, rev)); sendNext(); }
+        function rotate(offset, direction) {
+            if (direction === 1) return { x: offset.y, y: -offset.x };
+            if (direction === 2) return { x: -offset.x, y: -offset.y };
+            if (direction === 3) return { x: -offset.y, y: offset.x };
+            return { x: offset.x, y: offset.y };
+        }
+        function discover() {
+            const grouped = {}, terrain = [], rides = {};
+            map.rides.forEach(function (ride) {
+                rides[ride.id] = { ride: ride, cells: [], height: null };
+            });
+            const largeObjects = typeof objectManager === "object" ? objectManager.getAllObjects("large_scenery") : [];
+            const largeByIndex = {};
+            largeObjects.forEach(function (object) { largeByIndex[object.index] = object; });
+            const names = {};
+            if (typeof objectManager === "object") ["small_scenery", "wall", "large_scenery"].forEach(function (kind) {
+                names[kind] = {};
+                objectManager.getAllObjects(kind).forEach(function (object) { names[kind][object.index] = object.identifier; });
+            });
+            for (let y = 0; y < map.size.y; ++y) for (let x = 0; x < map.size.x; ++x) {
+                const tile = map.getTile(x, y), duplicates = {};
+                for (let n = 0; n < tile.numElements; ++n) {
+                    const element = tile.getElement(n), kind = element.type;
+                    if (kind === "surface") {
+                        terrain.push({ x: x, y: y, height: element.baseHeight * 8,
+                            water: element.waterHeight || 0, surface: element.surfaceObject || 0,
+                            walkable: !element.waterHeight });
+                        continue;
+                    }
+                    if (kind === "track" || (kind === "entrance" && rides[element.ride])) {
+                        if (rides[element.ride]) {
+                            rides[element.ride].cells.push({ x: x, y: y });
+                            if (rides[element.ride].height === null) rides[element.ride].height = element.baseHeight * 8;
+                        }
+                        continue;
+                    }
+                    if (!["small_scenery", "large_scenery", "wall", "footpath"].includes(kind)) continue;
+                    const z = element.baseHeight * 8, object = Number.isInteger(element.object) ? element.object : 0;
+                    const direction = element.direction || 0, quadrant = element.quadrant || 0;
+                    let anchorX = x * 32, anchorY = y * 32, anchorZ = z;
+                    if (kind === "large_scenery") {
+                        const definition = largeByIndex[object];
+                        const part = definition && definition.tiles && definition.tiles[element.sequence];
+                        if (part) {
+                            const offset = rotate(part.offset, direction);
+                            anchorX -= offset.x; anchorY -= offset.y; anchorZ -= part.offset.z;
+                        }
+                    }
+                    const base = kind + ":" + object + ":" + anchorX + ":" + anchorY + ":" + anchorZ
+                        + ":" + direction + (kind === "small_scenery" ? ":" + quadrant : "");
+                    const occurrence = duplicates[base] || 0; duplicates[base] = occurrence + 1;
+                    const key = base + (occurrence ? ":" + occurrence : "");
+                    if (!grouped[key]) {
+                        const removal = kind === "small_scenery" ? { action: "smallsceneryremove", args: { x: x * 32, y: y * 32, z: z, object: object, quadrant: quadrant } }
+                            : kind === "large_scenery" ? { action: "largesceneryremove", args: { x: anchorX, y: anchorY, z: anchorZ, direction: direction, tileIndex: 0 } }
+                            : kind === "wall" ? { action: "wallremove", args: { x: x * 32, y: y * 32, z: z, direction: direction } }
+                            : { action: "footpathremove", args: { x: x * 32, y: y * 32, z: z } };
+                        grouped[key] = { key: key, kind: kind === "footpath" ? "path" : kind,
+                            type: kind === "footpath" ? String(element.surfaceObject || object)
+                                : ((names[kind] && names[kind][object]) || String(object)),
+                            x: anchorX, y: anchorY, z: anchorZ, direction: direction,
+                            cells: [], rects: [], removal: removal };
+                    }
+                    grouped[key].cells.push({ x: x, y: y });
+                    if (kind === "wall") grouped[key].rects.push(direction === 0
+                        ? { x: x * 32, y: y * 32, width: 32, height: 4 }
+                        : direction === 1 ? { x: x * 32, y: y * 32, width: 4, height: 32 }
+                        : direction === 2 ? { x: x * 32, y: y * 32 + 28, width: 32, height: 4 }
+                        : { x: x * 32 + 28, y: y * 32, width: 4, height: 32 });
+                }
+            }
+            Object.keys(rides).forEach(function (id) {
+                const item = rides[id], ride = item.ride;
+                if (!item.cells.length) return;
+                const kind = ride.classification === "stall" ? "shop" : ride.classification === "facility" ? "facility" : "ride";
+                const key = "ride:" + id;
+                grouped[key] = { key: key, kind: kind, type: ride.object ? ride.object.identifier : String(ride.type),
+                    x: item.cells[0].x * 32, y: item.cells[0].y * 32, z: item.height || 0, direction: 0,
+                    cells: item.cells, rects: [], removal: { action: "ridedemolish", args: { ride: ride.id, modifyType: 0 } },
+                    rideId: ride.id, rideType: ride.type };
+            });
+            ["guest", "staff"].forEach(function (kind) {
+                if (typeof map.getAllEntities !== "function") return;
+                map.getAllEntities(kind).forEach(function (actor) {
+                    if (!Number.isInteger(actor.x) || !Number.isInteger(actor.y) || actor.x < 0 || actor.y < 0) return;
+                    const key = kind + ":" + actor.id;
+                    grouped[key] = { key: key, kind: kind, type: kind, x: actor.x, y: actor.y,
+                        z: actor.z || 0, direction: 0, cells: [], rects: [], removal: { action: "" } };
+                });
+            });
+            const now = {}, result = [];
+            Object.keys(grouped).sort().forEach(function (key) {
+                const item = grouped[key]; now[key] = true;
+                if (!activeKeys[key]) generations[key] = (generations[key] || 0) + 1;
+                activeKeys[key] = true;
+                const cells = item.cells.filter(function (cell, index, all) {
+                    return all.findIndex(function (other) { return other.x === cell.x && other.y === cell.y; }) === index;
+                });
+                const minX = cells.length ? Math.min.apply(null, cells.map(function (cell) { return cell.x * 32; })) : item.x;
+                const minY = cells.length ? Math.min.apply(null, cells.map(function (cell) { return cell.y * 32; })) : item.y;
+                const sortedCells = cells.slice().sort(function (a, b) { return a.y - b.y || a.x - b.x; });
+                const rects = [];
+                sortedCells.forEach(function (cell) {
+                    const last = rects[rects.length - 1];
+                    if (last && last.y === cell.y * 32 && last.x + last.width === cell.x * 32)
+                        last.width += 32;
+                    else rects.push({ x: cell.x * 32, y: cell.y * 32, width: 32, height: 32 });
+                });
+                const id = "openrct2:" + key + "#" + generations[key];
+                const entity = { id: id, source: "openrct2", source_id: key, kind: item.kind,
+                    type: item.type, owner: 0, position: { x: Math.max(0, minX), y: Math.max(0, minY) },
+                    rotation: item.direction || 0, elevation: item.z,
+                    geometry: { cells: cells, rects: item.kind === "wall" ? item.rects : rects },
+                    collision: { blocks: item.kind !== "path" && item.kind !== "guest" && item.kind !== "staff" },
+                    destructible: item.kind !== "guest" && item.kind !== "staff",
+                    combat: { targetable: item.kind !== "path" && item.kind !== "guest" && item.kind !== "staff", health: 100 },
+                    removal: item.removal, revision: revision };
+                item.id = id; item.entity = entity; entities[id] = item; activeItems[key] = item; result.push(entity);
+            });
+            Object.keys(activeKeys).forEach(function (key) { if (!now[key]) { delete activeKeys[key]; delete activeItems[key]; } });
+            return { entities: result, terrain: terrain };
+        }
+        context.subscribe("action.execute", function (event) {
+            if (!event || !event.result || event.result.error || !event.args) return;
+            const action = event.action, args = event.args;
+            if (["ridedemolish", "ridecreate", "trackplace", "trackremove"].includes(action)) {
+                if (Number.isInteger(args.ride)) activeKeys["ride:" + args.ride] = false;
+                return;
+            }
+            const kind = action === "smallsceneryplace" || action === "smallsceneryremove" ? "small_scenery"
+                : action === "largesceneryplace" || action === "largesceneryremove" ? "large_scenery"
+                : action === "wallplace" || action === "wallremove" ? "wall"
+                : action === "footpathplace" || action === "footpathremove" ? "path" : "";
+            if (!kind || !Number.isInteger(args.x) || !Number.isInteger(args.y)) return;
+            const tileX = Math.floor(args.x / 32), tileY = Math.floor(args.y / 32);
+            Object.keys(activeItems).forEach(function (key) {
+                const item = activeItems[key];
+                if (item.kind === kind && (item.cells.some(function (cell) { return cell.x === tileX && cell.y === tileY; })
+                    || (item.removal.args && item.removal.args.x === args.x && item.removal.args.y === args.y)))
+                    activeKeys[key] = false;
+            });
+        });
+        function snapshot() {
+            const current = discover(), chunks = [];
+            let entityChunk = [];
+            current.entities.forEach(function (entity) {
+                const next = entityChunk.concat([entity]);
+                if (entityChunk.length && (next.length > 32 || JSON.stringify(next).length > 48000)) {
+                    chunks.push({ entities: entityChunk }); entityChunk = [entity];
+                } else entityChunk = next;
+            });
+            if (entityChunk.length) chunks.push({ entities: entityChunk });
+            for (let i = 0; i < current.terrain.length; i += 128)
+                chunks.push({ terrain: current.terrain.slice(i, i + 128) });
+            send("world.snapshot.begin", { width: map.size.x, height: map.size.y, chunks: chunks.length });
+            chunks.forEach(function (chunk, index) { chunk.index = index; send("world.snapshot.chunk", chunk); });
+            send("world.snapshot.end", { entities: current.entities.length, terrain: current.terrain.length });
+            console.log("WORLD_SNAPSHOT session=" + session + " entities=" + current.entities.length
+                + " terrain=" + current.terrain.length + " chunks=" + chunks.length);
+        }
+        function combatEvent(message) {
+            const event = message.payload, tracked = entities[event.entity_id];
+            if (message.session !== session || !tracked || completed[event.id] || event.health !== 0 || event.type !== "destruction") return;
+            const fresh = discover(), present = fresh.entities.filter(function (e) { return e.id === tracked.id; })[0];
+            if (!present || JSON.stringify(present.geometry.cells) !== JSON.stringify(tracked.entity.geometry.cells)
+                || present.type !== tracked.entity.type || !tracked.removal.action) {
+                completed[event.id] = true;
+                send("combat.result", { event_id: event.id, entity_id: tracked.id,
+                    state: "removal_failed", reason: "identity_changed" });
+                return;
+            }
+            completed[event.id] = true;
+            context.executeAction(tracked.removal.action, tracked.removal.args, function (result) {
+                const remaining = discover().entities.some(function (e) { return e.id === tracked.id; });
+                const confirmed = !result.error && !remaining;
+                if (confirmed) revision++;
+                send("combat.result", { event_id: event.id, entity_id: tracked.id,
+                    state: confirmed ? "removal_confirmed" : "removal_failed",
+                    reason: confirmed ? "" : (result.errorMessage || "object_still_present") }, revision);
+                console.log("WORLD_REMOVAL id=" + tracked.id + " state=" + (confirmed ? "confirmed" : "failed"));
+            });
+        }
+        function onLine(line) {
+            let message; try { message = JSON.parse(line); } catch (_) { return; }
+            if (!message || message.v !== 1 || message.session !== session) return;
+            if (message.kind === "world.ack") {
+                if (!inFlight || message.payload.op_id !== inFlight.op_id) return;
+                if (!message.payload.accepted) { console.log("WORLD_ERROR " + message.payload.error); socket.destroy({}); return; }
+                inFlight = null; sendNext();
+            } else if (message.kind === "world.resync") {
+                queue.length = 0; inFlight = null; snapshot();
+            }
+            else if (message.kind === "combat.event") combatEvent(message);
+            else if (message.kind === "combat.snapshot") {
+                const state = message.payload;
+                if (!state || !Number.isSafeInteger(state.seq) || state.seq <= lastCombatSeq
+                    || !validAction({ session: session, seq: state.seq, units: state.units })) return;
+                lastCombatSeq = state.seq;
+                context.executeAction(ACTION, { session: session, seq: state.seq, units: state.units },
+                    function (result) { if (result.error) console.log("WORLD_RENDER_ERROR " + result.errorMessage); });
+            }
+            else if (message.kind === "world.ready") {
+                lastCombatSeq = 0;
+                console.log("WORLD_READY entities=" + message.payload.entities
+                    + " targets=" + message.payload.targets + " obstacles=" + message.payload.obstacles
+                    + " navigation=" + message.payload.navigation
+                    + " unsupported=" + message.payload.unsupported_total);
+            }
+        }
+        function connect() {
+            if (socket) return;
+            const connection = network.createSocket(); socket = connection; buffer = "";
+            connection.on("data", function (data) {
+                buffer += data; if (buffer.length > 1048576) { connection.destroy({}); return; }
+                let newline; while ((newline = buffer.indexOf("\n")) !== -1) {
+                    onLine(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
+                }
+            });
+            connection.on("error", function (error) { console.log("WORLD_SOCKET_ERROR " + error); if (socket === connection) socket = null; connection.destroy({}); });
+            connection.on("close", function () { if (socket === connection) socket = null; inFlight = null; queue.length = 0; });
+            connection.connect(40010, "127.0.0.1", function () {
+                retryTicks = 0;
+                send("world.hello", { capabilities: ["snapshot", "entity.upsert", "entity.remove", "navigation.terrain.update"] });
+                snapshot();
+            });
+        }
+        connect();
+        context.subscribe("interval.tick", function () { if (!socket && ++retryTicks >= 40) { retryTicks = 0; connect(); } });
+    }
 
     function validUnits(args, combat) {
         if (!args || typeof args.session !== "string" || !/^[0-9a-f]{32}$/.test(args.session)
@@ -372,6 +619,7 @@
         }
 
         if (network.mode !== "server") return;
+        if (WORLD_ENABLED) { startWorldAdapter(); return; }
         const siegeRide = (SIEGE_ENABLED || FRONTIER_ENABLED) ? registeredCarousel() : null;
         if ((SIEGE_ENABLED || FRONTIER_ENABLED) && !siegeRide) {
             console.log("RIDE_SIEGE_ERROR expected closed empty Frontier Carousel fixture is missing or changed");
