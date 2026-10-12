@@ -1,5 +1,7 @@
 # First Playable Verification — Frontier Outpost
 
+> Historical first-playable baseline. The v0.2 [foundation verification](foundation-verification.md) resolves the listed victory, reconnect/restart, and generic live demolition gaps; the [park design report](park-design-v0.2.md) records the corrected wall geometry and native route retest.
+
 **Status: In progress.** The graphical first-playable encounter, native navigation checks, and live selection-control checks pass. Victory and a live scenario restart/reconnect still need verification, so this report does not declare the milestone complete.
 
 ## Test target

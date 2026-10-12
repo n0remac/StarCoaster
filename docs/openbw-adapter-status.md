@@ -94,4 +94,4 @@ RCT2_DATA_DIR=/path/to/rct2 STARCRAFT_DATA_DIR=/path/to/starcraft \
   BRIDGE_DISABLE_ASSAULT_AI=1 scripts/run-world-session.sh /path/to/park.park
 ```
 
-The `scripts/world-command-probe.js`, `scripts/world-target-probe.js`, and `scripts/world-unit-count-probe.js` files are local client fixtures. The target probe intentionally references one known ride ID in the regression park; the production adapter does not depend on that ID.
+The local `scripts/world-target-probe.js` fixture exercises generic ride demolition in `tests/test_world_live.sh`. The 100-unit snapshot and Marine command paths are covered by `tests/test_world_plugin.js`; their unused one-off probes were removed during v0.2 consolidation.
