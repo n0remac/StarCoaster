@@ -152,6 +152,8 @@ func TestParkAssaultDiagnostics(t *testing.T) {
 	run.Diagnostics = []artifacts.File{
 		{Path: "navigation-grid.png", Label: "Navigation Grid"},
 		{Path: "observed-paths.json", Label: "Observed Paths"},
+		{Path: "spatial-overlay.png", Label: "Spatial Overlay"},
+		{Path: "visual-verification.json", Label: "Visual Verification"},
 	}
 	verification := "verification.json"
 	run.VerificationFile = &verification
@@ -163,6 +165,12 @@ func TestParkAssaultDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, id, "observed-paths.json"), []byte(`{"2":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, id, "spatial-overlay.png"), []byte("PNG"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, id, "visual-verification.json"), []byte(`{"status":"passed"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, id, verification), []byte(`{"scenario":"park-assault","attack_orders":20}`), 0644); err != nil {
@@ -180,6 +188,7 @@ func TestParkAssaultDiagnostics(t *testing.T) {
 	defer ts.Close()
 	for _, item := range []struct{ name, mime string }{
 		{"navigation-grid.png", "image/png"}, {"observed-paths.json", "application/json"},
+		{"spatial-overlay.png", "image/png"}, {"visual-verification.json", "application/json"},
 	} {
 		response, err := http.Get(ts.URL + "/media/" + id + "/" + item.name)
 		if err != nil {

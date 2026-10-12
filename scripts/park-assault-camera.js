@@ -41,10 +41,11 @@ registerPlugin({
             ticks++;
             if (ticks === 20) {
                 ui.mainViewport.zoom = closeup ? -1 : 2;
-                ui.mainViewport.rotation = 0;
-                ui.mainViewport.moveTo(closeup ? { x: 640, y: 640 } : { x: 1040, y: 1040 });
-                focus = closeup ? 0 : -1;
-                console.log("PARK_ASSAULT_CAMERA role=" + (closeup ? "closeup" : "overview"));
+                ui.mainViewport.rotation = closeup ? 1 : 0;
+                ui.mainViewport.moveTo(closeup ? { x: 1264, y: 624 } : { x: 1040, y: 1040 });
+                focus = closeup ? 1 : -1;
+                console.log("PARK_ASSAULT_CAMERA role=" + (closeup ? "closeup" : "overview")
+                    + " rotation=" + ui.mainViewport.rotation);
             }
             if (ticks % 8 !== 0) return;
             targets.forEach(function (target, index) {
@@ -63,10 +64,11 @@ registerPlugin({
                     console.log("PARK_ASSAULT_CLIENT_AFTER " + JSON.stringify({ id: target.id,
                         ride_id: seenBefore[target.id], tracks: 0,
                         scenery: scenerySignature(), rides: map.rides.length }));
-                    if (closeup && focus === index && index + 1 < targets.length) {
-                        var next = targets[index + 1];
+                    var nextIndex = index === 1 ? 0 : index === 0 ? 2 : -1;
+                    if (closeup && focus === index && nextIndex >= 0) {
+                        var next = targets[nextIndex];
                         ui.mainViewport.moveTo({ x: next.x, y: next.y });
-                        focus = index + 1;
+                        focus = nextIndex;
                         console.log("PARK_ASSAULT_CAMERA focus=" + next.id);
                     }
                 }

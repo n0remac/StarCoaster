@@ -1003,11 +1003,13 @@ index 7fd474f..52376ce 100644
  #include "../drawing/LightFX.h"
  #include "../entity/EntityList.h"
  #include "../entity/Staff.h"
-@@ -16,6 +19,7 @@
+@@ -16,6 +19,9 @@
  #include "../profiling/Profiling.h"
  #include "../ride/TrackDesign.h"
  #include "../world/Map.h"
++#include "../world/TileElementsView.h"
 +#include "../world/tile_element/SurfaceElement.h"
++#include "../world/tile_element/PathElement.h"
  #include "Paint.h"
  #include "entity/Paint.Balloon.h"
  #include "entity/Paint.CrashSplashParticle.h"
@@ -1204,7 +1206,7 @@ index 7fd474f..52376ce 100644
  /**
   * Paint Quadrant
   *  rct2: 0x0069E8B0
-@@ -180,3 +366,101 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
+@@ -180,3 +366,107 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
          }
      }
  }
@@ -1229,7 +1231,12 @@ index 7fd474f..52376ce 100644
 +        session.CurrentlyDrawnEntity = nullptr;
 +        session.CurrentlyDrawnTileElement = nullptr;
 +        session.InteractionType = ViewportInteractionItem::none;
-+        const int32_t z = TileElementHeight(actorPos);
++        int32_t z = TileElementHeight(actorPos);
++        // Paths have their own surface. Use it for feet when it sits above the
++        // terrain, while keeping the draw position distinct from paint sorting.
++        for (auto* path : TileElementsView<PathElement>(actorPos))
++            if (!path->isGhost() && path->getBaseZ() >= z)
++                z = path->getBaseZ();
 +        // BWAPI headings are in map coordinates. Project that heading through
 +        // the same isometric transform as the actor's feet before selecting a
 +        // screen-facing GRP frame. A world-west shot, for example, points
@@ -1297,12 +1304,13 @@ index 7fd474f..52376ce 100644
 +                imageId = imageBase + direction / 2;
 +            }
 +        }
-+        PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, { { -8, -8, z }, { 16, 16, 24 } });
++        const BoundBoxXYZ actorBounds{ { -6, -6, z + 5 }, { 12, 12, 18 } };
++        PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, actorBounds);
 +        if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
 +        {
 +            const auto level = std::clamp((actor.hp * 10 + actor.maxHp / 2) / actor.maxHp, 0, 10);
 +            const auto healthBase = actor.kind == "terran_marine" ? SPR_BRIDGE_HEALTH_MARINE_0 : SPR_BRIDGE_HEALTH_ZERGLING_0;
-+            PaintAddImageAsChild(session, ImageId(healthBase + level), { 0, 0, z }, { { -8, -8, z }, { 16, 16, 24 } });
++            PaintAddImageAsChild(session, ImageId(healthBase + level), { 0, 0, z }, actorBounds);
 +        }
 +    }
 +}

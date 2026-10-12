@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 import time
 
+from park_navigation import ParkGrid
+
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "run-data/park-assault"
@@ -80,13 +82,20 @@ def main() -> None:
         generated = DATA / "generator/save/frontier-outpost.park"
         PARK.parent.mkdir(parents=True, exist_ok=True)
         generated.replace(PARK)
-        (DATA / "fixture.json").write_text(json.dumps(result, indent=2) + "\n")
         contents = (DATA / "generator/openrct2.log").read_text(errors="replace")
         if "PARK_ASSAULT_NAV " not in contents:
             raise RuntimeError("OpenRCT2 did not export navigation elements")
         raw = contents.split("PARK_ASSAULT_NAV ")[-1]
         navigation, _ = json.JSONDecoder().raw_decode(raw)
         (DATA / "navigation-elements.json").write_text(json.dumps(navigation, separators=(",", ":")) + "\n")
+        grid = ParkGrid(navigation, result, validate_approaches=False)
+        for target in result["targets"]:
+            actual = {(element["x"], element["y"]) for element in navigation["elements"]
+                      if element["type"] == "track" and element["ride_id"] == target["ride_id"]}
+            if actual != {(tile["x"], tile["y"]) for tile in target["footprint_tiles"]}:
+                raise ValueError(f"track footprint mismatch for {target['id']}")
+            target["attack_approaches"] = grid.select_attack_approaches(target["id"])
+        (DATA / "fixture.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
 
 

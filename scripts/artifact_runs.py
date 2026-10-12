@@ -18,10 +18,13 @@ ARTIFACT_ROOT = Path(os.environ.get("STARCOASTER_ARTIFACT_ROOT", ROOT / "run-dat
 LOG_NAMES = {"client-a.log", "client-b.log", "server.log", "zerg.log", "terran.log", "bwapi.log",
              "bwapi-restart.log", "video-capture.log"}
 VIDEO_NAMES = {"combined.mp4", "client-a.mp4", "client-b.mp4"}
-IMAGE_NAME = re.compile(r"(?:client-[ab]-(?:initial|firing|death|damage|early|later|final|overview|approach|combat|carousel-(?:attack|destroyed)|shop-(?:attack|destroyed)|ferris-(?:attack|destroyed)|t[\d.]+)(?:-rot[0-3])?|frame-\d+|park-background)\.png\Z")
+IMAGE_NAME = re.compile(r"(?:client-[ab]-(?:initial|firing|death|damage|early|later|final|overview|approach|path|combat|tree[0-2]|wall[0-2]|carousel-(?:attack|destroyed)|shop-(?:attack|destroyed)|ferris-(?:attack|destroyed)|t[\d.]+)(?:-rot[0-3])?|visual-samples-(?:path|shop-attack|carousel-attack|ferris-attack)|frame-\d+|park-background)\.png\Z")
 DIAGNOSTIC_NAMES = {"navigation-grid.png", "planned-paths.png", "observed-paths.png",
                     "navigation-grid.json", "planned-paths.json", "observed-paths.json",
-                    "target-events.json", "navigation-events.json", "violations.json"}
+                    "target-events.json", "navigation-events.json", "violations.json",
+                    "spatial-overlay.png", "spatial-diagnostics.json", "render-elevation-samples.json",
+                    "visual-verification.json", "sprite-anchor-report.json", "capture-events.json",
+                    "screenshot-states.json", "visual-fixture-verification.json"}
 ID_PATTERN = re.compile(r"\d{8}T\d{6}Z-[0-9a-f]{12}\Z")
 
 

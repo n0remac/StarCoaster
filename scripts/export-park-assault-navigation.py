@@ -19,11 +19,21 @@ def export() -> dict:
     if not 1 <= len(fixture["targets"]) <= 8:
         raise ValueError("compact navigation grid supports one to eight targets")
     offset = fixture["transform"]
-    lines = [f"PARKGRID 1 {grid.revision} {grid.x0} {grid.y0} {grid.width} {grid.height} "
+    lines = [f"PARKGRID 2 {grid.revision} {grid.x0} {grid.y0} {grid.width} {grid.height} "
              f"{offset['x']} {offset['y']} {len(fixture['targets'])}"]
     for target in fixture["targets"]:
-        anchor = target["attack_anchor"]
-        lines.append(f"TARGET {target['id']} {anchor['x'] - offset['x']} {anchor['y'] - offset['y']}")
+        center = target["structure_center"]
+        if target["proxy_world"] != center or not target["attack_approaches"]:
+            raise ValueError(f"invalid target geometry: {target['id']}")
+        collision = target["proxy_collision"]
+        lines.append(f"TARGET {target['id']} {target['ride_id']} {target['proxy_unit_type']} "
+                     f"{center['x'] - offset['x']} {center['y'] - offset['y']} "
+                     f"{collision['width']} {collision['height']} {len(target['attack_approaches'])}")
+        for approach in target["attack_approaches"]:
+            cell = grid.cell(Point(**approach))
+            if cell not in grid.attack_cells(target["id"]):
+                raise ValueError(f"unsafe attack approach: {target['id']} {approach}")
+            lines.append(f"APPROACH {approach['x'] - offset['x']} {approach['y'] - offset['y']}")
     for y in range(grid.y0, grid.y0 + grid.height):
         row = []
         for x in range(grid.x0, grid.x0 + grid.width):

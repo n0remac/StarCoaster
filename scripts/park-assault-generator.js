@@ -9,11 +9,11 @@ registerPlugin({
         var bounds = { min_x: 8, min_y: 8, max_x: 55, max_y: 55 };
         var specs = [
             { id: "carousel-1", name: "Frontier Carousel", object: "rct2.ride.mgr1", x: 19, y: 18, track: 266, expected: 9,
-                attack_anchor: { x: 624, y: 688 } },
+                proxy_type: "Terran_Barracks", proxy_unit_type: 111, proxy_hp: 1000, collision: { width: 105, height: 73 } },
             { id: "shop-1", name: "Frontier Burger Bar", object: "rct2.ride.burgb", x: 39, y: 19, track: 262, expected: 1,
-                attack_anchor: { x: 1200, y: 624 } },
+                proxy_type: "Terran_Missile_Turret", proxy_unit_type: 124, proxy_hp: 200, collision: { width: 33, height: 49 } },
             { id: "ride-2", name: "Frontier Ferris Wheel", object: "rct2.ride.fwh1", x: 42, y: 39, track: 265, expected: 4,
-                attack_anchor: { x: 1360, y: 1328 } }
+                proxy_type: "Terran_Armory", proxy_unit_type: 123, proxy_hp: 750, collision: { width: 96, height: 55 } }
         ];
         function fail(message) { console.log("PARK_ASSAULT_FAILED " + message); }
         function object(type, identifier) {
@@ -46,6 +46,16 @@ registerPlugin({
                 }
             }
             return cells;
+        }
+        function structureCenter(tiles) {
+            // The centre of occupied track tile area also handles a one-tile shop
+            // and an even-width, asymmetric ride without depending on placement origin.
+            var unique = {};
+            tiles.forEach(function (tile) { unique[tile.x + "," + tile.y] = tile; });
+            var occupied = Object.keys(unique).map(function (key) { return unique[key]; });
+            var x = 0, y = 0;
+            occupied.forEach(function (tile) { x += tile.x * 32 + 16; y += tile.y * 32 + 16; });
+            return { x: Math.round(x / occupied.length), y: Math.round(y / occupied.length) };
         }
         function scenery() {
             var paths = {};
@@ -103,10 +113,14 @@ registerPlugin({
                 if (ride.status !== "closed" || !ride.isEmpty || ride.object.identifier !== spec.object
                     || tiles.length !== spec.expected || tiles.some(function (tile) { return tile.z !== 112; }))
                     throw new Error("invalid constructed ride " + spec.id + " " + JSON.stringify({ ride: ride.id, tiles: tiles }));
+                var center = structureCenter(tiles);
                 return { id: spec.id, ride_id: ride.id, ride_type: ride.type,
                     object_id: ride.object.identifier, name: ride.name, status: ride.status,
-                    empty: ride.isEmpty, attack_anchor: spec.attack_anchor,
-                    proxy_world: spec.attack_anchor, tiles: tiles };
+                    empty: ride.isEmpty, structure_center: center, proxy_world: center,
+                    proxy_type: spec.proxy_type, proxy_unit_type: spec.proxy_unit_type,
+                    proxy_hp: spec.proxy_hp, proxy_collision: spec.collision,
+                    attack_approaches: [], footprint_tiles: tiles.map(function (tile) { return { x: tile.x, y: tile.y }; }),
+                    tiles: tiles };
             });
             return { name: "Frontier Outpost", bounds: bounds, tile_size: 32,
                 cell_size: 8, transform: { x: -128, y: -96 }, targets: targets };

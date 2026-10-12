@@ -489,12 +489,13 @@ private:
                 tracked.targetId = tracked.squad == "alpha" ? ids[0] : tracked.squad == "beta" ? ids[1] : ids[2];
                 zerglings.emplace(unit->getID(), tracked);
             }
-            if (unit->getType() != BWAPI::UnitTypes::Terran_Barracks
-                || !unit->getPlayer() || !self->isEnemy(unit->getPlayer())) continue;
+            if (!unit->getPlayer() || !self->isEnemy(unit->getPlayer())) continue;
             const auto p = unit->getPosition();
             for (const auto& id : ids) {
-                const auto anchor = assaultNav_.target(id);
-                if (std::abs(p.x - anchor.x) <= 32 && std::abs(p.y - anchor.y) <= 32) {
+                const auto& expected = assaultNav_.targetIdentity(id);
+                const auto center = expected.center;
+                if (unit->getType().getID() == expected.unitType
+                    && std::abs(p.x - center.x) <= 8 && std::abs(p.y - center.y) <= 8) {
                     if (found.count(id)) { std::cerr << "[park-assault] duplicate proxy " << id << std::endl; return; }
                     found[id] = unit;
                 }
@@ -512,13 +513,8 @@ private:
         for (auto& [id, unit] : zerglings) {
             const int squad = unit.squad == "alpha" ? 0 : unit.squad == "beta" ? 1 : 2;
             const int ordinal = squads[squad]++;
-            const auto anchor = assaultNav_.target(unit.targetId);
-            if (squad == 0) unit.approach = { anchor.x - 30 + ordinal % 4 * 20,
-                                               anchor.y + 96 + ordinal / 4 * 24 };
-            else if (squad == 1) unit.approach = { anchor.x - 96 - ordinal / 3 * 24,
-                                                    anchor.y - 20 + ordinal % 3 * 20 };
-            else unit.approach = { anchor.x - 24 + ordinal % 3 * 24,
-                                   anchor.y + 96 + ordinal / 3 * 24 };
+            const auto& approaches = assaultNav_.attackApproaches(unit.targetId);
+            unit.approach = approaches[static_cast<size_t>(ordinal) % approaches.size()];
             unit.launchFrame = (squad == 0 ? 12 : squad == 1 ? 36 : 60) + ordinal * 12;
         }
         if (squads[0] != 8 || squads[1] != 6 || squads[2] != 6) {
@@ -530,9 +526,15 @@ private:
         for (const auto& id : ids) {
             BWAPI::Unit proxy = found[id];
             assaultTargets_[id] = { proxy, proxy->getID(), proxy->getHitPoints(), proxy->getHitPoints(), false };
+            const auto& expected = assaultNav_.targetIdentity(id);
+            if (proxy->getType().width() != expected.width || proxy->getType().height() != expected.height) {
+                std::cerr << "[park-assault] proxy collision mismatch id=" << id << std::endl;
+                return;
+            }
             std::cerr << "[park-assault] target-created id=" << id << " proxy=" << proxy->getID()
                       << " hp=" << proxy->getHitPoints() << " x=" << proxy->getPosition().x
-                      << " y=" << proxy->getPosition().y << std::endl;
+                      << " y=" << proxy->getPosition().y << " width=" << proxy->getType().width()
+                      << " height=" << proxy->getType().height() << " ride=" << expected.rideId << std::endl;
         }
         assaultReady_ = true;
         std::cerr << "[park-assault] initialized zerglings=20 squads=8,6,6 targets=3" << std::endl;
@@ -543,19 +545,7 @@ private:
         auto pos = tracked.unit->getPosition();
         const auto destination = tracked.rallied ? tracked.spawn : tracked.approach;
         const ParkAssaultNavigation::Point start{ pos.x, pos.y };
-        if (!tracked.rallied && tracked.squad == "beta"
-            && pos.y < assaultNav_.target("shop-1").y - 80) {
-            const auto shop = assaultNav_.target("shop-1");
-            const ParkAssaultNavigation::Point above{ shop.x, shop.y - 128 };
-            const ParkAssaultNavigation::Point below{ shop.x, shop.y - 32 };
-            tracked.waypoints = assaultNav_.route(start, above);
-            auto crossing = assaultNav_.route(above, below);
-            auto finish = assaultNav_.route(below, destination);
-            if (!crossing.empty() && !tracked.waypoints.empty())
-                tracked.waypoints.insert(tracked.waypoints.end(), crossing.begin() + 1, crossing.end());
-            if (!finish.empty() && !tracked.waypoints.empty())
-                tracked.waypoints.insert(tracked.waypoints.end(), finish.begin() + 1, finish.end());
-        } else tracked.waypoints = assaultNav_.route(start, destination);
+        tracked.waypoints = assaultNav_.route(start, destination);
         tracked.waypoint = tracked.waypoints.size() > 1 ? 1 : 0;
         tracked.lastOrderFrame = -100;
         tracked.lastProgressFrame = frame;
@@ -615,9 +605,8 @@ private:
             if (tracked.waypoints.empty()) continue;
             if (!tracked.rallied && !tracked.attacking && frame >= tracked.launchFrame + 24
                 && assaultTargets_[tracked.targetId].unit && assaultTargets_[tracked.targetId].unit->exists()) {
-                const auto anchor = assaultNav_.target(tracked.targetId);
-                if (std::hypot(pos.x - anchor.x, pos.y - anchor.y) <= 320
-                    && assaultNav_.directSafeBW({ pos.x, pos.y }, anchor)) {
+                if (assaultNav_.distanceToTargetFootprint(tracked.targetId, { pos.x, pos.y }) <= 88
+                    && assaultNav_.directSafeBW({ pos.x, pos.y }, tracked.approach)) {
                     const bool accepted = unit->attack(assaultTargets_[tracked.targetId].unit);
                     if (accepted) {
                         tracked.attacking = true;

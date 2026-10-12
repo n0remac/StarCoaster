@@ -1,4 +1,5 @@
 import json
+import copy
 from pathlib import Path
 import subprocess
 import sys
@@ -83,6 +84,34 @@ class ParkAssaultNavigationTest(unittest.TestCase):
         for unit in self.manifest["zerglings"]:
             self.assertEqual(unit["park_x"], unit["bw_x"] + grid.fixture["transform"]["x"])
             self.assertEqual(unit["park_y"], unit["bw_y"] + grid.fixture["transform"]["y"])
+        self.assertEqual(compact[0].split()[1], "2")
+        for target in grid.targets.values():
+            center = target["structure_center"]
+            self.assertEqual(center, target["proxy_world"])
+            proxy = next(row for row in self.manifest["proxies"] if row["target_id"] == target["id"])
+            self.assertEqual(proxy["ride_id"], target["ride_id"])
+            self.assertEqual(proxy["park_world"], center)
+            for axis in ("x", "y"):
+                self.assertEqual(proxy["bw_world"][axis] + grid.fixture["transform"][axis], center[axis])
+            occupied = {(tile["x"], tile["y"]) for tile in target["footprint_tiles"]}
+            self.assertTrue(target["attack_approaches"])
+            for approach in target["attack_approaches"]:
+                self.assertNotIn((approach["x"] // 32, approach["y"] // 32), occupied)
+                self.assertIn(grid.cell(Point(**approach)), grid.attack_cells(target["id"]))
+
+    def test_incorrect_structure_center_footprint_and_transform_are_rejected(self):
+        grid = self.grid()
+        for change in (lambda target: target["structure_center"].__setitem__("x", 624),
+                       lambda target: target["footprint_tiles"].append({"x": 9, "y": 9}),
+                       lambda target: target["proxy_world"].__setitem__("y", 688)):
+            fixture = copy.deepcopy(grid.fixture)
+            change(fixture["targets"][1])
+            with self.assertRaises(ValueError):
+                ParkGrid(grid.export, fixture)
+        fixture = copy.deepcopy(grid.fixture)
+        fixture["transform"]["x"] += 1
+        with self.assertRaises(ValueError):
+            ParkGrid(grid.export, fixture)
 
 
 if __name__ == "__main__":

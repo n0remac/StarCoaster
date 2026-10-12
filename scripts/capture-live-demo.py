@@ -12,11 +12,15 @@ import subprocess
 import sys
 import time
 
+import numpy as np
 from PIL import Image
 from video_capture import VideoConfig, VideoRecorder, check_dependencies
 from artifact_runs import ArtifactRun
 from squad_verification import animation_region_hashes, compare_clients, local_purple_counts, parse_applied, parse_projected, parse_combat_applied, write_summary
 from park_assault_artifacts import draw_diagnostics
+from park_assault_visual import body_pixels, verify as verify_park_visual
+from sprite_anchor_report import report as sprite_anchor_report
+from verify_render_fixture import verify as verify_render_fixture
 from park_assault_verification import analyze as analyze_park_assault
 
 
@@ -396,6 +400,15 @@ def capture_frontier_defense(args: argparse.Namespace, video_config: VideoConfig
         if not any(abs(unit[1] - 576) + abs(unit[2] - 392) >= 12
                    for key in common for unit in states["server"][key] if unit[0] == "openbw:1000"):
             raise RuntimeError("map-selected Marine did not move in OpenBW on both clients")
+        # These are the fixture camera projections of preplaced Marine 1000.
+        # Check body pixels at the expected location in both initial captures.
+        marine_samples = {}
+        for label, point in (("client-a", (384, 336)),
+                             ("client-b", (720, 240) if args.rotate_client_b else (384, 336))):
+            rgb = np.asarray(Image.open(OUT / f"{label}-initial.png").convert("RGB"))
+            marine_samples[label] = {"projected": list(point), "body_pixels": body_pixels(rgb, *point)}
+            if marine_samples[label]["body_pixels"] < 40:
+                raise RuntimeError(f"{label} Marine body pixels missing at projected fixture position")
         report = {"status": "passed", "scenario": "frontier-defense", "live_openrct2": True,
                   "initial_units": 12, "marine_attack_frames": len(re.findall(r"\[battle\] attack-frame .*kind=terran_marine", zerg_log)),
                   "combat_deaths": zerg_log.count("[battle] destroyed"),
@@ -403,7 +416,7 @@ def capture_frontier_defense(args: argparse.Namespace, video_config: VideoConfig
                   "carousel_demolitions": 1, "openbw_agreed_frames": len(common_frames),
                   "openrct2_common_snapshots": len(common), "native_death_snapshots": len(deaths),
                   "marine_command": "accepted and moved", "attack_command": "accepted by Terran BWAPI",
-                  "map_command": "selected, accepted and moved",
+                  "map_command": "selected, accepted and moved", "marine_visual": marine_samples,
                   "clients": list(clients)}
         (OUT / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps(report, indent=2), flush=True)
@@ -461,7 +474,8 @@ def capture_park_assault(args: argparse.Namespace, video_config: VideoConfig) ->
                                "BRIDGE_BWAPI_RUNTIME_DIR": str(OUT / "openbw")}
     scenario_config = json.loads((data / "scenario-config.json").read_text()) if (data / "scenario-config.json").is_file() else {}
     scenario_config.update({"park": str(park), "map": str(data / "map/park-assault.scm"),
-                            "zerglings": 20, "proxy": "Terran_Barracks",
+                            "zerglings": 20,
+                            "proxies": {target["id"]: target["proxy_type"] for target in config["targets"]},
                             "navigation_grid": str(data / "navigation.grid"),
                             "bw_to_park_offset": config["transform"]})
     (OUT / "scenario-config.json").write_text(json.dumps(scenario_config, indent=2) + "\n")
@@ -470,13 +484,20 @@ def capture_park_assault(args: argparse.Namespace, video_config: VideoConfig) ->
     recording_started = False
     status = "failed"
     error_text = None
+    capture_events = []
 
     def shot(stage: str) -> None:
+        bw_log = OUT / "bwapi.log"
+        frames = re.findall(r"\[park-assault\] position id=\d+ x=\d+ y=\d+ frame=(\d+)",
+                            bw_log.read_text(errors="replace")) if bw_log.is_file() else []
         for label, display in (("client-a", ":91"), ("client-b", ":92")):
             name = f"{label}-{stage}.png"
             subprocess.run(["scrot", "-z", "-o", str(OUT / name)], check=True,
                            env=env | {"DISPLAY": display})
             recorder.event("screenshot", client=label, filename=name, stage=stage)
+            capture_events.append({"filename": name, "stage": stage, "client": label,
+                                   "bw_frame": int(frames[-1]) if frames else 0})
+        (OUT / "capture-events.json").write_text(json.dumps(capture_events, indent=2) + "\n")
 
     def client_state(label: str, kind: str) -> dict[str, dict]:
         log = (OUT / f"{label}.log").read_text(errors="replace")
@@ -540,8 +561,10 @@ def capture_park_assault(args: argparse.Namespace, video_config: VideoConfig) ->
             wait_for(label, "RTS Bridge apply tick=", clients[label], 20)
         wait_for("bwapi", "[park-assault] move-order", publisher, 15)
         shot("approach")
+        time.sleep(7)
+        shot("path")
         recorder.event("twenty_zerglings_approach")
-        for target_id, stage in (("carousel-1", "carousel"), ("shop-1", "shop"),
+        for target_id, stage in (("shop-1", "shop"), ("carousel-1", "carousel"),
                                  ("ride-2", "ferris")):
             wait_for("bwapi", f"[park-assault] target-damage id={target_id}", publisher, 45)
             shot(stage + "-attack")
@@ -557,6 +580,13 @@ def capture_park_assault(args: argparse.Namespace, video_config: VideoConfig) ->
         server_log = (OUT / "server.log").read_text(errors="replace")
         report = analyze_park_assault(bw_log, server_log, OUT)
         draw_diagnostics(OUT)
+        visual_report = verify_park_visual(OUT, config)
+        report["visual_verification"] = visual_report["status"]
+        report["errors"].extend(visual_report["errors"])
+        anchors = sprite_anchor_report(OUT)
+        report["sprite_anchors"] = anchors["status"]
+        if anchors["mismatches"]:
+            report["errors"].append("registered sprite offsets differ from the local frame manifests")
         for name in ("navigation-grid.json", "planned-paths.json"):
             (OUT / name).write_bytes((data / name).read_bytes())
         states = {name: parse_combat_applied((OUT / f"{name}.log").read_text(errors="replace"))
@@ -761,6 +791,7 @@ def main() -> int:
             recording_started = True
             print(f"Recording {video_config.layout} video in {OUT}", flush=True)
         start_time = recorder.start_monotonic if recorder else time.monotonic()
+        render_fixture = args.verify_animation and PARK.resolve() == (ROOT / "run-data/park-generator/save/bridge-render-test.park").resolve()
         shot_times = [2, 5]
         if args.sample_animation or args.verify_animation:
             shot_times += [5.1, 5.2, 5.3, 5.4, 5.5]
@@ -812,15 +843,15 @@ def main() -> int:
                     if rotations:
                         captured_rotations.add(rotations[-1])
                         filename = f"{label}-{suffix}-rot{rotations[-1]}.png"
+                if args.verify_units or args.verify_animation:
+                    current = parse_projected((OUT / f"{label}.log").read_text(errors="replace"))
+                    shot_states[filename] = next(reversed(current.values()), {"center_z": 112, "actors": ()}) if current else {"center_z": 112, "actors": ()}
                 subprocess.run(["scrot", "-z", "-o", str(OUT / filename)],
                                check=True, env=env | {"DISPLAY": display})
                 if recorder:
                     recorder.event("screenshot", client=label, filename=filename,
                                    scheduled_seconds=shot_at)
                 captured_paths[label].append(OUT / filename)
-                if args.verify_units or args.verify_animation:
-                    current = parse_projected((OUT / f"{label}.log").read_text(errors="replace"))
-                    shot_states[filename] = next(reversed(current.values()), {"center_z": 112, "actors": ()}) if current else {"center_z": 112, "actors": ()}
                 print(f"Captured {OUT / filename}", flush=True)
             if recorder:
                 recorder.check_alive()
@@ -834,6 +865,27 @@ def main() -> int:
                     screenshot = captured_paths[label][-1]
                     if detect_zergling(screenshot)[0] < 20:
                         raise RuntimeError(f"{label} did not visibly render the restarted actor")
+        if render_fixture:
+            for stage, low, high in (("tree", 416, 456), ("wall", 512, 560)):
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    current = parse_projected((OUT / "client-a.log").read_text(errors="replace"))
+                    state = next(reversed(current.values()), {"center_z": 112, "actors": ()}) if current else {"center_z": 112, "actors": ()}
+                    actors = state["actors"]
+                    if len(actors) == 1 and low <= actors[0][1] <= high:
+                        for index in range(3):
+                            current = parse_projected((OUT / "client-a.log").read_text(errors="replace"))
+                            state = next(reversed(current.values()))
+                            filename = f"client-a-{stage}{index}.png"
+                            shot_states[filename] = state
+                            subprocess.run(["scrot", "-z", "-o", str(OUT / filename)], check=True,
+                                           env=env | {"DISPLAY": ":91"})
+                            captured_paths["client-a"].append(OUT / filename)
+                            time.sleep(0.08)
+                        break
+                    time.sleep(0.05)
+                else:
+                    raise RuntimeError(f"render fixture actor did not enter {stage} sample region")
         if args.cycle_rotations:
             camera_log = (OUT / "client-b.log").read_text(errors="replace")
             seen = set(re.findall(r"RTS Bridge demo camera (?:centred at world \(480,480\), )?rotation=(\d)", camera_log))
@@ -885,8 +937,14 @@ def main() -> int:
                         "source_fingerprint_sha256": fingerprint.hexdigest(),
                         "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
                         "asset_source": os.environ.get("BRIDGE_SPRITE_SOURCE", "starcraft-local")})
-        if args.verify_units:
+        if args.verify_units or args.verify_animation:
             (OUT / "screenshot-states.json").write_text(json.dumps(shot_states, indent=2) + "\n")
+        if render_fixture:
+            fixture_visual = verify_render_fixture(OUT)
+            summary["visual_fixture"] = fixture_visual["status"]
+            if fixture_visual["errors"]:
+                raise RuntimeError("render fixture visual check failed: " + "; ".join(fixture_visual["errors"]))
+        if args.verify_units:
             if len(summary["stable_ids"]) != 8 or summary["eight_unit_snapshots"] < 20:
                 raise RuntimeError(f"eight stable IDs were not observed: {summary}")
             if args.publisher_restart and (summary["seven_unit_snapshots"] < 5 or summary["empty_snapshots"] < 2
@@ -922,7 +980,7 @@ def main() -> int:
             for label in ("client-a", "client-b"):
                 per_id = {}
                 for path in captured_paths[label]:
-                    if not re.search(r"-t5\.[1-5](?:-rot[0-3])?\.png$", path.name):
+                    if not render_fixture and not re.search(r"-t5\.[1-5](?:-rot[0-3])?\.png$", path.name):
                         continue
                     state = shot_states.get(path.name, {"center_z": 112, "actors": ()})
                     actors = state["actors"]

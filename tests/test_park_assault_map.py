@@ -78,7 +78,9 @@ class ParkAssaultMapTest(unittest.TestCase):
         unit = struct.Struct("<IHHHHHHBBBBIHHII")
         kinds = [unit.unpack_from(records, offset)[3] for offset in range(0, len(records), unit.size)]
         self.assertEqual(kinds.count(37), 20)
-        self.assertEqual(kinds.count(111), 3)
+        self.assertEqual(kinds.count(111), 1)
+        self.assertEqual(kinds.count(124), 1)
+        self.assertEqual(kinds.count(123), 1)
 
 
 if __name__ == "__main__":

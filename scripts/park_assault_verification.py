@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -26,8 +27,10 @@ def command(*args: str) -> None:
 
 
 def analyze(bw_log: str, server_log: str, output: Path = OUT) -> dict:
+    fixture = json.loads((DATA / "fixture.json").read_text())
+    expected = {target["id"]: target for target in fixture["targets"]}
     initialized = "[park-assault] initialized zerglings=20 squads=8,6,6 targets=3" in bw_log
-    targets = re.findall(r"\[park-assault\] target-created id=([a-z0-9-]+) proxy=(\d+) hp=(\d+)", bw_log)
+    targets = re.findall(r"\[park-assault\] target-created id=([a-z0-9-]+) proxy=(\d+) hp=(\d+) x=(\d+) y=(\d+) width=(\d+) height=(\d+) ride=(\d+)", bw_log)
     destroyed = re.findall(r"\[park-assault\] target-destroyed id=([a-z0-9-]+) proxy=(\d+) frame=(\d+)", bw_log)
     orders = re.findall(r"\[park-assault\] attack-order id=(\d+) target=([a-z0-9-]+) accepted=(\d+)", bw_log)
     moves = re.findall(r"\[park-assault\] move-order id=(\d+) .* accepted=(\d+)", bw_log)
@@ -77,8 +80,27 @@ def analyze(bw_log: str, server_log: str, output: Path = OUT) -> dict:
     errors = []
     if not initialized or len(observed) != 20:
         errors.append("OpenBW did not initialize and report all 20 Zerglings")
-    if {id for id, _, hp in targets if int(hp) == 1000} != TARGETS:
-        errors.append("three independent 1000 HP Barracks proxies were not present")
+    if {row[0] for row in targets} != TARGETS or len(targets) != 3:
+        errors.append("three independent structure proxies were not present")
+    for target_id, _proxy, hp, x, y, width, height, ride in targets:
+        target = expected[target_id]
+        center = target["structure_center"]
+        offset = fixture["transform"]
+        if (int(hp) != target["proxy_hp"] or int(ride) != target["ride_id"]
+                or abs(int(x) + offset["x"] - center["x"]) > 8
+                or abs(int(y) + offset["y"] - center["y"]) > 8
+                or int(width) != target["proxy_collision"]["width"]
+                or int(height) != target["proxy_collision"]["height"]):
+            errors.append(f"proxy geometry mismatch for {target_id}")
+    attack_positions = re.findall(r"\[park-assault\] attack-position id=(\d+) target=([a-z0-9-]+) x=(\d+) y=(\d+)", bw_log)
+    for unit_id, target_id, x, y in attack_positions:
+        target = expected[target_id]
+        park_x, park_y = int(x) + fixture["transform"]["x"], int(y) + fixture["transform"]["y"]
+        distance = min(math.hypot(max(tile["x"] * 32 - park_x, 0, park_x - (tile["x"] + 1) * 32),
+                                  max(tile["y"] * 32 - park_y, 0, park_y - (tile["y"] + 1) * 32))
+                       for tile in target["footprint_tiles"])
+        if distance > 88:
+            errors.append(f"unit {unit_id} attacked too far from {target_id}: {distance:.1f}px")
     if [id for id, _, _ in destroyed] != ["carousel-1", "shop-1", "ride-2"] and {id for id, _, _ in destroyed} != TARGETS:
         errors.append("three targets did not die in OpenBW")
     if {int(id) for id, _, accepted in orders if accepted == "1"} != set(observed):
@@ -104,6 +126,7 @@ def analyze(bw_log: str, server_log: str, output: Path = OUT) -> dict:
     report = {"status": "failed" if errors else "passed", "scenario": "park-assault",
               "live_openrct2": False, "zergling_ids": sorted(observed), "target_ids": sorted(TARGETS),
               "attack_orders": len(orders), "attack_frames": len(attacks),
+              "attack_positions": len(attack_positions), "proxy_geometry": targets,
               "target_damage_events": len(damage), "native_demolitions": native,
               "navigation_revisions": revisions, "observed_samples": sum(map(len, observed.values())),
               "trajectory_violations": trajectory_failures,

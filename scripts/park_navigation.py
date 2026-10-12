@@ -25,7 +25,8 @@ class Point:
 
 
 class ParkGrid:
-    def __init__(self, export: dict, fixture: dict, radius: int = UNIT_RADIUS):
+    def __init__(self, export: dict, fixture: dict, radius: int = UNIT_RADIUS,
+                 validate_approaches: bool = True):
         self.export = export
         self.fixture = fixture
         self.radius = radius
@@ -37,7 +38,43 @@ class ParkGrid:
         self.revision = 1
         self.cleared = set()
         self.targets = {target["id"]: target for target in fixture["targets"]}
+        self._validate_geometry()
         self._rasterize()
+        if validate_approaches:
+            for target_id, target in self.targets.items():
+                valid = self.attack_cells(target_id)
+                if not target["attack_approaches"] or any(
+                        self.cell(Point(**approach)) not in valid
+                        for approach in target["attack_approaches"]):
+                    raise ValueError(f"unsafe attack approach for {target_id}")
+
+    def _validate_geometry(self) -> None:
+        transform = self.fixture["transform"]
+        if not all(isinstance(transform.get(axis), int) for axis in ("x", "y")):
+            raise ValueError("invalid world transform")
+        if len(self.targets) != len(self.fixture["targets"]):
+            raise ValueError("duplicate target identity")
+        for target in self.targets.values():
+            occupied = {(tile["x"], tile["y"]) for tile in target["footprint_tiles"]}
+            exported = {(element["x"], element["y"]) for element in self.export["elements"]
+                        if element["type"] == "track" and element["ride_id"] == target["ride_id"]}
+            if not occupied or occupied != exported or occupied != {
+                    (tile["x"], tile["y"]) for tile in target["tiles"]}:
+                raise ValueError(f"track footprint mismatch for {target['id']}")
+            center = {"x": round(sum(x * 32 + 16 for x, _ in occupied) / len(occupied)),
+                      "y": round(sum(y * 32 + 16 for _, y in occupied) / len(occupied))}
+            if target["structure_center"] != center or target["proxy_world"] != center:
+                raise ValueError(f"proxy position mismatch for {target['id']}")
+            if any((center[axis] - transform[axis]) % 16 for axis in ("x", "y")):
+                raise ValueError(f"proxy transform cannot round-trip for {target['id']}")
+            footprint_width = (max(x for x, _ in occupied) - min(x for x, _ in occupied) + 1) * 32
+            footprint_height = (max(y for _, y in occupied) - min(y for _, y in occupied) + 1) * 32
+            collision = target["proxy_collision"]
+            # Stock OpenBW building bounds need not match the ride pixel for
+            # pixel, but they must remain within one track tile on each axis.
+            if (abs(collision["width"] - footprint_width) > 32
+                    or abs(collision["height"] - footprint_height) > 32):
+                raise ValueError(f"proxy collision mismatch for {target['id']}")
 
     @classmethod
     def load(cls, elements: Path, fixture: Path, radius: int = UNIT_RADIUS) -> "ParkGrid":
@@ -213,11 +250,39 @@ class ParkGrid:
 
     def route_to_target(self, start: Point, target_id: str) -> list[Point]:
         target = self.targets[target_id]
-        anchor = target["attack_anchor"]
-        candidates = {cell for cell in self.attack_cells(target_id)
+        candidates = {cell for approach in target["attack_approaches"]
+                      for cell in self.attack_cells(target_id)
                       if math.dist((self.world(cell).x, self.world(cell).y),
-                                   (anchor["x"], anchor["y"])) <= 16}
+                                   (approach["x"], approach["y"])) <= 8}
         return self.route(start, candidates)
+
+    def select_attack_approaches(self, target_id: str) -> list[dict]:
+        """Pick cleared exterior points on the available sides of real track tiles."""
+        target = self.targets[target_id]
+        center = target["structure_center"]
+        candidates = self.attack_cells(target_id)
+        selected = []
+        for sector in range(8):
+            angle = sector * math.pi / 4
+            direction = math.cos(angle), math.sin(angle)
+            scored = []
+            for cell in candidates:
+                point = self.world(cell)
+                dx, dy = point.x - center["x"], point.y - center["y"]
+                distance = math.hypot(dx, dy)
+                if distance == 0:
+                    continue
+                alignment = (dx * direction[0] + dy * direction[1]) / distance
+                if alignment >= 0.9:
+                    scored.append((distance, -alignment, cell))
+            if scored:
+                point = self.world(min(scored)[2])
+                candidate = {"x": point.x, "y": point.y}
+                if candidate not in selected:
+                    selected.append(candidate)
+        if not selected:
+            raise ValueError(f"no cleared attack approaches for {target_id}")
+        return selected
 
     def clear_target(self, target_id: str, expected_revision: int) -> dict:
         if expected_revision != self.revision:

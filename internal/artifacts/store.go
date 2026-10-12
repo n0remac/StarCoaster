@@ -12,11 +12,16 @@ import (
 )
 
 var runID = regexp.MustCompile(`^\d{8}T\d{6}Z-[0-9a-f]{12}$`)
-var imageName = regexp.MustCompile(`^(client-[ab]-(initial|firing|death|damage|early|later|final|overview|approach|combat|carousel-(attack|destroyed)|shop-(attack|destroyed)|ferris-(attack|destroyed)|t[0-9.]+)(-rot[0-3])?|frame-[0-9]+|park-background)\.png$`)
+var imageName = regexp.MustCompile(`^(client-[ab]-(initial|firing|death|damage|early|later|final|overview|approach|path|combat|tree[0-2]|wall[0-2]|carousel-(attack|destroyed)|shop-(attack|destroyed)|ferris-(attack|destroyed)|t[0-9.]+)(-rot[0-3])?|visual-samples-(path|shop-attack|carousel-attack|ferris-attack)|frame-[0-9]+|park-background)\.png$`)
 var diagnosticNames = map[string]bool{
 	"navigation-grid.png": true, "planned-paths.png": true, "observed-paths.png": true,
 	"navigation-grid.json": true, "planned-paths.json": true, "observed-paths.json": true,
 	"target-events.json": true, "navigation-events.json": true, "violations.json": true,
+	"spatial-overlay.png": true, "spatial-diagnostics.json": true,
+	"render-elevation-samples.json": true, "visual-verification.json": true,
+	"sprite-anchor-report.json": true, "capture-events.json": true,
+	"screenshot-states.json": true,
+	"visual-fixture-verification.json": true,
 }
 var ErrNotFound = errors.New("artifact not found")
 

@@ -38,8 +38,12 @@ def patch_chk(data: bytes, fixture: dict) -> bytes:
     records = [base.unit(1, 320, 480, 214, 0), base.unit(2, 2200, 2200, 214, 1)]
     for index, target in enumerate(fixture["targets"]):
         world = target["proxy_world"]
+        if world != target["structure_center"] or not target["footprint_tiles"]:
+            raise ValueError(f"invalid proxy position or footprint: {target['id']}")
+        if any((world[axis] - offset[axis]) % 16 for axis in ("x", "y")):
+            raise ValueError(f"proxy position cannot be placed on the OpenBW grid: {target['id']}")
         records.append(base.unit(100 + index, world["x"] - offset["x"],
-                                 world["y"] - offset["y"], 111, 1))  # non-attacking Barracks, 1000 HP
+                                 world["y"] - offset["y"], target["proxy_unit_type"], 1))
     for index, (_, x, y) in enumerate(positions()):
         records.append(base.unit(200 + index, x - offset["x"], y - offset["y"], 37, 0))
     replacements = {b"OWNR": bytes([6, 5] + [0] * 10),
@@ -85,8 +89,11 @@ def main() -> None:
                                 "bw_x": x - fixture["transform"]["x"],
                                 "bw_y": y - fixture["transform"]["y"]}
                                for i, (squad, x, y) in enumerate(positions())],
-                "proxies": [{"id": 100 + i, "target_id": target["id"], "max_hp": 1000,
-                             "unit_type": "Terran_Barracks", "park_world": target["proxy_world"]}
+                "proxies": [{"id": 100 + i, "target_id": target["id"], "ride_id": target["ride_id"],
+                             "max_hp": target["proxy_hp"], "unit_type": target["proxy_type"],
+                             "collision": target["proxy_collision"], "park_world": target["proxy_world"],
+                             "bw_world": {axis: target["proxy_world"][axis] - fixture["transform"][axis]
+                                          for axis in ("x", "y")}}
                             for i, target in enumerate(fixture["targets"])]}
     output.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(output)

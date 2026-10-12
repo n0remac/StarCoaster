@@ -16,21 +16,38 @@
 class ParkAssaultNavigation {
 public:
     struct Point { int x = 0; int y = 0; };
+    struct Target {
+        int rideId = -1;
+        int unitType = -1;
+        Point center;
+        int width = 0;
+        int height = 0;
+        std::vector<Point> approaches;
+    };
 
     bool load(const std::string& path) {
         std::ifstream file(path);
         std::string magic;
         int version = 0, targetCount = 0;
         if (!(file >> magic >> version >> revision_ >> x0_ >> y0_ >> width_ >> height_ >> offsetX_ >> offsetY_ >> targetCount)
-            || magic != "PARKGRID" || version != 1 || revision_ != 1
+            || magic != "PARKGRID" || version != 2 || revision_ != 1
             || width_ <= 0 || height_ <= 0 || width_ > 1024 || height_ > 1024
             || targetCount < 1 || targetCount > 8) return false;
         for (int i = 0; i < targetCount; ++i) {
             std::string label, id;
-            Point point;
-            if (!(file >> label >> id >> point.x >> point.y) || label != "TARGET"
+            Target target;
+            int approachCount = 0;
+            if (!(file >> label >> id >> target.rideId >> target.unitType
+                >> target.center.x >> target.center.y >> target.width >> target.height >> approachCount)
+                || label != "TARGET" || target.rideId < 0 || target.unitType < 0
+                || target.width < 16 || target.height < 16 || approachCount < 1 || approachCount > 16
                 || targets_.count(id)) return false;
-            targets_[id] = point;
+            for (int n = 0; n < approachCount; ++n) {
+                Point point;
+                if (!(file >> label >> point.x >> point.y) || label != "APPROACH") return false;
+                target.approaches.push_back(point);
+            }
+            targets_[id] = target;
             targetOrder_.push_back(id);
         }
         raw_.resize(height_);
@@ -46,7 +63,24 @@ public:
     }
 
     int revision() const { return revision_; }
-    Point target(const std::string& id) const { return targets_.at(id); }
+    Point targetCenter(const std::string& id) const { return targets_.at(id).center; }
+    const std::vector<Point>& attackApproaches(const std::string& id) const { return targets_.at(id).approaches; }
+    const Target& targetIdentity(const std::string& id) const { return targets_.at(id); }
+    std::vector<Point> targetFootprint(const std::string& id) const {
+        const char symbol = static_cast<char>('1' + std::distance(targetOrder_.begin(),
+            std::find(targetOrder_.begin(), targetOrder_.end(), id)));
+        std::vector<Point> result;
+        for (int y = 0; y < height_; ++y) for (int x = 0; x < width_; ++x)
+            if (raw_[y][x] == symbol)
+                result.push_back({ (x + x0_) * 8 + 4 - offsetX_, (y + y0_) * 8 + 4 - offsetY_ });
+        return result;
+    }
+    double distanceToTargetFootprint(const std::string& id, Point point) const {
+        double nearest = std::numeric_limits<double>::infinity();
+        for (const auto& cell : targetFootprint(id))
+            nearest = std::min(nearest, std::hypot(point.x - cell.x, point.y - cell.y));
+        return nearest;
+    }
     bool hasTarget(const std::string& id) const { return targets_.count(id) != 0; }
 
     bool applyConfirmedDemolition(const std::string& id, int revision) {
@@ -193,7 +227,7 @@ private:
     std::vector<std::string> raw_;
     std::vector<unsigned char> clear_;
     std::vector<unsigned char> safe_;
-    std::map<std::string, Point> targets_;
+    std::map<std::string, Target> targets_;
     std::vector<std::string> targetOrder_;
     std::map<std::string, bool> cleared_;
 };
