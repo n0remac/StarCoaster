@@ -26,6 +26,8 @@ scripts/project.sh record --duration 85
 
 For a lighter capture, use `scripts/project.sh record --video-layout single --video-fps 15 --video-width 800`. The [recording benchmark](docs/recording-performance-v0.2.md) compares 15 and 30 FPS against gameplay without video; the [park design report](docs/park-design-v0.2.md) records the four camera views and geometry checks.
 
+The [v0.2 final verification](docs/final-verification-v0.2.md) records passing build, unit, integration, native navigation, lifecycle, and graphical capture results with artifact paths and remaining limits.
+
 ## Project map
 
 - `openrct2-plugin/`, `openrct2-patches/`: park discovery, multiplayer controls, rendering, and demolition.
