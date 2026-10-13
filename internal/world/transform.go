@@ -1,26 +1,23 @@
 package world
 
-// Transform preserves source identities while expressing geometry in the
-// reusable OpenBW map's coordinate space. It never mutates the park registry.
+import "fmt"
+
+// Transform preserves source identities and horizontal distances in OpenBW.
 type Transform struct {
 	Numerator   int
 	Denominator int
-	OffsetX     int // StarCraft build tiles, after scaling
+	OffsetX     int // StarCraft build tiles
 	OffsetY     int
 }
 
-func Fit(parkWidth, parkHeight, bwWidth, bwHeight int) Transform {
-	if parkWidth < 1 || parkHeight < 1 || bwWidth < 1 || bwHeight < 1 {
-		return Transform{Numerator: 1, Denominator: 1}
+func Fit(parkWidth, parkHeight, bwWidth, bwHeight int) (Transform, error) {
+	if parkWidth < 1 || parkHeight < 1 || parkWidth > 256 || parkHeight > 256 ||
+		bwWidth < 1 || bwHeight < 1 || bwWidth > 256 || bwHeight > 256 ||
+		parkWidth > bwWidth || parkHeight > bwHeight {
+		return Transform{}, fmt.Errorf("unsupported_map_dimensions: park=%dx%d openbw=%dx%d", parkWidth, parkHeight, bwWidth, bwHeight)
 	}
-	if bwWidth >= parkWidth && bwHeight >= parkHeight {
-		return Transform{Numerator: 1, Denominator: 1,
-			OffsetX: (bwWidth - parkWidth) / 2, OffsetY: (bwHeight - parkHeight) / 2}
-	}
-	if bwWidth*parkHeight <= bwHeight*parkWidth {
-		return Transform{Numerator: bwWidth, Denominator: parkWidth}
-	}
-	return Transform{Numerator: bwHeight, Denominator: parkHeight}
+	return Transform{Numerator: 1, Denominator: 1,
+		OffsetX: (bwWidth - parkWidth) / 2, OffsetY: (bwHeight - parkHeight) / 2}, nil
 }
 func (t Transform) Pixel(value int) int        { return value * t.Numerator / t.Denominator }
 func (t Transform) Tile(value int) int         { return value * t.Numerator / t.Denominator }

@@ -505,7 +505,12 @@ func (s *service) forwardSnapshot() {
 	r := s.registry
 	s.bwResyncPending = false
 	rev := r.Revision
-	s.transform = world.Fit(r.Width, r.Height, s.bwWidth, s.bwHeight)
+	transform, err := world.Fit(r.Width, r.Height, s.bwWidth, s.bwHeight)
+	if err != nil {
+		log.Printf("OpenBW snapshot rejected: %v", err)
+		return
+	}
+	s.transform = transform
 	derivedTerrain := s.transform.Terrain(r.Terrain)
 	derivedWidth, derivedHeight := r.Width, r.Height
 	if s.bwWidth > 0 && s.bwHeight > 0 {

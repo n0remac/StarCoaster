@@ -61,7 +61,7 @@ func LoadScenario(path string) (*Scenario, error) {
 		return nil, err
 	}
 	if scenario.Version != 1 || !identifier.MatchString(scenario.ID) || scenario.ParkSize[0] < 1 || scenario.ParkSize[1] < 1 ||
-		scenario.ParkSize[0] > 128 || scenario.ParkSize[1] > 128 || len(scenario.StartingUnits.Marines) == 0 ||
+		scenario.ParkSize[0] > 256 || scenario.ParkSize[1] > 256 || len(scenario.StartingUnits.Marines) == 0 ||
 		len(scenario.StartingUnits.Zerglings) == 0 || len(scenario.Objectives) == 0 ||
 		scenario.InitialAI.Strategy != "objective_assault" || scenario.InitialAI.Objective == "" ||
 		scenario.InitialAI.DelayFrames < 0 || scenario.InitialAI.DelayFrames > 600 ||

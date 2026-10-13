@@ -101,7 +101,7 @@ func TestRuntimeCommandRequiresConfirmedBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.ready = true
-	s.transform = world.Fit(8, 8, 8, 8)
+	s.transform, _ = world.Fit(8, 8, 8, 8)
 	s.actors = world.NewActorRegistry("session-a")
 	identity := world.ActorIdentity{ID: "openbw:3001", Engine: "openbw", Type: "terran_marine",
 		Owner: 1, Generation: 1, Session: "session-a"}
@@ -161,7 +161,7 @@ func TestOffParkActorDoesNotInvalidateCombatSnapshot(t *testing.T) {
 	if err := s.registry.Replace("session-a", 1, 64, 64, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	s.transform = world.Fit(64, 64, 128, 128)
+	s.transform, _ = world.Fit(64, 64, 128, 128)
 	s.ready = true
 	bridgeSide, parkSide := net.Pipe()
 	defer bridgeSide.Close()

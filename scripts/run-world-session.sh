@@ -13,9 +13,9 @@ export OPENBW_LAN_MODE=LOCAL
 export OPENBW_LOCAL_PATH="${OPENBW_LOCAL_PATH:-$project_dir/run-data/world-base/openbw-local.socket}"
 mkdir -p "$(dirname "$OPENBW_LOCAL_PATH")"
 rm -f "$OPENBW_LOCAL_PATH"
-if [[ ! -f "$project_dir/run-data/world-base/world-base-v4.scm" ]]; then
+if [[ ! -f "$project_dir/run-data/world-base/world-base-v5-256.scm" ]]; then
   python3 "$project_dir/scripts/create-world-base-map.py" \
-    --output "$project_dir/run-data/world-base/world-base-v4.scm"
+    --output "$project_dir/run-data/world-base/world-base-v5-256.scm"
 fi
 bridge_args=()
 if [[ -n "${BRIDGE_SCENARIO_CONFIG:-}" ]]; then bridge_args+=(--scenario "$BRIDGE_SCENARIO_CONFIG"); fi

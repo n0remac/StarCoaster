@@ -15,7 +15,7 @@ func spawnService(t *testing.T) (*service, net.Conn) {
 	if err := s.registry.Replace("session-a", 1, 64, 64, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	s.transform = world.Fit(64, 64, 128, 128)
+	s.transform, _ = world.Fit(64, 64, 128, 128)
 	s.ready = true
 	s.lastMarines, s.lastZerglings = 6, 5
 	s.actors = world.NewActorRegistry("session-a")

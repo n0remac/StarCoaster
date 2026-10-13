@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build one reusable 128x128 OpenBW base map with no park-specific objects."""
+"""Build one reusable 256x256 OpenBW base map with no park-specific objects."""
 
 import argparse
 import json
@@ -11,12 +11,40 @@ import tempfile
 from starcraft_map_pack import SOURCE, unit, pack_map
 
 
+MAP_SIZE = 256
+SOURCE_SIZE = 128
+
+
+def resize_tiles(body: bytes, bytes_per_tile: int) -> bytes:
+    if len(body) != SOURCE_SIZE * SOURCE_SIZE * bytes_per_tile:
+        raise ValueError("unexpected source tile array size")
+    rows = [body[y * SOURCE_SIZE * bytes_per_tile:(y + 1) * SOURCE_SIZE * bytes_per_tile]
+            for y in range(SOURCE_SIZE)]
+    return b"".join((rows[y % SOURCE_SIZE] * (MAP_SIZE // SOURCE_SIZE))
+                    for y in range(MAP_SIZE))
+
+
+def resize_isom(body: bytes) -> bytes:
+    # ISOM stores (width+2) records per (height+1) row; each record is 4 bytes.
+    source_width = SOURCE_SIZE + 2
+    if len(body) != source_width * (SOURCE_SIZE + 1) * 4:
+        raise ValueError("unexpected source ISOM size")
+    rows = [body[y * source_width * 4:(y + 1) * source_width * 4]
+            for y in range(SOURCE_SIZE + 1)]
+    result = bytearray()
+    for y in range(MAP_SIZE + 1):
+        row = rows[y % SOURCE_SIZE]
+        result.extend(row[:SOURCE_SIZE * 4] * (MAP_SIZE // SOURCE_SIZE))
+        result.extend(row[SOURCE_SIZE * 4:])
+    return bytes(result)
+
+
 def scenario_units(path: Path) -> list[bytes]:
     scenario = json.loads(path.read_text())
     size = scenario.get("park_size")
     if (scenario.get("version") != 1 or not isinstance(size, list) or len(size) != 2
-            or any(type(value) is not int or not 1 <= value <= 128 for value in size)):
-        raise ValueError("scenario must describe a park of at most 128x128 with version 1")
+            or any(type(value) is not int or not 1 <= value <= MAP_SIZE for value in size)):
+        raise ValueError("scenario must describe a park of at most 256x256 with version 1")
     groups = scenario.get("starting_units")
     if (not isinstance(groups, dict) or any(not isinstance(groups.get(name), list)
             or not 1 <= len(groups[name]) <= 256 for name in ("marines", "zerglings"))):
@@ -32,8 +60,8 @@ def scenario_units(path: Path) -> list[bytes]:
             if tile in occupied:
                 raise ValueError(f"overlapping starting tile: {tile}")
             occupied.add(tile)
-            x, y = (((location[0] + (128 - size[0]) // 2) * 32 + 16),
-                    ((location[1] + (128 - size[1]) // 2) * 32 + 16))
+            x, y = (((location[0] + (MAP_SIZE - size[0]) // 2) * 32 + 16),
+                    ((location[1] + (MAP_SIZE - size[1]) // 2) * 32 + 16))
             units.append(unit(first_id + index, x, y, kind, owner))
     return units
 
@@ -62,6 +90,16 @@ def patch_chk(data: bytes, zerglings: int = 8, marines: int = 4,
         if end > len(data):
             raise ValueError("truncated CHK section")
         body = replacements.get(tag, data[offset + 8:end])
+        if tag == b"DIM ":
+            if body != struct.pack("<HH", SOURCE_SIZE, SOURCE_SIZE):
+                raise ValueError("unexpected source dimensions")
+            body = struct.pack("<HH", MAP_SIZE, MAP_SIZE)
+        elif tag in (b"MTXM", b"TILE"):
+            body = resize_tiles(body, 2)
+        elif tag == b"MASK":
+            body = resize_tiles(body, 1)
+        elif tag == b"ISOM":
+            body = resize_isom(body)
         if tag in replacements:
             seen.add(tag)
         result += tag + struct.pack("<I", len(body)) + body

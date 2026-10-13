@@ -1,6 +1,6 @@
 # World bridge startup mode
 
-`world.v1` is the generic startup path. It discovers the loaded OpenRCT2 park on the authoritative server, transfers a complete revisioned snapshot through the Go bridge, and creates OpenBW target proxies at a simulation frame boundary. It uses a reusable 128×128 OpenBW base map. The old patrol, siege, frontier, and park assault demos remain available as regression fixtures.
+`world.v1` is the generic startup path. It discovers the loaded OpenRCT2 park on the authoritative server, transfers a complete revisioned snapshot through the Go bridge, and creates OpenBW target proxies at a simulation frame boundary. It uses a reusable 256×256 OpenBW base map. Parks up to 256×256 tiles retain 1:1 horizontal coordinates and are centered with offsets `(256-width)/2` and `(256-height)/2`, rounded down. Larger parks fail explicitly. The old patrol, siege, frontier, and park assault demos remain available as regression fixtures.
 
 ## Start
 
@@ -13,7 +13,9 @@ RCT2_DATA_DIR=/path/to/rct2 STARCRAFT_DATA_DIR=/path/to/starcraft \
   scripts/run-world-session.sh /path/to/saved-park.park
 ```
 
-The launcher uses `BRIDGE_SCENARIO=world` only to select the generic adapters. It does not create matching rides, park objects, proxy IDs, or a park-specific map. `scripts/create-world-base-map.py` produces the reusable `world-base-v4.scm` once. Its Zerg and Terran human slots run synchronized BWAPI adapters; a third computer slot owns park targets so either faction can attack them. The Go service listens on loopback ports 40010 for the OpenRCT2 server plugin, 40011 for the OpenBW publisher, and 40012 for the Terran unit controller. The existing actor snapshot transport and native renderer remain available in the same plugin.
+The launcher uses `BRIDGE_SCENARIO=world` only to select the generic adapters. It does not create matching rides, park objects, proxy IDs, or a park-specific map. `scripts/create-world-base-map.py` produces the reusable `world-base-v5-256.scm` once. Its Zerg and Terran human slots run synchronized BWAPI adapters; a third computer slot owns park targets so either faction can attack them. The Go service listens on loopback ports 40010 for the OpenRCT2 server plugin, 40011 for the OpenBW publisher, and 40012 for the Terran unit controller. The existing actor snapshot transport and native renderer remain available in the same plugin.
+
+For a native size and capacity check, run `STARCRAFT_DATA_DIR=/path/to/StarCraft python3 tests/test_world_256_native_live.py` after building the patched engines. The probe loads both OpenBW participants, moves a Marine near the far edge, and applies a 65,536-tile blocked mask. Its ignored `run-data/world-256-native-*/verification.json` records the observed position and mask initialization time. The mask uses shared immutable VF4 variants, so confirmed demolition can restore the original tile index without consuming one variant per blocked map tile.
 
 `BRIDGE_MAX_TARGETS` controls attempted native proxies (default 512, accepted range 1–1500). This is an attempt limit, not a guarantee that every placement succeeds. `BRIDGE_DISABLE_ASSAULT_AI=1` pauses the example Zergling controller for isolated tests; native StarCraft unit behavior remains active. The launcher leaves both engines running if the Go bridge exits, so restarting `build/world-bridge` reconnects the same session.
 
@@ -45,7 +47,7 @@ OpenBW builds its path regions in `upstream/openbw/bwgame.h::regions_create`. Th
 
 ### Troubleshooting
 
-- `no_enemy_player` or zero targets: regenerate `world-base-v4.scm`; older base maps have no third target-owner slot.
+- `no_enemy_player` or zero targets: regenerate `world-base-v5-256.scm`; older base maps have no third target-owner slot.
 - `proxy_not_created`: OpenBW rejected a native civilian placement. Inspect `world.ready.unsupported_reasons` and lower or raise `BRIDGE_MAX_TARGETS` only after checking the specific park geometry.
 - `navigation=metadata_only`: a native mask update failed or was unavailable; Frontier Outpost does not start in this state.
 - `invalid_target` on a Marine order: the controller could not uniquely associate that logical target with a local native proxy, or the target was already removed.

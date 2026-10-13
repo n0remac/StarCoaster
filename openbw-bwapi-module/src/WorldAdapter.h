@@ -114,8 +114,8 @@ public:
             const long requested = std::strtol(spawnAt, &end, 10);
             if (end && !*end && requested > 0 && frame >= requested) {
                 testMarineSpawnRequested_ = true;
-                // The reusable 128x128 OpenBW map centers the 64x64 park.
-                const int x = (18 + 32) * 32 + 16, y = (30 + 32) * 32 + 16;
+                const int x = (18 + (game->mapWidth() - 64) / 2) * 32 + 16;
+                const int y = (30 + (game->mapHeight() - 64) / 2) * 32 + 16;
                 bool requested = false;
                 for (int radius = 0; radius <= 4 && !requested; ++radius)
                     for (int dy = -radius; dy <= radius && !requested; ++dy)
