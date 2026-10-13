@@ -628,6 +628,18 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		log.Printf("actor despawn id=%s generation=%d", event.ID, event.Generation)
 		_ = s.emit(s.controller, "actor.despawn", m.Session, m.Revision, event)
 		_ = s.emit(s.park, "actor.despawn", m.Session, m.Revision, event)
+		if s.spawns != nil {
+			if id, index, found := s.spawns.FindActor(event.ID); found {
+				if status, ok := s.spawns.Lookup(id); ok && status.Units[index].State != "ready" {
+					if s.spawns.Fail(id, index, "died_before_ready") == nil {
+						s.saveSpawns()
+						updated, _ := s.spawns.Lookup(id)
+						s.spawnStatus(updated)
+						s.pumpSpawns()
+					}
+				}
+			}
+		}
 	case "world.hello":
 		var hello struct {
 			MapWidth  int `json:"map_width"`

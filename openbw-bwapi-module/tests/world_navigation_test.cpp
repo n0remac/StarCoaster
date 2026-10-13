@@ -1,4 +1,5 @@
 #include "WorldNavigation.h"
+#include "WorldSpawnPlacement.h"
 
 #include <cassert>
 #include <iostream>
@@ -31,5 +32,13 @@ int main() {
     assert(navigation.remove("scenery#1"));
     assert(!navigation.blocked(100, 100));
     assert(!navigation.remove("scenery#1"));
+    const auto first = compactSpawnPosition(160, 160, 0);
+    const auto second = compactSpawnPosition(160, 160, 1);
+    assert(first.x == 160 && first.y == 160 && second.x == 192 && second.y == 160);
+    assert(validSpawnPlacement(navigation, first.x, first.y, 8, 8, 9, 9, {}));
+    assert(!validSpawnPlacement(navigation, first.x, first.y, 8, 8, 9, 9, {{152, 152, 16, 16}}));
+    assert(!validSpawnPlacement(navigation, 252, 160, 8, 8, 9, 9, {}));
+    navigation.upsert("new-wall", {{152, 152, 16, 16}});
+    assert(!validSpawnPlacement(navigation, first.x, first.y, 8, 8, 9, 9, {}));
     std::cout << "world navigation metadata tests passed\n";
 }

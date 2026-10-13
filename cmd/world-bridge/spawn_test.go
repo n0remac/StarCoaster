@@ -96,3 +96,40 @@ func TestBridgeSpawnRejectsInvalidInputAndRecoversUncertainJournal(t *testing.T)
 		t.Fatal("recovered uncertain creation was retried")
 	}
 }
+
+func TestBridgeSpawnBecomesReadyOnlyAfterBothNativeBindings(t *testing.T) {
+	s, _ := spawnService(t)
+	s.controller = nil
+	request := world.SpawnRequest{RequestID: "bind-both", UnitType: "terran_marine", Count: 1,
+		X: 100, Y: 100, Formation: "compact", PlayerID: 1}
+	if _, err := s.spawns.Submit("session-a", request); err != nil {
+		t.Fatal(err)
+	}
+	execute, _ := s.spawns.Next()
+	if err := s.spawns.Issue(execute); err != nil {
+		t.Fatal(err)
+	}
+	identity := world.ActorIdentity{ID: "openbw:3001", Engine: "openbw", Type: "terran_marine",
+		Owner: 1, Generation: 1, Session: "session-a"}
+	if err := s.actors.Spawn(identity); err != nil {
+		t.Fatal(err)
+	}
+	publisher := world.ActorBinding{ID: identity.ID, Session: identity.Session,
+		Generation: 1, Participant: "publisher", NativeID: "50", CreationFrame: 110}
+	if err := s.actors.Bind(publisher); err != nil {
+		t.Fatal(err)
+	}
+	s.bwSpawnMessage(nil, world.Message("unit.spawn.status", "session-a", "bw:created", "openbw", 1,
+		nativeSpawnStatus{RequestID: request.RequestID, Index: 0, State: "created",
+			ActorID: identity.ID, X: 1680, Y: 2000}))
+	if status, _ := s.spawns.Lookup(request.RequestID); status.State != "created" {
+		t.Fatalf("publisher binding made spawn ready: %+v", status)
+	}
+	controller := publisher
+	controller.Participant, controller.NativeID = "controller", "71"
+	s.controllerMessage(nil, world.Message("actor.bind", "session-a", "controller:bind", "openbw", 1, controller))
+	if status, _ := s.spawns.Lookup(request.RequestID); status.State != "ready" ||
+		status.Units[0].ActorID != identity.ID {
+		t.Fatalf("matching controller did not ready spawn: %+v", status)
+	}
+}

@@ -6,6 +6,7 @@
 #include "WorldNavigation.h"
 #include "WorldActorRegistry.h"
 #include "WorldAssaultController.h"
+#include "WorldSpawnPlacement.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -33,6 +34,12 @@ class WorldAdapter {
     struct PendingTarget { std::string id; int x = 0; int y = 0; int health = 0;
         bool requested = false; int requestedFrame = 0; std::set<int> beforeIDs; };
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
+    struct NativeSpawn {
+        std::string requestID, unitType, state, actorID, reason;
+        int index = 0, x = 0, y = 0, ownerID = -1, issueFrame = 0, candidateID = -1;
+        int actualX = 0, actualY = 0;
+        bool reported = false, fixture = false;
+    };
 public:
     ~WorldAdapter() { if (socket_ >= 0) ::close(socket_); }
     void onUnitCreate(BWAPI::Unit unit, int frame) {
@@ -43,6 +50,13 @@ public:
     }
     void onUnitDestroy(BWAPI::Unit unit, int frame) {
         if (!unit) return;
+        if (!activeSpawn_.empty()) {
+            auto& spawn = nativeSpawns_.at(activeSpawn_);
+            if (spawn.candidateID == unit->getID() && spawn.state == "issued") {
+                spawn.state = "failed"; spawn.reason = "native_died_before_registration";
+                spawn.reported = false; activeSpawn_.clear();
+            }
+        }
         pendingCreations_.erase(unit->getID());
         publishedActors_.erase(unit->getID());
         const auto id = actorRegistry_.id(unit);
@@ -60,6 +74,7 @@ public:
         std::set<int> pendingIDs;
         for (const auto& [id, creation] : pendingCreations_) pendingIDs.insert(id);
         actorRegistry_.prepare(game, pendingIDs);
+        resolveSpawnCandidates();
         registerPendingCreations();
         if (socket_ < 0) connect(game);
         if (socket_ < 0) return;
@@ -84,23 +99,28 @@ public:
         if (!ready_) return;
         const int frame = game->getFrameCount();
         publishRuntimeEvents(frame);
+        publishSpawnOutcomes(frame);
         const char* spawnAt = std::getenv("BRIDGE_TEST_SPAWN_MARINE_FRAME");
         if (!testMarineSpawnRequested_ && spawnAt && *spawnAt) {
             char* end = nullptr;
             const long requested = std::strtol(spawnAt, &end, 10);
             if (end && !*end && requested > 0 && frame >= requested) {
                 testMarineSpawnRequested_ = true;
-                BWAPI::Player owner = nullptr;
-                for (auto player : game->getPlayers())
-                    if (player && player->getRace() == BWAPI::Races::Terran
-                        && player->getType() != BWAPI::PlayerTypes::Neutral) owner = player;
                 // The reusable 128x128 OpenBW map centers the 64x64 park.
                 const int x = (18 + 32) * 32 + 16, y = (30 + 32) * 32 + 16;
-                if (owner && x < game->mapWidth() * 32 && y < game->mapHeight() * 32) {
-                    game->createUnit(owner, BWAPI::UnitTypes::Terran_Marine, {x, y});
-                    std::cerr << "[world] requested native test Marine frame=" << frame
-                              << " x=" << x << " y=" << y << std::endl;
-                } else std::cerr << "[world] native test Marine fixture unavailable" << std::endl;
+                bool requested = false;
+                for (int radius = 0; radius <= 4 && !requested; ++radius)
+                    for (int dy = -radius; dy <= radius && !requested; ++dy)
+                        for (int dx = -radius; dx <= radius && !requested; ++dx) {
+                            if (std::max(std::abs(dx), std::abs(dy)) != radius) continue;
+                            const int px = x + dx * 32, py = y + dy * 32;
+                            requested = executeNativeSpawn(game, {{"request_id","fixture:marine"},
+                                {"index",0}, {"unit_type","terran_marine"}, {"x",px}, {"y",py}}, true);
+                            if (requested) std::cerr << "[world] requested native test Marine frame=" << frame
+                                << " x=" << px << " y=" << py << std::endl;
+                        }
+                if (!requested) std::cerr << "[world] native test Marine fixture unavailable reason="
+                    << spawnError_ << std::endl;
             }
         }
         const char* killAt = std::getenv("BRIDGE_TEST_KILL_MARINE_FRAME");
@@ -148,7 +168,7 @@ private:
             {"map_width",game->mapWidth()},{"map_height",game->mapHeight()}},1,0);
         std::cerr << "[world] connected to bridge service" << std::endl;
     }
-    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); ready_=false; }
+    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; ready_=false; }
     void flush() {
         while (socket_>=0 && !outgoing_.empty()) {
             const ssize_t n=::send(socket_,outgoing_.data(),outgoing_.size(),MSG_NOSIGNAL);
@@ -190,6 +210,15 @@ private:
                 ack(message,false,"scenario_not_configured"); return;
             }
             ack(message,true); return;
+        }
+        if (kind=="unit.spawn.execute") {
+            if (!ready_ || message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != revision_) {
+                ack(message,false,"stale_or_unready_spawn"); return;
+            }
+            const bool accepted = executeNativeSpawn(game,payload,false);
+            ack(message,accepted,accepted ? "" : spawnError_);
+            return;
         }
         if (kind=="world.snapshot.chunk" || kind=="world.snapshot.end") {
             if (!stager_.active() || message.value("session","")!=stager_.session()
@@ -258,6 +287,7 @@ private:
     }
     void reconcile(BWAPI::Game* game, const starcoaster::DesiredWorld& desired) {
         const bool newSession = !session_.empty() && session_ != desired.session;
+        if (newSession) { nativeSpawns_.clear(); activeSpawn_.clear(); }
         const auto plan = starcoaster::planReconciliation(desired_, desired);
         for (auto it = targets_.begin(); it != targets_.end();) {
             if (newSession || !desired.entities.count(it->first)
@@ -287,6 +317,7 @@ private:
         unsupportedReasons_ = json::object();
         requestTargets(game);
         publishActorReconciliation(game->getFrameCount());
+        publishSpawnOutcomes(game->getFrameCount());
         initializing_ = true;
         ready_ = false;
         std::cerr << "[world] reconcile keep=" << plan.keep.size()
@@ -309,6 +340,107 @@ private:
             {"creation_frame", actor.creationFrame}};
     }
     struct PendingCreation { BWAPI::Unit unit = nullptr; int frame = 0; };
+    bool executeNativeSpawn(BWAPI::Game* game, const json& payload, bool fixture) {
+        spawnError_ = "invalid_spawn_execution";
+        if (!payload.is_object() || !payload.contains("request_id")
+            || !payload.at("request_id").is_string() || !payload.contains("unit_type")
+            || !payload.at("unit_type").is_string() || !payload.contains("index")
+            || !payload.at("index").is_number_integer() || !payload.contains("x")
+            || !payload.at("x").is_number_integer() || !payload.contains("y")
+            || !payload.at("y").is_number_integer()) return false;
+        const std::string requestID = payload.at("request_id").get<std::string>();
+        const std::string kind = payload.at("unit_type").get<std::string>();
+        const int index = payload.at("index").get<int>();
+        const int x = payload.at("x").get<int>(), y = payload.at("y").get<int>();
+        if (requestID.empty() || requestID.size() > 128 || index < 0 || index > 4
+            || (kind != "terran_marine" && kind != "zerg_zergling")) return false;
+        const std::string key = requestID + ":" + std::to_string(index);
+        if (auto prior = nativeSpawns_.find(key); prior != nativeSpawns_.end()) {
+            const auto& spawn = prior->second;
+            if (spawn.unitType != kind || spawn.x != x || spawn.y != y || spawn.fixture != fixture) {
+                spawnError_ = "conflicting_spawn_execution"; return false;
+            }
+            prior->second.reported = false;
+            return true;
+        }
+        if (!activeSpawn_.empty()) { spawnError_ = "native_spawn_busy"; return false; }
+        if (nativeSpawns_.size() >= 4096) { spawnError_ = "native_spawn_history_full"; return false; }
+        const auto type = kind == "terran_marine" ? BWAPI::UnitTypes::Terran_Marine
+            : BWAPI::UnitTypes::Zerg_Zergling;
+        int& ownerID = kind == "terran_marine" ? marineOwnerID_ : zergOwnerID_;
+        for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists() || unit->getType() != type || !unit->getPlayer()) continue;
+            const int observed = unit->getPlayer()->getID();
+            if (ownerID >= 0 && observed != ownerID) {
+                spawnError_ = "ambiguous_native_owner"; return false;
+            }
+            ownerID = observed;
+        }
+        BWAPI::Player owner = nullptr;
+        for (auto player : game->getPlayers())
+            if (player && player->getID() == ownerID) owner = player;
+        if (!owner) { spawnError_ = "native_owner_unavailable"; return false; }
+        const auto position = starcoaster::compactSpawnPosition(x, y, index);
+        const int halfWidth = std::max(type.dimensionLeft(), type.dimensionRight()) + 2;
+        const int halfHeight = std::max(type.dimensionUp(), type.dimensionDown()) + 2;
+        std::vector<starcoaster::Rect> occupied;
+        for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists() || unit->isFlying()) continue;
+            const auto other = unit->getPosition();
+            const auto shape = unit->getType();
+            occupied.push_back({other.x - shape.dimensionLeft(), other.y - shape.dimensionUp(),
+                shape.width(), shape.height()});
+        }
+        if (!starcoaster::validSpawnPlacement(navigation_, position.x, position.y,
+                game->mapWidth(), game->mapHeight(), halfWidth, halfHeight, occupied)) {
+            spawnError_ = "invalid_or_occupied_native_position"; return false;
+        }
+        for (int sy : {position.y - halfHeight, position.y, position.y + halfHeight})
+            for (int sx : {position.x - halfWidth, position.x, position.x + halfWidth})
+                if (!game->isWalkable(sx / 8, sy / 8)) {
+                    spawnError_ = "native_unwalkable_position"; return false;
+                }
+        NativeSpawn spawn;
+        spawn.requestID = requestID; spawn.index = index; spawn.unitType = kind;
+        spawn.x = x; spawn.y = y; spawn.ownerID = owner->getID();
+        spawn.issueFrame = game->getFrameCount(); spawn.state = "issued"; spawn.fixture = fixture;
+        nativeSpawns_[key] = spawn;
+        activeSpawn_ = key;
+        // Multiplayer createUnit may queue a synchronized action and return
+        // no unit. Only the later native creation event proves success.
+        game->createUnit(owner, type, {position.x, position.y});
+        std::cerr << "[world] native spawn issued request=" << requestID << " index=" << index
+                  << " type=" << kind << " x=" << position.x << " y=" << position.y << std::endl;
+        return true;
+    }
+    void resolveSpawnCandidates() {
+        if (activeSpawn_.empty()) return;
+        auto& spawn = nativeSpawns_.at(activeSpawn_);
+        if (spawn.state != "issued") return;
+        std::map<int, std::vector<int>> candidatesByFrame;
+        for (const auto& [native, creation] : pendingCreations_) {
+            if (!creation.unit || !creation.unit->exists() || creation.frame < spawn.issueFrame
+                || !creation.unit->getPlayer() || creation.unit->getPlayer()->getID() != spawn.ownerID) continue;
+            const auto type = creation.unit->getType();
+            if ((spawn.unitType == "terran_marine" && type != BWAPI::UnitTypes::Terran_Marine)
+                || (spawn.unitType == "zerg_zergling" && type != BWAPI::UnitTypes::Zerg_Zergling)) continue;
+            candidatesByFrame[creation.frame].push_back(native);
+        }
+        if (candidatesByFrame.empty()) return;
+        const auto& first = *candidatesByFrame.begin();
+        if (first.second.size() != 1) {
+            spawn.state = "uncertain"; spawn.reason = "ambiguous_native_creation";
+            spawn.reported = false;
+            std::cerr << "[world] ambiguous native spawn request=" << spawn.requestID
+                      << " frame=" << first.first << " matches=" << first.second.size() << std::endl;
+            return;
+        }
+        const auto creation = pendingCreations_.at(first.second.front());
+        const auto expected = starcoaster::compactSpawnPosition(spawn.x, spawn.y, spawn.index);
+        const auto actual = creation.unit->getPosition();
+        if (std::abs(actual.x - expected.x) <= 16 && std::abs(actual.y - expected.y) <= 16)
+            spawn.candidateID = first.second.front();
+    }
     void registerPendingCreations() {
         if (!actorRegistry_.prepared()) return;
         for (auto it = pendingCreations_.begin(); it != pendingCreations_.end();) {
@@ -319,6 +451,16 @@ private:
             if (!actorRegistry_.registerRuntime(creation.unit, canonical,
                     static_cast<uint64_t>(runtimeSerial_ + 1), creation.frame)) { ++it; continue; }
             ++runtimeSerial_;
+            if (!activeSpawn_.empty()) {
+                auto& spawn = nativeSpawns_.at(activeSpawn_);
+                if (spawn.state == "issued" && spawn.candidateID == creation.unit->getID()) {
+                    const auto position = creation.unit->getPosition();
+                    spawn.state = "created"; spawn.actorID = "openbw:" + std::to_string(canonical);
+                    spawn.actualX = position.x; spawn.actualY = position.y;
+                    spawn.reported = false;
+                    activeSpawn_.clear();
+                }
+            }
             if (testMarineSpawnRequested_ && testMarineCanonical_ == 0
                 && creation.unit->getType() == BWAPI::UnitTypes::Terran_Marine)
                 testMarineCanonical_ = canonical;
@@ -334,6 +476,22 @@ private:
             send("actor.spawn", runtimeIdentity(actor), revision_, frame);
             send("actor.bind", runtimeBinding(actor), revision_, frame);
             if (socket_ >= 0) publishedActors_.insert(actor.unit->getID());
+        }
+    }
+    void publishSpawnOutcomes(int frame) {
+        if (socket_ < 0 || session_.empty()) return;
+        for (auto& [key, spawn] : nativeSpawns_) {
+            if (spawn.fixture || spawn.reported || spawn.state == "issued") continue;
+            json status = {{"request_id", spawn.requestID}, {"index", spawn.index},
+                {"state", spawn.state}};
+            if (!spawn.actorID.empty()) {
+                status["actor_id"] = spawn.actorID;
+                status["x"] = spawn.actualX;
+                status["y"] = spawn.actualY;
+            }
+            if (!spawn.reason.empty()) status["reason"] = spawn.reason;
+            send("unit.spawn.status", status, revision_, frame);
+            if (socket_ >= 0) spawn.reported = true;
         }
     }
     void publishActorReconciliation(int frame) {
@@ -612,6 +770,9 @@ private:
     WorldActorRegistry actorRegistry_;
     std::map<int, PendingCreation> pendingCreations_;
     std::set<int> publishedActors_;
+    std::map<std::string, NativeSpawn> nativeSpawns_;
+    std::string activeSpawn_, spawnError_;
+    int marineOwnerID_ = -1, zergOwnerID_ = -1;
     int runtimeSerial_ = 0;
     bool testMarineSpawnRequested_ = false;
     int testMarineCanonical_ = 0;

@@ -227,6 +227,15 @@ func (s *service) bwSpawnMessage(p *peer, m world.Envelope) {
 		}
 	case "failed":
 		err = s.spawns.Fail(native.RequestID, native.Index, native.Reason)
+	case "uncertain":
+		if s.spawns.Active != native.RequestID {
+			err = errors.New("unexpected_uncertain_spawn")
+		} else if status, ok := s.spawns.Lookup(native.RequestID); !ok || native.Index < 0 ||
+			native.Index >= len(status.Units) || status.Units[native.Index].State == "ready" {
+			err = errors.New("unknown_uncertain_spawn")
+		} else if status.Units[native.Index].State != "uncertain" {
+			_, _ = s.spawns.Uncertain()
+		}
 	default:
 		err = errors.New("invalid_spawn_state")
 	}

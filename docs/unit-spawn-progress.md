@@ -18,3 +18,13 @@
 - Mocked Go tests cover a transformed native execution, idempotent retry, native rejection, invalid park position, unauthorized enemy request, journal recovery, five-unit serialization, partial failure, queue overflow, and stale session.
 - Native execution is intentionally absent until Phase 3. The live actor test still needs `RCT2_DATA_DIR`.
 - Next: Phase 3, implement OpenBW native execution, placement validation, request correlation, and reconciliation of journaled uncertain units.
+
+## Phase 3 — native OpenBW spawning
+
+- Prior HEAD: `705e756`.
+- The publisher handles `unit.spawn.execute` with BWAPI `createUnit`, resolves ownership from the existing native armies, checks compact offsets against park navigation, native walkability, map bounds, and occupied units, then waits for the native creation event. It registers through `WorldActorRegistry` and reports the canonical actor ID and actual native position. Replayed execute commands cannot create another unit.
+- The bridge marks a result ready only after publisher and controller bindings. It handles native rejection, uncertain creation, and death before ready. The old environment-driven Marine fixture now calls the same native execution path.
+- Passed: `scripts/build-bridge-module.sh`, CTest, Go focused tests including binding completion, `tests/test_actor_live.sh` after correcting owner resolution, and `tests/test_unit_spawn_live.sh` with five sequential native Marines, two eleven-Marine clients, and accepted native move and attack orders.
+- Failed earlier runs: `run-data/actor-live-1791866646/` and `run-data/actor-live-1791866801/` exposed fixture placement and ambiguous race-only owner selection; both were fixed. The first two unit-spawn runs exposed nondeterministic client join order in the test; the test now joins the commander first.
+- Passing artifacts: `run-data/actor-live-1791866966/` and `run-data/unit-spawn-live-1791867143/`.
+- Next: Phase 4, finish and commit the OpenRCT2 spawn tool, status feedback, and action-path regression tests.
