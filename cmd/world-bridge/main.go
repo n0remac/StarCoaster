@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +68,10 @@ type service struct {
 	lastZerglings             int
 	retired                   map[string]bool
 	commands                  map[string]worldCommand
+	spawns                    *world.SpawnQueue
+	spawnOps                  map[string]world.SpawnExecute
+	spawnJournalPath          string
+	maxLiveActors             int
 }
 
 type worldCommand struct {
@@ -185,6 +190,7 @@ func (s *service) publishReady() {
 	}
 	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
 	log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
+	s.pumpSpawns()
 }
 
 func (s *service) announceOutcome(marines, zerglings int) {
@@ -257,6 +263,12 @@ func (s *service) consume(role string, p *peer) {
 	if role == "bw" && s.bw == p {
 		s.bw = nil
 		s.ready = false
+		if s.spawns != nil {
+			if status, ok := s.spawns.Uncertain(); ok {
+				s.saveSpawns()
+				s.spawnStatus(status)
+			}
+		}
 		if s.actors != nil {
 			s.actors.UnbindParticipant("publisher")
 		}
@@ -351,6 +363,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		if s.actors == nil || s.actors.Session != m.Session {
 			s.actors = world.NewActorRegistry(m.Session)
 		}
+		s.initSpawns(m.Session)
 		s.stage = nil
 		s.pending = map[string]world.CombatEvent{}
 		s.pendingFrames = map[string]int{}
@@ -423,6 +436,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		// The envelope and model are versioned for future live updates. Applying
 		// one side before OpenBW accepts its geometry would split authority.
 		s.ack(p, m, false, "live_update_unsupported")
+	case "unit.spawn.request", "unit.spawn.query", "unit.spawn.cancel":
+		s.parkSpawnMessage(p, m)
 	case "combat.command":
 		var command worldCommand
 		if m.Decode(&command) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
@@ -597,7 +612,10 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		_ = s.emit(s.controller, "actor.bind", m.Session, m.Revision, binding)
 		if s.actors.Commandable(binding.ID) {
 			_ = s.emit(s.park, "actor.bind", m.Session, m.Revision, binding)
+			s.spawnActorReady(binding.ID)
 		}
+	case "unit.spawn.status":
+		s.bwSpawnMessage(p, m)
 	case "actor.despawn":
 		var event world.ActorDespawn
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -624,6 +642,21 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 	case "world.ack":
 		var a world.Ack
 		_ = m.Decode(&a)
+		if execute, found := s.spawnOps[a.OpID]; found {
+			delete(s.spawnOps, a.OpID)
+			if !a.Accepted && s.spawns != nil {
+				if err := s.spawns.Fail(execute.RequestID, execute.Index, a.Error); err == nil {
+					s.saveSpawns()
+					status, _ := s.spawns.Lookup(execute.RequestID)
+					s.spawnStatus(status)
+					s.pumpSpawns()
+				}
+			}
+			return
+		}
+		if strings.HasPrefix(a.OpID, "spawn:") {
+			return
+		}
 		if !a.Accepted && !s.bwResyncPending {
 			log.Printf("OpenBW rejected %s: %s", a.OpID, a.Error)
 			s.ready = false
@@ -782,6 +815,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			binding.NativeID, s.actors.Commandable(binding.ID))
 		if s.actors.Commandable(binding.ID) {
 			_ = s.emit(s.park, "actor.bind", m.Session, m.Revision, binding)
+			s.spawnActorReady(binding.ID)
 		}
 	case "world.ack":
 		var answer world.Ack
@@ -875,7 +909,12 @@ func main() {
 	controllerAddress := flag.String("controller", "127.0.0.1:40012", "OpenBW player controller listener")
 	rulesPath := flag.String("rules", "", "optional JSON mapping overrides")
 	scenarioPath := flag.String("scenario", "", "optional first-playable scenario configuration")
+	spawnJournal := flag.String("spawn-journal", "run-data/spawn-queue.json", "durable spawn request journal")
+	maxLiveActors := flag.Int("max-live-actors", 240, "maximum native Marine and Zergling actors (1-256)")
 	flag.Parse()
+	if *maxLiveActors < 1 || *maxLiveActors > 256 {
+		log.Fatal("max-live-actors must be 1-256")
+	}
 	var scenario *world.Scenario
 	if *scenarioPath != "" {
 		var err error
@@ -911,7 +950,8 @@ func main() {
 		log.Fatal(err)
 	}
 	defer controller.Close()
-	s := &service{registry: world.NewRegistry(), mapping: mapping, pending: map[string]world.CombatEvent{}, proxies: map[string]string{}, scenario: scenario}
+	s := &service{registry: world.NewRegistry(), mapping: mapping, pending: map[string]world.CombatEvent{}, proxies: map[string]string{}, scenario: scenario,
+		spawnJournalPath: *spawnJournal, maxLiveActors: *maxLiveActors}
 	log.Printf("world.v1 listening park=%s openbw=%s controller=%s", *parkAddress, *bwAddress, *controllerAddress)
 	go s.serve(bw, "bw")
 	go s.serve(controller, "controller")

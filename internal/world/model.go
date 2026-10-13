@@ -185,6 +185,30 @@ func (m Envelope) Validate() error {
 			}
 		}
 	}
+	switch m.Kind {
+	case "unit.spawn.request", "unit.spawn.query", "unit.spawn.cancel":
+		if m.Source != "openrct2" {
+			return errors.New("invalid spawn request authority")
+		}
+		if m.Kind == "unit.spawn.request" {
+			var request SpawnRequest
+			return decodeActorPayload(m.Payload, &request)
+		}
+		var query struct {
+			RequestID string `json:"request_id"`
+		}
+		return decodeActorPayload(m.Payload, &query)
+	case "unit.spawn.execute":
+		if m.Source != "bridge" {
+			return errors.New("invalid spawn execution authority")
+		}
+		var execute SpawnExecute
+		return decodeActorPayload(m.Payload, &execute)
+	case "unit.spawn.status":
+		if m.Source != "openbw" && m.Source != "bridge" {
+			return errors.New("invalid spawn status authority")
+		}
+	}
 	return nil
 }
 func (e Entity) Validate(width, height int) error {

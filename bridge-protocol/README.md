@@ -46,6 +46,28 @@ by setting `BRIDGE_TEST_SPAWN_MARINE_FRAME` for a world session. OpenBW's
 multiplayer `createUnit` queues one synchronized creation action and returns no
 immediate unit handle; the adapter waits for the actual event.
 
+## Runtime spawn requests (v0.3.1)
+
+`unit.spawn.request` carries a session-unique `request_id`, `unit_type`, count
+(1–5), park pixel `x`/`y`, `formation: "compact"`, and authenticated `player_id`.
+It carries no native owner. The bridge transforms coordinates and sends one
+`unit.spawn.execute` at a time to the authoritative OpenBW publisher. The
+execute payload has the request ID, zero-based unit index, type, and native
+pixel coordinates. A later `unit.spawn.status` reports each unit as `queued`,
+`issued`, `created`, `ready`, `rejected`, `failed`, or `uncertain`; created units
+have canonical `openbw:*` actor IDs. `ready` requires both native bindings.
+Failures can leave a partly completed batch. `unit.spawn.query` retrieves a
+known status and `unit.spawn.cancel` cancels units still queued.
+
+The Go bridge journals requests and outcomes under `run-data/spawn-queue.json`
+by default. An issued creation becomes `uncertain` after publisher disconnect
+or bridge restart and is not blindly retried. A repeated request with the
+same ID and parameters returns its existing status; changed parameters are
+rejected. The current queue admits 64 pending units, limits batches to five,
+and defaults to at most 240 live Marines and Zerglings below the 256 actor
+snapshot ceiling. The player-facing path accepts Marines only; trusted scenario
+Zergling requests use the same queue in the later gameplay phase.
+
 On world snapshot replay, OpenBW marks `world.ready.resuming` after it has
 previously reached native readiness in that simulation. The bridge then checks
 current native unit counts against the original map units plus reconciled
