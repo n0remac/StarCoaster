@@ -72,14 +72,22 @@
             });
             for (let y = 0; y < map.size.y; ++y) for (let x = 0; x < map.size.x; ++x) {
                 const tile = map.getTile(x, y), duplicates = {};
+                let ground = null;
+                const groundPaths = [];
                 for (let n = 0; n < tile.numElements; ++n) {
                     const element = tile.getElement(n), kind = element.type;
                     if (kind === "surface") {
-                        terrain.push({ x: x, y: y, height: element.baseHeight * 8,
+                        ground = { x: x, y: y, height: element.baseZ === undefined
+                                ? element.baseHeight * 8 : element.baseZ,
+                            slope: Number.isInteger(element.slope) ? element.slope : 0,
                             water: element.waterHeight || 0, surface: element.surfaceObject || 0,
-                            walkable: !element.waterHeight });
+                            walkable: !element.waterHeight };
                         continue;
                     }
+                    if (kind === "footpath") groundPaths.push({
+                        base_height: element.baseZ === undefined ? element.baseHeight * 8 : element.baseZ,
+                        slope_direction: Number.isInteger(element.slopeDirection) ? element.slopeDirection : null
+                    });
                     if (kind === "track" || (kind === "entrance" && rides[element.ride])) {
                         if (rides[element.ride]) {
                             rides[element.ride].cells.push({ x: x, y: y });
@@ -122,6 +130,10 @@
                         : direction === 1 ? { x: x * 32, y: y * 32 + 28, width: 32, height: 4 }
                         : direction === 2 ? { x: x * 32 + 28, y: y * 32, width: 4, height: 32 }
                         : { x: x * 32, y: y * 32, width: 32, height: 4 });
+                }
+                if (ground) {
+                    if (groundPaths.length) ground.ground_paths = groundPaths;
+                    terrain.push(ground);
                 }
             }
             Object.keys(rides).forEach(function (id) {

@@ -53,6 +53,6 @@
         "revision": { "type": "integer", "minimum": 1 }
       }
     },
-    "terrain": { "type": "object", "required": ["x", "y", "height", "water", "surface", "walkable"], "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "height": { "type": "integer" }, "water": { "type": "integer" }, "surface": { "type": "integer" }, "walkable": { "type": "boolean" } } }
+    "terrain": { "type": "object", "required": ["x", "y", "height", "water", "surface", "walkable"], "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "height": { "type": "integer" }, "slope": { "type": "integer", "minimum": 0, "maximum": 63 }, "water": { "type": "integer" }, "surface": { "type": "integer" }, "walkable": { "type": "boolean" }, "ground_paths": { "type": "array", "maxItems": 1, "items": { "type": "object", "required": ["base_height", "slope_direction"], "properties": { "base_height": { "type": "integer" }, "slope_direction": { "type": ["integer", "null"], "minimum": 0, "maximum": 3 } }, "additionalProperties": false } } }, "additionalProperties": false }
   }
 }

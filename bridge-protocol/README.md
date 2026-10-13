@@ -98,6 +98,8 @@ target changes; it does not broadcast the full catalog on a timer.
 
 The new startup world API is documented in [world.v1](world.v1.schema.json) and the [world bridge guide](../docs/world-bridge.md). It runs alongside the older disposable combat snapshot messages described below.
 
+Terrain `height`, `water`, and ground path `base_height` are OpenRCT2 world Z units, not base-height steps. The optional `slope` contains the native surface slope encoding; omitted means flat for older fixtures. `ground_paths` is omitted when no ground path exists and contains at most one path for this single-surface milestone. Its nullable `slope_direction` is the native path direction; null means flat. Geometry with multiple vertical walking layers or a path that does not follow the surface is rejected explicitly.
+
 The publisher sends one UTF-8 JSON object per line over a TCP connection bound to `127.0.0.1`. Each line is a **full** snapshot, capped at 32768 bytes including the JSON but excluding the newline. A 32-unit packet with 32-byte IDs and signed decimal 32-bit coordinates fits under 8 KiB; the larger cap also accommodates combat targets and events. The [schema](units.snapshot.v1.schema.json) and [fixture](fixtures/one-unit.ndjson) define the original wire shape. Every receiver rejects an invalid array as a whole, including duplicate IDs.
 
 `x` and `y` are OpenBW map pixel coordinates. The OpenRCT2 adapter alone converts them to park world coordinates. `facing` is one unsigned byte for a full circle: 0 is east, increasing according to the BWAPI angle after normalization. The adapter must calibrate the axis handedness before choosing a sprite frame.

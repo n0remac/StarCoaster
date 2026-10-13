@@ -4,13 +4,18 @@ const vm = require('node:vm');
 
 const tiles = new Map();
 function at(x, y) { const key = `${x},${y}`; if (!tiles.has(key)) tiles.set(key, [{ type: 'surface', baseHeight: 14, waterHeight: 0, surfaceObject: 1 }]); return tiles.get(key); }
+at(0, 0)[0].slope = 3;
+at(0, 0)[0].baseZ = 112;
+at(1, 0)[0].waterHeight = 128;
 let ride = { id: 17, name: 'Any Carousel', type: 33, classification: 'ride',
     object: { identifier: 'rct2.ride.mgr1' }, status: 'closed', isEmpty: true };
 at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14 });
 at(1, 2).push({ type: 'track', ride: 17, baseHeight: 14 });
 at(4, 1).push({ type: 'small_scenery', object: 2, baseHeight: 14, quadrant: 0, direction: 0 });
 at(5, 1).push({ type: 'wall', object: 3, baseHeight: 14, direction: 1 });
-at(5, 2).push({ type: 'footpath', object: 4, surfaceObject: 4, baseHeight: 14 });
+at(5, 2)[0].slope = 12;
+at(5, 2).push({ type: 'footpath', object: 4, surfaceObject: 4,
+    baseHeight: 14, baseZ: 112, slopeDirection: 0 });
 at(2, 3).push({ type: 'large_scenery', object: 1, sequence: 0, baseHeight: 14, direction: 0 });
 at(3, 3).push({ type: 'large_scenery', object: 1, sequence: 1, baseHeight: 14, direction: 0 });
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
@@ -73,6 +78,15 @@ drain();
 const begin = sent.find(m => m.kind === 'world.snapshot.begin');
 assert.ok(begin, 'discovery begins without a scenario configuration');
 const all = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.entities || []);
+const ground = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.terrain || []);
+const terrainAt = (x, y) => ground.find(cell => cell.x === x && cell.y === y);
+assert.equal(terrainAt(0, 0).height, 112);
+assert.equal(terrainAt(0, 0).slope, 3, 'native surface slope is exported');
+assert.equal(terrainAt(5, 2).ground_paths[0].slope_direction, 0,
+    'native sloped path direction is exported');
+assert.equal(terrainAt(5, 2).ground_paths[0].base_height, 112);
+assert.equal(terrainAt(1, 0).water, 128);
+assert.equal(terrainAt(1, 0).walkable, false);
 assert.equal(all.length, 5);
 assert.deepEqual([...new Set(all.map(e => e.kind))].sort(), ['large_scenery', 'path', 'ride', 'small_scenery', 'wall']);
 const large = all.find(e => e.kind === 'large_scenery');

@@ -58,12 +58,18 @@ type Entity struct {
 	Revision     uint64    `json:"revision"`
 }
 type Terrain struct {
-	X        int  `json:"x"`
-	Y        int  `json:"y"`
-	Height   int  `json:"height"`
-	Water    int  `json:"water"`
-	Surface  int  `json:"surface"`
-	Walkable bool `json:"walkable"`
+	X           int           `json:"x"`
+	Y           int           `json:"y"`
+	Height      int           `json:"height"` // OpenRCT2 world Z units (8 per baseHeight step)
+	Slope       int           `json:"slope,omitempty"`
+	Water       int           `json:"water"`
+	Surface     int           `json:"surface"`
+	Walkable    bool          `json:"walkable"`
+	GroundPaths []TerrainPath `json:"ground_paths,omitempty"`
+}
+type TerrainPath struct {
+	BaseHeight     int  `json:"base_height"`     // OpenRCT2 world Z units
+	SlopeDirection *int `json:"slope_direction"` // null means a flat path
 }
 type SnapshotChunk struct {
 	Index    int       `json:"index"`
@@ -300,6 +306,9 @@ func (r *Registry) Replace(session string, revision uint64, width, height int, e
 		if t.X < 0 || t.Y < 0 || t.X >= width || t.Y >= height || seenCells[p] {
 			return errors.New("invalid or duplicate terrain cell")
 		}
+		if err := t.ValidateGeometry(); err != nil {
+			return fmt.Errorf("unsupported_terrain at %d,%d: %w", t.X, t.Y, err)
+		}
 		seenCells[p] = true
 	}
 	r.Session, r.Revision, r.Width, r.Height = session, revision, width, height
@@ -356,7 +365,7 @@ func (r *Registry) Apply(m Envelope) Ack {
 		r.Destroyed[p.ID] = true
 	case "navigation.terrain.update":
 		var p Terrain
-		if m.Decode(&p) != nil || p.X < 0 || p.Y < 0 || p.X >= r.Width || p.Y >= r.Height {
+		if m.Decode(&p) != nil || p.X < 0 || p.Y < 0 || p.X >= r.Width || p.Y >= r.Height || p.ValidateGeometry() != nil {
 			a.Error = "invalid_terrain"
 			return a
 		}

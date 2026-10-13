@@ -196,9 +196,9 @@ registerPlugin({
         function navigationElements() {
             var wallObjects = objectManager.getAllObjects("wall");
             var smallObjects = objectManager.getAllObjects("small_scenery");
-            var rows = [], elements = [];
+            var rows = [], slopes = [], water = [], elements = [];
             for (var y = bounds.min_y; y <= bounds.max_y; y++) {
-                var heights = [];
+                var heights = [], rowSlopes = [], rowWater = [];
                 for (var x = bounds.min_x; x <= bounds.max_x; x++) {
                     var tile = map.getTile(x, y), surface = null;
                     for (var i = 0; i < tile.numElements; i++) {
@@ -221,15 +221,23 @@ registerPlugin({
                             record.object_id = objectManager.getAllObjects("large_scenery")
                                 .filter(function (o) { return o.index === e.object; })[0].identifier;
                         }
-                        if (e.type === "footpath") record.edges = e.edges;
+                        if (e.type === "footpath") {
+                            record.edges = e.edges;
+                            record.slope_direction = Number.isInteger(e.slopeDirection) ? e.slopeDirection : null;
+                        }
                         elements.push(record);
                     }
                     if (!surface) throw new Error("surface missing at " + x + "," + y);
                     heights.push(surface.baseHeight * 8);
+                    rowSlopes.push(surface.slope || 0);
+                    rowWater.push(surface.waterHeight || 0);
                 }
                 rows.push(heights);
+                slopes.push(rowSlopes);
+                water.push(rowWater);
             }
-            return { bounds: bounds, tile_size: 32, cell_size: 8, elevation_rows: rows, elements: elements };
+            return { bounds: bounds, tile_size: 32, cell_size: 8,
+                elevation_rows: rows, slope_rows: slopes, water_rows: water, elements: elements };
         }
         function createAt(index) {
             if (index === specs.length) {
