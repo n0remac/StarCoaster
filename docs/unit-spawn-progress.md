@@ -44,3 +44,25 @@
 - Passed: Go scenario and queue tests, `scripts/project.sh test`, and `tests/test_unit_spawn_zerg_live.sh`: five unique native Zerglings, both clients showing seventeen, native movement, and attack frames. Passing evidence: `run-data/zerg-spawn-live-1791867620/`.
 - Earlier Zerg run `run-data/zerg-spawn-live-1791867462/` exposed an observer field unavailable from `getActors()`. The next run `run-data/zerg-spawn-live-1791867563/` showed native attack frames but its parser was sensitive to interleaved process logs. Both test errors were corrected.
 - Next: Phase 6, full reconnect, bridge restart, death and replacement recovery, fault injection, documentation, and final gates.
+
+## Phase 6 — recovery and full integration verification
+
+- Prior HEAD: `627f3ad`. Phase 6 HEAD: `a98426c` (`test(bridge): verify dynamic spawning and multiplayer recovery`).
+- Added explicit native reconciliation for an uncertain spawn. The publisher replays a terminal result or reports `not_received`; only that report allows the bridge to issue the command again. A native death after creation but before binding is retained as a terminal failure through bridge reconnection. The Go queue tests cover a partial batch journal, explicit unreceived retry, death before binding, and client status query after disconnect.
+- Extended the two-client Marine live test to reconnect client B, restart the Go bridge, kill `openbw:3001` through a test-only native hook, request and command replacement `openbw:3006`, and verify no duplicate IDs. A second deterministic hook disconnects the publisher after index 2 is issued; the batch reconciles and completes without reissuing that native creation. The standard live gate now includes Marine and Zergling spawn tests.
+- The generic two-client target-removal test now waits for the complete server target catalog and joins client A before B. A previous simultaneous-join run timed out with `Invalid attack target`; the focused rerun and final full gate passed.
+- Passed final gates: `PATH=/usr/local/go/bin:$PATH go test ./...`, both required Node plugin tests, CTest (3/3), `scripts/project.sh build`, `scripts/project.sh test`, and `scripts/project.sh test-live`. The final full live artifacts are `run-data/frontier-native-nav-1791869110/`, `run-data/world-live-1791869165/`, `run-data/actor-lifecycle-1791869198/verification.json`, `run-data/unit-spawn-live-1791869292/`, and `run-data/zerg-spawn-live-1791869301/`. Final focused recovery and in-flight disconnect artifacts are `run-data/unit-spawn-live-1791869341/` and `run-data/unit-spawn-live-1791869365/`.
+- The first bare `go test ./...` command failed because this shell does not include `/usr/local/go/bin` in `PATH`; the same installed Go binary passed with that path set. Earlier recovery attempts `run-data/unit-spawn-live-1791868058/` and `run-data/unit-spawn-live-1791868296/` exposed unsafe test attack travel and an occupied replacement cell, both corrected. One full live attempt `run-data/world-live-1791868935/` timed out in the generic target probe before the ordered-join test fix.
+- Unverified: a graphical recording of a mouse click on the Spawn Marine placement tool. The OpenRCT2 synchronized action and two-client native spawning path were exercised headlessly. No known unresolved duplicate-identity or request-retry defect remains in the tested paths. Static navigation, the 256-unit snapshot ceiling, and direct spawn without production buildings remain milestone limits.
+- Next phase: v0.3.1 implementation is complete. The next gameplay milestone may add ongoing Zerg attack waves and Terran production or reinforcement rules using the shared spawn queue.
+
+## Commit map for session recovery
+
+| Phase | Commit | Outcome |
+| --- | --- | --- |
+| 1 | `b569133` | Actor creation recovery across adapter readiness and bridge connectivity |
+| 2 | `705e756` | Validated, journaled, idempotent spawn protocol and queue |
+| 3 | `b5187d5` | Native OpenBW Marine creation and shared actor binding |
+| 4 | `981fd6c` | OpenRCT2 Marine placement tool and synchronized action |
+| 5 | `627f3ad` | Trusted scenario Zergling waves through the same queue |
+| 6 | `a98426c` | Reconciliation, final live gates, and verification report |
