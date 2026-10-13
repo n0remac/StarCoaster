@@ -28,3 +28,11 @@
 - Failed earlier runs: `run-data/actor-live-1791866646/` and `run-data/actor-live-1791866801/` exposed fixture placement and ambiguous race-only owner selection; both were fixed. The first two unit-spawn runs exposed nondeterministic client join order in the test; the test now joins the commander first.
 - Passing artifacts: `run-data/actor-live-1791866966/` and `run-data/unit-spawn-live-1791867143/`.
 - Next: Phase 4, finish and commit the OpenRCT2 spawn tool, status feedback, and action-path regression tests.
+
+## Phase 4 — OpenRCT2 Marine reinforcement tool
+
+- Prior HEAD: `b5187d5`.
+- Added a five-choice count selector and Spawn Marine placement tool to the squad window. The action uses OpenRCT2's synchronized action path, checks the authenticated commander, and sends the player's park coordinates without a native owner. Escape cancels placement; the Select button restores Marine selection. Spawn status is synchronized to clients and shown in the window.
+- Existing snapshots, native sprites, hit testing, squad selection, control groups, and orders include the new Marines without a new render path.
+- Passed: `node tests/test_world_plugin.js`, `node tests/test_plugin_snapshots.js`, `node --check`, `scripts/project.sh test`, and the earlier five-Marine live action run in `run-data/unit-spawn-live-1791867143/`. The live test joined client A first so its authenticated player became commander.
+- Next: Phase 5, submit trusted scenario Zergling waves through the same request queue and verify native combat.

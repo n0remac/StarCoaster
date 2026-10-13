@@ -9,6 +9,8 @@
     const TARGET_ACTION = "rtsbridge.targetCatalog";
     const ACTOR_LIFECYCLE_ACTION = "rtsbridge.actorLifecycle";
     const CLIENT_READY_ACTION = "rtsbridge.clientReady";
+    const SPAWN_ACTION = "rtsbridge.spawnMarine";
+    const SPAWN_STATUS_ACTION = "rtsbridge.spawnStatus";
     const PORT = 39999;
     const SIEGE_ENABLED = false;
     const FRONTIER_ENABLED = false;
@@ -26,7 +28,8 @@
     const SCALE_Y = 1;
     const WORLD_ENABLED = typeof STARCOASTER_WORLD_BRIDGE !== "undefined" && STARCOASTER_WORLD_BRIDGE === true;
 
-    function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor) {
+    function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor,
+                               onSpawnSender, onSpawnStatus) {
         const session = Array.from({ length: 4 }, function () {
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
@@ -43,6 +46,11 @@
         }
         function send(kind, payload, rev) { queue.push(envelope(kind, payload, rev)); sendNext(); }
         onCommandSender(function (payload) { send("combat.command", payload); });
+        const knownSpawns = {};
+        onSpawnSender(function (payload) {
+            knownSpawns[payload.request_id] = true;
+            send("unit.spawn.request", payload);
+        });
         function rotate(offset, direction) {
             if (direction === 1) return { x: offset.y, y: -offset.x };
             if (direction === 2) return { x: -offset.x, y: -offset.y };
@@ -243,6 +251,17 @@
                             accepted: false, reason: message.payload.error || "command_rejected" });
                         inFlight = null; sendNext(); return;
                     }
+                    if (inFlight.kind === "unit.spawn.request") {
+                        delete knownSpawns[inFlight.payload.request_id];
+                        onSpawnStatus({ request_id: inFlight.payload.request_id, state: "rejected",
+                            reason: message.payload.error || "spawn_rejected", units: [] });
+                        inFlight = null; sendNext(); return;
+                    }
+                    if (inFlight.kind === "unit.spawn.query" || inFlight.kind === "unit.spawn.cancel") {
+                        onSpawnStatus({ request_id: inFlight.payload.request_id, state: "uncertain",
+                            reason: message.payload.error || "status_unavailable", units: [] });
+                        inFlight = null; sendNext(); return;
+                    }
                     console.log("WORLD_ERROR " + message.payload.error); socket.destroy({}); return;
                 }
                 inFlight = null; sendNext();
@@ -251,6 +270,7 @@
             }
             else if (message.kind === "combat.event") combatEvent(message);
             else if (message.kind === "combat.result" && message.payload.command_id) onCommandResult(message.payload);
+            else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "combat.snapshot") {
                 const state = message.payload;
                 if (!state || !Number.isSafeInteger(state.seq) || state.seq <= lastCombatSeq
@@ -277,6 +297,9 @@
                     + " targets=" + message.payload.targets + " obstacles=" + message.payload.obstacles
                     + " navigation=" + message.payload.navigation
                     + " unsupported=" + (message.payload.unsupported_total || 0));
+                Object.keys(knownSpawns).forEach(function (requestId) {
+                    send("unit.spawn.query", { request_id: requestId });
+                });
             }
             else if (message.kind === "world.outcome" && message.payload
                 && ["victory", "defeat"].includes(message.payload.state))
@@ -548,6 +571,9 @@
         let commandConnected = false;
         let commandSerial = 0;
         let worldCommandSender = null;
+        let worldSpawnSender = null;
+        let spawnFeedback = "";
+        const spawnStatuses = {};
         let worldTargetIds = {};
         let targetCatalogSession = "";
         let targetCatalogVersion = 0;
@@ -594,6 +620,33 @@
         let shownOutcome = "";
         let commandFeedback = "";
         const pendingCommands = {};
+        if (WORLD_ENABLED) context.registerAction(SPAWN_STATUS_ACTION, function (event) {
+            const args = event.args || {};
+            if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                return { error: 1, errorMessage: "Only the server may report spawn status" };
+            if (args.session !== controlSession || typeof args.request_id !== "string"
+                || !/^[a-zA-Z0-9_.:/#-]{1,128}$/.test(args.request_id)
+                || !["queued", "issued", "created", "ready", "rejected", "failed", "uncertain"].includes(args.state)
+                || typeof args.reason !== "string" || args.reason.length > 128
+                || !Array.isArray(args.units) || args.units.length > 5
+                || !args.units.every(function (unit) {
+                    return unit && Number.isInteger(unit.index) && unit.index >= 0 && unit.index < 5
+                        && ["queued", "issued", "created", "ready", "rejected", "failed", "uncertain"].includes(unit.state)
+                        && (!unit.actor_id || /^openbw:[0-9]+$/.test(unit.actor_id));
+                })) return { error: 1, errorMessage: "Invalid spawn status" };
+            return {};
+        }, function (event) {
+            const args = event.args;
+            spawnStatuses[args.request_id] = args;
+            const ready = args.units.filter(function (unit) { return unit.state === "ready"; });
+            spawnFeedback = args.state === "ready" && ready.length ? ready.length + " Marines ready ("
+                + ready[0].actor_id + " to " + ready[ready.length - 1].actor_id + ")"
+                : "Spawn " + args.state + (args.reason ? ": " + args.reason : "")
+                + (args.units.length ? " (" + ready.length + "/" + args.units.length + " ready)" : "");
+            console.log("WORLD_SPAWN_STATUS request=" + args.request_id + " state=" + args.state
+                + " ready=" + ready.length + " ids=" + ready.map(function (unit) { return unit.actor_id; }).join(","));
+            return {};
+        });
         context.registerAction(ACTION, function (event) {
             if (network.mode === "server" && event.player !== network.currentPlayer.id) {
                 return { error: 1, errorMessage: "Only the RTS bridge server may publish snapshots" };
@@ -823,6 +876,40 @@
                 });
                 return {};
             });
+            if (WORLD_ENABLED) context.registerAction(SPAWN_ACTION, function (event) {
+                const args = event.args || {};
+                if (outcomeState) return { error: 1, errorMessage: "Battle has ended" };
+                if (!Array.isArray(network.players) || !network.players.some(function (player) {
+                    return player.id === event.player;
+                })) return { error: 1, errorMessage: "Player is not connected" };
+                if (network.mode === "server") {
+                    const connected = network.players.map(function (player) { return player.id; });
+                    if (!connected.includes(commanderPlayer)) commanderPlayer = -1;
+                    if (commanderPlayer < 0) {
+                        const clients = connected.filter(function (id) { return id !== network.currentPlayer.id; })
+                            .sort(function (a, b) { return a - b; });
+                        commanderPlayer = clients.length ? clients[0] : network.currentPlayer.id;
+                    }
+                    if (event.player !== commanderPlayer)
+                        return { error: 1, errorMessage: "Only the Terran commander may spawn Marines" };
+                    if (!worldSpawnSender)
+                        return { error: 1, errorMessage: "Spawn bridge disconnected" };
+                }
+                if (args.session !== controlSession || typeof args.request_id !== "string"
+                    || !/^[a-zA-Z0-9_.:/#-]{1,128}$/.test(args.request_id)
+                    || !Number.isInteger(args.count) || args.count < 1 || args.count > 5
+                    || !Number.isInteger(args.x) || !Number.isInteger(args.y)
+                    || args.x < 0 || args.y < 0 || args.x >= map.size.x * 32 || args.y >= map.size.y * 32)
+                    return { error: 1, errorMessage: "Invalid Marine spawn location or count" };
+                return {};
+            }, function (event) {
+                if (network.mode !== "server") return {};
+                const args = event.args;
+                worldSpawnSender({ request_id: args.request_id, unit_type: "terran_marine",
+                    count: args.count, x: args.x, y: args.y, formation: "compact",
+                    player_id: event.player });
+                return {};
+            });
             context.registerAction(RESULT_ACTION, function (event) {
                 if (network.mode === "server" && event.player !== network.currentPlayer.id)
                     return { error: 1, errorMessage: "Only the server can report Marine commands" };
@@ -853,6 +940,11 @@
                 if (actorLifecycleSession) Object.keys(activeActorGenerations).forEach(function (id) {
                     publishActorLifecycle(actorLifecycleSession, id, activeActorGenerations[id], "active");
                 });
+                Object.keys(spawnStatuses).forEach(function (id) {
+                    const status = spawnStatuses[id];
+                    if (status.session === controlSession)
+                        context.executeAction(SPAWN_STATUS_ACTION, status, function () {});
+                });
             }
             if (WORLD_ENABLED && network.mode === "client" && controlSession
                 && clientReadySession !== controlSession && !clientReadyPending
@@ -880,9 +972,13 @@
             let dragStart = null;
             let dragEnd = null;
             let attackMove = false;
+            let spawnMode = false;
+            let spawnPreview = null;
+            let spawnCount = 5;
+            let nextSpawnRequest = 0;
             const controlGroups = {};
             const squadWindow = WORLD_ENABLED ? ui.openWindow({ classification: "starcoaster-squad",
-                width: 248, height: 104, title: "Frontier Outpost", widgets: [
+                width: 248, height: 164, title: "Frontier Outpost", widgets: [
                     { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
                         text: "Waiting for battlefield" },
                     { type: "label", x: 8, y: 38, width: 232, height: 14,
@@ -890,7 +986,18 @@
                     { type: "label", name: "objective", x: 8, y: 57, width: 232, height: 14,
                         text: "Defend Frontier Carousel" },
                     { type: "label", name: "command", x: 8, y: 75, width: 232, height: 14,
-                        text: "Select Marines to issue orders" }
+                        text: "Select Marines to issue orders" },
+                    { type: "dropdown", name: "spawn-count", x: 8, y: 96, width: 72, height: 14,
+                        items: ["1 Marine", "2 Marines", "3 Marines", "4 Marines", "5 Marines"],
+                        selectedIndex: 4, onChange: function (index) { spawnCount = index + 1; } },
+                    { type: "button", name: "spawn-mode", x: 88, y: 94, width: 152, height: 20,
+                        text: "Spawn Marine", onClick: function () { activateSpawnTool(); } },
+                    { type: "button", name: "select-mode", x: 8, y: 119, width: 72, height: 20,
+                        text: "Select", onClick: function () { ui.activateTool(marineSelectionTool); } },
+                    { type: "label", name: "spawn-status", x: 88, y: 121, width: 152, height: 14,
+                        text: "Call in reinforcements" },
+                    { type: "label", name: "spawn-detail", x: 8, y: 144, width: 232, height: 14,
+                        text: "Click Spawn Marine, then a clear tile" }
                 ] }) : null;
             function pointFrom(event) { return event.mapCoords || rtsBridge.cursorWorld(); }
             function refreshSelection() {
@@ -898,6 +1005,7 @@
                     selectionSession = controlSession; selected = [];
                     Object.keys(controlGroups).forEach(function (number) { delete controlGroups[number]; });
                     commandFeedback = "";
+                    spawnFeedback = "";
                 }
                 selected = selected.filter(function (id) {
                     const unit = controlUnits[id];
@@ -910,7 +1018,7 @@
                     });
                 });
                 if (WORLD_ENABLED) {
-                    const tiles = selected.map(function (id) {
+                    const tiles = spawnMode && spawnPreview ? [spawnPreview] : selected.map(function (id) {
                         const unit = controlUnits[id];
                         return { x: Math.floor(unit.x / 32) * 32, y: Math.floor(unit.y / 32) * 32 };
                     });
@@ -929,6 +1037,9 @@
                         : outcomeState === "defeat" ? "Defeat: Outpost lost" : "Defend Frontier Carousel";
                     const command = squadWindow.findWidget("command");
                     if (command) command.text = commandFeedback || "Select Marines to issue orders";
+                    const status = squadWindow.findWidget("spawn-status");
+                    if (status) status.text = spawnMode ? "Place " + spawnCount + " Marine" + (spawnCount === 1 ? "" : "s")
+                        : spawnFeedback || "Call in reinforcements";
                 }
                 if (outcomeState && shownOutcome !== controlSession + ":" + outcomeState) {
                     shownOutcome = controlSession + ":" + outcomeState;
@@ -1027,7 +1138,42 @@
                     if (result.error) ui.showError("Marine command", result.errorMessage);
                 });
             }
-            ui.activateTool({ id: "starcoaster.select-marine", cursor: "cross_hair",
+            function activateSpawnTool() {
+                if (!controlSession || outcomeState) {
+                    ui.showError("Marine reinforcements", "The battle is not ready for spawning");
+                    return;
+                }
+                spawnMode = true;
+                ui.activateTool({ id: "starcoaster.spawn-marine", cursor: "cross_hair",
+                    filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
+                    onMove: function (event) {
+                        const point = pointFrom(event);
+                        spawnPreview = point && point.x >= 0 && point.y >= 0
+                            && point.x < map.size.x * 32 && point.y < map.size.y * 32
+                            ? { x: Math.floor(point.x / 32) * 32, y: Math.floor(point.y / 32) * 32 } : null;
+                        refreshSelection();
+                    },
+                    onDown: function (event) {
+                        const point = pointFrom(event);
+                        if (!point || point.x < 0 || point.y < 0 || point.x >= map.size.x * 32
+                            || point.y >= map.size.y * 32) {
+                            ui.showError("Marine reinforcements", "Choose a location inside the park");
+                            return;
+                        }
+                        const requestId = controlSession + ":spawn:" + network.currentPlayer.id
+                            + ":" + (++nextSpawnRequest);
+                        context.executeAction(SPAWN_ACTION, { session: controlSession, request_id: requestId,
+                            count: spawnCount, x: point.x, y: point.y }, function (result) {
+                            if (result.error) ui.showError("Marine reinforcements", result.errorMessage);
+                        });
+                        spawnMode = false;
+                        spawnPreview = null;
+                        ui.activateTool(marineSelectionTool);
+                    },
+                    onFinish: function () { spawnMode = false; spawnPreview = null; refreshSelection(); }
+                });
+            }
+            const marineSelectionTool = { id: "starcoaster.select-marine", cursor: "cross_hair",
                 filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
                 onDown: function (event) {
                     dragStart = pointFrom(event); dragEnd = dragStart;
@@ -1055,7 +1201,8 @@
                 onFinish: function () {
                     if (WORLD_ENABLED) { ui.tileSelection.range = null; ui.tileSelection.tiles = []; }
                 },
-                onRightClick: function (event) { orderAt(pointFrom(event)); } });
+                onRightClick: function (event) { orderAt(pointFrom(event)); } };
+            ui.activateTool(marineSelectionTool);
         }
 
         if (network.mode !== "server") return;
@@ -1078,7 +1225,14 @@
                 });
             }, function (_discovered, worldSession) {
                 publishTargetCatalog(worldSession, []);
-            }, publishTargetCatalog, publishActorLifecycle);
+            }, publishTargetCatalog, publishActorLifecycle,
+            function (sender) { worldSpawnSender = sender; }, function (status) {
+                const payload = { session: controlSession, request_id: status.request_id,
+                    state: status.state, reason: status.reason || "", units: status.units || [] };
+                context.executeAction(SPAWN_STATUS_ACTION, payload, function (result) {
+                    if (result.error) console.log("WORLD_SPAWN_STATUS_ERROR " + result.errorMessage);
+                });
+            });
             return;
         }
         const siegeRide = (SIEGE_ENABLED || FRONTIER_ENABLED) ? registeredCarousel() : null;

@@ -16,6 +16,7 @@ at(3, 3).push({ type: 'large_scenery', object: 1, sequence: 1, baseHeight: 14, d
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
 const shortcuts = new Map();
 let selectionTool;
+let squadWidgets;
 let socket;
 const sandbox = {
     STARCOASTER_WORLD_BRIDGE: true,
@@ -40,7 +41,8 @@ const sandbox = {
     } },
     rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
-    ui: { tileSelection: { tiles: [] }, openWindow() { return { findWidget() { return { text: '' }; } }; },
+    ui: { tileSelection: { tiles: [] }, openWindow(desc) { squadWidgets = desc.widgets;
+            return { findWidget() { return { text: '' }; } }; },
         registerShortcut(shortcut) { shortcuts.set(shortcut.id, shortcut); },
         activateTool(tool) { selectionTool = tool; }, showError() {} },
     context: { registerAction(name, query, execute) { registered.set(name, { query, execute }); },
@@ -161,6 +163,38 @@ const wallTarget = all.find(e => e.kind === 'wall');
 const sceneryTarget = all.find(e => e.kind === 'small_scenery');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.ready', session: sid,
     payload: { entities: 5, targets: 3, target_ids: [rideTarget.id, wallTarget.id, sceneryTarget.id], navigation: 'native' } }) + '\n');
+const spawnAction = registered.get('rtsbridge.spawnMarine');
+const spawnArgs = { session: sid, request_id: sid + ':spawn:1:1', count: 5, x: 96, y: 96 };
+assert.equal(spawnAction.query({ player: 1, args: spawnArgs }).error, undefined,
+    'current commander may request reinforcements');
+assert.ok(spawnAction.query({ player: 2, args: spawnArgs }).error,
+    'another player cannot request Marine reinforcements');
+assert.ok(spawnAction.query({ player: 1, args: { ...spawnArgs, count: 6 } }).error,
+    'spawn action caps batches at five');
+assert.ok(spawnAction.query({ player: 1, args: { ...spawnArgs, x: 9999 } }).error,
+    'spawn action rejects locations outside the park');
+squadWidgets.find(widget => widget.name === 'spawn-mode').onClick();
+assert.equal(selectionTool.id, 'starcoaster.spawn-marine', 'spawn button activates park placement tool');
+selectionTool.onMove({ mapCoords: { x: 96, y: 96 } });
+assert.equal(sandbox.ui.tileSelection.tiles.length, 1, 'spawn placement is highlighted');
+selectionTool.onDown({ mapCoords: { x: 96, y: 96 } });
+drain();
+const spawnRequest = sent.filter(message => message.kind === 'unit.spawn.request').at(-1);
+assert.ok(spawnRequest && spawnRequest.payload.count === 5 && spawnRequest.payload.unit_type === 'terran_marine');
+assert.equal(selectionTool.id, 'starcoaster.select-marine', 'placement restores Marine selection');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'unit.spawn.status', session: sid,
+    payload: { request_id: spawnRequest.payload.request_id, state: 'ready', units: [
+        { index: 0, state: 'ready', actor_id: 'openbw:3001' },
+        { index: 1, state: 'ready', actor_id: 'openbw:3002' } ] } }) + '\n');
+assert.ok(actions.some(action => action.name === 'rtsbridge.spawnStatus' && action.args.state === 'ready'),
+    'spawn progress is synchronized to clients');
+const requestsBeforeCancel = sent.filter(message => message.kind === 'unit.spawn.request').length;
+squadWidgets.find(widget => widget.name === 'spawn-mode').onClick();
+selectionTool.onFinish();
+assert.equal(sent.filter(message => message.kind === 'unit.spawn.request').length, requestsBeforeCancel,
+    'canceling placement does not issue a spawn request');
+squadWidgets.find(widget => widget.name === 'select-mode').onClick();
+assert.equal(selectionTool.id, 'starcoaster.select-marine', 'selection remains available after cancel');
 assert.ok(actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets
     .some(target => target.id === rideTarget.id));
 const structureArgs = { session: sid, request: 3, unit_ids: ['openbw:1000'],
