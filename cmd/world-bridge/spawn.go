@@ -247,6 +247,22 @@ func (s *service) pumpSpawns() {
 	}
 }
 
+func (s *service) reconcileUncertainSpawn() {
+	if s.spawns == nil || s.bw == nil {
+		return
+	}
+	execute, ok := s.spawns.Unresolved()
+	if !ok {
+		return
+	}
+	status, _ := s.spawns.Lookup(execute.RequestID)
+	if status.Units[execute.Index].State != "uncertain" {
+		return
+	}
+	_ = s.emit(s.bw, "unit.spawn.reconcile", s.registry.Session, s.registry.Revision,
+		map[string]any{"pending": []map[string]any{{"request_id": execute.RequestID, "index": execute.Index}}})
+}
+
 func (s *service) bwSpawnMessage(p *peer, m world.Envelope) {
 	var native nativeSpawnStatus
 	if m.Decode(&native) != nil || s.spawns == nil || m.Session != s.registry.Session ||
@@ -278,6 +294,8 @@ func (s *service) bwSpawnMessage(p *peer, m world.Envelope) {
 		} else if status.Units[native.Index].State != "uncertain" {
 			_, _ = s.spawns.Uncertain()
 		}
+	case "not_received":
+		err = s.spawns.NotReceived(native.RequestID, native.Index)
 	default:
 		err = errors.New("invalid_spawn_state")
 	}
@@ -291,7 +309,7 @@ func (s *service) bwSpawnMessage(p *peer, m world.Envelope) {
 	s.spawnStatus(status)
 	if native.State == "created" && s.actors.Commandable(native.ActorID) {
 		s.spawnActorReady(native.ActorID)
-	} else if native.State == "failed" {
+	} else if native.State == "failed" || native.State == "not_received" {
 		s.pumpSpawns()
 	}
 }

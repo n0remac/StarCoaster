@@ -1,6 +1,6 @@
 # StarCoaster
 
-StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Six OpenBW Marines defend Frontier Carousel against twelve Zerglings in a deterministic 64 × 64 Frontier Outpost. The player selects Marines and gives move, attack, attack move, hold, and stop orders in OpenRCT2. OpenBW runs unit movement and combat; the OpenRCT2 server owns the park and native demolition; the Go bridge synchronizes both engines and two clients.
+StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Six OpenBW Marines defend Frontier Carousel against twelve Zerglings in a deterministic 64 × 64 Frontier Outpost. The player selects Marines, calls in up to five reinforcements through the squad window's Spawn Marine tool, and gives move, attack, attack move, hold, and stop orders in OpenRCT2. OpenBW runs unit movement and combat; the OpenRCT2 server owns the park and native demolition; the Go bridge synchronizes both engines and two clients.
 
 ## Build and play
 
@@ -22,7 +22,7 @@ scripts/project.sh test-live
 scripts/project.sh record --duration 85
 ```
 
-`test` runs Go, C++, Python, and JavaScript regressions. `test-live` additionally exercises native navigation, generic park demolition with two clients, Frontier victory, and two shared-runtime-Marine cycles with client reconnect, bridge restart, native orders, and death. Live tests require built engines and game data. `record` launches two graphical clients and publishes screenshots, video, logs, and verification results to the [artifact viewer](docs/test-viewer.md). Use `--help` on the recorder for capture settings. The [shared actor report](docs/shared-actor-verification.md) records lifecycle evidence; the [first playable report](docs/first-playable-verification.md) and [v0.2 baseline](docs/consolidation-baseline.md) record earlier verification.
+`test` runs Go, C++, Python, and JavaScript regressions. `test-live` additionally exercises native navigation, generic park demolition with two clients, Frontier victory, shared-runtime-Marine recovery, and dynamic five-Marine and Zergling spawning. Live tests require built engines and game data. `record` launches two graphical clients and publishes screenshots, video, logs, and verification results to the [artifact viewer](docs/test-viewer.md). Use `--help` on the recorder for capture settings. The [unit spawn report](docs/unit-spawn-verification.md) records reinforcement and recovery evidence; the [shared actor report](docs/shared-actor-verification.md) and [first playable report](docs/first-playable-verification.md) record earlier baselines.
 
 For a lighter capture, use `scripts/project.sh record --video-layout single --video-fps 15 --video-width 800`. The [recording benchmark](docs/recording-performance-v0.2.md) compares 15 and 30 FPS against gameplay without video; the [park design report](docs/park-design-v0.2.md) records the four camera views and geometry checks.
 

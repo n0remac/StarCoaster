@@ -52,6 +52,7 @@ wait_for() {
 }
 
 wait_for 'WORLD_READY' "$run_dir/session.log" 75
+wait_for 'WORLD_TARGET_CATALOG.*targets=32' "$run_dir/session.log" 20
 openrct2_data="$project_dir/build/openrct2-stage/usr/local/share/openrct2"
 for name in client-a client-b; do
   RCT2_DATA_DIR="$RCT2_DATA_DIR" build/openrct2/openrct2-cli join 127.0.0.1 \
@@ -59,6 +60,9 @@ for name in client-a client-b; do
     --openrct2-data-path="$openrct2_data" --user-data-path="$run_dir/$name" \
     > "$run_dir/$name.log" 2>&1 &
   if [[ "$name" == client-a ]]; then client_a_pid=$!; else client_b_pid=$!; fi
+  if [[ "$name" == client-a ]]; then
+    wait_for 'WORLD_TARGET_PROBE actors=' "$run_dir/client-a.log" 60
+  fi
 done
 
 wait_for 'WORLD_TARGET_ATTACK_QUERY accepted=true' "$run_dir/client-a.log" 90

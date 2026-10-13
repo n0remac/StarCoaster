@@ -639,9 +639,13 @@
             const args = event.args;
             spawnStatuses[args.request_id] = args;
             const ready = args.units.filter(function (unit) { return unit.state === "ready"; });
+            const failure = args.units.filter(function (unit) {
+                return (unit.state === "failed" || unit.state === "rejected") && unit.reason;
+            })[0];
+            const reason = args.reason || (failure ? failure.reason : "");
             spawnFeedback = args.state === "ready" && ready.length ? ready.length + " Marines ready ("
                 + ready[0].actor_id + " to " + ready[ready.length - 1].actor_id + ")"
-                : "Spawn " + args.state + (args.reason ? ": " + args.reason : "")
+                : "Spawn " + args.state + (reason ? ": " + reason : "")
                 + (args.units.length ? " (" + ready.length + "/" + args.units.length + " ready)" : "");
             console.log("WORLD_SPAWN_STATUS request=" + args.request_id + " state=" + args.state
                 + " ready=" + ready.length + " ids=" + ready.map(function (unit) { return unit.actor_id; }).join(","));

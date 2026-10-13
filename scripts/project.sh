@@ -34,6 +34,8 @@ case "$command" in
         tests/test_world_live.sh
         python3 scripts/verify-frontier-lifecycle.py
         tests/test_actor_lifecycle_live.sh
+        tests/test_unit_spawn_live.sh
+        tests/test_unit_spawn_zerg_live.sh
         ;;
     help|-h|--help)
         cat <<'EOF'

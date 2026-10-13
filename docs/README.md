@@ -13,6 +13,8 @@
 | [World bridge](world-bridge.md) | Generic park startup, protocol, limits, and troubleshooting | In progress |
 | [OpenBW adapter status](openbw-adapter-status.md) | Historical capacity measurements and current native patch note | Historical measurements |
 | [First playable verification](first-playable-verification.md) | Frontier Outpost gameplay, navigation, and regression baseline | Historical baseline |
+| [Unit spawn verification](unit-spawn-verification.md) | v0.3.1 native reinforcements, reconnect, fault injection, and limits | Current |
+| [Unit spawn progress](unit-spawn-progress.md) | Phase commits and session recovery record | Current |
 | [Asset and source inventory](licensing.md) | License evidence and data handling for pinned dependencies | Initial review |
 | [Historical archive](archive/README.md) | Superseded prototype specifications and assessments | Archived |
 

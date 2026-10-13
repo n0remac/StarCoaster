@@ -61,12 +61,18 @@ known status and `unit.spawn.cancel` cancels units still queued.
 
 The Go bridge journals requests and outcomes under `run-data/spawn-queue.json`
 by default. An issued creation becomes `uncertain` after publisher disconnect
-or bridge restart and is not blindly retried. A repeated request with the
-same ID and parameters returns its existing status; changed parameters are
-rejected. The current queue admits 64 pending units, limits batches to five,
-and defaults to at most 240 live Marines and Zerglings below the 256 actor
-snapshot ceiling. The player-facing path accepts Marines only; trusted scenario
-Zergling requests use the same queue in the later gameplay phase.
+or bridge restart and is not blindly retried. Once native world reconciliation
+completes, the bridge sends `unit.spawn.reconcile` for the unresolved request
+and index. The publisher replays its terminal result, reports `uncertain` while
+the native creation is pending, or reports `not_received` only when that
+request/index was absent from its same-session command journal. Only the
+explicit `not_received` report permits a new native issue. A repeated request
+with the same ID and parameters returns its existing status; changed parameters
+are rejected. The current queue admits 64 pending units, limits batches to
+five, and defaults to at most 240 live Marines and Zerglings below the 256
+actor snapshot ceiling. The player-facing path accepts Marines only; trusted
+`spawn_waves` scenario requests use the same queue for Zerglings. Player and
+scenario requests have distinct authorization contexts.
 
 On world snapshot replay, OpenBW marks `world.ready.resuming` after it has
 previously reached native readiness in that simulation. The bridge then checks

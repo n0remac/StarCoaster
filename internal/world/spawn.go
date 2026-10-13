@@ -105,6 +105,40 @@ func (q *SpawnQueue) FindActor(actor string) (string, int, bool) {
 	return "", 0, false
 }
 
+func (q *SpawnQueue) Unresolved() (SpawnExecute, bool) {
+	if q.Active == "" {
+		return SpawnExecute{}, false
+	}
+	entry := q.Entries[q.Active]
+	if entry == nil {
+		return SpawnExecute{}, false
+	}
+	for _, unit := range entry.Status.Units {
+		if unit.State == "issued" || unit.State == "created" || unit.State == "uncertain" {
+			return SpawnExecute{RequestID: q.Active, Index: unit.Index,
+				UnitType: entry.Request.UnitType, X: entry.Request.X, Y: entry.Request.Y}, true
+		}
+	}
+	return SpawnExecute{}, false
+}
+
+// Only an explicit publisher report that it never received the command can
+// turn an uncertain creation back into a safe queued creation.
+func (q *SpawnQueue) NotReceived(id string, index int) error {
+	if q.Active != id {
+		return errors.New("unexpected_unreceived_spawn")
+	}
+	entry := q.Entries[id]
+	if entry == nil || index < 0 || index >= len(entry.Status.Units) ||
+		entry.Status.Units[index].State != "uncertain" || entry.Status.Units[index].ActorID != "" {
+		return errors.New("invalid_unreceived_spawn")
+	}
+	entry.Status.Units[index] = SpawnUnitResult{Index: index, State: "queued"}
+	q.Active = ""
+	q.summarize(entry)
+	return nil
+}
+
 func (q *SpawnQueue) Submit(session string, request SpawnRequest) (SpawnStatus, error) {
 	if session != q.Session {
 		return SpawnStatus{}, errors.New("stale_session")

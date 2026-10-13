@@ -1,6 +1,10 @@
 package world
 
-import "testing"
+import (
+	"encoding/json"
+	"fmt"
+	"testing"
+)
 
 func spawnRequest(id string, count int) SpawnRequest {
 	return SpawnRequest{RequestID: id, UnitType: "terran_marine", Count: count,
@@ -88,5 +92,96 @@ func TestSpawnQueueValidationCapacityAndUncertainty(t *testing.T) {
 	}
 	if next, ok := q.Next(); !ok || next.Index != 1 {
 		t.Fatalf("reconciled queue: %+v %t", next, ok)
+	}
+}
+
+func TestPartialBatchJournalRequiresPublisherReconciliation(t *testing.T) {
+	q := NewSpawnQueue("session-a", 10)
+	request := spawnRequest("partial", 5)
+	if _, err := q.Submit("session-a", request); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 2; index++ {
+		execute, _ := q.Next()
+		if err := q.Issue(execute); err != nil {
+			t.Fatal(err)
+		}
+		actor := fmt.Sprintf("openbw:%d", 3001+index)
+		if err := q.Created(request.RequestID, index, actor, 960, 1024); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.Ready(request.RequestID, index, actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	execute, _ := q.Next()
+	if execute.Index != 2 {
+		t.Fatal("batch did not advance to third unit")
+	}
+	if err := q.Issue(execute); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recovered SpawnQueue
+	if err := json.Unmarshal(encoded, &recovered); err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.Recover("session-a", 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := recovered.Next(); ok {
+		t.Fatal("bridge restarted an uncertain native creation")
+	}
+	if err := recovered.NotReceived(request.RequestID, 2); err != nil {
+		t.Fatal(err)
+	}
+	if next, ok := recovered.Next(); !ok || next.Index != 2 {
+		t.Fatalf("confirmed unreceived creation did not retry: %+v", next)
+	}
+	if err := recovered.Issue(execute); err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.Created(request.RequestID, 2, "openbw:3003", 960, 1024); err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.NotReceived(request.RequestID, 2); err == nil {
+		t.Fatal("created native actor declared absent")
+	}
+	if err := recovered.Ready(request.RequestID, 2, "openbw:3003"); err != nil {
+		t.Fatal(err)
+	}
+	if next, ok := recovered.Next(); !ok || next.Index != 3 {
+		t.Fatalf("partial batch failed to resume: %+v", next)
+	}
+}
+
+func TestNativeDeathBeforeBindingAfterBridgeRestart(t *testing.T) {
+	q := NewSpawnQueue("session-a", 5)
+	request := spawnRequest("death-before-binding", 2)
+	if _, err := q.Submit("session-a", request); err != nil {
+		t.Fatal(err)
+	}
+	execute, _ := q.Next()
+	if err := q.Issue(execute); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Created(request.RequestID, 0, "openbw:3001", 960, 1024); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Recover("session-a", 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Fail(request.RequestID, 0, "native_died_before_ready"); err != nil {
+		t.Fatal(err)
+	}
+	status, _ := q.Lookup(request.RequestID)
+	if status.Units[0].State != "failed" || status.Units[0].Reason != "native_died_before_ready" {
+		t.Fatalf("death result not retained: %+v", status)
+	}
+	if next, ok := q.Next(); !ok || next.Index != 1 {
+		t.Fatalf("batch remained blocked after death: %+v %t", next, ok)
 	}
 }

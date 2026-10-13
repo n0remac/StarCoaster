@@ -4,6 +4,7 @@ registerPlugin({ name: "StarCoaster Spawn Probe", version: "1.0.0", authors: ["S
     main: function () {
         if (network.mode !== "client") return;
         var ticks = 0, requested = false, moved = false, attacked = false, lastRoster = "";
+        var initialSquadSeen = false, replacementRequested = false, replacementReady = false;
         context.subscribe("interval.tick", function () {
             if (++ticks % 20 !== 0 || !rtsBridge) return;
             var snapshot = rtsBridge.getActors();
@@ -29,6 +30,26 @@ registerPlugin({ name: "StarCoaster Spawn Probe", version: "1.0.0", authors: ["S
                     });
             }
             var runtime = marines.filter(function (id) { return /^openbw:30[0-9][0-9]$/.test(id); });
+            if (runtime.length === 5 && runtime.indexOf("openbw:3001") !== -1) initialSquadSeen = true;
+            if (typeof STARCOASTER_TEST_RECOVERY !== "undefined" && STARCOASTER_TEST_RECOVERY
+                && initialSquadSeen && !replacementRequested && marines.indexOf("openbw:3001") === -1) {
+                replacementRequested = true;
+                context.executeAction("rtsbridge.spawnMarine", { session: snapshot.session,
+                    request_id: snapshot.session + ":live:replacement", count: 1, x: 800, y: 976 },
+                    function (result) {
+                        console.log("WORLD_SPAWN_REPLACEMENT_REQUEST accepted=" + !result.error
+                            + " reason=" + (result.errorMessage || "ok"));
+                    });
+            }
+            if (replacementRequested && !replacementReady && runtime.indexOf("openbw:3006") !== -1) {
+                replacementReady = true;
+                console.log("WORLD_SPAWN_REPLACEMENT ids=" + runtime.join(","));
+                context.executeAction("rtsbridge.marineCommand", { session: snapshot.session,
+                    request: 9103, unit_ids: ["openbw:3006"], verb: "move", x: 704, y: 1056 },
+                    function (result) {
+                        console.log("WORLD_SPAWN_REPLACEMENT_MOVE accepted=" + !result.error);
+                    });
+            }
             if (runtime.length !== 5) return;
             if (!moved) {
                 moved = true;
@@ -44,7 +65,15 @@ registerPlugin({ name: "StarCoaster Spawn Probe", version: "1.0.0", authors: ["S
                 attacked = true;
                 context.executeAction("rtsbridge.marineCommand", { session: snapshot.session,
                     request: 9102, unit_ids: runtime, verb: "attack", target_id: enemy.id },
-                    function (result) { console.log("WORLD_SPAWN_ATTACK accepted=" + !result.error); });
+                    function (result) {
+                        console.log("WORLD_SPAWN_ATTACK accepted=" + !result.error);
+                        if (typeof STARCOASTER_TEST_RECOVERY !== "undefined" && STARCOASTER_TEST_RECOVERY)
+                            context.executeAction("rtsbridge.marineCommand", { session: snapshot.session,
+                                request: 9104, unit_ids: runtime, verb: "stop" },
+                                function (stopped) {
+                                    console.log("WORLD_SPAWN_STOP accepted=" + !stopped.error);
+                                });
+                    });
             }
         });
     }

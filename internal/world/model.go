@@ -204,6 +204,10 @@ func (m Envelope) Validate() error {
 		}
 		var execute SpawnExecute
 		return decodeActorPayload(m.Payload, &execute)
+	case "unit.spawn.reconcile":
+		if m.Source != "bridge" {
+			return errors.New("invalid spawn reconciliation authority")
+		}
 	case "unit.spawn.status":
 		if m.Source != "openbw" && m.Source != "bridge" {
 			return errors.New("invalid spawn status authority")

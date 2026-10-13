@@ -25,6 +25,8 @@ Use the relevant unit tests before live graphical tests. Preserve navigation, co
 
 `scripts/project.sh test-live` includes `tests/test_actor_lifecycle_live.sh`: two native actor cycles with client reconnect, bridge restart, death, and post-death command rejection. Keep its test-only spawn and probe scripts out of player-facing flows. Record both cycle paths when changing actor lifecycle behavior.
 
+Dynamic spawn changes also require `tests/test_unit_spawn_live.sh` and `tests/test_unit_spawn_zerg_live.sh` with local licensed game data. Use `BRIDGE_SPAWN_RECOVERY=1 BRIDGE_TEST_KILL_RUNTIME_MARINE_FRAME=450` to test two-client reconnect, bridge restart, death and replacement. Use `BRIDGE_TEST_DISCONNECT_SPAWN_INDEX=2` to interrupt native creation after issue and verify the in-flight request reconciles without duplication. These hooks and `scripts/world-spawn-probe.js` are test-only. Record each run directory and verify unique native actor IDs and both participant bindings.
+
 Never commit user supplied RCT2 or StarCraft data, extracted sprites, proprietary graphics, local captures, or bundled engine builds. Follow `docs/licensing.md` and check staged paths before committing.
 
 Report the commands run, pass or fail results, artifact paths, and remaining limits. If a live test cannot run, state the missing dependency or failure plainly. See `README.md` for the current playable workflow and `docs/first-playable-verification.md` for the prior baseline.

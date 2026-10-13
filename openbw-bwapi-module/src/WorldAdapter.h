@@ -60,6 +60,14 @@ public:
         pendingCreations_.erase(unit->getID());
         publishedActors_.erase(unit->getID());
         const auto id = actorRegistry_.id(unit);
+        for (auto& [key, spawn] : nativeSpawns_) {
+            if (spawn.actorID != id || spawn.state != "created") continue;
+            // A bridge can restart between native creation and the controller
+            // binding. Replay the death as a terminal result for that request.
+            spawn.state = "failed";
+            spawn.reason = "native_died_before_ready";
+            spawn.reported = false;
+        }
         for (const auto& [canonical, actor] : actorRegistry_.runtime()) {
             if (id != "openbw:" + std::to_string(canonical)) continue;
             if (socket_ >= 0 && !session_.empty())
@@ -134,6 +142,20 @@ public:
                     game->killUnit(unit);
                     std::cerr << "[world] requested native test Marine death id=openbw:"
                               << testMarineCanonical_ << " frame=" << frame << std::endl;
+                }
+            }
+        }
+        const char* runtimeKillAt = std::getenv("BRIDGE_TEST_KILL_RUNTIME_MARINE_FRAME");
+        if (!testRuntimeKillRequested_ && runtimeKillAt && *runtimeKillAt) {
+            char* end = nullptr;
+            const long requested = std::strtol(runtimeKillAt, &end, 10);
+            if (end && !*end && requested > 0 && frame >= requested) {
+                auto unit = actorRegistry_.lookup("openbw:3001");
+                if (unit && unit->exists() && unit->getType() == BWAPI::UnitTypes::Terran_Marine) {
+                    testRuntimeKillRequested_ = true;
+                    game->killUnit(unit);
+                    std::cerr << "[world] requested native runtime Marine death id=openbw:3001"
+                              << " frame=" << frame << std::endl;
                 }
             }
         }
@@ -218,7 +240,45 @@ private:
             }
             const bool accepted = executeNativeSpawn(game,payload,false);
             ack(message,accepted,accepted ? "" : spawnError_);
+            const char* disconnectAt = std::getenv("BRIDGE_TEST_DISCONNECT_SPAWN_INDEX");
+            if (accepted && !testSpawnDisconnectInjected_ && disconnectAt && *disconnectAt) {
+                char* end = nullptr;
+                const long index = std::strtol(disconnectAt, &end, 10);
+                if (end && !*end && index >= 0 && index <= 4
+                    && payload.value("index", -1) == index) {
+                    testSpawnDisconnectInjected_ = true;
+                    std::cerr << "[world] injected publisher disconnect after spawn issue index="
+                              << index << std::endl;
+                    disconnect();
+                }
+            }
             return;
+        }
+        if (kind=="unit.spawn.reconcile") {
+            if (message.value("session", "") != session_ || !payload.is_object()
+                || !payload.contains("pending") || !payload.at("pending").is_array()
+                || payload.at("pending").size() > 64) {
+                ack(message,false,"invalid_spawn_reconciliation"); return;
+            }
+            for (const auto& item : payload.at("pending")) {
+                if (!item.is_object() || !item.contains("request_id")
+                    || !item.at("request_id").is_string() || !item.contains("index")
+                    || !item.at("index").is_number_integer()) continue;
+                const auto id = item.at("request_id").get<std::string>();
+                const int index = item.at("index").get<int>();
+                const auto key = id + ":" + std::to_string(index);
+                const auto found = nativeSpawns_.find(key);
+                if (found == nativeSpawns_.end()) {
+                    send("unit.spawn.status", {{"request_id",id}, {"index",index},
+                        {"state","not_received"}}, revision_, game->getFrameCount());
+                } else if (found->second.state == "issued" || found->second.state == "uncertain") {
+                    send("unit.spawn.status", {{"request_id",id}, {"index",index},
+                        {"state","uncertain"}, {"reason","native_creation_pending"}},
+                        revision_, game->getFrameCount());
+                } else found->second.reported = false;
+            }
+            publishSpawnOutcomes(game->getFrameCount());
+            ack(message,true); return;
         }
         if (kind=="world.snapshot.chunk" || kind=="world.snapshot.end") {
             if (!stager_.active() || message.value("session","")!=stager_.session()
@@ -777,6 +837,8 @@ private:
     bool testMarineSpawnRequested_ = false;
     int testMarineCanonical_ = 0;
     bool testMarineKillRequested_ = false;
+    bool testRuntimeKillRequested_ = false;
+    bool testSpawnDisconnectInjected_ = false;
     WorldAssaultController assault_;
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();

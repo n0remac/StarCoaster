@@ -157,3 +157,47 @@ func TestScenarioZergWaveUsesSameNativeQueue(t *testing.T) {
 		t.Fatalf("scenario wave bypassed shared queue: %+v %+v", message, execute)
 	}
 }
+
+func TestDisconnectedClientCanQueryCompletedSpawnStatus(t *testing.T) {
+	s, _ := spawnService(t)
+	s.park = nil
+	request := world.SpawnRequest{RequestID: "recover-client", UnitType: "terran_marine", Count: 1,
+		X: 100, Y: 100, Formation: "compact", PlayerID: 1}
+	if _, err := s.spawns.Submit("session-a", request); err != nil {
+		t.Fatal(err)
+	}
+	execute, _ := s.spawns.Next()
+	if err := s.spawns.Issue(execute); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.spawns.Fail(request.RequestID, 0, "native_rejected"); err != nil {
+		t.Fatal(err)
+	}
+	s.saveSpawns()
+	s.spawnStatus(world.SpawnStatus{RequestID: request.RequestID, State: "failed"})
+	bridge, client := net.Pipe()
+	defer bridge.Close()
+	defer client.Close()
+	s.park = &peer{Conn: bridge}
+	received := make(chan []world.Envelope, 1)
+	go func() {
+		var messages []world.Envelope
+		for i := 0; i < 2; i++ {
+			var message world.Envelope
+			_ = json.Unmarshal([]byte(readLine(client)), &message)
+			messages = append(messages, message)
+		}
+		received <- messages
+	}()
+	s.parkSpawnMessage(s.park, world.Message("unit.spawn.query", "session-a", "park:query", "openrct2", 1,
+		map[string]string{"request_id": request.RequestID}))
+	messages := <-received
+	if messages[0].Kind != "world.ack" || messages[1].Kind != "unit.spawn.status" {
+		t.Fatalf("query response: %+v", messages)
+	}
+	var status world.SpawnStatus
+	if err := messages[1].Decode(&status); err != nil || status.State != "failed" ||
+		status.Units[0].Reason != "native_rejected" {
+		t.Fatalf("recovered status: %+v %v", status, err)
+	}
+}
