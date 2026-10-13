@@ -1,5 +1,36 @@
 # Bridge protocol v1
 
+## Shared actor lifecycle
+
+`world.v1` carries reliable OpenBW actor lifecycle operations alongside disposable
+`combat.snapshot` state. OpenBW publishes `actor.spawn` with a canonical
+`openbw:<number>` ID, type, owner, engine creation `generation`, and park
+`session`. The ID and generation come from the native simulation and do not
+depend on position. A repeated identical spawn is idempotent; a conflicting
+identity or an ID reused after removal is rejected. Existing preplaced actor
+IDs remain valid without a lifecycle announcement.
+
+The publisher and controller each send `actor.bind` with the same canonical ID,
+session and generation, their `participant` role, and their own BWAPI
+`native_id`. Local native IDs may differ. The bridge acknowledges each binding
+with `world.ack`; the actor becomes commandable only after both unique bindings
+are recorded. Duplicate bindings are idempotent. A conflicting binding or a
+native ID already assigned to another actor is rejected. Disconnecting a
+participant clears that participant's bindings and suspends commands until it
+rebinds. `actor.despawn` is published by OpenBW, invalidates both bindings,
+and leaves an ID tombstone for the rest of the session. Repeated despawns are
+idempotent; stale sessions and generations are rejected.
+
+On publisher reconnect or bridge restart, OpenBW sends `actor.reconcile` with
+the complete living identity set, then republishes its bindings. The bridge
+keeps identical identities and bindings, removes missing actors, and rejects
+duplicates or conflicting generations. A new park session starts a fresh actor
+scope. The bridge forwards lifecycle announcements to the controller and
+completed bindings and despawns to the park. Each lifecycle operation uses the
+normal `world.v1` envelope, operation ID, session and `world.ack`. Park world
+revision remains unchanged by actor movement or lifecycle; combat snapshots
+continue to carry position, facing, animation and health.
+
 The new startup world API is documented in [world.v1](world.v1.schema.json) and the [world bridge guide](../docs/world-bridge.md). It runs alongside the older disposable combat snapshot messages described below.
 
 The publisher sends one UTF-8 JSON object per line over a TCP connection bound to `127.0.0.1`. Each line is a **full** snapshot, capped at 32768 bytes including the JSON but excluding the newline. A 32-unit packet with 32-byte IDs and signed decimal 32-bit coordinates fits under 8 KiB; the larger cap also accommodates combat targets and events. The [schema](units.snapshot.v1.schema.json) and [fixture](fixtures/one-unit.ndjson) define the original wire shape. Every receiver rejects an invalid array as a whole, including duplicate IDs.

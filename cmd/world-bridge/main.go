@@ -38,33 +38,34 @@ type staging struct {
 	seen     map[string]bool
 }
 type service struct {
-	mu              sync.Mutex
-	park, bw        *peer
-	controller      *peer
-	registry        *world.Registry
-	mapping         world.Mapping
-	stage           *staging
-	next            uint64
-	pending         map[string]world.CombatEvent
-	pendingFrames   map[string]int
-	proxies         map[string]string
-	targetLinks     map[string]targetLink
-	pendingLinks    map[string]string
-	pendingReady    *world.Ready
-	pendingNavigation string
+	mu                        sync.Mutex
+	park, bw                  *peer
+	controller                *peer
+	registry                  *world.Registry
+	actors                    *world.ActorRegistry
+	mapping                   world.Mapping
+	stage                     *staging
+	next                      uint64
+	pending                   map[string]world.CombatEvent
+	pendingFrames             map[string]int
+	proxies                   map[string]string
+	targetLinks               map[string]targetLink
+	pendingLinks              map[string]string
+	pendingReady              *world.Ready
+	pendingNavigation         string
 	controllerNavigationReady bool
-	ready           bool
-	bwResyncPending bool
-	bwWidth         int
-	bwHeight        int
-	transform       world.Transform
-	scenario        *world.Scenario
-	objectiveID     string
-	outcome         string
-	lastMarines     int
-	lastZerglings   int
-	retired         map[string]bool
-	commands        map[string]worldCommand
+	ready                     bool
+	bwResyncPending           bool
+	bwWidth                   int
+	bwHeight                  int
+	transform                 world.Transform
+	scenario                  *world.Scenario
+	objectiveID               string
+	outcome                   string
+	lastMarines               int
+	lastZerglings             int
+	retired                   map[string]bool
+	commands                  map[string]worldCommand
 }
 
 type worldCommand struct {
@@ -150,7 +151,9 @@ func (s *service) publishReady() {
 	s.pendingReady = nil
 	ready.TargetIDs = make([]string, 0, len(s.proxies))
 	for id := range s.proxies {
-		if !s.registry.Destroyed[id] { ready.TargetIDs = append(ready.TargetIDs, id) }
+		if !s.registry.Destroyed[id] {
+			ready.TargetIDs = append(ready.TargetIDs, id)
+		}
 	}
 	sort.Strings(ready.TargetIDs)
 	if s.scenario != nil {
@@ -241,9 +244,15 @@ func (s *service) consume(role string, p *peer) {
 	if role == "bw" && s.bw == p {
 		s.bw = nil
 		s.ready = false
+		if s.actors != nil {
+			s.actors.UnbindParticipant("publisher")
+		}
 	}
 	if role == "controller" && s.controller == p {
 		s.controller = nil
+		if s.actors != nil {
+			s.actors.UnbindParticipant("controller")
+		}
 		s.pendingNavigation = ""
 		s.controllerNavigationReady = false
 		s.pendingLinks = map[string]string{}
@@ -326,6 +335,9 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			}
 			s.retired[previousSession] = true
 		}
+		if s.actors == nil || s.actors.Session != m.Session {
+			s.actors = world.NewActorRegistry(m.Session)
+		}
 		s.stage = nil
 		s.pending = map[string]world.CombatEvent{}
 		s.pendingFrames = map[string]int{}
@@ -333,7 +345,11 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.targetLinks = map[string]targetLink{}
 		s.pendingLinks = map[string]string{}
 		s.pendingReady = nil
-		if previousSession != m.Session { s.outcome = ""; s.lastMarines = 0; s.lastZerglings = 0 }
+		if previousSession != m.Session {
+			s.outcome = ""
+			s.lastMarines = 0
+			s.lastZerglings = 0
+		}
 		s.pendingNavigation = ""
 		s.controllerNavigationReady = false
 		s.ack(p, m, true, "")
@@ -382,7 +398,9 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			payload := map[string]any{"id": result.EntityID, "apply_frame": applyFrame}
 			_ = s.emit(s.bw, "navigation.obstacle.remove", m.Session, s.registry.Revision, payload)
 			_ = s.emit(s.controller, "navigation.obstacle.remove", m.Session, s.registry.Revision, payload)
-			if result.EntityID == s.objectiveID { s.announceOutcome(s.lastMarines, s.lastZerglings) }
+			if result.EntityID == s.objectiveID {
+				s.announceOutcome(s.lastMarines, s.lastZerglings)
+			}
 		} else {
 			s.ready = false
 			_ = s.emit(s.park, "world.resync", m.Session, s.registry.Revision, map[string]string{"reason": "removal_failed"})
@@ -405,6 +423,12 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			if !unitIDPattern.MatchString(id) {
 				s.ack(p, m, false, "invalid_unit_id")
 				return
+			}
+			if s.actors != nil {
+				if _, known := s.actors.Lookup(id); known && !s.actors.Commandable(id) {
+					s.ack(p, m, false, "actor_not_bound")
+					return
+				}
 			}
 		}
 		switch command.Verb {
@@ -509,6 +533,48 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		return
 	}
 	switch m.Kind {
+	case "actor.spawn":
+		var identity world.ActorIdentity
+		if s.actors == nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || m.Decode(&identity) != nil ||
+			s.actors.Spawn(identity) != nil {
+			s.ack(p, m, false, "invalid_actor_spawn")
+			return
+		}
+		s.ack(p, m, true, "")
+		_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
+	case "actor.reconcile":
+		var state world.ActorReconcile
+		if s.actors == nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || m.Decode(&state) != nil ||
+			s.actors.Reconcile(m.Session, state.Living) != nil {
+			s.ack(p, m, false, "invalid_actor_reconciliation")
+			return
+		}
+		s.ack(p, m, true, "")
+		for _, identity := range s.actors.Living() {
+			_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
+		}
+	case "actor.bind":
+		var binding world.ActorBinding
+		if s.actors == nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || m.Decode(&binding) != nil ||
+			binding.Participant != "publisher" || s.actors.Bind(binding) != nil {
+			s.ack(p, m, false, "invalid_actor_binding")
+			return
+		}
+		s.ack(p, m, true, "")
+	case "actor.despawn":
+		var event world.ActorDespawn
+		if s.actors == nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || m.Decode(&event) != nil ||
+			s.actors.Despawn(event) != nil {
+			s.ack(p, m, false, "invalid_actor_despawn")
+			return
+		}
+		s.ack(p, m, true, "")
+		_ = s.emit(s.controller, "actor.despawn", m.Session, m.Revision, event)
+		_ = s.emit(s.park, "actor.despawn", m.Session, m.Revision, event)
 	case "world.hello":
 		var hello struct {
 			MapWidth  int `json:"map_width"`
@@ -564,7 +630,9 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.pending[event.ID] = event
-		if s.pendingFrames == nil { s.pendingFrames = map[string]int{} }
+		if s.pendingFrames == nil {
+			s.pendingFrames = map[string]int{}
+		}
 		s.pendingFrames[event.ID] = m.BWTick
 		s.registry.RemovalState[event.EntityID] = "destruction_requested"
 		s.ack(p, m, true, "")
@@ -603,10 +671,14 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 				if s.scenario != nil && snapshot.UnitOmitted == 0 && snapshot.UnitTotal <= len(snapshot.Units) {
 					marines, zerglings := 0, 0
 					for _, unit := range snapshot.Units {
-						if unit["alive"] != true { continue }
+						if unit["alive"] != true {
+							continue
+						}
 						switch unit["kind"] {
-						case "terran_marine": marines++
-						case "zerg_zergling": zerglings++
+						case "terran_marine":
+							marines++
+						case "zerg_zergling":
+							zerglings++
 						}
 					}
 					s.lastMarines, s.lastZerglings = marines, zerglings
@@ -640,7 +712,24 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 				map[string]any{"role": "controller"})
 			s.sendControllerNavigation(p)
 			s.sendTargetLinks(p)
+			if s.actors != nil {
+				for _, identity := range s.actors.Living() {
+					_ = s.emit(p, "actor.spawn", s.registry.Session, s.registry.Revision, identity)
+				}
+			}
 			s.publishReady()
+		}
+	case "actor.bind":
+		var binding world.ActorBinding
+		if s.actors == nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || m.Decode(&binding) != nil ||
+			binding.Participant != "controller" || s.actors.Bind(binding) != nil {
+			s.ack(p, m, false, "invalid_actor_binding")
+			return
+		}
+		s.ack(p, m, true, "")
+		if s.actors.Commandable(binding.ID) {
+			_ = s.emit(s.park, "actor.bind", m.Session, m.Revision, binding)
 		}
 	case "world.ack":
 		var answer world.Ack

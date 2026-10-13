@@ -141,6 +141,49 @@ func (m Envelope) Validate() error {
 	if m.Revision == 0 || len(m.Payload) == 0 || len(m.Payload) > 1048576 {
 		return errors.New("invalid revision or payload")
 	}
+	if m.Kind == "actor.spawn" || m.Kind == "actor.bind" || m.Kind == "actor.despawn" || m.Kind == "actor.reconcile" {
+		if m.Source != "openbw" {
+			return errors.New("invalid actor authority")
+		}
+		switch m.Kind {
+		case "actor.spawn":
+			var identity ActorIdentity
+			if err := decodeActorPayload(m.Payload, &identity); err != nil {
+				return err
+			}
+			return identity.Validate(m.Session)
+		case "actor.bind":
+			var binding ActorBinding
+			if err := decodeActorPayload(m.Payload, &binding); err != nil {
+				return err
+			}
+			return binding.Validate(m.Session)
+		case "actor.despawn":
+			var event ActorDespawn
+			if err := decodeActorPayload(m.Payload, &event); err != nil {
+				return err
+			}
+			return event.Validate(m.Session)
+		case "actor.reconcile":
+			var state ActorReconcile
+			if err := decodeActorPayload(m.Payload, &state); err != nil {
+				return err
+			}
+			if len(state.Living) > 4096 {
+				return errors.New("actor reconciliation exceeds limit")
+			}
+			seen := map[string]bool{}
+			for _, identity := range state.Living {
+				if err := identity.Validate(m.Session); err != nil {
+					return err
+				}
+				if seen[identity.ID] {
+					return errors.New("duplicate reconciled actor")
+				}
+				seen[identity.ID] = true
+			}
+		}
+	}
 	return nil
 }
 func (e Entity) Validate(width, height int) error {

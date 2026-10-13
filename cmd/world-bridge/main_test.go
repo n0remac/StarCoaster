@@ -13,6 +13,43 @@ func testService() *service {
 	return &service{registry: world.NewRegistry(), mapping: world.DefaultMapping(), pending: map[string]world.CombatEvent{}, proxies: map[string]string{}}
 }
 
+func TestActorLifecycleRoutingRejectsAmbiguousBindings(t *testing.T) {
+	s := testService()
+	if err := s.registry.Replace("session-a", 1, 8, 8, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.actors = world.NewActorRegistry("session-a")
+	identity := world.ActorIdentity{ID: "openbw:3001", Engine: "openbw", Type: "terran_marine",
+		Owner: 1, Generation: 42, Session: "session-a"}
+	s.bwMessage(nil, world.Message("actor.spawn", "session-a", "bw:spawn", "openbw", 1, identity))
+	if _, found := s.actors.Lookup(identity.ID); !found {
+		t.Fatal("spawn was not registered")
+	}
+	publisher := world.ActorBinding{ID: identity.ID, Session: "session-a", Generation: 42,
+		Participant: "publisher", NativeID: "11"}
+	s.bwMessage(nil, world.Message("actor.bind", "session-a", "bw:bind", "openbw", 1, publisher))
+	if s.actors.Commandable(identity.ID) {
+		t.Fatal("publisher alone made actor commandable")
+	}
+	controller := publisher
+	controller.Participant, controller.NativeID = "controller", "98"
+	s.controllerMessage(nil, world.Message("actor.bind", "session-a", "controller:bind", "openbw", 1, controller))
+	if !s.actors.Commandable(identity.ID) {
+		t.Fatal("both native bindings did not activate actor")
+	}
+	stale := controller
+	stale.Session = "old-session"
+	s.controllerMessage(nil, world.Message("actor.bind", "old-session", "controller:stale", "openbw", 1, stale))
+	if record, _ := s.actors.Lookup(identity.ID); record.Bindings["controller"] != controller {
+		t.Fatal("stale controller changed binding")
+	}
+	s.bwMessage(nil, world.Message("actor.despawn", "session-a", "bw:death", "openbw", 1,
+		world.ActorDespawn{ID: identity.ID, Session: "session-a", Generation: 42}))
+	if s.actors.Commandable(identity.ID) {
+		t.Fatal("despawned actor remained commandable")
+	}
+}
+
 func TestWorldCommandResolvesLogicalTargetAndCorrelatesResult(t *testing.T) {
 	s := testService()
 	e := testEntity()
