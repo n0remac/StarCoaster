@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -54,7 +55,11 @@ type service struct {
 	targetLinks               map[string]targetLink
 	pendingLinks              map[string]string
 	pendingReady              *world.Ready
-	pendingNavigation         string
+	lastReady                 *world.Ready
+	startedSession            string
+	navigationMask            world.NavigationMask
+	navigationRevision        uint64
+	publisherNavigationReady  bool
 	controllerNavigationReady bool
 	ready                     bool
 	bwResyncPending           bool
@@ -103,36 +108,56 @@ func (s *service) sendControllerNavigation(p *peer) {
 	if p == nil || s.registry.Session == "" || s.bwWidth < 1 || s.bwHeight < 1 {
 		return
 	}
-	type obstacle struct {
-		ID    string       `json:"id"`
-		Rects []world.Rect `json:"rects"`
+	s.sendNavigationMask(p, 0)
+}
+
+func (s *service) refreshNavigationMask() error {
+	mask, err := world.DeriveNavigation(s.registry, s.transform, s.bwWidth, s.bwHeight)
+	if err != nil {
+		return err
 	}
-	obstacles := make([]obstacle, 0)
-	for _, id := range s.registry.IDs() {
-		entity := s.registry.Entities[id]
-		if !entity.Collision.Blocks || s.registry.Destroyed[id] || len(entity.Geometry.Rects) == 0 {
-			continue
-		}
-		derived := s.transform.Entity(entity)
-		obstacles = append(obstacles, obstacle{ID: id, Rects: derived.Geometry.Rects})
-	}
-	type terrainCell struct {
-		X int `json:"x"`
-		Y int `json:"y"`
-	}
-	blockedTerrain := make([]terrainCell, 0)
-	for _, cell := range s.transform.Terrain(s.registry.Terrain) {
-		if !cell.Walkable {
-			blockedTerrain = append(blockedTerrain, terrainCell{X: cell.X, Y: cell.Y})
-		}
-	}
-	opID := s.operation()
-	message := world.Message("navigation.terrain.update", s.registry.Session, opID, "bridge",
-		s.registry.Revision, map[string]any{"width": s.bwWidth, "height": s.bwHeight,
-			"obstacles": obstacles, "terrain": blockedTerrain})
-	if p.send(message) == nil {
-		s.pendingNavigation = opID
+	if s.navigationRevision != s.registry.Revision || s.navigationMask.Hash != mask.Hash {
+		s.publisherNavigationReady = false
 		s.controllerNavigationReady = false
+	}
+	s.navigationMask = mask
+	s.navigationRevision = s.registry.Revision
+	return nil
+}
+
+func (s *service) sendNavigationMask(p *peer, applyFrame int) {
+	if p == nil || s.registry.Session == "" || s.bwWidth < 1 || s.bwHeight < 1 {
+		return
+	}
+	if err := s.refreshNavigationMask(); err != nil {
+		s.ready = false
+		log.Printf("navigation derivation rejected: %v", err)
+		_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision,
+			map[string]string{"reason": err.Error()})
+		return
+	}
+	const bytesPerChunk = 6000
+	chunks := (len(s.navigationMask.Bits) + bytesPerChunk - 1) / bytesPerChunk
+	if err := s.emit(p, "navigation.mask.begin", s.registry.Session, s.registry.Revision,
+		map[string]any{"width": s.bwWidth, "height": s.bwHeight, "chunks": chunks,
+			"hash": s.navigationMask.Hash, "apply_frame": applyFrame}); err != nil {
+		log.Printf("navigation begin: %v", err)
+		return
+	}
+	for index, start := 0, 0; start < len(s.navigationMask.Bits); index, start = index+1, start+bytesPerChunk {
+		end := start + bytesPerChunk
+		if end > len(s.navigationMask.Bits) {
+			end = len(s.navigationMask.Bits)
+		}
+		if err := s.emit(p, "navigation.mask.chunk", s.registry.Session, s.registry.Revision,
+			map[string]any{"index": index, "hex": hex.EncodeToString(s.navigationMask.Bits[start:end])}); err != nil {
+			log.Printf("navigation chunk: %v", err)
+			return
+		}
+	}
+	if err := s.emit(p, "navigation.mask.end", s.registry.Session, s.registry.Revision,
+		map[string]string{"hash": s.navigationMask.Hash}); err != nil {
+		log.Printf("navigation end: %v", err)
 	}
 }
 
@@ -150,7 +175,7 @@ func (s *service) sendTargetLink(p *peer, session string, revision uint64, link 
 }
 
 func (s *service) publishReady() {
-	if s.pendingReady == nil || s.controller == nil || !s.controllerNavigationReady || len(s.pendingLinks) != 0 {
+	if s.pendingReady == nil || s.controller == nil || !s.publisherNavigationReady || !s.controllerNavigationReady || len(s.pendingLinks) != 0 {
 		return
 	}
 	ready := *s.pendingReady
@@ -184,9 +209,10 @@ func (s *service) publishReady() {
 		}
 	}
 	s.ready = true
-	if s.scenario != nil {
+	if s.scenario != nil && s.startedSession != s.registry.Session {
 		_ = s.emit(s.bw, "world.start", s.registry.Session, s.registry.Revision,
 			map[string]any{"scenario_id": s.scenario.ID, "delay_frames": s.scenario.InitialAI.DelayFrames})
+		s.startedSession = s.registry.Session
 	}
 	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
 	log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
@@ -280,8 +306,12 @@ func (s *service) consume(role string, p *peer) {
 		if s.actors != nil {
 			s.actors.UnbindParticipant("controller")
 		}
-		s.pendingNavigation = ""
 		s.controllerNavigationReady = false
+		s.ready = false
+		if s.lastReady != nil {
+			copyReady := *s.lastReady
+			s.pendingReady = &copyReady
+		}
 		s.pendingLinks = map[string]string{}
 		s.failCommands("controller_disconnected")
 	}
@@ -373,16 +403,21 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.targetLinks = map[string]targetLink{}
 		s.pendingLinks = map[string]string{}
 		s.pendingReady = nil
+		s.lastReady = nil
 		if previousSession != m.Session {
 			s.outcome = ""
+			s.startedSession = ""
 			s.lastMarines = 0
 			s.lastZerglings = 0
 		}
-		s.pendingNavigation = ""
+		s.navigationMask = world.NavigationMask{}
+		s.navigationRevision = 0
+		s.publisherNavigationReady = false
 		s.controllerNavigationReady = false
 		s.ack(p, m, true, "")
 		log.Printf("park snapshot session=%s revision=%d entities=%d terrain=%d", m.Session, m.Revision, len(s.registry.Entities), len(s.registry.Terrain))
 		s.forwardSnapshot()
+		s.sendNavigationMask(s.bw, 0)
 		_ = s.emit(s.controller, "world.hello", m.Session, m.Revision, map[string]any{"role": "controller"})
 		s.sendControllerNavigation(s.controller)
 	case "combat.result":
@@ -423,9 +458,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			// Both OpenBW players must rebuild paths on the same simulation frame.
 			// A local update on only one frame diverges their unit positions.
 			applyFrame := s.pendingFrames[result.EventID] + 96
-			payload := map[string]any{"id": result.EntityID, "apply_frame": applyFrame}
-			_ = s.emit(s.bw, "navigation.obstacle.remove", m.Session, s.registry.Revision, payload)
-			_ = s.emit(s.controller, "navigation.obstacle.remove", m.Session, s.registry.Revision, payload)
+			s.sendNavigationMask(s.bw, applyFrame)
+			s.sendNavigationMask(s.controller, applyFrame)
 			if result.EntityID == s.objectiveID {
 				s.announceOutcome(s.lastMarines, s.lastZerglings)
 			}
@@ -658,6 +692,25 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 		s.ack(p, m, true, "")
 		s.forwardSnapshot()
+		s.sendNavigationMask(s.bw, 0)
+		s.sendControllerNavigation(s.controller)
+	case "navigation.mask.applied":
+		var applied struct {
+			Hash     string `json:"hash"`
+			Accepted bool   `json:"accepted"`
+			Error    string `json:"error"`
+		}
+		if m.Decode(&applied) != nil || m.Session != s.registry.Session ||
+			m.Revision != s.navigationRevision || applied.Hash != s.navigationMask.Hash || !applied.Accepted {
+			s.ready = false
+			log.Printf("publisher navigation mismatch: hash=%s expected=%s error=%s", applied.Hash, s.navigationMask.Hash, applied.Error)
+			_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision,
+				map[string]string{"reason": "publisher_navigation_mismatch"})
+			return
+		}
+		s.publisherNavigationReady = true
+		log.Printf("publisher navigation hash=%s", applied.Hash)
+		s.publishReady()
 	case "world.ack":
 		var a world.Ack
 		_ = m.Decode(&a)
@@ -700,6 +753,8 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 		s.ack(p, m, true, "")
 		s.pendingReady = &ready
+		copyReady := ready
+		s.lastReady = &copyReady
 		s.publishReady()
 	case "combat.event":
 		var event world.CombatEvent
@@ -807,6 +862,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		if s.registry.Session != "" {
 			_ = s.emit(p, "world.hello", s.registry.Session, s.registry.Revision,
 				map[string]any{"role": "controller"})
+			s.controllerNavigationReady = false
 			s.sendControllerNavigation(p)
 			s.sendTargetLinks(p)
 			if s.actors != nil {
@@ -821,6 +877,23 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			}
 			s.publishReady()
 		}
+	case "navigation.mask.applied":
+		var applied struct {
+			Hash     string `json:"hash"`
+			Accepted bool   `json:"accepted"`
+			Error    string `json:"error"`
+		}
+		if m.Decode(&applied) != nil || m.Session != s.registry.Session ||
+			m.Revision != s.navigationRevision || applied.Hash != s.navigationMask.Hash || !applied.Accepted {
+			s.ready = false
+			log.Printf("controller navigation mismatch: hash=%s expected=%s error=%s", applied.Hash, s.navigationMask.Hash, applied.Error)
+			_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision,
+				map[string]string{"reason": "controller_navigation_mismatch"})
+			return
+		}
+		s.controllerNavigationReady = true
+		log.Printf("controller navigation hash=%s", applied.Hash)
+		s.publishReady()
 	case "actor.bind":
 		var binding world.ActorBinding
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -839,18 +912,6 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 	case "world.ack":
 		var answer world.Ack
 		if m.Decode(&answer) != nil || m.Session != s.registry.Session {
-			return
-		}
-		if answer.OpID == s.pendingNavigation {
-			s.pendingNavigation = ""
-			s.controllerNavigationReady = answer.Accepted
-			if !answer.Accepted {
-				s.ready = false
-				s.pendingReady = nil
-				_ = s.emit(s.park, "world.error", m.Session, s.registry.Revision,
-					map[string]string{"reason": "controller_navigation_rejected: " + answer.Error})
-			}
-			s.publishReady()
 			return
 		}
 		if _, exists := s.pendingLinks[answer.OpID]; !exists {

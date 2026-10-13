@@ -40,5 +40,20 @@ int main() {
     assert(!validSpawnPlacement(navigation, 252, 160, 8, 8, 9, 9, {}));
     navigation.upsert("new-wall", {{152, 152, 16, 16}});
     assert(!validSpawnPlacement(navigation, first.x, first.y, 8, 8, 9, 9, {}));
+    NavigationMaskReceiver receiver;
+    const std::vector<uint8_t> packed{0xff, 0x00, 0x00, 0x00};
+    const auto hash = NavigationMaskReceiver::hashOf(packed);
+    assert(receiver.begin(2, 1, 1, hash));
+    assert(receiver.chunk(0, "ff000000"));
+    std::vector<uint8_t> decoded;
+    assert(receiver.finish(decoded) && decoded.size() == 32);
+    for (size_t i = 0; i != decoded.size(); ++i) assert(decoded[i] == (i < 8));
+    auto synchronizedMask = navigation.mask();
+    synchronizedMask[24 * 32 + 24] = 1;
+    assert(navigation.installMask(synchronizedMask));
+    assert(navigation.blocked(24 * 8, 24 * 8));
+    assert(receiver.begin(2, 1, 1, "0000000000000000"));
+    assert(receiver.chunk(0, "ff000000"));
+    assert(!receiver.finish(decoded));
     std::cout << "world navigation metadata tests passed\n";
 }

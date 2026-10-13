@@ -245,6 +245,13 @@ func TestTargetLinkIsForwardedAndValidated(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.bwWidth, s.bwHeight = 128, 128
+	s.transform, _ = world.Fit(8, 8, 128, 128)
+	var navErr error
+	s.navigationMask, navErr = world.DeriveNavigation(s.registry, s.transform, 128, 128)
+	if navErr != nil {
+		t.Fatal(navErr)
+	}
+	s.navigationRevision = 3
 	bridgeSide, controllerSide := net.Pipe()
 	defer bridgeSide.Close()
 	defer controllerSide.Close()
@@ -263,7 +270,6 @@ func TestTargetLinkIsForwardedAndValidated(t *testing.T) {
 	}
 	s.bwMessage(nil, world.Message("world.ready", "session-a", "bw:ready", "openbw", 3,
 		world.Ready{Entities: 1, Targets: 1}))
-	s.pendingNavigation = "bridge:navigation"
 	if s.ready || s.pendingReady == nil {
 		t.Fatal("world was announced ready before the controller acknowledged its target link")
 	}
@@ -272,8 +278,13 @@ func TestTargetLinkIsForwardedAndValidated(t *testing.T) {
 	if s.ready {
 		t.Fatal("target acknowledgement bypassed controller navigation")
 	}
-	s.controllerMessage(nil, world.Message("world.ack", "session-a", "controller:navigation", "openbw", 3,
-		world.Ack{OpID: "bridge:navigation", Accepted: true}))
+	s.controllerMessage(nil, world.Message("navigation.mask.applied", "session-a", "controller:navigation", "openbw", 3,
+		map[string]any{"hash": s.navigationMask.Hash, "accepted": true}))
+	if s.ready {
+		t.Fatal("controller alone released world readiness")
+	}
+	s.bwMessage(nil, world.Message("navigation.mask.applied", "session-a", "publisher:navigation", "openbw", 3,
+		map[string]any{"hash": s.navigationMask.Hash, "accepted": true}))
 	if !s.ready || s.pendingReady != nil {
 		t.Fatal("acknowledged target link did not release world readiness")
 	}

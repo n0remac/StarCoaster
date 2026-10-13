@@ -146,6 +146,7 @@ private:
         if (socket_ >= 0) ::close(socket_);
         socket_ = -1;
         incoming_.clear(); outgoing_.clear(); session_.clear(); pendingRemovals_.clear(); revision_ = 0;
+        maskReceiver_.reset(); maskValid_ = false; pendingMask_.clear(); pendingMaskHash_.clear();
     }
     void flush() {
         while (socket_ >= 0 && !outgoing_.empty()) {
@@ -175,9 +176,55 @@ private:
             targetLinks_.clear();
             navigation_.reset(game->mapWidth(), game->mapHeight());
             pendingRemovals_.clear();
+            maskReceiver_.reset(); maskValid_ = false; pendingMask_.clear(); pendingMaskHash_.clear();
             identities_.clear();
             publisherBindings_.clear();
             ambiguousActors_.clear();
+            return;
+        }
+        if (kind == "navigation.mask.begin") {
+            const auto& payload = message.at("payload");
+            maskValid_ = message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() >= revision_
+                && payload.value("width", 0) == game->mapWidth()
+                && payload.value("height", 0) == game->mapHeight()
+                && (payload.value("apply_frame", 0) == 0
+                    || payload.value("apply_frame", 0) >= game->getFrameCount() + 2)
+                && maskReceiver_.begin(payload.value("width", 0), payload.value("height", 0),
+                    payload.value("chunks", 0), payload.value("hash", ""));
+            maskHash_ = payload.value("hash", "");
+            maskRevision_ = message.at("revision").get<uint64_t>();
+            maskApplyFrame_ = payload.value("apply_frame", 0);
+            if (!maskValid_) maskReceiver_.reset();
+            return;
+        }
+        if (kind == "navigation.mask.chunk") {
+            const auto& payload = message.at("payload");
+            if (!maskValid_ || message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != maskRevision_
+                || !maskReceiver_.chunk(payload.value("index", -1), payload.value("hex", ""))) {
+                maskValid_ = false; maskReceiver_.reset();
+            }
+            return;
+        }
+        if (kind == "navigation.mask.end") {
+            const auto& payload = message.at("payload");
+            std::vector<uint8_t> blocked;
+            const bool valid = maskValid_ && message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() == maskRevision_
+                && payload.value("hash", "") == maskHash_
+                && maskReceiver_.finish(blocked);
+            maskValid_ = false;
+            if (valid) {
+                pendingMask_ = std::move(blocked);
+                pendingMaskHash_ = maskHash_;
+                pendingMaskRevision_ = maskRevision_;
+                pendingMaskFrame_ = maskApplyFrame_;
+            } else {
+                maskReceiver_.reset();
+                send("navigation.mask.applied", session_, maskRevision_,
+                    {{"hash",maskHash_},{"accepted",false},{"error","invalid_navigation_mask"}});
+            }
             return;
         }
         if (kind == "actor.spawn") {
@@ -368,6 +415,18 @@ private:
              {"request_id", command.value("request_id", -1)}});
     }
     void applyScheduledNavigation(BWAPI::Game* game) {
+        if (!pendingMaskHash_.empty() && game->getFrameCount() >= pendingMaskFrame_) {
+            const bool applied = game->setParkNavigation(pendingMask_)
+                && navigation_.installMask(pendingMask_);
+            navigation_.markNative(applied);
+            if (applied) revision_ = std::max(revision_, pendingMaskRevision_);
+            send("navigation.mask.applied", session_, pendingMaskRevision_,
+                {{"hash",pendingMaskHash_},{"accepted",applied},
+                 {"error",applied ? "" : "native_navigation_update_failed"}});
+            std::cerr << "[world-control] navigation-mask hash=" << pendingMaskHash_
+                      << " frame=" << game->getFrameCount() << " accepted=" << applied << std::endl;
+            pendingMask_.clear(); pendingMaskHash_.clear();
+        }
         for (auto it = pendingRemovals_.begin(); it != pendingRemovals_.end();) {
             if (game->getFrameCount() < it->frame) { ++it; continue; }
             navigation_.remove(it->id);
@@ -401,4 +460,10 @@ private:
     std::set<std::string> ambiguousActors_;
     int lastObservedFrame_ = 0;
     starcoaster::NavigationAdapter navigation_;
+    starcoaster::NavigationMaskReceiver maskReceiver_;
+    std::vector<uint8_t> pendingMask_;
+    std::string maskHash_, pendingMaskHash_;
+    uint64_t maskRevision_ = 0, pendingMaskRevision_ = 0;
+    int maskApplyFrame_ = 0, pendingMaskFrame_ = 0;
+    bool maskValid_ = false;
 };

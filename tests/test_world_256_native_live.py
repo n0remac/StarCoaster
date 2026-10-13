@@ -53,8 +53,8 @@ def main():
     RUN.mkdir(parents=True)
     scenario = RUN / "scenario.json"
     scenario.write_text(json.dumps({"version": 1, "park_size": [256, 256],
-                                    "starting_units": {"marines": [[252, 252]],
-                                                       "zerglings": [[2, 2]]}}))
+                                    "starting_units": {"marines": [[130, 128], [252, 252]],
+                                                       "zerglings": [[126, 128]]}}))
     native_map = RUN / "world-256.scm"
     subprocess.run(["python3", str(ROOT / "scripts/create-world-base-map.py"),
                     "--scenario", str(scenario), "--output", str(native_map)], check=True)
@@ -90,7 +90,7 @@ def main():
             raise AssertionError(f"native map dimensions: {dimensions}")
         controller.send("world.hello", "probe:controller", {"role": "controller"})
         publisher.send("world.snapshot.begin", "probe:begin", {"width": 256, "height": 256,
-                                                                  "chunks": 1})
+                                                                  "chunks": 1, "objective_id": "synthetic-cliff"})
         publisher.send("world.snapshot.chunk", "probe:chunk", {"index": 0, "entities": [],
                                                                   "terrain": []})
         publisher.send("world.snapshot.end", "probe:end", {"entities": 0, "terrain": 0})
@@ -98,25 +98,103 @@ def main():
         if ready["payload"]["navigation"] != "native":
             raise AssertionError(f"native navigation failed: {ready['payload']}")
         start = publisher.until(lambda packet: packet["kind"] == "combat.snapshot"
-                                and any(unit["id"] == "openbw:1000" for unit in packet["payload"]["units"]))
-        marine = next(unit for unit in start["payload"]["units"] if unit["id"] == "openbw:1000")
+                                and any(unit["id"] == "openbw:1001" for unit in packet["payload"]["units"]))
+        marine = next(unit for unit in start["payload"]["units"] if unit["id"] == "openbw:1001")
         expected_start = (252 * 32 + 16, 252 * 32 + 16)
         if (marine["x"], marine["y"]) != expected_start:
             raise AssertionError(f"unscaled Marine placement failed: {marine}")
         target = (254 * 32 + 16, 252 * 32 + 16)
         controller.send("combat.command", "probe:move", {"command_id": SESSION + ":1",
-                        "verb": "unit.move", "unit_ids": ["openbw:1000"],
+                        "verb": "unit.move", "unit_ids": ["openbw:1001"],
                         "x": target[0], "y": target[1], "player_id": 1, "request_id": 1})
         result = controller.until(lambda packet: packet["kind"] == "combat.result")
         if not result["payload"]["accepted"]:
             raise AssertionError(f"native move rejected: {result['payload']}")
         arrived = publisher.until(lambda packet: packet["kind"] == "combat.snapshot"
-                                  and any(unit["id"] == "openbw:1000"
+                                  and any(unit["id"] == "openbw:1001"
                                           and abs(unit["x"] - target[0]) <= 12
                                           and abs(unit["y"] - target[1]) <= 12
                                           for unit in packet["payload"]["units"]), timeout=40)
         arrived_marine = next(unit for unit in arrived["payload"]["units"]
-                              if unit["id"] == "openbw:1000")
+                              if unit["id"] == "openbw:1001")
+        # The only passage through this otherwise blocked cliff is at y=132.
+        # It models a low-to-high ramp tile while preserving two full tiles of
+        # native clearance on all other shared edges.
+        packed_route = bytearray(b"\xff" * (256 * 256 * 16 // 8))
+        walk_width = 256 * 4
+        def set_open(x, y):
+            index = y * walk_width + x
+            packed_route[index // 8] &= ~(1 << (index % 8))
+        def set_blocked(x, y):
+            index = y * walk_width + x
+            packed_route[index // 8] |= 1 << (index % 8)
+        for ty in range(124, 135):
+            for tx in range(124, 133):
+                for sy in range(4):
+                    for sx in range(4):
+                        set_open(tx * 4 + sx, ty * 4 + sy)
+            if ty != 132:
+                for sy in range(4):
+                    for wx in range(127 * 4, 129 * 4):
+                        set_blocked(wx, ty * 4 + sy)
+        fnv = 14695981039346656037
+        for byte in packed_route:
+            fnv = ((fnv ^ byte) * 1099511628211) & 0xffffffffffffffff
+        route_hash = f"{fnv:016x}"
+        for peer in (publisher, controller):
+            chunk_count = (len(packed_route) + 5999) // 6000
+            peer.send("navigation.mask.begin", "probe:route:begin",
+                      {"width": 256, "height": 256, "chunks": chunk_count,
+                       "hash": route_hash, "apply_frame": 0})
+            for index in range(chunk_count):
+                chunk = packed_route[index * 6000:(index + 1) * 6000]
+                peer.send("navigation.mask.chunk", f"probe:route:{index}",
+                          {"index": index, "hex": chunk.hex()})
+            peer.send("navigation.mask.end", "probe:route:end", {"hash": route_hash})
+        for peer in (publisher, controller):
+            applied = peer.until(lambda packet: packet["kind"] == "navigation.mask.applied", timeout=40)
+            if applied["payload"]["hash"] != route_hash or not applied["payload"]["accepted"]:
+                raise AssertionError(f"native route mask rejected: {applied}")
+        publisher.send("world.start", "probe:assault", {"delay_frames": 0})
+        zerg_route = []
+        deadline = time.monotonic() + 35
+        while time.monotonic() < deadline:
+            packet = publisher.until(lambda item: item["kind"] == "combat.snapshot", timeout=10)
+            zerg = next((unit for unit in packet["payload"]["units"]
+                         if unit["id"] == "openbw:2000" and unit["alive"]), None)
+            if zerg is None:
+                raise AssertionError("Zergling died before reaching the slope")
+            zerg_route.append([zerg["x"], zerg["y"]])
+            if zerg["x"] >= 129 * 32:
+                break
+        else:
+            raise AssertionError("Zergling never reached elevated side through slope")
+        (RUN / "zergling-route.json").write_text(json.dumps(zerg_route) + "\n")
+        direct = [(x, y) for x, y in zerg_route if x >= 128 * 32 and y < 131 * 32]
+        if direct:
+            raise AssertionError(f"Zergling crossed the blocked cliff edge directly: {direct[:8]}")
+        controller.send("combat.command", "probe:downhill", {"command_id": SESSION + ":2",
+                        "verb": "unit.move", "unit_ids": ["openbw:1000"],
+                        "x": 126 * 32 + 16, "y": 128 * 32 + 16,
+                        "player_id": 1, "request_id": 2})
+        down_result = controller.until(lambda packet: packet["kind"] == "combat.result")
+        if not down_result["payload"]["accepted"]:
+            raise AssertionError(f"downhill Marine order rejected: {down_result}")
+        marine_route = []
+        deadline = time.monotonic() + 35
+        while time.monotonic() < deadline:
+            packet = publisher.until(lambda item: item["kind"] == "combat.snapshot", timeout=10)
+            actor = next((unit for unit in packet["payload"]["units"]
+                          if unit["id"] == "openbw:1000" and unit["alive"]), None)
+            if actor is None:
+                raise AssertionError("Marine died before descending")
+            marine_route.append([actor["x"], actor["y"]])
+            if actor["x"] < 128 * 32:
+                break
+        else:
+            raise AssertionError("Marine never descended through slope")
+        if any(x < 128 * 32 and y < 131 * 32 for x, y in marine_route):
+            raise AssertionError("Marine crossed the blocked cliff edge directly")
         # A 256x256 park has over 65,000 blocked tile overlays in this update.
         # Native VF4 variants must be shared; one clone per tile exceeds 0x8000.
         started = time.monotonic()
@@ -138,7 +216,9 @@ def main():
         report = {"native_map": [256, 256], "marine_start": expected_start,
                   "marine_arrived": [arrived_marine["x"], arrived_marine["y"]],
                   "destination": target, "blocked_tiles": 256 * 256,
-                  "large_mask_seconds": elapsed, "navigation": "native"}
+                  "large_mask_seconds": elapsed, "navigation": "native",
+                  "route_mask_hash": route_hash, "zergling_route": zerg_route,
+                  "marine_downhill_route": marine_route}
         (RUN / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({"result": "PASS", "run_dir": str(RUN), **report}))
     finally:

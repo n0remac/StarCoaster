@@ -190,7 +190,7 @@ private:
             {"map_width",game->mapWidth()},{"map_height",game->mapHeight()}},1,0);
         std::cerr << "[world] connected to bridge service" << std::endl;
     }
-    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; ready_=false; }
+    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); maskReceiver_.reset(); maskValid_=false; pendingMask_.clear(); pendingMaskHash_.clear(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; ready_=false; }
     void flush() {
         while (socket_>=0 && !outgoing_.empty()) {
             const ssize_t n=::send(socket_,outgoing_.data(),outgoing_.size(),MSG_NOSIGNAL);
@@ -214,6 +214,49 @@ private:
         const std::string kind=message.value("kind","");
         const auto& payload=message.at("payload");
         if (kind=="world.ack") return;
+        if (kind=="navigation.mask.begin") {
+            const bool valid = message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() >= revision_
+                && payload.value("width", 0) == game->mapWidth()
+                && payload.value("height", 0) == game->mapHeight()
+                && (payload.value("apply_frame", 0) == 0
+                    || payload.value("apply_frame", 0) >= game->getFrameCount() + 2)
+                && maskReceiver_.begin(payload.value("width", 0), payload.value("height", 0),
+                    payload.value("chunks", 0), payload.value("hash", ""));
+            maskValid_ = valid;
+            maskHash_ = payload.value("hash", "");
+            maskRevision_ = message.at("revision").get<uint64_t>();
+            maskApplyFrame_ = payload.value("apply_frame", 0);
+            if (!valid) maskReceiver_.reset();
+            return;
+        }
+        if (kind=="navigation.mask.chunk") {
+            if (!maskValid_ || message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != maskRevision_
+                || !maskReceiver_.chunk(payload.value("index", -1), payload.value("hex", ""))) {
+                maskValid_ = false; maskReceiver_.reset();
+            }
+            return;
+        }
+        if (kind=="navigation.mask.end") {
+            std::vector<uint8_t> blocked;
+            const bool valid = maskValid_ && message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() == maskRevision_
+                && payload.value("hash", "") == maskHash_
+                && maskReceiver_.finish(blocked);
+            maskValid_ = false;
+            if (valid) {
+                pendingMask_ = std::move(blocked);
+                pendingMaskHash_ = maskHash_;
+                pendingMaskRevision_ = maskRevision_;
+                pendingMaskFrame_ = maskApplyFrame_;
+            } else {
+                maskReceiver_.reset();
+                send("navigation.mask.applied", {{"hash",maskHash_},{"accepted",false},
+                    {"error","invalid_navigation_mask"}}, maskRevision_, game->getFrameCount());
+            }
+            return;
+        }
         if (kind=="world.snapshot.begin") {
             const int width=payload.at("width"), height=payload.at("height"), chunks=payload.at("chunks");
             std::string error;
@@ -333,6 +376,18 @@ private:
         ack(message,false,"unsupported_operation");
     }
     void applyScheduledNavigation(BWAPI::Game* game) {
+        if (!pendingMaskHash_.empty() && game->getFrameCount() >= pendingMaskFrame_) {
+            const bool applied = game->setParkNavigation(pendingMask_)
+                && navigation_.installMask(pendingMask_);
+            navigation_.markNative(applied);
+            if (applied) revision_ = std::max(revision_, pendingMaskRevision_);
+            send("navigation.mask.applied", {{"hash",pendingMaskHash_},{"accepted",applied},
+                {"error",applied ? "" : "native_navigation_update_failed"}},
+                pendingMaskRevision_, game->getFrameCount());
+            std::cerr << "[world] navigation-mask hash=" << pendingMaskHash_
+                      << " frame=" << game->getFrameCount() << " accepted=" << applied << std::endl;
+            pendingMask_.clear(); pendingMaskHash_.clear();
+        }
         for (auto it = pendingRemovals_.begin(); it != pendingRemovals_.end();) {
             if (game->getFrameCount() < it->frame) { ++it; continue; }
             navigation_.remove(it->id);
@@ -826,6 +881,12 @@ private:
     starcoaster::DesiredWorld desired_;
     std::map<std::string,json> entities_; std::map<std::string,Target> targets_;
     starcoaster::NavigationAdapter navigation_;
+    starcoaster::NavigationMaskReceiver maskReceiver_;
+    std::vector<uint8_t> pendingMask_;
+    std::string maskHash_, pendingMaskHash_;
+    uint64_t maskRevision_ = 0, pendingMaskRevision_ = 0;
+    int maskApplyFrame_ = 0, pendingMaskFrame_ = 0;
+    bool maskValid_ = false;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
     std::map<int, PendingCreation> pendingCreations_;
