@@ -36,26 +36,15 @@ class WorldAdapter {
 public:
     ~WorldAdapter() { if (socket_ >= 0) ::close(socket_); }
     void onUnitCreate(BWAPI::Unit unit, int frame) {
-        if (!ready_ || !actorRegistry_.prepared() || !unit || !unit->exists()
-            || actorRegistry_.known(unit)) return;
+        if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
         if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) return;
-        const int canonical = 3000 + ++runtimeSerial_;
-        const uint64_t generation = static_cast<uint64_t>(runtimeSerial_);
-        if (!actorRegistry_.registerRuntime(unit, canonical, generation, frame)) {
-            std::cerr << "[world] runtime actor registration rejected local=" << unit->getID() << std::endl;
-            return;
-        }
-        const auto actor = actorRegistry_.runtime().at(canonical);
-        if (testMarineSpawnRequested_ && testMarineCanonical_ == 0
-            && type == BWAPI::UnitTypes::Terran_Marine) testMarineCanonical_ = canonical;
-        send("actor.spawn", runtimeIdentity(actor), revision_, frame);
-        send("actor.bind", runtimeBinding(actor), revision_, frame);
-        std::cerr << "[world] actor-spawn id=openbw:" << canonical << " native=" << unit->getID()
-                  << " frame=" << frame << " generation=" << generation << std::endl;
+        pendingCreations_[unit->getID()] = {unit, frame};
     }
     void onUnitDestroy(BWAPI::Unit unit, int frame) {
         if (!unit) return;
+        pendingCreations_.erase(unit->getID());
+        publishedActors_.erase(unit->getID());
         const auto id = actorRegistry_.id(unit);
         for (const auto& [canonical, actor] : actorRegistry_.runtime()) {
             if (id != "openbw:" + std::to_string(canonical)) continue;
@@ -68,7 +57,10 @@ public:
         actorRegistry_.forget(unit);
     }
     void onFrame(BWAPI::Game* game) {
-        actorRegistry_.prepare(game);
+        std::set<int> pendingIDs;
+        for (const auto& [id, creation] : pendingCreations_) pendingIDs.insert(id);
+        actorRegistry_.prepare(game, pendingIDs);
+        registerPendingCreations();
         if (socket_ < 0) connect(game);
         if (socket_ < 0) return;
         char data[8192];
@@ -91,6 +83,7 @@ public:
         if (initializing_) resolveTargets(game);
         if (!ready_) return;
         const int frame = game->getFrameCount();
+        publishRuntimeEvents(frame);
         const char* spawnAt = std::getenv("BRIDGE_TEST_SPAWN_MARINE_FRAME");
         if (!testMarineSpawnRequested_ && spawnAt && *spawnAt) {
             char* end = nullptr;
@@ -155,7 +148,7 @@ private:
             {"map_width",game->mapWidth()},{"map_height",game->mapHeight()}},1,0);
         std::cerr << "[world] connected to bridge service" << std::endl;
     }
-    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); ready_=false; }
+    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); ready_=false; }
     void flush() {
         while (socket_>=0 && !outgoing_.empty()) {
             const ssize_t n=::send(socket_,outgoing_.data(),outgoing_.size(),MSG_NOSIGNAL);
@@ -315,13 +308,45 @@ private:
             {"participant", "publisher"}, {"native_id", std::to_string(actor.unit->getID())},
             {"creation_frame", actor.creationFrame}};
     }
+    struct PendingCreation { BWAPI::Unit unit = nullptr; int frame = 0; };
+    void registerPendingCreations() {
+        if (!actorRegistry_.prepared()) return;
+        for (auto it = pendingCreations_.begin(); it != pendingCreations_.end();) {
+            const auto creation = it->second;
+            if (!creation.unit || !creation.unit->exists()) { it = pendingCreations_.erase(it); continue; }
+            if (actorRegistry_.known(creation.unit)) { it = pendingCreations_.erase(it); continue; }
+            const int canonical = 3000 + runtimeSerial_ + 1;
+            if (!actorRegistry_.registerRuntime(creation.unit, canonical,
+                    static_cast<uint64_t>(runtimeSerial_ + 1), creation.frame)) { ++it; continue; }
+            ++runtimeSerial_;
+            if (testMarineSpawnRequested_ && testMarineCanonical_ == 0
+                && creation.unit->getType() == BWAPI::UnitTypes::Terran_Marine)
+                testMarineCanonical_ = canonical;
+            std::cerr << "[world] actor-spawn id=openbw:" << canonical
+                      << " native=" << creation.unit->getID() << " frame=" << creation.frame
+                      << " generation=" << runtimeSerial_ << std::endl;
+            it = pendingCreations_.erase(it);
+        }
+    }
+    void publishRuntimeEvents(int frame) {
+        for (const auto& [canonical, actor] : actorRegistry_.runtime()) {
+            if (!actor.unit || !actor.unit->exists() || publishedActors_.count(actor.unit->getID())) continue;
+            send("actor.spawn", runtimeIdentity(actor), revision_, frame);
+            send("actor.bind", runtimeBinding(actor), revision_, frame);
+            if (socket_ >= 0) publishedActors_.insert(actor.unit->getID());
+        }
+    }
     void publishActorReconciliation(int frame) {
+        registerPendingCreations();
         json living = json::array();
         for (const auto& [canonical, actor] : actorRegistry_.runtime())
             if (actor.unit && actor.unit->exists()) living.push_back(runtimeIdentity(actor));
         send("actor.reconcile", {{"living", living}}, revision_, frame);
         for (const auto& [canonical, actor] : actorRegistry_.runtime())
-            if (actor.unit && actor.unit->exists()) send("actor.bind", runtimeBinding(actor), revision_, frame);
+            if (actor.unit && actor.unit->exists()) {
+                send("actor.bind", runtimeBinding(actor), revision_, frame);
+                publishedActors_.insert(actor.unit->getID());
+            }
     }
     void requestTargets(BWAPI::Game* game) {
         auto self = game->self();
@@ -585,6 +610,8 @@ private:
     starcoaster::NavigationAdapter navigation_;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
+    std::map<int, PendingCreation> pendingCreations_;
+    std::set<int> publishedActors_;
     int runtimeSerial_ = 0;
     bool testMarineSpawnRequested_ = false;
     int testMarineCanonical_ = 0;

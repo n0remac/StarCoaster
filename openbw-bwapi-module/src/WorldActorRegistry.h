@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -19,12 +20,12 @@ public:
         uint64_t generation = 0;
         int creationFrame = 0;
     };
-    bool prepare(BWAPI::Game* game) {
+    bool prepare(BWAPI::Game* game, const std::set<int>& runtimeCandidates = {}) {
         if (prepared_) return true;
         if (!game || game->getFrameCount() < 2) return false;
         std::vector<BWAPI::Unit> marines, zerglings;
         for (auto unit : game->getAllUnits()) {
-            if (!unit || !unit->exists()) continue;
+            if (!unit || !unit->exists() || runtimeCandidates.count(unit->getID())) continue;
             if (unit->getType() == BWAPI::UnitTypes::Terran_Marine) marines.push_back(unit);
             else if (unit->getType() == BWAPI::UnitTypes::Zerg_Zergling) zerglings.push_back(unit);
         }

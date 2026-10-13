@@ -27,7 +27,7 @@ class WorldUnitController {
 public:
     ~WorldUnitController() { closeSocket(); }
     void onUnitCreate(BWAPI::Unit unit, int frame) {
-        if (!actorRegistry_.prepared() || !unit || !unit->exists() || actorRegistry_.known(unit)) return;
+        if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
         if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) return;
         creationCandidates_[unit->getID()] = {unit, frame};
@@ -41,11 +41,12 @@ public:
         actorRegistry_.forget(unit);
     }
     void onFrame(BWAPI::Game* game) {
-        actorRegistry_.prepare(game);
+        std::set<int> candidateIDs;
+        for (const auto& [id, candidate] : creationCandidates_) candidateIDs.insert(id);
+        actorRegistry_.prepare(game, candidateIDs);
         lastObservedFrame_ = game->getFrameCount();
         for (auto it = creationCandidates_.begin(); it != creationCandidates_.end();) {
-            if (game->getFrameCount() - it->second.frame > 256 || !it->second.unit
-                || !it->second.unit->exists()) it = creationCandidates_.erase(it);
+            if (!it->second.unit || !it->second.unit->exists()) it = creationCandidates_.erase(it);
             else ++it;
         }
         if (socket_ < 0) connect(game);

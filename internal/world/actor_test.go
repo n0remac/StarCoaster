@@ -122,6 +122,56 @@ func TestActorReconciliationAndSessionIsolation(t *testing.T) {
 	}
 }
 
+func TestActorRecoveryAtEachInterruptedBinding(t *testing.T) {
+	identity := testActor()
+	publisher := ActorBinding{ID: identity.ID, Session: identity.Session,
+		Generation: identity.Generation, Participant: "publisher", NativeID: "12", CreationFrame: 153}
+	controller := publisher
+	controller.Participant, controller.NativeID = "controller", "89"
+	for _, publisherArrived := range []bool{false, true} {
+		actors := NewActorRegistry(identity.Session)
+		if err := actors.Spawn(identity); err != nil {
+			t.Fatal(err)
+		}
+		if publisherArrived {
+			if err := actors.Bind(publisher); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// A replayed authoritative living set must recover either interruption point.
+		if err := actors.Reconcile(identity.Session, []ActorIdentity{identity}); err != nil {
+			t.Fatal(err)
+		}
+		if err := actors.Spawn(identity); err != nil {
+			t.Fatal(err)
+		}
+		if err := actors.Bind(publisher); err != nil {
+			t.Fatal(err)
+		}
+		if err := actors.Bind(publisher); err != nil {
+			t.Fatal(err)
+		}
+		if actors.Commandable(identity.ID) {
+			t.Fatal("publisher binding made actor commandable")
+		}
+		if err := actors.Bind(controller); err != nil {
+			t.Fatal(err)
+		}
+		if !actors.Commandable(identity.ID) {
+			t.Fatal("recovered actor is not commandable")
+		}
+		if err := actors.Reconcile(identity.Session, nil); err != nil {
+			t.Fatal(err)
+		}
+		if actors.Commandable(identity.ID) {
+			t.Fatal("dead actor was resurrected")
+		}
+		if err := actors.Spawn(identity); err == nil {
+			t.Fatal("tombstoned ID was reused")
+		}
+	}
+}
+
 func TestActorEnvelopeValidation(t *testing.T) {
 	identity := testActor()
 	valid := Message("actor.spawn", identity.Session, "bw:1", "openbw", 1, identity)
