@@ -25,16 +25,16 @@ type Scenario struct {
 		Required   bool   `json:"required"`
 	} `json:"objectives"`
 	InitialAI struct {
-		Strategy  string `json:"strategy"`
-		Objective string `json:"objective"`
-		DelayFrames int `json:"delay_frames"`
+		Strategy    string `json:"strategy"`
+		Objective   string `json:"objective"`
+		DelayFrames int    `json:"delay_frames"`
 	} `json:"initial_ai"`
 	Victory struct {
 		AllZerglingsEliminated bool   `json:"all_zerglings_eliminated"`
 		ObjectiveIntact        string `json:"objective_intact"`
 	} `json:"victory"`
 	Defeat struct {
-		ObjectiveDestroyed    string `json:"objective_destroyed"`
+		ObjectiveDestroyed   string `json:"objective_destroyed"`
 		AllMarinesEliminated bool   `json:"all_marines_eliminated"`
 	} `json:"defeat"`
 }
@@ -78,13 +78,26 @@ func (s *Scenario) Outcome(objectiveDestroyed bool, marines, zerglings int) stri
 }
 
 func (s *Scenario) CheckReady(registry *Registry, proxies map[string]string, ready Ready) error {
+	return s.CheckReadyWithRuntime(registry, proxies, ready, 0, 0)
+}
+
+func (s *Scenario) CheckReadyWithRuntime(registry *Registry, proxies map[string]string, ready Ready,
+	runtimeMarines, runtimeZerglings int) error {
 	if registry.Width != s.ParkSize[0] || registry.Height != s.ParkSize[1] {
 		return fmt.Errorf("park_size_mismatch: expected %dx%d, got %dx%d", s.ParkSize[0], s.ParkSize[1], registry.Width, registry.Height)
 	}
 	if ready.Navigation != "native" {
 		return fmt.Errorf("native_navigation_unavailable: %s", ready.Navigation)
 	}
-	if ready.Marines != len(s.StartingUnits.Marines) || ready.Zerglings != len(s.StartingUnits.Zerglings) {
+	validCounts := ready.Marines == len(s.StartingUnits.Marines) &&
+		ready.Zerglings == len(s.StartingUnits.Zerglings)
+	if ready.Resuming {
+		validCounts = runtimeMarines >= 0 && runtimeZerglings >= 0 &&
+			ready.Marines >= runtimeMarines && ready.Zerglings >= runtimeZerglings &&
+			ready.Marines <= len(s.StartingUnits.Marines)+runtimeMarines &&
+			ready.Zerglings <= len(s.StartingUnits.Zerglings)+runtimeZerglings
+	}
+	if !validCounts {
 		return fmt.Errorf("starting_units_missing: marines=%d/%d zerglings=%d/%d", ready.Marines,
 			len(s.StartingUnits.Marines), ready.Zerglings, len(s.StartingUnits.Zerglings))
 	}

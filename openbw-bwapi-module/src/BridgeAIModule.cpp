@@ -379,7 +379,19 @@ public:
         }
     }
 
+    void onUnitCreate(BWAPI::Unit unit) override {
+        if (!worldMode_) return;
+        const int frame = BWAPI::Broodwar->getFrameCount();
+        if (worldControllerMode_) worldUnitController_.onUnitCreate(unit, frame);
+        else worldAdapter_.onUnitCreate(unit, frame);
+    }
+
     void onUnitDestroy(BWAPI::Unit unit) override {
+        if (worldMode_) {
+            if (worldControllerMode_) worldUnitController_.onUnitDestroy(unit);
+            else worldAdapter_.onUnitDestroy(unit, BWAPI::Broodwar->getFrameCount());
+            return;
+        }
         if (parkAssault_) {
             if (unit) {
                 for (auto& [id, target] : assaultTargets_) {

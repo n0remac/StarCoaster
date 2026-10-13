@@ -26,17 +26,31 @@ func TestActorLifecycleRoutingRejectsAmbiguousBindings(t *testing.T) {
 		t.Fatal("spawn was not registered")
 	}
 	publisher := world.ActorBinding{ID: identity.ID, Session: "session-a", Generation: 42,
-		Participant: "publisher", NativeID: "11"}
+		Participant: "publisher", NativeID: "11", CreationFrame: 153}
 	s.bwMessage(nil, world.Message("actor.bind", "session-a", "bw:bind", "openbw", 1, publisher))
 	if s.actors.Commandable(identity.ID) {
 		t.Fatal("publisher alone made actor commandable")
 	}
 	controller := publisher
 	controller.Participant, controller.NativeID = "controller", "98"
+	bridgeSide, parkSide := net.Pipe()
+	defer bridgeSide.Close()
+	defer parkSide.Close()
+	s.park = &peer{Conn: bridgeSide}
+	forwarded := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(parkSide)), &message)
+		forwarded <- message
+	}()
 	s.controllerMessage(nil, world.Message("actor.bind", "session-a", "controller:bind", "openbw", 1, controller))
 	if !s.actors.Commandable(identity.ID) {
 		t.Fatal("both native bindings did not activate actor")
 	}
+	if message := <-forwarded; message.Kind != "actor.bind" || message.Session != identity.Session {
+		t.Fatalf("park did not receive completed binding: %+v", message)
+	}
+	s.park = nil
 	stale := controller
 	stale.Session = "old-session"
 	s.controllerMessage(nil, world.Message("actor.bind", "old-session", "controller:stale", "openbw", 1, stale))
@@ -47,6 +61,41 @@ func TestActorLifecycleRoutingRejectsAmbiguousBindings(t *testing.T) {
 		world.ActorDespawn{ID: identity.ID, Session: "session-a", Generation: 42}))
 	if s.actors.Commandable(identity.ID) {
 		t.Fatal("despawned actor remained commandable")
+	}
+}
+
+func TestOffParkActorDoesNotInvalidateCombatSnapshot(t *testing.T) {
+	s := testService()
+	if err := s.registry.Replace("session-a", 1, 64, 64, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.transform = world.Fit(64, 64, 128, 128)
+	s.ready = true
+	bridgeSide, parkSide := net.Pipe()
+	defer bridgeSide.Close()
+	defer parkSide.Close()
+	s.park = &peer{Conn: bridgeSide}
+	forwarded := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(parkSide)), &message)
+		forwarded <- message
+	}()
+	s.bwMessage(nil, world.Message("combat.snapshot", "session-a", "bw:snapshot", "openbw", 1,
+		map[string]any{"seq": 1, "bw_tick": 3, "unit_total": 2, "unit_omitted": 0,
+			"units": []map[string]any{
+				{"id": "openbw:1000", "x": 1040, "y": 1040},
+				{"id": "openbw:3001", "x": 592, "y": 976},
+			}}))
+	var snapshot struct {
+		UnitOmitted int              `json:"unit_omitted"`
+		Units       []map[string]any `json:"units"`
+	}
+	message := <-forwarded
+	if message.Kind != "combat.snapshot" || message.Decode(&snapshot) != nil ||
+		len(snapshot.Units) != 1 || snapshot.UnitOmitted != 1 ||
+		snapshot.Units[0]["x"] != float64(16) {
+		t.Fatalf("off-park actor invalidated snapshot: %+v", snapshot)
 	}
 }
 

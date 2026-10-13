@@ -31,6 +31,37 @@ normal `world.v1` envelope, operation ID, session and `world.ack`. Park world
 revision remains unchanged by actor movement or lifecycle; combat snapshots
 continue to carry position, facing, animation and health.
 
+Runtime OpenBW actors include `creation_frame` in both bindings. The publisher
+assigns a generation token when it observes the native creation event. The
+controller matches a single native creation with that synchronized frame,
+owner, and unit type before it sends its binding. Multiple candidates remain
+unbound and uncommandable. The test fixture can request one extra native Marine
+by setting `BRIDGE_TEST_SPAWN_MARINE_FRAME` for a world session. OpenBW's
+multiplayer `createUnit` queues one synchronized creation action and returns no
+immediate unit handle; the adapter waits for the actual event.
+
+On world snapshot replay, OpenBW marks `world.ready.resuming` after it has
+previously reached native readiness in that simulation. The bridge then checks
+current native unit counts against the original map units plus reconciled
+runtime identities. Initial readiness still requires the configured starting
+counts exactly. This lets the bridge restart after a native spawn or death
+without treating changed unit counts as a corrupt starting map.
+
+The OpenRCT2 server replicates completed bindings and despawns through
+`rtsbridge.actorLifecycle`. Clients render and accept selection for runtime
+actor IDs only after an active binding reaches this action. A newly loaded
+client sends `rtsbridge.clientReady`; the server then replays active bindings
+and the complete versioned structure target catalog. Duplicate replay actions
+are idempotent.
+
+Structure targeting uses `rtsbridge.targetCatalog` actions with `session`,
+monotonic `version`, zero-based `index`, total `chunks`, and a bounded `targets`
+array. Each client stages chunks in order and replaces its active hit-test
+catalog only when the final chunk is accepted. A missing, repeated, stale, or
+conflicting chunk cannot expose a partial update. The server resends a complete
+catalog for a joining client when its plugin reports readiness, and on actual
+target changes; it does not broadcast the full catalog on a timer.
+
 The new startup world API is documented in [world.v1](world.v1.schema.json) and the [world bridge guide](../docs/world-bridge.md). It runs alongside the older disposable combat snapshot messages described below.
 
 The publisher sends one UTF-8 JSON object per line over a TCP connection bound to `127.0.0.1`. Each line is a **full** snapshot, capped at 32768 bytes including the JSON but excluding the newline. A 32-unit packet with 32-byte IDs and signed decimal 32-bit coordinates fits under 8 KiB; the larger cap also accommodates combat targets and events. The [schema](units.snapshot.v1.schema.json) and [fixture](fixtures/one-unit.ndjson) define the original wire shape. Every receiver rejects an invalid array as a whole, including duplicate IDs.

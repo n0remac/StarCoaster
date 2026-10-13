@@ -12,8 +12,9 @@ import (
 var actorID = regexp.MustCompile(`^openbw:[0-9]+$`)
 var nativeActorID = regexp.MustCompile(`^[0-9]+$`)
 
-// ActorIdentity is the stable identity published by OpenBW. Generation is an
-// engine creation token, never a position or a bridge-assigned sequence.
+// ActorIdentity is the stable identity published by OpenBW. Generation is a
+// publisher token assigned when the native creation event is observed, never
+// a position or a bridge-assigned sequence.
 type ActorIdentity struct {
 	ID         string `json:"id"`
 	Engine     string `json:"engine"`
@@ -24,11 +25,12 @@ type ActorIdentity struct {
 }
 
 type ActorBinding struct {
-	ID          string `json:"id"`
-	Session     string `json:"session"`
-	Generation  uint64 `json:"generation"`
-	Participant string `json:"participant"`
-	NativeID    string `json:"native_id"`
+	ID            string `json:"id"`
+	Session       string `json:"session"`
+	Generation    uint64 `json:"generation"`
+	Participant   string `json:"participant"`
+	NativeID      string `json:"native_id"`
+	CreationFrame int    `json:"creation_frame"`
 }
 
 type ActorDespawn struct {
@@ -86,7 +88,7 @@ func (identity ActorIdentity) Validate(session string) error {
 func (binding ActorBinding) Validate(session string) error {
 	if binding.Session != session || !actorID.MatchString(binding.ID) || binding.Generation == 0 ||
 		(binding.Participant != "publisher" && binding.Participant != "controller") ||
-		!nativeActorID.MatchString(binding.NativeID) {
+		!nativeActorID.MatchString(binding.NativeID) || binding.CreationFrame < 1 {
 		return errors.New("invalid actor binding")
 	}
 	return nil
@@ -138,6 +140,12 @@ func (r *ActorRegistry) Bind(binding ActorBinding) error {
 	}
 	if old, exists := record.Bindings[binding.Participant]; exists && old != binding {
 		return errors.New("conflicting native binding")
+	}
+	for _, old := range record.Bindings {
+		if old.CreationFrame > 0 && binding.CreationFrame > 0 &&
+			old.CreationFrame != binding.CreationFrame {
+			return errors.New("conflicting creation frame")
+		}
 	}
 	record.Bindings[binding.Participant] = binding
 	r.native[key] = binding.ID

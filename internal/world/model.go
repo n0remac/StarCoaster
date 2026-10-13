@@ -102,6 +102,7 @@ type Ready struct {
 	Zerglings          int            `json:"zerglings,omitempty"`
 	Obstacles          int            `json:"obstacles,omitempty"`
 	Navigation         string         `json:"navigation,omitempty"`
+	Resuming           bool           `json:"resuming,omitempty"`
 	Reconciled         *bool          `json:"reconciled,omitempty"`
 	TargetCapacity     int            `json:"target_capacity,omitempty"`
 	TargetIDs          []string       `json:"target_ids,omitempty"`

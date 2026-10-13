@@ -28,6 +28,20 @@ func TestFrontierScenarioRequiresNativeNavigationAndObjective(t *testing.T) {
 	if err := scenario.CheckReady(r, map[string]string{e.ID: "openbw:7"}, ready); err != nil {
 		t.Fatal(err)
 	}
+	ready.Marines = 7
+	if err := scenario.CheckReadyWithRuntime(r, map[string]string{e.ID: "openbw:7"}, ready, 1, 0); err == nil {
+		t.Fatal("first readiness accepted an unexpected seventh Marine")
+	}
+	ready.Resuming = true
+	if err := scenario.CheckReadyWithRuntime(r, map[string]string{e.ID: "openbw:7"}, ready, 1, 0); err != nil {
+		t.Fatalf("reconciled runtime Marine prevented restart: %v", err)
+	}
+	ready.Marines = 8
+	if err := scenario.CheckReadyWithRuntime(r, map[string]string{e.ID: "openbw:7"}, ready, 1, 0); err == nil {
+		t.Fatal("unregistered extra Marine was accepted")
+	}
+	ready.Marines = 6
+	ready.Resuming = false
 	r.Width = 256
 	if err := scenario.CheckReady(r, map[string]string{e.ID: "openbw:7"}, ready); err == nil || !strings.Contains(err.Error(), "park_size_mismatch") {
 		t.Fatalf("oversized park was accepted: %v", err)

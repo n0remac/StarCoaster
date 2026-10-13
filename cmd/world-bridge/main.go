@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -157,7 +158,19 @@ func (s *service) publishReady() {
 	}
 	sort.Strings(ready.TargetIDs)
 	if s.scenario != nil {
-		if err := s.scenario.CheckReady(s.registry, s.proxies, ready); err != nil {
+		runtimeMarines, runtimeZerglings := 0, 0
+		if s.actors != nil {
+			for _, actor := range s.actors.Living() {
+				if actor.Type == "terran_marine" {
+					runtimeMarines++
+				}
+				if actor.Type == "zerg_zergling" {
+					runtimeZerglings++
+				}
+			}
+		}
+		if err := s.scenario.CheckReadyWithRuntime(s.registry, s.proxies, ready,
+			runtimeMarines, runtimeZerglings); err != nil {
 			s.ready = false
 			log.Printf("scenario %s cannot start: %v", s.scenario.ID, err)
 			_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision,
@@ -425,7 +438,9 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				return
 			}
 			if s.actors != nil {
-				if _, known := s.actors.Lookup(id); known && !s.actors.Commandable(id) {
+				numeric, _ := strconv.Atoi(id[7:])
+				_, known := s.actors.Lookup(id)
+				if (numeric >= 3000 || known) && !s.actors.Commandable(id) {
 					s.ack(p, m, false, "actor_not_bound")
 					return
 				}
@@ -542,6 +557,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.ack(p, m, true, "")
+		log.Printf("actor spawn id=%s generation=%d", identity.ID, identity.Generation)
 		_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
 	case "actor.reconcile":
 		var state world.ActorReconcile
@@ -552,6 +568,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.ack(p, m, true, "")
+		log.Printf("actor reconcile living=%d", len(state.Living))
 		for _, identity := range s.actors.Living() {
 			_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
 		}
@@ -564,6 +581,12 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.ack(p, m, true, "")
+		log.Printf("actor binding id=%s participant=publisher native=%s active=%t", binding.ID,
+			binding.NativeID, s.actors.Commandable(binding.ID))
+		_ = s.emit(s.controller, "actor.bind", m.Session, m.Revision, binding)
+		if s.actors.Commandable(binding.ID) {
+			_ = s.emit(s.park, "actor.bind", m.Session, m.Revision, binding)
+		}
 	case "actor.despawn":
 		var event world.ActorDespawn
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -573,6 +596,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.ack(p, m, true, "")
+		log.Printf("actor despawn id=%s generation=%d", event.ID, event.Generation)
 		_ = s.emit(s.controller, "actor.despawn", m.Session, m.Revision, event)
 		_ = s.emit(s.park, "actor.despawn", m.Session, m.Revision, event)
 	case "world.hello":
@@ -684,14 +708,24 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 					s.lastMarines, s.lastZerglings = marines, zerglings
 					s.announceOutcome(marines, zerglings)
 				}
+				visible := make([]map[string]any, 0, len(snapshot.Units))
 				for _, unit := range snapshot.Units {
-					if x, ok := unit["x"].(float64); ok {
-						unit["x"] = s.transform.InverseX(int(x))
+					x, xOK := unit["x"].(float64)
+					y, yOK := unit["y"].(float64)
+					if !xOK || !yOK {
+						snapshot.UnitOmitted++
+						continue
 					}
-					if y, ok := unit["y"].(float64); ok {
-						unit["y"] = s.transform.InverseY(int(y))
+					parkX, parkY := s.transform.InverseX(int(x)), s.transform.InverseY(int(y))
+					if parkX < 0 || parkY < 0 || parkX >= s.registry.Width*32 ||
+						parkY >= s.registry.Height*32 {
+						snapshot.UnitOmitted++
+						continue
 					}
+					unit["x"], unit["y"] = parkX, parkY
+					visible = append(visible, unit)
 				}
+				snapshot.Units = visible
 				_ = s.emit(s.park, "combat.snapshot", m.Session, s.registry.Revision, snapshot)
 			}
 		}
@@ -715,6 +749,11 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			if s.actors != nil {
 				for _, identity := range s.actors.Living() {
 					_ = s.emit(p, "actor.spawn", s.registry.Session, s.registry.Revision, identity)
+					if record, ok := s.actors.Lookup(identity.ID); ok {
+						if binding, found := record.Bindings["publisher"]; found {
+							_ = s.emit(p, "actor.bind", s.registry.Session, s.registry.Revision, binding)
+						}
+					}
 				}
 			}
 			s.publishReady()
@@ -728,6 +767,8 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.ack(p, m, true, "")
+		log.Printf("actor binding id=%s participant=controller native=%s active=%t", binding.ID,
+			binding.NativeID, s.actors.Commandable(binding.ID))
 		if s.actors.Commandable(binding.ID) {
 			_ = s.emit(s.park, "actor.bind", m.Session, m.Revision, binding)
 		}

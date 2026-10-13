@@ -7,6 +7,8 @@
     const RESULT_ACTION = "rtsbridge.commandResult";
     const OUTCOME_ACTION = "rtsbridge.worldOutcome";
     const TARGET_ACTION = "rtsbridge.targetCatalog";
+    const ACTOR_LIFECYCLE_ACTION = "rtsbridge.actorLifecycle";
+    const CLIENT_READY_ACTION = "rtsbridge.clientReady";
     const PORT = 39999;
     const SIEGE_ENABLED = false;
     const FRONTIER_ENABLED = false;
@@ -24,7 +26,7 @@
     const SCALE_Y = 1;
     const WORLD_ENABLED = typeof STARCOASTER_WORLD_BRIDGE !== "undefined" && STARCOASTER_WORLD_BRIDGE === true;
 
-    function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets) {
+    function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor) {
         const session = Array.from({ length: 4 }, function () {
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
@@ -256,6 +258,11 @@
                 lastCombatSeq = state.seq;
                 context.executeAction(ACTION, { session: session, seq: state.seq, units: state.units },
                     function (result) { if (result.error) console.log("WORLD_RENDER_ERROR " + result.errorMessage); });
+            }
+            else if (message.kind === "actor.bind" || message.kind === "actor.despawn") {
+                const actor = message.payload || {};
+                onActor(session, actor.id, actor.generation,
+                    message.kind === "actor.bind" ? "active" : "removed");
             }
             else if (message.kind === "world.ready") {
                 lastCombatSeq = 0;
@@ -527,6 +534,13 @@
 
         let controlSession = "";
         let controlUnits = {};
+        let actorLifecycleSession = "";
+        let activeActorGenerations = {};
+        let removedActorGenerations = {};
+        const retiredActorSessions = {};
+        let clientReadySession = "";
+        let clientReadyPending = false;
+        let pendingClientRefresh = false;
         let terranOwner = -1;
         let commanderPlayer = -1;
         let commandSocket = null;
@@ -569,6 +583,12 @@
                 });
             });
         }
+        function publishActorLifecycle(session, id, generation, state) {
+            context.executeAction(ACTOR_LIFECYCLE_ACTION, { session: session, id: id,
+                generation: generation, state: state }, function (result) {
+                if (result.error) console.log("WORLD_ACTOR_LIFECYCLE_ERROR " + result.errorMessage);
+            });
+        }
         let outcomeState = null;
         let shownOutcome = "";
         let commandFeedback = "";
@@ -580,17 +600,69 @@
             return validAction(event.args) ? {} : { error: 1, errorMessage: "Invalid RTS bridge snapshot" };
         }, function (event) {
             if (!validAction(event.args)) return { error: 1, errorMessage: "Invalid RTS bridge snapshot" };
-            rtsBridge.applySnapshot(event.args);
+            const visible = event.args.units.filter(function (unit) {
+                const number = /^openbw:([0-9]+)$/.exec(unit.id);
+                return !number || Number(number[1]) < 3000
+                    || (actorLifecycleSession === event.args.session
+                        && activeActorGenerations[unit.id] > 0);
+            });
+            rtsBridge.applySnapshot({ session: event.args.session, seq: event.args.seq, units: visible });
             if (controlSession !== event.args.session) { outcomeState = null; shownOutcome = ""; }
             controlSession = event.args.session;
             controlUnits = {};
-            event.args.units.forEach(function (unit) { controlUnits[unit.id] = unit; });
+            visible.forEach(function (unit) { controlUnits[unit.id] = unit; });
             const marine = event.args.units.filter(function (unit) { return unit.kind === "terran_marine"; })[0];
             if (marine) terranOwner = marine.owner;
             return {};
         });
 
         if (FRONTIER_ENABLED || WORLD_ENABLED) {
+            if (WORLD_ENABLED) context.registerAction(CLIENT_READY_ACTION, function (event) {
+                const args = event.args;
+                if (!args || args.session !== controlSession || (network.mode === "server"
+                    && (!Array.isArray(network.players)
+                        || !network.players.some(function (player) { return player.id === event.player; }))))
+                    return { error: 1, errorMessage: "Invalid client readiness" };
+                return {};
+            }, function () {
+                if (network.mode === "server") pendingClientRefresh = true;
+                return {};
+            });
+            if (WORLD_ENABLED) context.registerAction(ACTOR_LIFECYCLE_ACTION, function (event) {
+                const args = event.args;
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may publish actor lifecycle" };
+                if (!args || typeof args.session !== "string" || !/^[0-9a-f]{32}$/.test(args.session)
+                    || !/^openbw:[0-9]+$/.test(args.id)
+                    || !Number.isSafeInteger(args.generation) || args.generation < 1
+                    || !["active", "removed"].includes(args.state)
+                    || retiredActorSessions[args.session]
+                    || (actorLifecycleSession === args.session
+                        && removedActorGenerations[args.id] !== undefined
+                        && (args.state === "active"
+                            || removedActorGenerations[args.id] !== args.generation))
+                    || (actorLifecycleSession === args.session
+                        && activeActorGenerations[args.id] !== undefined
+                        && activeActorGenerations[args.id] !== args.generation))
+                    return { error: 1, errorMessage: "Invalid actor lifecycle" };
+                return {};
+            }, function (event) {
+                const args = event.args;
+                if (actorLifecycleSession !== args.session) {
+                    if (actorLifecycleSession) retiredActorSessions[actorLifecycleSession] = true;
+                    actorLifecycleSession = args.session;
+                    activeActorGenerations = {};
+                    removedActorGenerations = {};
+                }
+                if (args.state === "removed") {
+                    delete activeActorGenerations[args.id];
+                    removedActorGenerations[args.id] = args.generation;
+                    delete controlUnits[args.id];
+                } else activeActorGenerations[args.id] = args.generation;
+                console.log("WORLD_ACTOR_LIFECYCLE id=" + args.id + " state=" + args.state
+                    + " generation=" + args.generation);
+                return {};
+            });
             if (WORLD_ENABLED) context.registerAction(TARGET_ACTION, function (event) {
                 const args = event.args;
                 if (network.mode === "server" && event.player !== network.currentPlayer.id)
@@ -773,6 +845,22 @@
         let cameraSession = "";
         context.subscribe("interval.tick", function () {
             if (++animationTicks % 4 === 0) rtsBridge.invalidateAnimation();
+            if (WORLD_ENABLED && network.mode === "server" && pendingClientRefresh) {
+                pendingClientRefresh = false;
+                if (publishingTargetSession) publishTargetCatalog(publishingTargetSession, publishedTargets);
+                if (actorLifecycleSession) Object.keys(activeActorGenerations).forEach(function (id) {
+                    publishActorLifecycle(actorLifecycleSession, id, activeActorGenerations[id], "active");
+                });
+            }
+            if (WORLD_ENABLED && network.mode === "client" && controlSession
+                && clientReadySession !== controlSession && !clientReadyPending
+                && animationTicks % 40 === 0) {
+                clientReadyPending = true;
+                context.executeAction(CLIENT_READY_ACTION, { session: controlSession }, function (result) {
+                    clientReadyPending = false;
+                    if (!result.error) clientReadySession = controlSession;
+                });
+            }
             if (WORLD_ENABLED && network.mode === "client" && controlSession
                 && cameraSession !== controlSession && typeof ui !== "undefined" && ui.mainViewport) {
                 ui.mainViewport.zoom = 1;
@@ -958,6 +1046,9 @@
         if (WORLD_ENABLED) {
             context.subscribe("network.join", function () {
                 if (publishingTargetSession) publishTargetCatalog(publishingTargetSession, publishedTargets);
+                if (actorLifecycleSession) Object.keys(activeActorGenerations).forEach(function (id) {
+                    publishActorLifecycle(actorLifecycleSession, id, activeActorGenerations[id], "active");
+                });
             });
             startWorldAdapter(function (sender) { worldCommandSender = sender; }, function (result) {
                 const original = pendingCommands[result.command_id];
@@ -971,7 +1062,7 @@
                 });
             }, function (_discovered, worldSession) {
                 publishTargetCatalog(worldSession, []);
-            }, publishTargetCatalog);
+            }, publishTargetCatalog, publishActorLifecycle);
             return;
         }
         const siegeRide = (SIEGE_ENABLED || FRONTIER_ENABLED) ? registeredCarousel() : null;

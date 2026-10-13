@@ -23,12 +23,18 @@ func TestActorLifecycleAndNativeBindings(t *testing.T) {
 		Participant: "publisher", NativeID: "12"}
 	controller := publisher
 	controller.Participant, controller.NativeID = "controller", "208"
+	publisher.CreationFrame = 153
+	controller.CreationFrame = 154
 	if err := actors.Bind(publisher); err != nil {
 		t.Fatal(err)
 	}
 	if actors.Commandable(identity.ID) {
 		t.Fatal("single binding became commandable")
 	}
+	if err := actors.Bind(controller); err == nil {
+		t.Fatal("mismatched synchronized creation frame accepted")
+	}
+	controller.CreationFrame = publisher.CreationFrame
 	if err := actors.Bind(controller); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +94,7 @@ func TestActorReconciliationAndSessionIsolation(t *testing.T) {
 		t.Fatal("stale session accepted")
 	}
 	binding := ActorBinding{ID: identity.ID, Session: identity.Session, Generation: identity.Generation,
-		Participant: "publisher", NativeID: "12"}
+		Participant: "publisher", NativeID: "12", CreationFrame: 153}
 	if err := actors.Bind(binding); err != nil {
 		t.Fatal(err)
 	}

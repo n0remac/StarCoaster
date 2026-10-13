@@ -14,6 +14,7 @@ at(5, 2).push({ type: 'footpath', object: 4, surfaceObject: 4, baseHeight: 14 })
 at(2, 3).push({ type: 'large_scenery', object: 1, sequence: 0, baseHeight: 14, direction: 0 });
 at(3, 3).push({ type: 'large_scenery', object: 1, sequence: 1, baseHeight: 14, direction: 0 });
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
+let selectionTool;
 let socket;
 const sandbox = {
     STARCOASTER_WORLD_BRIDGE: true,
@@ -36,9 +37,14 @@ const sandbox = {
                     payload: { op_id: m.op_id, accepted: true } }) + '\n');
             } }; return socket;
     } },
-    rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); } },
+    rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); },
+        hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
+    ui: { tileSelection: { tiles: [] }, openWindow() { return { findWidget() { return { text: '' }; } }; },
+        registerShortcut() {}, activateTool(tool) { selectionTool = tool; }, showError() {} },
     context: { registerAction(name, query, execute) { registered.set(name, { query, execute }); },
-        subscribe(name, callback) { subscriptions.set(name, callback); }, executeAction(name, args, callback) { actions.push({ name, args });
+        subscribe(name, callback) { const previous = subscriptions.get(name);
+            subscriptions.set(name, previous ? function (event) { previous(event); callback(event); } : callback);
+        }, executeAction(name, args, callback) { actions.push({ name, args });
             if (name === 'ridedemolish') {
                 assert.equal(args.ride, 17); ride = null;
                 for (const elements of tiles.values()) for (let i = elements.length - 1; i >= 0; i--)
@@ -87,7 +93,32 @@ const many = Array.from({ length: 100 }, function (_, index) {
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
     payload: { seq: 2, bw_tick: 6, units: many } }) + '\n');
 assert.equal(applied.at(-1).units.length, 100, 'world actor transport accepts 100 mixed units');
+const runtimeMarine = { ...many[0], id: 'openbw:3001' };
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
+    payload: { seq: 3, bw_tick: 9, units: many.concat([runtimeMarine]) } }) + '\n');
+assert.equal(applied.at(-1).units.length, 100, 'unbound runtime Marine is not rendered');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'actor.bind', session: sid,
+    payload: { id: runtimeMarine.id, generation: 1 } }) + '\n');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
+    payload: { seq: 4, bw_tick: 12, units: many.concat([runtimeMarine]) } }) + '\n');
+assert.equal(applied.at(-1).units.length, 101, 'bound runtime Marine is rendered');
+assert.ok(actions.some(a => a.name === 'rtsbridge.actorLifecycle' && a.args.state === 'active'));
+assert.equal(registered.get('rtsbridge.marineCommand').query({ player: 1, args: {
+    session: sid, request: 98, unit_ids: [runtimeMarine.id], verb: 'hold'
+} }).error, undefined, 'bound runtime Marine is commandable');
+selectionTool.onDown({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y } });
+selectionTool.onUp({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y } });
+assert.ok(logs.some(line => line.includes('selected Marines=openbw:3001')),
+    'native hit testing selects the runtime Marine');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'actor.despawn', session: sid,
+    payload: { id: runtimeMarine.id, generation: 1 } }) + '\n');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
+    payload: { seq: 5, bw_tick: 15, units: many.concat([runtimeMarine]) } }) + '\n');
+assert.equal(applied.at(-1).units.length, 100, 'despawned runtime Marine is removed');
 const command = registered.get('rtsbridge.marineCommand');
+assert.ok(command.query({ player: 1, args: { session: sid, request: 1,
+    unit_ids: [runtimeMarine.id], verb: 'hold' } }).error,
+    'despawned runtime Marine cannot be commanded');
 assert.equal(command.query({ player: 1, args: { session: sid, request: 1,
     unit_ids: ['openbw:1000'], verb: 'attack', target_id: 'openbw:1001' } }).error, undefined);
 command.execute({ player: 1, args: { session: sid, request: 1,
@@ -176,6 +207,13 @@ const joinChunks = actions.filter(a => a.name === 'rtsbridge.targetCatalog').sli
 assert.equal(joinChunks.flatMap(a => a.args.targets).length, 3,
     'late join replays the complete current catalog');
 sandbox.network.players.push({ id: 2 });
+const clientReady = registered.get('rtsbridge.clientReady');
+assert.equal(clientReady.query({ player: 2, args: { session: sid } }).error, undefined);
+const beforeReady = actions.filter(a => a.name === 'rtsbridge.targetCatalog').length;
+clientReady.execute({ player: 2, args: { session: sid } });
+subscriptions.get('interval.tick')();
+assert.ok(actions.filter(a => a.name === 'rtsbridge.targetCatalog').length > beforeReady,
+    'client readiness replays the current catalog after plugin startup');
 assert.match(command.query({ player: 2, args: squadArgs }).errorMessage, /commander/);
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
     payload: { scenario_id: 'frontier-outpost', state: 'victory', objective_id: 'openrct2:ride:17#1' } }) + '\n');

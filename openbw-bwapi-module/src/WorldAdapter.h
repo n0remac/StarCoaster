@@ -35,6 +35,38 @@ class WorldAdapter {
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
 public:
     ~WorldAdapter() { if (socket_ >= 0) ::close(socket_); }
+    void onUnitCreate(BWAPI::Unit unit, int frame) {
+        if (!ready_ || !actorRegistry_.prepared() || !unit || !unit->exists()
+            || actorRegistry_.known(unit)) return;
+        const auto type = unit->getType();
+        if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) return;
+        const int canonical = 3000 + ++runtimeSerial_;
+        const uint64_t generation = static_cast<uint64_t>(runtimeSerial_);
+        if (!actorRegistry_.registerRuntime(unit, canonical, generation, frame)) {
+            std::cerr << "[world] runtime actor registration rejected local=" << unit->getID() << std::endl;
+            return;
+        }
+        const auto actor = actorRegistry_.runtime().at(canonical);
+        if (testMarineSpawnRequested_ && testMarineCanonical_ == 0
+            && type == BWAPI::UnitTypes::Terran_Marine) testMarineCanonical_ = canonical;
+        send("actor.spawn", runtimeIdentity(actor), revision_, frame);
+        send("actor.bind", runtimeBinding(actor), revision_, frame);
+        std::cerr << "[world] actor-spawn id=openbw:" << canonical << " native=" << unit->getID()
+                  << " frame=" << frame << " generation=" << generation << std::endl;
+    }
+    void onUnitDestroy(BWAPI::Unit unit, int frame) {
+        if (!unit) return;
+        const auto id = actorRegistry_.id(unit);
+        for (const auto& [canonical, actor] : actorRegistry_.runtime()) {
+            if (id != "openbw:" + std::to_string(canonical)) continue;
+            if (socket_ >= 0 && !session_.empty())
+                send("actor.despawn", {{"id", id}, {"session", session_},
+                    {"generation", actor.generation}}, revision_, frame);
+            std::cerr << "[world] actor-despawn id=" << id << " frame=" << frame << std::endl;
+            break;
+        }
+        actorRegistry_.forget(unit);
+    }
     void onFrame(BWAPI::Game* game) {
         actorRegistry_.prepare(game);
         if (socket_ < 0) connect(game);
@@ -59,6 +91,39 @@ public:
         if (initializing_) resolveTargets(game);
         if (!ready_) return;
         const int frame = game->getFrameCount();
+        const char* spawnAt = std::getenv("BRIDGE_TEST_SPAWN_MARINE_FRAME");
+        if (!testMarineSpawnRequested_ && spawnAt && *spawnAt) {
+            char* end = nullptr;
+            const long requested = std::strtol(spawnAt, &end, 10);
+            if (end && !*end && requested > 0 && frame >= requested) {
+                testMarineSpawnRequested_ = true;
+                BWAPI::Player owner = nullptr;
+                for (auto player : game->getPlayers())
+                    if (player && player->getRace() == BWAPI::Races::Terran
+                        && player->getType() != BWAPI::PlayerTypes::Neutral) owner = player;
+                // The reusable 128x128 OpenBW map centers the 64x64 park.
+                const int x = (18 + 32) * 32 + 16, y = (30 + 32) * 32 + 16;
+                if (owner && x < game->mapWidth() * 32 && y < game->mapHeight() * 32) {
+                    game->createUnit(owner, BWAPI::UnitTypes::Terran_Marine, {x, y});
+                    std::cerr << "[world] requested native test Marine frame=" << frame
+                              << " x=" << x << " y=" << y << std::endl;
+                } else std::cerr << "[world] native test Marine fixture unavailable" << std::endl;
+            }
+        }
+        const char* killAt = std::getenv("BRIDGE_TEST_KILL_MARINE_FRAME");
+        if (testMarineCanonical_ && !testMarineKillRequested_ && killAt && *killAt) {
+            char* end = nullptr;
+            const long requested = std::strtol(killAt, &end, 10);
+            if (end && !*end && requested > 0 && frame >= requested) {
+                testMarineKillRequested_ = true;
+                auto unit = actorRegistry_.lookup("openbw:" + std::to_string(testMarineCanonical_));
+                if (unit && unit->exists()) {
+                    game->killUnit(unit);
+                    std::cerr << "[world] requested native test Marine death id=openbw:"
+                              << testMarineCanonical_ << " frame=" << frame << std::endl;
+                }
+            }
+        }
         for (auto& [id,target] : targets_) {
             const int hp = target.unit && target.unit->exists() ? target.unit->getHitPoints() : 0;
             if (hp != target.lastHP) { target.lastHP=hp; send("entity.state",{{"id",id},{"proxy_id","openbw:"+std::to_string(target.proxyID)},
@@ -228,12 +293,35 @@ private:
         unsupportedTotal_ = 0;
         unsupportedReasons_ = json::object();
         requestTargets(game);
+        publishActorReconciliation(game->getFrameCount());
         initializing_ = true;
         ready_ = false;
         std::cerr << "[world] reconcile keep=" << plan.keep.size()
                   << " changed=" << plan.changed.size()
                   << " create=" << plan.create.size()
                   << " retire=" << plan.retire.size() << std::endl;
+    }
+    json runtimeIdentity(const WorldActorRegistry::RuntimeActor& actor) const {
+        const auto type = actor.unit->getType();
+        return {{"id", "openbw:" + std::to_string(actor.canonical)},
+            {"engine", "openbw"},
+            {"type", type == BWAPI::UnitTypes::Terran_Marine ? "terran_marine" : "zerg_zergling"},
+            {"owner", actor.unit->getPlayer()->getID()},
+            {"generation", actor.generation}, {"session", session_}};
+    }
+    json runtimeBinding(const WorldActorRegistry::RuntimeActor& actor) const {
+        return {{"id", "openbw:" + std::to_string(actor.canonical)},
+            {"session", session_}, {"generation", actor.generation},
+            {"participant", "publisher"}, {"native_id", std::to_string(actor.unit->getID())},
+            {"creation_frame", actor.creationFrame}};
+    }
+    void publishActorReconciliation(int frame) {
+        json living = json::array();
+        for (const auto& [canonical, actor] : actorRegistry_.runtime())
+            if (actor.unit && actor.unit->exists()) living.push_back(runtimeIdentity(actor));
+        send("actor.reconcile", {{"living", living}}, revision_, frame);
+        for (const auto& [canonical, actor] : actorRegistry_.runtime())
+            if (actor.unit && actor.unit->exists()) send("actor.bind", runtimeBinding(actor), revision_, frame);
     }
     void requestTargets(BWAPI::Game* game) {
         auto self = game->self();
@@ -362,9 +450,10 @@ private:
         send("world.ready", {{"entities", entities_.size()}, {"targets", targets_.size()},
             {"marines", marines}, {"zerglings", zerglings},
             {"obstacles", navigation_.objects()}, {"navigation", navigation_.capability()},
-            {"reconciled", ready_}, {"target_capacity", targetLimit()},
+            {"reconciled", ready_}, {"resuming", everReady_}, {"target_capacity", targetLimit()},
             {"unsupported", unsupported_}, {"unsupported_total", unsupportedTotal_},
             {"unsupported_reasons", unsupportedReasons_}}, revision_, game->getFrameCount());
+        if (ready_) everReady_ = true;
         std::cerr << "[world] ready targets=" << targets_.size()
                   << " unsupported=" << unsupportedTotal_ << std::endl;
     }
@@ -488,6 +577,7 @@ private:
     }
     int socket_=-1,width_=0,height_=0;
     bool ready_=false,initializing_=false; uint64_t revision_=1,sequence_=0,event_=0,snapshotSequence_=0;
+    bool everReady_ = false;
     std::string incoming_,outgoing_,session_;
     starcoaster::SnapshotStager stager_;
     starcoaster::DesiredWorld desired_;
@@ -495,6 +585,10 @@ private:
     starcoaster::NavigationAdapter navigation_;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
+    int runtimeSerial_ = 0;
+    bool testMarineSpawnRequested_ = false;
+    int testMarineCanonical_ = 0;
+    bool testMarineKillRequested_ = false;
     WorldAssaultController assault_;
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();

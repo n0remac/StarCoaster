@@ -26,8 +26,28 @@ class WorldUnitController {
     using json = nlohmann::json;
 public:
     ~WorldUnitController() { closeSocket(); }
+    void onUnitCreate(BWAPI::Unit unit, int frame) {
+        if (!actorRegistry_.prepared() || !unit || !unit->exists() || actorRegistry_.known(unit)) return;
+        const auto type = unit->getType();
+        if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) return;
+        creationCandidates_[unit->getID()] = {unit, frame};
+        std::vector<std::string> pending;
+        for (const auto& [id, binding] : publisherBindings_) pending.push_back(id);
+        for (const auto& id : pending) tryBind(id);
+    }
+    void onUnitDestroy(BWAPI::Unit unit) {
+        if (!unit) return;
+        creationCandidates_.erase(unit->getID());
+        actorRegistry_.forget(unit);
+    }
     void onFrame(BWAPI::Game* game) {
         actorRegistry_.prepare(game);
+        lastObservedFrame_ = game->getFrameCount();
+        for (auto it = creationCandidates_.begin(); it != creationCandidates_.end();) {
+            if (game->getFrameCount() - it->second.frame > 256 || !it->second.unit
+                || !it->second.unit->exists()) it = creationCandidates_.erase(it);
+            else ++it;
+        }
         if (socket_ < 0) connect(game);
         if (socket_ < 0) return;
         char bytes[8192];
@@ -51,12 +71,60 @@ public:
                 std::cerr << "[world-control] malformed message: " << error.what() << std::endl;
             }
         }
+        std::vector<std::string> pendingActors;
+        for (const auto& [id, binding] : publisherBindings_) pendingActors.push_back(id);
+        for (const auto& id : pendingActors) tryBind(id);
         applyScheduledNavigation(game);
         flush();
     }
 private:
     struct TargetLink { std::string proxyID; int x = 0, y = 0; };
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
+    struct CreationCandidate { BWAPI::Unit unit = nullptr; int frame = 0; };
+    void tryBind(const std::string& id) {
+        if (ambiguousActors_.count(id)) return;
+        const auto actor = identities_.find(id), published = publisherBindings_.find(id);
+        if (actor == identities_.end() || published == publisherBindings_.end() || session_.empty()) return;
+        const auto& identity = actor->second;
+        const auto& binding = published->second;
+        if (binding.value("generation", uint64_t(0)) != identity.value("generation", uint64_t(0))
+            || binding.value("session", "") != session_) return;
+        const int frame = binding.value("creation_frame", 0);
+        if (frame < 1 || lastObservedFrame_ <= frame) return;
+        BWAPI::Unit match = nullptr;
+        int matches = 0;
+        for (const auto& [native, candidate] : creationCandidates_) {
+            if (candidate.frame != frame || !candidate.unit || !candidate.unit->exists()
+                || !candidate.unit->getPlayer()
+                || candidate.unit->getPlayer()->getID() != identity.value("owner", -1)) continue;
+            const auto kind = candidate.unit->getType() == BWAPI::UnitTypes::Terran_Marine
+                ? "terran_marine" : "zerg_zergling";
+            if (identity.value("type", "") != kind) continue;
+            match = candidate.unit; ++matches;
+        }
+        if (matches != 1) {
+            if (matches > 1) {
+                ambiguousActors_.insert(id);
+                std::cerr << "[world-control] ambiguous actor binding id=" << id
+                    << " frame=" << frame << " matches=" << matches << std::endl;
+            }
+            return;
+        }
+        int canonical = 0;
+        try {
+            if (id.compare(0, 7, "openbw:") != 0) return;
+            canonical = std::stoi(id.substr(7));
+        } catch (...) { return; }
+        const uint64_t generation = identity.value("generation", uint64_t(0));
+        if (!actorRegistry_.registerRuntime(match, canonical, generation, frame)) return;
+        creationCandidates_.erase(match->getID());
+        publisherBindings_.erase(id);
+        send("actor.bind", session_, revision_, {{"id", id}, {"session", session_},
+            {"generation", generation}, {"participant", "controller"},
+            {"native_id", std::to_string(match->getID())}, {"creation_frame", frame}});
+        std::cerr << "[world-control] actor-bound id=" << id << " native=" << match->getID()
+                  << " frame=" << frame << std::endl;
+    }
     void connect(BWAPI::Game* game) {
         const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (fd < 0) return;
@@ -106,6 +174,47 @@ private:
             targetLinks_.clear();
             navigation_.reset(game->mapWidth(), game->mapHeight());
             pendingRemovals_.clear();
+            identities_.clear();
+            publisherBindings_.clear();
+            ambiguousActors_.clear();
+            return;
+        }
+        if (kind == "actor.spawn") {
+            const auto& identity = message.at("payload");
+            if (message.value("session", "") != session_ || identity.value("session", "") != session_) return;
+            const auto id = identity.value("id", "");
+            if (id.empty()) return;
+            identities_[id] = identity;
+            for (const auto& [canonical, actor] : actorRegistry_.runtime()) {
+                if (id != "openbw:" + std::to_string(canonical)
+                    || actor.generation != identity.value("generation", uint64_t(0))
+                    || !actor.unit || !actor.unit->exists()) continue;
+                send("actor.bind", session_, revision_, {{"id", id}, {"session", session_},
+                    {"generation", actor.generation}, {"participant", "controller"},
+                    {"native_id", std::to_string(actor.unit->getID())},
+                    {"creation_frame", actor.creationFrame}});
+                return;
+            }
+            tryBind(id);
+            return;
+        }
+        if (kind == "actor.bind") {
+            const auto& binding = message.at("payload");
+            if (message.value("session", "") != session_ || binding.value("session", "") != session_
+                || binding.value("participant", "") != "publisher") return;
+            const auto id = binding.value("id", "");
+            if (id.empty()) return;
+            publisherBindings_[id] = binding;
+            tryBind(id);
+            return;
+        }
+        if (kind == "actor.despawn") {
+            const auto id = message.at("payload").value("id", "");
+            const auto unit = actorRegistry_.lookup(id);
+            if (unit) actorRegistry_.forget(unit);
+            identities_.erase(id);
+            publisherBindings_.erase(id);
+            ambiguousActors_.erase(id);
             return;
         }
         if (kind == "navigation.terrain.update") {
@@ -286,5 +395,9 @@ private:
     std::map<std::string, TargetLink> targetLinks_;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
+    std::map<int, CreationCandidate> creationCandidates_;
+    std::map<std::string, json> identities_, publisherBindings_;
+    std::set<std::string> ambiguousActors_;
+    int lastObservedFrame_ = 0;
     starcoaster::NavigationAdapter navigation_;
 };
