@@ -33,7 +33,7 @@ case "$command" in
         tests/test_frontier_native_navigation_live.sh
         tests/test_world_live.sh
         python3 scripts/verify-frontier-lifecycle.py
-        BRIDGE_ACTOR_TEST_RESTART=1 tests/test_actor_live.sh
+        tests/test_actor_lifecycle_live.sh
         ;;
     help|-h|--help)
         cat <<'EOF'

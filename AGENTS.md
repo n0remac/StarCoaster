@@ -23,6 +23,8 @@ scripts/project.sh record --duration 85
 
 Use the relevant unit tests before live graphical tests. Preserve navigation, combat, synchronization, and rendering regressions when refactoring. Park changes must keep structure footprints, spawn points, chokepoints, and destructible openings aligned with the scenario and native map. Keep generated parks and captures deterministic where possible.
 
+`scripts/project.sh test-live` includes `tests/test_actor_lifecycle_live.sh`: two native actor cycles with client reconnect, bridge restart, death, and post-death command rejection. Keep its test-only spawn and probe scripts out of player-facing flows. Record both cycle paths when changing actor lifecycle behavior.
+
 Never commit user supplied RCT2 or StarCraft data, extracted sprites, proprietary graphics, local captures, or bundled engine builds. Follow `docs/licensing.md` and check staged paths before committing.
 
 Report the commands run, pass or fail results, artifact paths, and remaining limits. If a live test cannot run, state the missing dependency or failure plainly. See `README.md` for the current playable workflow and `docs/first-playable-verification.md` for the prior baseline.

@@ -31,6 +31,12 @@ normal `world.v1` envelope, operation ID, session and `world.ack`. Park world
 revision remains unchanged by actor movement or lifecycle; combat snapshots
 continue to carry position, facing, animation and health.
 
+When reconciliation removes an actor known to the bridge, the bridge forwards
+the missed `actor.despawn` to both adapters. OpenRCT2 clears selection and
+control-group references on that lifecycle action; its next full combat
+snapshot removes the native render entry. Commands for a runtime ID are
+rejected until both participant bindings are confirmed, and after removal.
+
 Runtime OpenBW actors include `creation_frame` in both bindings. The publisher
 assigns a generation token when it observes the native creation event. The
 controller matches a single native creation with that synchronized frame,

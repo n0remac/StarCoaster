@@ -18,7 +18,7 @@
     { "if": { "properties": { "kind": { "const": "actor.spawn" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/actorIdentity" } } } },
     { "if": { "properties": { "kind": { "const": "actor.bind" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/actorBinding" } } } },
     { "if": { "properties": { "kind": { "const": "actor.despawn" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/actorDespawn" } } } },
-    { "if": { "properties": { "kind": { "const": "actor.reconcile" } } }, "then": { "properties": { "payload": { "type": "object", "required": ["living"], "properties": { "living": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/actorIdentity" } } }, "additionalProperties": false } } } }
+    { "if": { "properties": { "kind": { "const": "actor.reconcile" } } }, "then": { "properties": { "payload": { "type": "object", "description": "Complete OpenBW living actor set used after reconnect; missing known actors are despawned.", "required": ["living"], "properties": { "living": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/actorIdentity" } } }, "additionalProperties": false } } } }
   ],
   "additionalProperties": false,
   "$defs": {
