@@ -16,6 +16,22 @@ scenario_units = module.scenario_units
 
 
 class FrontierScenarioMapTest(unittest.TestCase):
+    def test_starting_units_match_saved_ridge_and_low_approach(self):
+        data = ROOT / "run-data/frontier-playable"
+        fixture_path = data / "fixture.json"
+        fixture = json.loads(fixture_path.read_text()) if fixture_path.exists() else {}
+        if fixture.get("layout_version") != 3:
+            import subprocess
+            subprocess.run(["python3", "scripts/create-park-assault.py", "--playable"],
+                           cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+        export = json.loads((data / "navigation-elements.json").read_text())
+        scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
+        heights = export["elevation_rows"]
+        for x, y in scenario["starting_units"]["marines"]:
+            self.assertEqual(heights[y - 8][x - 8], 128)
+        for x, y in scenario["starting_units"]["zerglings"]:
+            self.assertFalse(14 <= x <= 24 and 30 <= y <= 34)
+
     def test_positions_and_ownership_are_park_relative(self):
         units = [UNIT.unpack(value) for value in scenario_units(ROOT / "scenarios/frontier-outpost.json")]
         self.assertEqual(len(units), 18)

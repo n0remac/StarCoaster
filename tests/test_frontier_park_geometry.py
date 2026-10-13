@@ -16,7 +16,7 @@ class FrontierParkGeometryTest(unittest.TestCase):
     def setUpClass(cls):
         fixture_path = DATA / "fixture.json"
         fixture = json.loads(fixture_path.read_text()) if fixture_path.exists() else {}
-        if fixture.get("layout_version") != 2:
+        if fixture.get("layout_version") != 3:
             subprocess.run(["python3", "scripts/create-park-assault.py", "--playable"],
                            cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         cls.fixture = json.loads(fixture_path.read_text())
@@ -26,6 +26,8 @@ class FrontierParkGeometryTest(unittest.TestCase):
         report = validate(self.export, self.fixture)
         self.assertGreaterEqual(report["wall_segments"], 100)
         self.assertGreaterEqual(report["path_tiles"], 200)
+        self.assertEqual(report["raised_tiles"], 55)
+        self.assertEqual(report["slope_tiles"], 15)
 
     def test_wall_connectivity_survives_four_camera_rotations(self):
         edges = [wall_edge(item) for item in self.export["elements"] if item["type"] == "wall"]

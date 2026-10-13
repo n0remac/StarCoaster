@@ -67,6 +67,29 @@ registerPlugin({
             occupied.forEach(function (tile) { x += tile.x * 32 + 16; y += tile.y * 32 + 16; });
             return { x: Math.round(x / occupied.length), y: Math.round(y / occupied.length) };
         }
+        function ridgeSurface(x, y) {
+            if (!playable) return { base: 14, slope: 0 };
+            if (x >= 14 && x <= 24 && y >= 30 && y <= 34) return { base: 16, slope: 0 };
+            if (x >= 14 && x <= 18 && y === 29) return { base: 14, slope: 6 };
+            if (x >= 14 && x <= 18 && y === 35) return { base: 14, slope: 9 };
+            if (x === 25 && y >= 30 && y <= 34) return { base: 14, slope: 3 };
+            return { base: 14, slope: 0 };
+        }
+        function terrain() {
+            for (var y = bounds.min_y; y <= bounds.max_y; y++) {
+                for (var x = bounds.min_x; x <= bounds.max_x; x++) {
+                    var expected = ridgeSurface(x, y);
+                    if (expected.base === 14 && expected.slope === 0) continue;
+                    var tile = map.getTile(x, y), surface = null;
+                    for (var i = 0; i < tile.numElements; i++)
+                        if (tile.getElement(i).type === "surface") surface = tile.getElement(i);
+                    if (!surface) throw new Error("missing terrain at " + x + "," + y);
+                    surface.baseHeight = expected.base;
+                    surface.clearanceHeight = expected.base;
+                    surface.slope = expected.slope;
+                }
+            }
+        }
         function scenery() {
             var paths = {};
             function path(x, y) { paths[x + "," + y] = true; }
@@ -108,8 +131,10 @@ registerPlugin({
             horizontal(46, 34, 49);
             Object.keys(paths).forEach(function (key) {
                 var point = key.split(",").map(Number);
-                var e = add(point[0], point[1], "footpath", 14, 16, 4);
+                var ground = ridgeSurface(point[0], point[1]);
+                var e = add(point[0], point[1], "footpath", ground.base, ground.base + 2, 4);
                 e.surfaceObject = 4; e.railingsObject = 0; e.edges = 15;
+                if (ground.slope) e.slopeDirection = { 6: 3, 9: 1, 3: 2 }[ground.slope];
             });
             if (playable && !objectManager.getAllObjects("wall").some(function (entry) {
                 return entry.identifier === "rct2.scenery_wall.wbr2";
@@ -166,7 +191,9 @@ registerPlugin({
             ];
             plants.forEach(function (p) {
                 if (paths[p[0] + "," + p[1]] || wallTiles[p[0] + "," + p[1]]) return;
-                var e = add(p[0], p[1], "small_scenery", 14, 26,
+                var ground = ridgeSurface(p[0], p[1]);
+                if (ground.slope) return;
+                var e = add(p[0], p[1], "small_scenery", ground.base, ground.base + 12,
                     object("small_scenery", "rct2.scenery_small." + p[2]).index);
                 e.quadrant = 0;
             });
@@ -189,7 +216,7 @@ registerPlugin({
                     attack_approaches: [], footprint_tiles: tiles.map(function (tile) { return { x: tile.x, y: tile.y }; }),
                     tiles: tiles };
             });
-            return { name: "Frontier Outpost", layout_version: playable ? 2 : 1,
+            return { name: "Frontier Outpost", layout_version: playable ? 3 : 1,
                 bounds: bounds, tile_size: 32,
                 cell_size: 8, transform: playable ? { x: 1024, y: 1024 } : { x: -128, y: -96 }, targets: targets };
         }
@@ -265,7 +292,7 @@ registerPlugin({
             });
         }
         function placeLarge(index) {
-            var placements = playable ? [[17, 35, "rct2.scenery_large.sip"],
+            var placements = playable ? [[17, 38, "rct2.scenery_large.sip"],
                 [9, 29, "rct2.scenery_large.ssig4"]] : [];
             if (index === placements.length) {
                 try {
@@ -338,7 +365,7 @@ registerPlugin({
             else populate();
         });
         function populate() {
-            try { park.name = "Frontier Outpost"; scenery(); createAt(0); }
+            try { park.name = "Frontier Outpost"; terrain(); scenery(); createAt(0); }
             catch (error) { fail(String(error)); }
         }
     }
