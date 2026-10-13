@@ -810,10 +810,15 @@ private:
     void assaultAI(BWAPI::Game* game) {
         BWAPI::Unit objective = nullptr;
         std::vector<BWAPI::Unit> alternatives;
+        // Test-only terrain probe: use the existing native assault policy to
+        // pursue Marines on the ridge, without changing playable AI orders.
+        const bool testRidgeAssault = std::getenv("BRIDGE_TEST_ASSAULT_MARINES") != nullptr;
         for (const auto& [id, target] : targets_) {
             if (target.lifecycle != "active" || !target.unit || !target.unit->exists()) continue;
-            alternatives.push_back(target.unit);
-            if (id == assault_.objectiveID()) objective = target.unit;
+            if (!testRidgeAssault) {
+                alternatives.push_back(target.unit);
+                if (id == assault_.objectiveID()) objective = target.unit;
+            }
         }
         for (auto unit : game->getAllUnits())
             if (unit && unit->exists() && unit->getType() == BWAPI::UnitTypes::Terran_Marine)

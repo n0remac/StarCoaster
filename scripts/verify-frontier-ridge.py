@@ -13,7 +13,10 @@ UNIT = re.compile(r"openbw:(\d+):(\d+),(\d+),(\d+),([a-z_]+)")
 
 def main(directory):
     directory = Path(directory)
-    client = (directory / "client.log").read_text(errors="replace")
+    client_path = directory / "client.log"
+    if not client_path.exists():
+        client_path = directory / "client-a.log"
+    client = client_path.read_text(errors="replace")
     server = (directory / "server.log").read_text(errors="replace")
     rows = []
     for match in POSITION.finditer(client):
@@ -26,8 +29,9 @@ def main(directory):
     ascent = [row["units"][1000] for row in route if row["phase"] == 2]
     slope = [point for point in ascent if 14 * 32 <= point[0] < 19 * 32
              and (29 * 32 <= point[1] < 30 * 32 or 35 * 32 <= point[1] < 36 * 32)]
-    high = [point for point in ascent if 19 * 32 < point[0] < 25 * 32
-            and 30 * 32 <= point[1] < 35 * 32]
+    high = [row["units"][1000] for row in rows if row["phase"] in (2, 3)
+            and 1000 in row["units"] and 19 * 32 < row["units"][1000][0] < 25 * 32
+            and 30 * 32 <= row["units"][1000][1] < 35 * 32]
     cliff_crossings = []
     for a, b in zip(ascent, ascent[1:]):
         if (a[0] - 14 * 32) * (b[0] - 14 * 32) <= 0 and a[0] != b[0]:

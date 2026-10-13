@@ -44,6 +44,8 @@ def main():
     parser.add_argument("--frame-ms", type=int, default=70)
     parser.add_argument("--no-video", action="store_true", help="capture screenshots and logs without FFmpeg")
     parser.add_argument("--cycle-rotations", action="store_true", help="save screenshots from all four park views")
+    parser.add_argument("--ridge-probe", action="store_true", help="run the test-only cliff, slope and combat driver on client A")
+    parser.add_argument("--ridge-assault", action="store_true", help="test native Zergling approach from below the saved ridge")
     args = parser.parse_args()
     if not 15 <= args.duration <= 300:
         parser.error("duration must be 15–300 seconds")
@@ -61,11 +63,12 @@ def main():
     starcraft = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
     if not rct2.is_dir() or not starcraft.is_dir():
         parser.error("RCT2_DATA_DIR and STARCRAFT_DATA_DIR must point to installed game data")
-    run = ArtifactRun("live-capture", "Frontier Outpost v0.2",
+    run = ArtifactRun("live-capture", "Frontier Outpost v0.3",
                       config={"scenario": "frontier-outpost", "duration": args.duration,
                               "launcher": "scripts/run-frontier-outpost.sh", "input": "X11 mouse and keyboard",
                               "video": None if args.no_video else video_config.__dict__,
-                              "graphics": args.graphics, "frame_ms": args.frame_ms})
+                              "graphics": args.graphics, "frame_ms": args.frame_ms,
+                              "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault})
     out = run.output
     env = os.environ.copy() | {"RCT2_DATA_DIR": str(rct2), "STARCRAFT_DATA_DIR": str(starcraft),
                                "BRIDGE_LAUNCH_CLIENT": "0", "BRIDGE_SERVER_DATA_DIR": str(out / "server-data"),
@@ -74,6 +77,10 @@ def main():
         env["LIBGL_ALWAYS_SOFTWARE"] = "1"
     else:
         env.pop("LIBGL_ALWAYS_SOFTWARE", None)
+    if args.ridge_probe:
+        env["BRIDGE_DISABLE_ASSAULT_AI"] = "1"
+    if args.ridge_assault:
+        env["BRIDGE_TEST_ASSAULT_MARINES"] = "1"
     displays = (("client-a", ":91"),) if args.video_layout == "single" else (
         ("client-a", ":91"), ("client-b", ":92"))
     processes = []
@@ -96,7 +103,23 @@ def main():
             start("display-" + name[-1], ["Xvfb", display, "-screen", "0",
                                            f"{args.display_width}x{args.display_height}x24", "-nolisten", "tcp"], env)
         time.sleep(1)
-        session = start("server", [str(ROOT / "scripts/run-frontier-outpost.sh")], env)
+        if args.ridge_assault:
+            scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
+            scenario["starting_units"]["zerglings"] = [
+                [x, y] for y in range(28, 34) for x in (26, 27)]
+            test_scenario = out / "ridge-assault-scenario.json"
+            test_scenario.write_text(json.dumps(scenario, indent=2) + "\n")
+            test_map = out / "ridge-assault.scm"
+            subprocess.run(["python3", str(ROOT / "scripts/create-world-base-map.py"),
+                            "--scenario", str(test_scenario), "--output", str(test_map)],
+                           cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+            env.update(BRIDGE_MAP_FILE=str(test_map), BRIDGE_SCENARIO_CONFIG=str(test_scenario),
+                       BRIDGE_RULES_CONFIG=str(ROOT / "scenarios/frontier-outpost-mapping.json"))
+            session_command = [str(ROOT / "scripts/run-world-session.sh"),
+                               str(ROOT / "run-data/frontier-playable/save/frontier-outpost-playable.park")]
+        else:
+            session_command = [str(ROOT / "scripts/run-frontier-outpost.sh")]
+        session = start("server", session_command, env)
         until = time.monotonic() + 25
         while time.monotonic() < until:
             try:
@@ -114,6 +137,9 @@ def main():
             (data_dir / "plugin").mkdir(parents=True, exist_ok=True)
             source = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
             (data_dir / "plugin/rts-bridge.js").write_text("var STARCOASTER_WORLD_BRIDGE = true;\n" + source)
+            if args.ridge_probe and name == "client-a":
+                (data_dir / "plugin/frontier-ridge-probe.js").write_text(
+                    (ROOT / "scripts/frontier-ridge-probe.js").read_text())
             if args.cycle_rotations:
                 (data_dir / "plugin/frontier-camera.js").write_text(
                     (ROOT / "scripts/frontier-camera.js").read_text())
@@ -198,6 +224,17 @@ def main():
         subprocess.run(["python3", str(ROOT / "scripts/verify-frontier-capture.py"), str(out)],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         detailed = json.loads((out / "verification.json").read_text())
+        if args.ridge_probe:
+            with (out / "ridge-check.log").open("w") as check_log:
+                subprocess.run(["python3", str(ROOT / "scripts/verify-frontier-ridge.py"), str(out)],
+                               cwd=ROOT, check=True, stdout=check_log)
+            (out / "ridge-verification.json").write_text((out / "verification.json").read_text())
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
+        if args.ridge_probe or args.ridge_assault:
+            mode = "marine" if args.ridge_probe else "zerg"
+            with (out / "elevation-check.log").open("w") as check_log:
+                subprocess.run(["python3", str(ROOT / "scripts/verify-frontier-elevation-capture.py"),
+                                str(out), mode], cwd=ROOT, check=True, stdout=check_log)
         status = "passed" if detailed["capture_complete"] else "failed"
         if status == "failed":
             error = "Graphical capture or client synchronization is incomplete; see verification.json"
