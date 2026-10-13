@@ -6,7 +6,16 @@ scenario="$project_dir/scenarios/frontier-outpost.json"
 park="$project_dir/run-data/frontier-playable/save/frontier-outpost-playable.park"
 map_file="$project_dir/run-data/frontier-playable/map/frontier-outpost.scm"
 
-if [[ ! -s "$park" ]]; then
+refresh_park=0
+if [[ ! -s "$park" || ! -s "$project_dir/run-data/frontier-playable/fixture.json" \
+    || ! -s "$project_dir/run-data/frontier-playable/navigation-elements.json" ]]; then
+    refresh_park=1
+fi
+for input in scripts/park-assault-generator.js scripts/create-park-assault.py scripts/park_navigation.py; do
+    if [[ "$project_dir/$input" -nt "$park" ]]; then refresh_park=1; fi
+done
+if (( refresh_park )); then
+    printf 'Generating Frontier Outpost: saved park is missing or older than its generator inputs.\n'
     python3 "$project_dir/scripts/create-park-assault.py" --playable >/dev/null
 fi
 mkdir -p "$(dirname "$map_file")"

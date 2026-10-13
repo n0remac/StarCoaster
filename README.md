@@ -6,11 +6,27 @@ StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Six OpenBW 
 
 Provide your own licensed RCT2 and classic StarCraft data, then set `RCT2_DATA_DIR` and `STARCRAFT_DATA_DIR`. A fresh clone also needs the pinned upstream checkouts from `python3 scripts/fetch-upstream.py`. See the [bootstrap guide](docs/bootstrap.md) for system packages and local sprite options.
 
+The startup script defaults to `~/games/rct2` and `~/games/starcraft`, so with
+those installations you can simply run `./scripts/start.sh`. Set the variables
+below when your game data is elsewhere.
+
 ```sh
-scripts/project.sh build
-scripts/project.sh park
-scripts/project.sh run
+export RCT2_DATA_DIR=/path/to/your/rct2
+export STARCRAFT_DATA_DIR=/path/to/your/starcraft
+scripts/project.sh start
 ```
+
+`start` fetches the pinned upstream sources, builds both engines and the Go bridge,
+stages OpenRCT2 assets under `build/`, regenerates Frontier Outpost from the current
+sources, and launches the session. It reuses existing build output on later runs.
+Use `start --headless` for the server stack or `start --client` to require a
+graphical client. Press Ctrl+C to stop the session. System dependencies must
+already be installed; see the bootstrap guide. You can also run
+`scripts/start.sh` directly. The separate `build`, `park`, and `run` commands
+remain available; run `scripts/install-openrct2-local.sh` after building OpenRCT2
+when using those steps manually.
+The direct `run` command reuses the generated park unless it is missing or its
+generator inputs have changed.
 
 The launcher starts the OpenRCT2 host, OpenBW publisher and controller, and Go bridge. Set `BRIDGE_LAUNCH_CLIENT=1` with a graphical `DISPLAY` to join the local game. Frontier Outpost starts at `run-data/frontier-playable/save/frontier-outpost-playable.park`. Generated parks, extracted art, logs, and recordings stay under ignored `run-data/`.
 

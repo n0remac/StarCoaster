@@ -46,7 +46,8 @@ def run(probe: bool, playable: bool = False) -> dict:
     (output / "plugin/park-assault-generator.js").write_text(source)
     log = output / "openrct2.log"
     if not probe:
-        PARK.unlink(missing_ok=True)
+        filename = "frontier-outpost-playable.park" if playable else "frontier-outpost.park"
+        (output / "save" / filename).unlink(missing_ok=True)
     command = [str(ROOT / "build/openrct2/openrct2-cli"), "host", str(PARK if probe else SOURCE),
                "--headless", "--address=127.0.0.1", "--port=11761",
                f"--rct2-data-path={os.environ.get('RCT2_DATA_DIR', '/home/pi/games/rct2')}",

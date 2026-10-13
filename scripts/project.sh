@@ -8,11 +8,16 @@ command="${1:-help}"
 if (( $# )); then shift; fi
 
 case "$command" in
+    start)
+        exec scripts/start.sh "$@"
+        ;;
     build)
+        go_bin="$(command -v go || true)"
+        go_bin="${go_bin:-/usr/local/go/bin/go}"
         scripts/build-bwapi.sh
         scripts/build-openrct2.sh
         scripts/build-bridge-module.sh
-        /usr/local/go/bin/go build -o build/world-bridge ./cmd/world-bridge
+        "$go_bin" build -o build/world-bridge ./cmd/world-bridge
         ;;
     park)
         python3 scripts/create-park-assault.py --playable "$@"
@@ -24,7 +29,9 @@ case "$command" in
         exec python3 scripts/record-frontier-outpost.py "$@"
         ;;
     test)
-        /usr/local/go/bin/go test ./...
+        go_bin="$(command -v go || true)"
+        go_bin="${go_bin:-/usr/local/go/bin/go}"
+        "$go_bin" test ./...
         ctest --test-dir build/bridge-module --output-on-failure
         python3 -m unittest discover -s tests -p 'test_*.py'
         for file in tests/test_*plugin.js tests/test_plugin_snapshots.js; do node "$file"; done
@@ -39,10 +46,11 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {build|park|run|record|test|test-live} [options]
+Usage: scripts/project.sh {start|build|park|run|record|test|test-live} [options]
 
 Set RCT2_DATA_DIR and STARCRAFT_DATA_DIR for build, park, run, record, and live tests.
-Run `build`, then `park`, before the first live session.
+Run `start` to fetch sources, build, stage assets, and launch the playable session.
+Use `start --help` for launch options. Individual steps remain available.
 EOF
         ;;
     *)
