@@ -14,6 +14,7 @@ at(5, 2).push({ type: 'footpath', object: 4, surfaceObject: 4, baseHeight: 14 })
 at(2, 3).push({ type: 'large_scenery', object: 1, sequence: 0, baseHeight: 14, direction: 0 });
 at(3, 3).push({ type: 'large_scenery', object: 1, sequence: 1, baseHeight: 14, direction: 0 });
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
+const shortcuts = new Map();
 let selectionTool;
 let socket;
 const sandbox = {
@@ -40,7 +41,8 @@ const sandbox = {
     rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
     ui: { tileSelection: { tiles: [] }, openWindow() { return { findWidget() { return { text: '' }; } }; },
-        registerShortcut() {}, activateTool(tool) { selectionTool = tool; }, showError() {} },
+        registerShortcut(shortcut) { shortcuts.set(shortcut.id, shortcut); },
+        activateTool(tool) { selectionTool = tool; }, showError() {} },
     context: { registerAction(name, query, execute) { registered.set(name, { query, execute }); },
         subscribe(name, callback) { const previous = subscriptions.get(name);
             subscriptions.set(name, previous ? function (event) { previous(event); callback(event); } : callback);
@@ -110,8 +112,28 @@ selectionTool.onDown({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y } });
 selectionTool.onUp({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y } });
 assert.ok(logs.some(line => line.includes('selected Marines=openbw:3001')),
     'native hit testing selects the runtime Marine');
+shortcuts.get('starcoaster.save-group-1').callback();
+selectionTool.onDown({ mapCoords: { x: 0, y: 32 } });
+selectionTool.onMove({ mapCoords: { x: 96, y: 0 }, isDown: true });
+selectionTool.onUp({ mapCoords: { x: 96, y: 0 } });
+assert.ok(logs.at(-1).includes('openbw:3001') && logs.at(-1).includes('openbw:1002'),
+    'drag selection includes runtime and starting Marines');
+selectionTool.onRightClick({ mapCoords: { x: 80, y: 80 } });
+drain();
+assert.ok(sent.filter(m => m.kind === 'combat.command').at(-1).payload.unit_ids.includes('openbw:3001'),
+    'squad movement order includes the runtime Marine');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'actor.despawn', session: sid,
     payload: { id: runtimeMarine.id, generation: 1 } }) + '\n');
+const commandsBeforeRemoved = actions.filter(a => a.name === 'rtsbridge.marineCommand').length;
+shortcuts.get('starcoaster.hold-position').callback();
+const commandsAfterRemoved = actions.filter(a => a.name === 'rtsbridge.marineCommand');
+assert.equal(commandsAfterRemoved.length, commandsBeforeRemoved + 1);
+assert.ok(!commandsAfterRemoved.at(-1).args.unit_ids.includes(runtimeMarine.id),
+    'removed actor is cleared from squad selection before the next snapshot');
+shortcuts.get('starcoaster.recall-group-1').callback();
+shortcuts.get('starcoaster.hold-position').callback();
+assert.equal(actions.filter(a => a.name === 'rtsbridge.marineCommand').length, commandsAfterRemoved.length,
+    'removed actor is cleared from the saved group');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
     payload: { seq: 5, bw_tick: 15, units: many.concat([runtimeMarine]) } }) + '\n');
 assert.equal(applied.at(-1).units.length, 100, 'despawned runtime Marine is removed');
@@ -124,7 +146,7 @@ assert.equal(command.query({ player: 1, args: { session: sid, request: 1,
 command.execute({ player: 1, args: { session: sid, request: 1,
     unit_ids: ['openbw:1000'], verb: 'attack', target_id: 'openbw:1001' } });
 drain();
-assert.equal(sent.find(m => m.kind === 'combat.command').payload.target_id, 'openbw:1001');
+assert.equal(sent.filter(m => m.kind === 'combat.command').at(-1).payload.target_id, 'openbw:1001');
 const squad = ['openbw:1000', 'openbw:1002', 'openbw:1004', 'openbw:1006', 'openbw:1008', 'openbw:1010'];
 const beforeSquad = sent.filter(m => m.kind === 'combat.command').length;
 const squadArgs = { session: sid, request: 2, unit_ids: squad, verb: 'attack_move', x: 80, y: 80 };

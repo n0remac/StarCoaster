@@ -562,13 +562,24 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 	case "actor.reconcile":
 		var state world.ActorReconcile
 		if s.actors == nil || m.Session != s.registry.Session ||
-			m.Revision != s.registry.Revision || m.Decode(&state) != nil ||
-			s.actors.Reconcile(m.Session, state.Living) != nil {
+			m.Revision != s.registry.Revision || m.Decode(&state) != nil {
+			s.ack(p, m, false, "invalid_actor_reconciliation")
+			return
+		}
+		previous := s.actors.Living()
+		if s.actors.Reconcile(m.Session, state.Living) != nil {
 			s.ack(p, m, false, "invalid_actor_reconciliation")
 			return
 		}
 		s.ack(p, m, true, "")
 		log.Printf("actor reconcile living=%d", len(state.Living))
+		for _, identity := range previous {
+			if record, found := s.actors.Lookup(identity.ID); found && record.State == world.ActorRemoved {
+				event := world.ActorDespawn{ID: identity.ID, Session: m.Session, Generation: identity.Generation}
+				_ = s.emit(s.controller, "actor.despawn", m.Session, m.Revision, event)
+				_ = s.emit(s.park, "actor.despawn", m.Session, m.Revision, event)
+			}
+		}
 		for _, identity := range s.actors.Living() {
 			_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
 		}

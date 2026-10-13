@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"testing"
+	"time"
 
 	"starcoaster/internal/world"
 )
@@ -61,6 +62,97 @@ func TestActorLifecycleRoutingRejectsAmbiguousBindings(t *testing.T) {
 		world.ActorDespawn{ID: identity.ID, Session: "session-a", Generation: 42}))
 	if s.actors.Commandable(identity.ID) {
 		t.Fatal("despawned actor remained commandable")
+	}
+}
+
+func TestActorReconcileForwardsMissedDespawn(t *testing.T) {
+	s := testService()
+	if err := s.registry.Replace("session-a", 1, 8, 8, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.actors = world.NewActorRegistry("session-a")
+	identity := world.ActorIdentity{ID: "openbw:3001", Engine: "openbw", Type: "terran_marine",
+		Owner: 1, Generation: 1, Session: "session-a"}
+	if err := s.actors.Spawn(identity); err != nil {
+		t.Fatal(err)
+	}
+	bridgeSide, parkSide := net.Pipe()
+	defer bridgeSide.Close()
+	defer parkSide.Close()
+	s.park = &peer{Conn: bridgeSide}
+	_ = parkSide.SetReadDeadline(time.Now().Add(time.Second))
+	forwarded := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(parkSide)), &message)
+		forwarded <- message
+	}()
+	s.bwMessage(nil, world.Message("actor.reconcile", "session-a", "bw:reconcile", "openbw", 1,
+		world.ActorReconcile{Living: []world.ActorIdentity{}}))
+	message := <-forwarded
+	if message.Kind != "actor.despawn" || message.Session != identity.Session {
+		t.Fatalf("missed death was not forwarded to park: %+v", message)
+	}
+}
+
+func TestRuntimeCommandRequiresConfirmedBindings(t *testing.T) {
+	s := testService()
+	if err := s.registry.Replace("session-a", 1, 8, 8, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.ready = true
+	s.transform = world.Fit(8, 8, 8, 8)
+	s.actors = world.NewActorRegistry("session-a")
+	identity := world.ActorIdentity{ID: "openbw:3001", Engine: "openbw", Type: "terran_marine",
+		Owner: 1, Generation: 1, Session: "session-a"}
+	if err := s.actors.Spawn(identity); err != nil {
+		t.Fatal(err)
+	}
+	bridgeSide, controllerSide := net.Pipe()
+	defer bridgeSide.Close()
+	defer controllerSide.Close()
+	s.controller = &peer{Conn: bridgeSide}
+	command := worldCommand{CommandID: "command:1", PlayerID: 2, RequestID: 1,
+		UnitIDs: []string{identity.ID}, Verb: "unit.move", X: 32, Y: 32}
+	request := func(id string) {
+		command.CommandID = id
+		s.parkMessage(nil, world.Message("combat.command", "session-a", id, "openrct2", 1, command))
+	}
+	request("command:before")
+	if len(s.commands) != 0 {
+		t.Fatal("unbound actor command was forwarded")
+	}
+	publisher := world.ActorBinding{ID: identity.ID, Session: identity.Session, Generation: 1,
+		Participant: "publisher", NativeID: "11", CreationFrame: 153}
+	if err := s.actors.Bind(publisher); err != nil {
+		t.Fatal(err)
+	}
+	request("command:partial")
+	if len(s.commands) != 0 {
+		t.Fatal("partially bound actor command was forwarded")
+	}
+	controller := publisher
+	controller.Participant, controller.NativeID = "controller", "98"
+	if err := s.actors.Bind(controller); err != nil {
+		t.Fatal(err)
+	}
+	forwarded := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(controllerSide)), &message)
+		forwarded <- message
+	}()
+	request("command:active")
+	if message := <-forwarded; message.Kind != "combat.command" || len(s.commands) != 1 {
+		t.Fatalf("active actor order not forwarded: %+v", message)
+	}
+	delete(s.commands, "command:active")
+	if err := s.actors.Despawn(world.ActorDespawn{ID: identity.ID, Session: identity.Session, Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	request("command:removed")
+	if len(s.commands) != 0 {
+		t.Fatal("removed actor command was forwarded")
 	}
 }
 

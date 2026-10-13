@@ -541,6 +541,7 @@
         let clientReadySession = "";
         let clientReadyPending = false;
         let pendingClientRefresh = false;
+        let onActorRemoved = function () {};
         let terranOwner = -1;
         let commanderPlayer = -1;
         let commandSocket = null;
@@ -658,6 +659,7 @@
                     delete activeActorGenerations[args.id];
                     removedActorGenerations[args.id] = args.generation;
                     delete controlUnits[args.id];
+                    onActorRemoved(args.id);
                 } else activeActorGenerations[args.id] = args.generation;
                 console.log("WORLD_ACTOR_LIFECYCLE id=" + args.id + " state=" + args.state
                     + " generation=" + args.generation);
@@ -901,6 +903,12 @@
                     const unit = controlUnits[id];
                     return unit && unit.kind === "terran_marine" && unit.hp > 0;
                 });
+                Object.keys(controlGroups).forEach(function (number) {
+                    controlGroups[number] = controlGroups[number].filter(function (id) {
+                        const unit = controlUnits[id];
+                        return unit && unit.kind === "terran_marine" && unit.hp > 0;
+                    });
+                });
                 if (WORLD_ENABLED) {
                     const tiles = selected.map(function (id) {
                         const unit = controlUnits[id];
@@ -928,6 +936,13 @@
                         ? "Victory! The carousel survived." : "Defeat! The outpost has fallen.");
                 }
             }
+            onActorRemoved = function (id) {
+                selected = selected.filter(function (entry) { return entry !== id; });
+                Object.keys(controlGroups).forEach(function (number) {
+                    controlGroups[number] = controlGroups[number].filter(function (entry) { return entry !== id; });
+                });
+                refreshSelection();
+            };
             context.subscribe("interval.tick", refreshSelection);
             function chooseAt(point, shift) {
                 refreshSelection();
@@ -967,8 +982,9 @@
                 } });
             ui.registerShortcut({ id: "starcoaster.hold-position", text: "Hold Marine positions",
                 bindings: ["H"], callback: function () {
+                    refreshSelection();
                     if (selected.length) context.executeAction(COMMAND_ACTION,
-                        { session: controlSession, request: ++nextRequest, unit_ids: selected, verb: "hold" },
+                        { session: controlSession, request: ++nextRequest, unit_ids: selected.slice(), verb: "hold" },
                         function (result) { if (result.error) ui.showError("Marine command", result.errorMessage); });
                 } });
             ui.registerShortcut({ id: "starcoaster.stop", text: "Stop Marines", bindings: ["S"],
