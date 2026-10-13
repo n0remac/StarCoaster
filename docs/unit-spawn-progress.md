@@ -36,3 +36,11 @@
 - Existing snapshots, native sprites, hit testing, squad selection, control groups, and orders include the new Marines without a new render path.
 - Passed: `node tests/test_world_plugin.js`, `node tests/test_plugin_snapshots.js`, `node --check`, `scripts/project.sh test`, and the earlier five-Marine live action run in `run-data/unit-spawn-live-1791867143/`. The live test joined client A first so its authenticated player became commander.
 - Next: Phase 5, submit trusted scenario Zergling waves through the same request queue and verify native combat.
+
+## Phase 5 — trusted scenario Zergling wave
+
+- Prior HEAD: `981fd6c`.
+- Added optional `spawn_waves` scenario configuration with one `on_ready` Zergling wave in a separate Frontier Outpost test scenario. The bridge submits it internally through the same idempotent queue and native command, keyed by the authoritative session. OpenRCT2 player requests still reject Zerglings. The existing assault AI orders every Zergling owned by the native Zerg player, including new units.
+- Passed: Go scenario and queue tests, `scripts/project.sh test`, and `tests/test_unit_spawn_zerg_live.sh`: five unique native Zerglings, both clients showing seventeen, native movement, and attack frames. Passing evidence: `run-data/zerg-spawn-live-1791867620/`.
+- Earlier Zerg run `run-data/zerg-spawn-live-1791867462/` exposed an observer field unavailable from `getActors()`. The next run `run-data/zerg-spawn-live-1791867563/` showed native attack frames but its parser was sensitive to interleaved process logs. Both test errors were corrected.
+- Next: Phase 6, full reconnect, bridge restart, death and replacement recovery, fault injection, documentation, and final gates.

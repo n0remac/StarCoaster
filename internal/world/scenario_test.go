@@ -65,3 +65,14 @@ func TestFrontierOutcomeUsesConfirmedState(t *testing.T) {
 		}
 	}
 }
+
+func TestTrustedZergWaveScenario(t *testing.T) {
+	scenario, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost-zerg-wave.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scenario.SpawnWaves) != 1 || scenario.SpawnWaves[0].UnitType != "zerg_zergling" ||
+		scenario.SpawnWaves[0].Count != 5 || scenario.SpawnWaves[0].Trigger != "on_ready" {
+		t.Fatalf("unexpected trusted wave: %+v", scenario.SpawnWaves)
+	}
+}

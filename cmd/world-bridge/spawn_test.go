@@ -133,3 +133,27 @@ func TestBridgeSpawnBecomesReadyOnlyAfterBothNativeBindings(t *testing.T) {
 		t.Fatalf("matching controller did not ready spawn: %+v", status)
 	}
 }
+
+func TestScenarioZergWaveUsesSameNativeQueue(t *testing.T) {
+	s, native := spawnService(t)
+	s.scenario = &world.Scenario{SpawnWaves: []world.SpawnWave{{ID: "wave-one", Trigger: "on_ready",
+		UnitType: "zerg_zergling", Count: 5, X: 1424, Y: 1808, Formation: "compact"}}}
+	s.submitScenarioSpawns()
+	s.submitScenarioSpawns()
+	if s.spawns.PendingCount() != 5 {
+		t.Fatal("replayed scenario wave created another batch")
+	}
+	issued := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(native)), &message)
+		issued <- message
+	}()
+	s.pumpSpawns()
+	message := <-issued
+	var execute world.SpawnExecute
+	if message.Kind != "unit.spawn.execute" || message.Decode(&execute) != nil ||
+		execute.UnitType != "zerg_zergling" || execute.Index != 0 {
+		t.Fatalf("scenario wave bypassed shared queue: %+v %+v", message, execute)
+	}
+}

@@ -190,6 +190,7 @@ func (s *service) publishReady() {
 	}
 	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
 	log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
+	s.submitScenarioSpawns()
 	s.pumpSpawns()
 }
 

@@ -37,6 +37,18 @@ type Scenario struct {
 		ObjectiveDestroyed   string `json:"objective_destroyed"`
 		AllMarinesEliminated bool   `json:"all_marines_eliminated"`
 	} `json:"defeat"`
+	SpawnWaves []SpawnWave `json:"spawn_waves,omitempty"`
+}
+
+// SpawnWave is a small trusted scenario request, not a player action.
+type SpawnWave struct {
+	ID        string `json:"id"`
+	Trigger   string `json:"trigger"`
+	UnitType  string `json:"unit_type"`
+	Count     int    `json:"count"`
+	X         int    `json:"x"`
+	Y         int    `json:"y"`
+	Formation string `json:"formation"`
 }
 
 func LoadScenario(path string) (*Scenario, error) {
@@ -62,6 +74,19 @@ func LoadScenario(path string) (*Scenario, error) {
 		if !identifier.MatchString(objective.ID) || objective.EntityKind == "" || objective.EntityType == "" {
 			return nil, fmt.Errorf("invalid scenario objective")
 		}
+	}
+	if len(scenario.SpawnWaves) > 4 {
+		return nil, fmt.Errorf("too many scenario spawn waves")
+	}
+	seenWave := map[string]bool{}
+	for _, wave := range scenario.SpawnWaves {
+		if !identifier.MatchString(wave.ID) || seenWave[wave.ID] || wave.Trigger != "on_ready" ||
+			wave.UnitType != "zerg_zergling" || wave.Count < 1 || wave.Count > 5 ||
+			wave.Formation != "compact" || wave.X < 0 || wave.Y < 0 ||
+			wave.X >= scenario.ParkSize[0]*32 || wave.Y >= scenario.ParkSize[1]*32 {
+			return nil, fmt.Errorf("invalid scenario spawn wave")
+		}
+		seenWave[wave.ID] = true
 	}
 	return &scenario, nil
 }

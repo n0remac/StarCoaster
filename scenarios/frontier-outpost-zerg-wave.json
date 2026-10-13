@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "scenario_id": "frontier-outpost-zerg-wave",
+  "display_name": "Frontier Outpost Zerg Wave Test",
+  "park_file": "run-data/frontier-playable/save/frontier-outpost-playable.park",
+  "park_size": [64, 64],
+  "teams": { "marines": "terran", "zerglings": "zerg" },
+  "starting_units": {
+    "marines": [[15, 30], [16, 30], [17, 30], [15, 31], [16, 31], [17, 31]],
+    "zerglings": [[47, 57], [48, 57], [49, 57], [50, 57], [47, 58], [48, 58],
+                   [49, 58], [50, 58], [47, 59], [48, 59], [49, 59], [50, 59]]
+  },
+  "objectives": [{ "id": "defend-carousel", "entity_kind": "ride", "entity_type": "rct2.ride.mgr1", "required": true }],
+  "initial_ai": { "strategy": "objective_assault", "objective": "defend-carousel", "delay_frames": 144 },
+  "spawn_waves": [{ "id": "first-zerg-wave", "trigger": "on_ready", "unit_type": "zerg_zergling",
+                    "count": 5, "x": 1424, "y": 1808, "formation": "compact" }],
+  "victory": { "all_zerglings_eliminated": true, "objective_intact": "defend-carousel" },
+  "defeat": { "objective_destroyed": "defend-carousel", "all_marines_eliminated": true }
+}

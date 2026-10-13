@@ -70,7 +70,49 @@ func (s *service) saveSpawns() bool {
 }
 
 func (s *service) spawnStatus(status world.SpawnStatus) {
+	if s.spawns != nil {
+		if request, ok := s.spawns.Request(status.RequestID); ok && request.UnitType == "zerg_zergling" {
+			log.Printf("scenario spawn request=%s state=%s", status.RequestID, status.State)
+			return
+		}
+	}
 	_ = s.emit(s.park, "unit.spawn.status", s.registry.Session, s.registry.Revision, status)
+}
+
+func (s *service) submitScenarioSpawns() {
+	if s.scenario == nil || s.spawns == nil || s.outcome != "" || !s.ready {
+		return
+	}
+	for _, wave := range s.scenario.SpawnWaves {
+		request := world.SpawnRequest{RequestID: s.registry.Session + ":scenario:" + wave.ID,
+			UnitType: wave.UnitType, Count: wave.Count, X: wave.X, Y: wave.Y,
+			Formation: wave.Formation, PlayerID: 0}
+		if _, exists := s.spawns.Request(request.RequestID); !exists {
+			limit := s.maxLiveActors
+			if limit < 1 || limit > 256 {
+				limit = 240
+			}
+			living := s.lastMarines + s.lastZerglings
+			starting := len(s.scenario.StartingUnits.Marines) + len(s.scenario.StartingUnits.Zerglings)
+			if living < starting {
+				living = starting
+			}
+			if living+s.spawns.PendingCount()+request.Count > limit {
+				log.Printf("scenario spawn %s rejected: live_actor_limit", wave.ID)
+				continue
+			}
+		}
+		status, err := s.spawns.Submit(s.registry.Session, request)
+		if err != nil {
+			log.Printf("scenario spawn %s rejected: %v", wave.ID, err)
+			continue
+		}
+		if !s.saveSpawns() {
+			_, _ = s.spawns.Cancel(request.RequestID)
+			continue
+		}
+		log.Printf("scenario spawn request=%s state=%s", request.RequestID, status.State)
+	}
 }
 
 func (s *service) rejectSpawn(p *peer, m world.Envelope, requestID, reason string) {

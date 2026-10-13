@@ -74,7 +74,7 @@ for name, prefix in (('client-a', 'WORLD_SPAWN_ROSTER'), ('client-b', 'WORLD_ACT
         raise SystemExit(f'{name} did not display eleven unique Marines')
 for actor in expected:
     if server.count('actor-spawn id=' + actor) != 1 or not re.search(
-            r'actor-bound id=' + actor + r' native=\d+', server):
+            r'actor binding id=' + actor + r' participant=controller native=\d+ active=true', server):
         raise SystemExit(f'missing unique publisher/controller creation for {actor}')
 if len(re.findall(r'native spawn issued request=[^ ]+ index=[0-4] type=terran_marine', server)) != 5:
     raise SystemExit('five sequential native Marine creations were not issued')
