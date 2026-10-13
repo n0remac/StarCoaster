@@ -116,6 +116,65 @@ assert.equal(command.query({ player: 1, args: structureArgs }).error, undefined)
 command.execute({ player: 1, args: structureArgs });
 drain();
 assert.equal(sent.filter(m => m.kind === 'combat.command').at(-1).payload.target_id, rideTarget.id);
+const catalogAction = registered.get('rtsbridge.targetCatalog');
+function catalog(version, targets, count) {
+    const parts = [];
+    for (let index = 0; index < targets.length; index += 128) parts.push(targets.slice(index, index + 128));
+    if (!parts.length) parts.push([]);
+    const chunks = count || parts.length;
+    return parts.map((items, index) => ({ session: sid, version, index, chunks, targets: items }));
+}
+function applyCatalog(args) {
+    const result = catalogAction.query({ player: 1, args });
+    assert.equal(result.error, undefined, result.errorMessage);
+    catalogAction.execute({ player: 1, args });
+}
+function canAttack(targetId) {
+    return !command.query({ player: 1, args: { session: sid, request: 99,
+        unit_ids: ['openbw:1000'], verb: 'attack', target_entity_id: targetId } }).error;
+}
+let previousTarget = rideTarget.id;
+for (const [version, size] of [[3, 32], [4, 128], [5, 197], [6, 512]]) {
+    const targets = Array.from({ length: size }, (_, index) => ({
+        id: `openrct2:wall:boundary_${version}_${index}#1`,
+        rects: [{ x: 0, y: 0, width: 4, height: 4 }]
+    }));
+    const parts = catalog(version, targets);
+    applyCatalog(parts[0]);
+    if (parts.length > 1) {
+        assert.ok(canAttack(previousTarget), 'incomplete catalog preserves the active catalog');
+        assert.ok(!canAttack(targets[0].id), 'incomplete catalog is not visible');
+        assert.ok(catalogAction.query({ player: 1, args: parts[0] }).error,
+            'duplicate chunk is rejected');
+    }
+    parts.slice(1).forEach(applyCatalog);
+    assert.ok(canAttack(targets[0].id), `first of ${size} targets is active`);
+    assert.ok(canAttack(targets.at(-1).id), `last of ${size} targets is active`);
+    assert.ok(!canAttack(previousTarget), 'completed catalog replaces old targets');
+    previousTarget = targets[0].id;
+    assert.ok(catalogAction.query({ player: 1, args: parts.at(-1) }).error,
+        'completed catalog rejects stale chunks');
+}
+const dropped = catalog(7, Array.from({ length: 129 }, (_, index) => ({
+    id: `openrct2:wall:dropped_${index}#1`, rects: [{ x: 0, y: 0, width: 4, height: 4 }]
+})));
+applyCatalog(dropped[0]);
+assert.ok(canAttack(previousTarget), 'a dropped final chunk preserves the completed catalog');
+assert.ok(!canAttack(dropped[0].targets[0].id), 'a dropped chunk exposes no staged target');
+assert.ok(catalogAction.query({ player: 1, args: { ...dropped[1], chunks: 3 } }).error,
+    'conflicting chunk count is rejected');
+assert.ok(catalogAction.query({ player: 1, args: { ...dropped[1], targets: [dropped[0].targets[0]] } }).error,
+    'duplicate target across chunks is rejected');
+applyCatalog(catalog(8, [
+    { id: rideTarget.id, rects: rideTarget.geometry.rects },
+    { id: wallTarget.id, rects: wallTarget.geometry.rects },
+    { id: sceneryTarget.id, rects: sceneryTarget.geometry.rects }
+])[0]);
+const beforeJoin = actions.filter(a => a.name === 'rtsbridge.targetCatalog').length;
+subscriptions.get('network.join')({ player: 2 });
+const joinChunks = actions.filter(a => a.name === 'rtsbridge.targetCatalog').slice(beforeJoin);
+assert.equal(joinChunks.flatMap(a => a.args.targets).length, 3,
+    'late join replays the complete current catalog');
 sandbox.network.players.push({ id: 2 });
 assert.match(command.query({ player: 2, args: squadArgs }).errorMessage, /commander/);
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,

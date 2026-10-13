@@ -24,7 +24,7 @@
     const SCALE_Y = 1;
     const WORLD_ENABLED = typeof STARCOASTER_WORLD_BRIDGE !== "undefined" && STARCOASTER_WORLD_BRIDGE === true;
 
-    function startWorldAdapter(onCommandSender, onCommandResult, onEntities) {
+    function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets) {
         const session = Array.from({ length: 4 }, function () {
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
@@ -265,9 +265,7 @@
                 }).filter(function (item) { return item !== null; });
                 Object.keys(entities).forEach(function (id) { entities[id].activeTarget = false; });
                 targets.forEach(function (item) { entities[item.id].activeTarget = true; });
-                context.executeAction(TARGET_ACTION, { session: session, targets: targets }, function (result) {
-                    if (result.error) console.log("WORLD_TARGET_CATALOG_ERROR " + result.errorMessage);
-                });
+                onTargets(session, targets);
                 console.log("WORLD_READY entities=" + message.payload.entities
                     + " targets=" + message.payload.targets + " obstacles=" + message.payload.obstacles
                     + " navigation=" + message.payload.navigation
@@ -282,11 +280,10 @@
                 });
             else if (message.kind === "entity.remove") {
                 const removed = message.payload && message.payload.id;
-                if (typeof removed === "string") context.executeAction(TARGET_ACTION, {
-                    session: session, targets: Object.keys(entities).filter(function (id) {
+                if (typeof removed === "string") onTargets(session,
+                    Object.keys(entities).filter(function (id) {
                         return id !== removed && entities[id].activeTarget === true;
-                    }).map(function (id) { return { id: id, rects: entities[id].entity.geometry.rects }; })
-                }, function () {});
+                    }).map(function (id) { return { id: id, rects: entities[id].entity.geometry.rects }; }));
                 if (entities[removed]) entities[removed].activeTarget = false;
             }
             else if (message.kind === "world.error")
@@ -538,6 +535,40 @@
         let worldCommandSender = null;
         let worldTargetIds = {};
         let targetCatalogSession = "";
+        let targetCatalogVersion = 0;
+        let pendingTargetCatalog = null;
+        let publishingTargetVersion = 0;
+        let publishingTargetSession = "";
+        const retiredTargetSessions = {};
+        let publishedTargets = [];
+        function publishTargetCatalog(session, targets) {
+            if (session !== publishingTargetSession) {
+                publishingTargetSession = session;
+                publishingTargetVersion = 0;
+            }
+            publishedTargets = targets.slice();
+            const chunks = [];
+            let chunk = [];
+            targets.forEach(function (target) {
+                const next = chunk.concat([target]);
+                if (chunk.length && (next.length > 128 || JSON.stringify(next).length > 48000)) {
+                    chunks.push(chunk); chunk = [target];
+                } else chunk = next;
+            });
+            if (chunk.length || !chunks.length) chunks.push(chunk);
+            if (chunks.length > 512) {
+                console.log("WORLD_TARGET_CATALOG_ERROR too_many_chunks");
+                return;
+            }
+            const version = publishingTargetVersion = Math.max(publishingTargetVersion,
+                session === targetCatalogSession ? targetCatalogVersion : 0) + 1;
+            chunks.forEach(function (items, index) {
+                context.executeAction(TARGET_ACTION, { session: session, version: version,
+                    index: index, chunks: chunks.length, targets: items }, function (result) {
+                    if (result.error) console.log("WORLD_TARGET_CATALOG_ERROR " + result.errorMessage);
+                });
+            });
+        }
         let outcomeState = null;
         let shownOutcome = "";
         let commandFeedback = "";
@@ -565,7 +596,12 @@
                 if (network.mode === "server" && event.player !== network.currentPlayer.id)
                     return { error: 1, errorMessage: "Only the server may publish structure targets" };
                 if (!args || typeof args.session !== "string" || !/^[0-9a-f]{32}$/.test(args.session)
+                    || !Number.isSafeInteger(args.version) || args.version < 1
+                    || !Number.isInteger(args.index) || args.index < 0
+                    || !Number.isInteger(args.chunks) || args.chunks < 1 || args.chunks > 512
+                    || args.index >= args.chunks
                     || !Array.isArray(args.targets) || args.targets.length > 128
+                    || (args.targets.length === 0 && (args.chunks !== 1 || args.index !== 0))
                     || !args.targets.every(function (item) {
                         return item && typeof item.id === "string" && item.id.length <= 256
                             && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(item.id)
@@ -578,18 +614,51 @@
                                     && rect.y + rect.height <= map.size.y * 32;
                             });
                     })) return { error: 1, errorMessage: "Invalid structure target catalog" };
+                if (retiredTargetSessions[args.session]
+                    || (args.session !== targetCatalogSession && args.index !== 0
+                        && (!pendingTargetCatalog || pendingTargetCatalog.session !== args.session))
+                    || (args.session === targetCatalogSession && args.version <= targetCatalogVersion))
+                    return { error: 1, errorMessage: "Stale structure target catalog" };
+                if (args.session === targetCatalogSession && pendingTargetCatalog
+                    && args.version <= pendingTargetCatalog.version && args.index === 0)
+                    return { error: 1, errorMessage: "Duplicate structure target catalog" };
+                if (args.session === targetCatalogSession && pendingTargetCatalog
+                    && args.version < pendingTargetCatalog.version)
+                    return { error: 1, errorMessage: "Stale structure target catalog" };
+                if (args.index !== 0 && (!pendingTargetCatalog
+                    || pendingTargetCatalog.session !== args.session
+                    || pendingTargetCatalog.version !== args.version
+                    || pendingTargetCatalog.chunks !== args.chunks
+                    || pendingTargetCatalog.next !== args.index))
+                    return { error: 1, errorMessage: "Incomplete structure target catalog" };
+                const existing = args.index === 0 ? {} : pendingTargetCatalog.targets;
+                const seen = {};
+                if (args.targets.some(function (item) {
+                    if (seen[item.id] || Object.prototype.hasOwnProperty.call(existing, item.id)) return true;
+                    seen[item.id] = true; return false;
+                })) return { error: 1, errorMessage: "Duplicate structure target" };
                 return {};
             }, function (event) {
-                targetCatalogSession = event.args.session;
-                worldTargetIds = {};
-                event.args.targets.forEach(function (item) {
-                    worldTargetIds[item.id] = { geometry: { rects: item.rects } };
+                const args = event.args;
+                if (args.index === 0) {
+                    if (targetCatalogSession && targetCatalogSession !== args.session)
+                        retiredTargetSessions[targetCatalogSession] = true;
+                    pendingTargetCatalog = { session: args.session, version: args.version,
+                        chunks: args.chunks, next: 0, targets: {} };
+                }
+                args.targets.forEach(function (item) {
+                    pendingTargetCatalog.targets[item.id] = { geometry: { rects: item.rects } };
                 });
-                if (network.mode === "server") console.log("WORLD_TARGET_CATALOG session="
-                    + targetCatalogSession + " targets=" + event.args.targets.length
-                    + " rides=" + event.args.targets.filter(function (item) {
-                        return item.id.indexOf("openrct2:ride:") === 0;
-                    }).length);
+                pendingTargetCatalog.next++;
+                if (pendingTargetCatalog.next === pendingTargetCatalog.chunks) {
+                    targetCatalogSession = args.session;
+                    targetCatalogVersion = args.version;
+                    worldTargetIds = pendingTargetCatalog.targets;
+                    pendingTargetCatalog = null;
+                    if (network.mode === "server") console.log("WORLD_TARGET_CATALOG session="
+                        + targetCatalogSession + " version=" + targetCatalogVersion
+                        + " targets=" + Object.keys(worldTargetIds).length);
+                }
                 return {};
             });
             if (WORLD_ENABLED) context.registerAction(OUTCOME_ACTION, function (event) {
@@ -704,13 +773,6 @@
         let cameraSession = "";
         context.subscribe("interval.tick", function () {
             if (++animationTicks % 4 === 0) rtsBridge.invalidateAnimation();
-            if (WORLD_ENABLED && network.mode === "server" && targetCatalogSession
-                && animationTicks % 80 === 0) context.executeAction(TARGET_ACTION, {
-                    session: targetCatalogSession,
-                    targets: Object.keys(worldTargetIds).map(function (id) {
-                        return { id: id, rects: worldTargetIds[id].geometry.rects };
-                    })
-                }, function () {});
             if (WORLD_ENABLED && network.mode === "client" && controlSession
                 && cameraSession !== controlSession && typeof ui !== "undefined" && ui.mainViewport) {
                 ui.mainViewport.zoom = 1;
@@ -894,6 +956,9 @@
 
         if (network.mode !== "server") return;
         if (WORLD_ENABLED) {
+            context.subscribe("network.join", function () {
+                if (publishingTargetSession) publishTargetCatalog(publishingTargetSession, publishedTargets);
+            });
             startWorldAdapter(function (sender) { worldCommandSender = sender; }, function (result) {
                 const original = pendingCommands[result.command_id];
                 if (!original) return;
@@ -905,10 +970,8 @@
                     if (actionResult.error) console.log("WORLD_COMMAND_RESULT_ERROR " + actionResult.errorMessage);
                 });
             }, function (_discovered, worldSession) {
-                worldTargetIds = {};
-                targetCatalogSession = worldSession;
-                context.executeAction(TARGET_ACTION, { session: worldSession, targets: [] }, function () {});
-            });
+                publishTargetCatalog(worldSession, []);
+            }, publishTargetCatalog);
             return;
         }
         const siegeRide = (SIEGE_ENABLED || FRONTIER_ENABLED) ? registeredCarousel() : null;
