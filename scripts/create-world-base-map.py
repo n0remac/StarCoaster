@@ -42,9 +42,9 @@ def resize_isom(body: bytes) -> bytes:
 def scenario_units(path: Path) -> list[bytes]:
     scenario = json.loads(path.read_text())
     size = scenario.get("park_size")
-    if (scenario.get("version") != 1 or not isinstance(size, list) or len(size) != 2
+    if (scenario.get("version") not in (1, 2) or not isinstance(size, list) or len(size) != 2
             or any(type(value) is not int or not 1 <= value <= MAP_SIZE for value in size)):
-        raise ValueError("scenario must describe a park of at most 256x256 with version 1")
+        raise ValueError("scenario must describe a park of at most 256x256 with version 1 or 2")
     groups = scenario.get("starting_units")
     if (not isinstance(groups, dict) or any(not isinstance(groups.get(name), list)
             or not 1 <= len(groups[name]) <= 256 for name in ("marines", "zerglings"))):

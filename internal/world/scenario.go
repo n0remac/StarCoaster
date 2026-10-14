@@ -1,9 +1,11 @@
 package world
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Scenario supplies the small amount of game-specific state needed by the
@@ -18,18 +20,14 @@ type Scenario struct {
 		Marines   [][2]int `json:"marines"`
 		Zerglings [][2]int `json:"zerglings"`
 	} `json:"starting_units"`
-	Objectives []struct {
-		ID         string `json:"id"`
-		EntityKind string `json:"entity_kind"`
-		EntityType string `json:"entity_type"`
-		Required   bool   `json:"required"`
-	} `json:"objectives"`
-	InitialAI struct {
+	Objectives []ScenarioObjective `json:"objectives"`
+	InitialAI  struct {
 		Strategy    string `json:"strategy"`
 		Objective   string `json:"objective"`
 		DelayFrames int    `json:"delay_frames"`
 	} `json:"initial_ai"`
 	Victory struct {
+		AllWavesCleared        bool   `json:"all_waves_cleared,omitempty"`
 		AllZerglingsEliminated bool   `json:"all_zerglings_eliminated"`
 		ObjectiveIntact        string `json:"objective_intact"`
 	} `json:"victory"`
@@ -37,7 +35,38 @@ type Scenario struct {
 		ObjectiveDestroyed   string `json:"objective_destroyed"`
 		AllMarinesEliminated bool   `json:"all_marines_eliminated"`
 	} `json:"defeat"`
-	SpawnWaves []SpawnWave `json:"spawn_waves,omitempty"`
+	SpawnWaves []SpawnWave          `json:"spawn_waves,omitempty"`
+	SpawnZones map[string]SpawnZone `json:"spawn_zones,omitempty"`
+	Waves      []ScenarioWave       `json:"waves,omitempty"`
+}
+
+// Description is player-facing metadata. It is never evaluated as a script.
+type ScenarioObjective struct {
+	ID          string `json:"id"`
+	Description string `json:"description,omitempty"`
+	EntityKind  string `json:"entity_kind"`
+	EntityType  string `json:"entity_type"`
+	EntityName  string `json:"entity_name,omitempty"`
+	Required    bool   `json:"required"`
+}
+
+type SpawnZone struct {
+	Tiles [][2]int `json:"tiles"`
+}
+type WaveTrigger struct {
+	Type   string `json:"type"`
+	Frames *int   `json:"frames,omitempty"`
+	WaveID string `json:"wave_id,omitempty"`
+}
+type WaveGroup struct {
+	UnitType  string `json:"unit_type"`
+	Count     int    `json:"count"`
+	SpawnZone string `json:"spawn_zone"`
+}
+type ScenarioWave struct {
+	ID      string      `json:"id"`
+	Trigger WaveTrigger `json:"trigger"`
+	Groups  []WaveGroup `json:"groups"`
 }
 
 // SpawnWave is a small trusted scenario request, not a player action.
@@ -57,10 +86,22 @@ func LoadScenario(path string) (*Scenario, error) {
 		return nil, err
 	}
 	var scenario Scenario
-	if err := json.Unmarshal(data, &scenario); err != nil {
+	var header struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
 		return nil, err
 	}
-	if scenario.Version != 1 || !identifier.MatchString(scenario.ID) || scenario.ParkSize[0] < 1 || scenario.ParkSize[1] < 1 ||
+	if header.Version == 2 {
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&scenario); err != nil {
+			return nil, err
+		}
+	} else if err := json.Unmarshal(data, &scenario); err != nil {
+		return nil, err
+	}
+	if (scenario.Version != 1 && scenario.Version != 2) || !identifier.MatchString(scenario.ID) || scenario.ParkSize[0] < 1 || scenario.ParkSize[1] < 1 ||
 		scenario.ParkSize[0] > 256 || scenario.ParkSize[1] > 256 || len(scenario.StartingUnits.Marines) == 0 ||
 		len(scenario.StartingUnits.Zerglings) == 0 || len(scenario.Objectives) == 0 ||
 		scenario.InitialAI.Strategy != "objective_assault" || scenario.InitialAI.Objective == "" ||
@@ -74,6 +115,12 @@ func LoadScenario(path string) (*Scenario, error) {
 		if !identifier.MatchString(objective.ID) || objective.EntityKind == "" || objective.EntityType == "" {
 			return nil, fmt.Errorf("invalid scenario objective")
 		}
+	}
+	if scenario.Version == 2 {
+		if err := scenario.validateV2(); err != nil {
+			return nil, err
+		}
+		return &scenario, nil
 	}
 	if len(scenario.SpawnWaves) > 4 {
 		return nil, fmt.Errorf("too many scenario spawn waves")
@@ -89,6 +136,110 @@ func LoadScenario(path string) (*Scenario, error) {
 		seenWave[wave.ID] = true
 	}
 	return &scenario, nil
+}
+
+func (s *Scenario) validateV2() error {
+	if strings.TrimSpace(s.DisplayName) == "" || strings.TrimSpace(s.ParkFile) == "" ||
+		!s.Victory.AllWavesCleared || len(s.Waves) == 0 || len(s.SpawnWaves) != 0 || len(s.SpawnZones) == 0 {
+		return fmt.Errorf("invalid v2 scenario configuration")
+	}
+	objectives := map[string]bool{}
+	for _, objective := range s.Objectives {
+		if objectives[objective.ID] || strings.TrimSpace(objective.Description) == "" ||
+			(objective.EntityName != "" && strings.TrimSpace(objective.EntityName) == "") {
+			return fmt.Errorf("invalid or duplicate objective: %s", objective.ID)
+		}
+		objectives[objective.ID] = true
+	}
+	if !objectives[s.InitialAI.Objective] || !objectives[s.Victory.ObjectiveIntact] || !objectives[s.Defeat.ObjectiveDestroyed] {
+		return fmt.Errorf("unknown objective reference")
+	}
+	seenTiles := map[[2]int]bool{}
+	for _, group := range [][][2]int{s.StartingUnits.Marines, s.StartingUnits.Zerglings} {
+		for _, tile := range group {
+			if !s.validTile(tile) || seenTiles[tile] {
+				return fmt.Errorf("invalid or duplicate starting tile: %v", tile)
+			}
+			seenTiles[tile] = true
+		}
+	}
+	for id, zone := range s.SpawnZones {
+		if !identifier.MatchString(id) || len(zone.Tiles) == 0 {
+			return fmt.Errorf("invalid spawn zone: %s", id)
+		}
+		seen := map[[2]int]bool{}
+		for _, tile := range zone.Tiles {
+			if !s.validTile(tile) || seen[tile] {
+				return fmt.Errorf("invalid or duplicate zone tile: %s %v", id, tile)
+			}
+			seen[tile] = true
+		}
+	}
+	waves := map[string]ScenarioWave{}
+	for _, wave := range s.Waves {
+		if !identifier.MatchString(wave.ID) || len(wave.Groups) == 0 || len(wave.Groups) > 64 || waves[wave.ID].ID != "" {
+			return fmt.Errorf("invalid or duplicate wave: %s", wave.ID)
+		}
+		waves[wave.ID] = wave
+		total := 0
+		for _, group := range wave.Groups {
+			if group.UnitType != "zerg_zergling" || group.Count < 1 || group.Count > 64 || s.SpawnZones[group.SpawnZone].Tiles == nil {
+				return fmt.Errorf("invalid group in wave: %s", wave.ID)
+			}
+			total += group.Count
+		}
+		if total > 64 {
+			return fmt.Errorf("wave exceeds queue capacity: %s", wave.ID)
+		}
+		switch wave.Trigger.Type {
+		case "on_ready":
+			if wave.Trigger.Frames != nil || wave.Trigger.WaveID != "" {
+				return fmt.Errorf("invalid on_ready trigger: %s", wave.ID)
+			}
+		case "elapsed_frames":
+			if wave.Trigger.Frames == nil || *wave.Trigger.Frames < 0 || wave.Trigger.WaveID != "" {
+				return fmt.Errorf("invalid elapsed_frames trigger: %s", wave.ID)
+			}
+		case "wave_cleared":
+			if wave.Trigger.WaveID == "" || wave.Trigger.Frames != nil {
+				return fmt.Errorf("invalid wave_cleared trigger: %s", wave.ID)
+			}
+		default:
+			return fmt.Errorf("unknown wave trigger: %s", wave.Trigger.Type)
+		}
+	}
+	visiting, visited := map[string]bool{}, map[string]bool{}
+	var visit func(string) error
+	visit = func(id string) error {
+		if visiting[id] {
+			return fmt.Errorf("circular wave dependency: %s", id)
+		}
+		if visited[id] {
+			return nil
+		}
+		wave, ok := waves[id]
+		if !ok {
+			return fmt.Errorf("unknown wave reference: %s", id)
+		}
+		visiting[id] = true
+		if wave.Trigger.Type == "wave_cleared" {
+			if err := visit(wave.Trigger.WaveID); err != nil {
+				return err
+			}
+		}
+		visiting[id], visited[id] = false, true
+		return nil
+	}
+	for id := range waves {
+		if err := visit(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Scenario) validTile(tile [2]int) bool {
+	return tile[0] >= 0 && tile[1] >= 0 && tile[0] < s.ParkSize[0] && tile[1] < s.ParkSize[1]
 }
 
 // Outcome uses only confirmed park demolition and complete OpenBW actor counts.

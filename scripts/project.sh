@@ -22,6 +22,11 @@ case "$command" in
     park)
         python3 scripts/create-park-assault.py --playable "$@"
         ;;
+    validate-scenario)
+        go_bin="$(command -v go || true)"
+        go_bin="${go_bin:-/usr/local/go/bin/go}"
+        "$go_bin" run ./cmd/scenario-validate "$@"
+        ;;
     run)
         exec scripts/run-frontier-outpost.sh "$@"
         ;;
@@ -49,7 +54,7 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {start|build|park|run|record|test|test-live} [options]
+Usage: scripts/project.sh {start|build|park|run|record|test|test-live|validate-scenario} [options]
 
 Set RCT2_DATA_DIR and STARCRAFT_DATA_DIR for build, park, run, record, and live tests.
 Run `start` to fetch sources, build, stage assets, and launch the playable session.

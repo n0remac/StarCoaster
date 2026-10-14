@@ -69,6 +69,16 @@ class FrontierScenarioMapTest(unittest.TestCase):
         self.assertEqual((units[0][1], units[0][2]), ((31 + offset_x) * 32 + 16, (47 + offset_y) * 32 + 16))
         self.assertEqual((units[1][1], units[1][2]), (offset_x * 32 + 16, offset_y * 32 + 16))
 
+    def test_v2_uses_identical_native_tile_centering(self):
+        scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
+        scenario["version"] = 2
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scenario.json"
+            path.write_text(json.dumps(scenario))
+            units = [UNIT.unpack(value) for value in scenario_units(path)]
+        offset = (module.MAP_SIZE - 64) // 2
+        self.assertEqual((units[0][1], units[0][2]), ((47 + offset) * 32 + 16, (57 + offset) * 32 + 16))
+
 
 if __name__ == "__main__":
     unittest.main()
