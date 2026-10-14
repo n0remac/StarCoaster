@@ -1,10 +1,10 @@
 ---
 name: starcoaster-demo
-description: Launch and record the Frontier Outpost scenario, capture screenshots or MP4, and inspect two-client synchronization evidence.
+description: Play or capture a packaged StarCoaster scenario and inspect graphical and two-client synchronization evidence.
 ---
 
-# Demo Frontier Outpost
+# Play and capture a scenario
 
-Use `scripts/project.sh park frontier-outpost` after layout changes and `scripts/project.sh play frontier-outpost` for an interactive session. For an artifact viewer run, use `scripts/project.sh record --scenario frontier-outpost --duration 85 --video-layout combined`; `--video-layout single` is a lighter capture, and `--cycle-rotations` saves all camera views. The recorder accepts FPS, output width, CRF, encoder preset, display size, graphics mode, and frame pacing options; inspect `--help` for current names. Use `--scenario example-defense` for a second package capture.
+Use `scripts/project.sh play ID` for an existing build, or `scripts/project.sh start --scenario ID` for bootstrap. Regenerate changed layout data with `scripts/project.sh park ID`. `scripts/project.sh record --scenario ID --duration 85 --video-layout combined` captures two clients, screenshots, logs, and video. Use `--video-layout single` for a lighter video; `--cycle-rotations` is a Frontier-only four-view capture. Check `scripts/project.sh record --help` for current capture options.
 
-For multiplayer evidence, use both graphical clients and inspect `verification.json` for shared snapshot sequences, mismatches, demolition, and outcome. The artifact viewer reads screenshots, filtered logs, video metadata, and verified MP4s from `run-data/artifacts/`. Keep screenshots and video under that ignored directory; follow `docs/licensing.md` for game assets. State whether the run is a full gameplay demonstration or a capture-only check.
+Inspect the run's `verification.json` for scenario identity, shared snapshot sequences, mismatches, and outcome. Frontier captures also have specialized visual checks. The artifact viewer reads ignored captures in `run-data/artifacts/`; see `docs/test-viewer.md`. Keep screenshots, MP4s, and local game assets out of commits under `docs/licensing.md`. Report whether the run demonstrated gameplay or only capture and synchronization.

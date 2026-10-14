@@ -1,48 +1,36 @@
 # StarCoaster development guide
 
-OpenRCT2 owns the park, scenery, rides, multiplayer state, and rendering. OpenBW owns unit movement, pathfinding, health, and combat. The Go world bridge coordinates snapshots and commands between them; do not duplicate either engine's authority in an adapter or test probe.
+StarCoaster is a scenario-driven playable game. Start gameplay work in a package under `scenarios/`; reuse the existing objective, wave, native spawn, reinforcement, and command systems before adding bridge or launcher infrastructure. Use `example-defense` as a package example, not as a required mission design. See `.agents/skills/starcoaster-scenario/SKILL.md` for the supported format and its current generator limits.
+
+OpenRCT2 owns the park, scenery, rides, multiplayer state, and rendering. OpenBW owns unit movement, pathfinding, health, and combat. The Go world bridge coordinates snapshots and commands; adapters and test probes must not duplicate either engine's authority.
 
 ## Source map
 
-- `openrct2-plugin/` and `openrct2-patches/`: park synchronization, player controls, and native rendering.
-- `openbw-bwapi-module/`: OpenBW/BWAPI bridge, actor state, and native navigation.
-- `cmd/world-bridge/`, `internal/world/`: Go transport, world model, scenario coordination.
-- `scenarios/`: current gameplay configuration; `scripts/`: builds, launchers, park generation, captures; `tests/`: regressions.
-- `bridge-protocol/`: versioned wire contracts. `docs/archive/`: historical specifications. `upstream/`, `build/`, and `run-data/` are local, ignored inputs or outputs.
+- `scenarios/`: packaged gameplay configuration and mapping rules.
+- `openrct2-plugin/`, `openrct2-patches/`: park synchronization, player controls, and native rendering.
+- `openbw-bwapi-module/`: native actors, navigation, and combat bridge.
+- `cmd/world-bridge/`, `internal/world/`: transport, world model, spawn queue, and scenario runtime.
+- `scripts/`: consolidated CLI, build, park, launcher, and capture implementations; `tests/`: regressions.
+- `bridge-protocol/`: versioned wire contracts; `docs/archive/`: historical reports. `upstream/`, `build/`, and `run-data/` hold local inputs or generated outputs.
 
-## Standard commands
+## Canonical workflow
 
 ```sh
-scripts/project.sh build
-scripts/project.sh park example-defense
-scripts/project.sh play frontier-outpost
-scripts/project.sh test
-scripts/project.sh test-live
-scripts/project.sh record --duration 85
+scripts/project.sh start --scenario example-defense  # fetch, build, stage, play
+scripts/project.sh build                             # rebuild an existing checkout
+scripts/project.sh validate-scenario example-defense
+scripts/project.sh play example-defense --plan       # inspect resolved paths
+scripts/project.sh park example-defense              # force-generate park data
+scripts/project.sh play example-defense              # play an existing build
+scripts/project.sh test                              # offline regressions
+scripts/project.sh test-live                         # licensed native regressions
+scripts/project.sh record --scenario example-defense --duration 85
 ```
 
-`start [--scenario ID]` performs the full fetch/build/stage/play flow;
-`play ID` uses an existing build. `park [ID]` force-generates only that package's
-park, fixture, and navigation data; `record [--scenario ID]` captures it.
-All default to `frontier-outpost` except `play`, which requires an ID.
-Supported packages are `frontier-outpost` and `example-defense`; use
-`play ID --plan` to inspect paths. `scripts/scenario_package.py` owns package
-resolution and preparation; `scripts/run-world-session.sh` launches gameplay.
+`start`, `park`, and `record` default to `frontier-outpost`; `play` requires an ID. `play` regenerates stale park data and the native map. The CLI resolves packages through `scripts/scenario_package.py` and launches gameplay through `scripts/run-world-session.sh`. Use `scripts/project.sh --help` and subcommand help for current options. Live commands require built engines and locally licensed RCT2 and StarCraft data.
 
-Use the relevant unit tests before live graphical tests. Preserve navigation, combat, synchronization, and rendering regressions when refactoring. Park changes must keep structure footprints, spawn points, chokepoints, and destructible openings aligned with the scenario and native map. Keep generated parks and captures deterministic where possible.
+Use player-facing scenario configuration and the normal `start`/`play` path for features. Keep fault hooks, spawn probes, and diagnostic scripts in tests and verification workflows; do not surface them as player controls. Preserve park footprints, spawn tiles, chokepoints, collision masks, and native routes when changing geometry.
 
-Terrain or navigation changes also require `tests/test_frontier_ridge_live.sh`, `tests/test_frontier_native_navigation_live.sh`, and `python3 tests/test_world_256_native_live.py` with local licensed game data. The ridge run checks actor positions below the cliff, through a native slope, and during combat. For graphical elevation and 256×256 scale evidence, use `scripts/project.sh record --help` and the test-only `--ridge-probe`, `--ridge-assault`, and `--world-256` options. Review `docs/world-geometry-milestone.md` and the ignored verification JSON before claiming success. The scale park generator uses a local OpenRCT2 fixture; never commit its saved park or capture.
+Commit coherent increments as work proceeds, with documentation commits separate from unrelated implementation changes. Run relevant offline checks before affected live or graphical checks; select them with `.agents/skills/starcoaster-verify/SKILL.md`. Use `.agents/skills/starcoaster-park-design/SKILL.md` for layout work and `.agents/skills/starcoaster-demo/SKILL.md` for captures. Report commands and pass/fail results, artifact paths, and remaining limits; state missing live dependencies plainly.
 
-Changes to the playable launcher, starting units, or automatic waves also require `tests/test_playable_start_live.sh`: it starts the normal graphical client under Xvfb and checks that six starting Marines, twelve starting Zerglings, and the five-unit ready wave appear in client snapshots. The saved park must have layout version 4 so path ramps face uphill in OpenRCT2.
-
-`scripts/project.sh test-live` includes `tests/test_actor_lifecycle_live.sh`: two native actor cycles with client reconnect, bridge restart, death, and post-death command rejection. Keep its test-only spawn and probe scripts out of player-facing flows. Record both cycle paths when changing actor lifecycle behavior.
-It also runs `python3 tests/test_scenario_runtime_live.py` headlessly to verify
-waves, manual Marine reinforcements, bridge recovery, and client synchronization.
-
-Dynamic spawn changes also require `tests/test_unit_spawn_live.sh` and `tests/test_unit_spawn_zerg_live.sh` with local licensed game data. Use `BRIDGE_SPAWN_RECOVERY=1 BRIDGE_TEST_KILL_RUNTIME_MARINE_FRAME=450` to test two-client reconnect, bridge restart, death and replacement. Use `BRIDGE_TEST_DISCONNECT_SPAWN_INDEX=2` to interrupt native creation after issue and verify the in-flight request reconciles without duplication. These hooks and `scripts/world-spawn-probe.js` are test-only. Record each run directory and verify unique native actor IDs and both participant bindings.
-
-Never commit user supplied RCT2 or StarCraft data, extracted sprites, proprietary graphics, local captures, or bundled engine builds. Follow `docs/licensing.md` and check staged paths before committing.
-
-Report the commands run, pass or fail results, artifact paths, and remaining limits. If a live test cannot run, state the missing dependency or failure plainly. See `README.md` for the current playable workflow and `docs/first-playable-verification.md` for the prior baseline.
-
-Reusable workflows live in `.agents/skills/starcoaster-verify/`, `.agents/skills/starcoaster-demo/`, and `.agents/skills/starcoaster-park-design/`.
+Never commit user-supplied RCT2 or StarCraft data, extracted sprites, proprietary graphics, local captures, or bundled engine builds. Follow `docs/licensing.md` and inspect staged paths before each commit.
