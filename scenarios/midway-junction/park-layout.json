@@ -254,9 +254,25 @@
       "x0": 27,
       "y0": 29,
       "x1": 27,
-      "y1": 32,
+      "y1": 29,
+      "direction": 0,
+      "object": "rct2.scenery_wall.wbr1"
+    },
+    {
+      "x0": 27,
+      "y0": 30,
+      "x1": 27,
+      "y1": 30,
       "direction": 0,
       "object": "rct2.scenery_wall.wbr2"
+    },
+    {
+      "x0": 27,
+      "y0": 31,
+      "x1": 27,
+      "y1": 32,
+      "direction": 0,
+      "object": "rct2.scenery_wall.wbr1"
     },
     {
       "x0": 27,

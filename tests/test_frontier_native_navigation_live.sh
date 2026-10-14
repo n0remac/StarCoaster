@@ -6,12 +6,24 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
-run_dir="$project_dir/run-data/frontier-native-nav-$(date +%s)"
+scenario="${NAV_SCENARIO:-frontier-outpost}"
+case "$scenario" in
+  frontier-outpost)
+    probe="frontier-native-navigation-probe.js"
+    map_file="$project_dir/run-data/frontier-playable/map/frontier-outpost.scm"
+    park_file="$project_dir/run-data/frontier-playable/save/frontier-outpost-playable.park"
+    verifier="scripts/verify-frontier-native-navigation.py" ;;
+  midway-junction)
+    probe="midway-native-navigation-probe.js"
+    map_file="$project_dir/run-data/scenarios/midway-junction/map/midway-junction.scm"
+    park_file="$project_dir/run-data/midway-junction/save/midway-junction.park"
+    verifier="scripts/verify-midway-native-navigation.py" ;;
+  *) echo "unsupported navigation scenario: $scenario" >&2; exit 2 ;;
+esac
+run_dir="$project_dir/run-data/${scenario}-native-nav-$(date +%s)"
 mkdir -p "$run_dir/client/plugin"
 cp openrct2-plugin/rts-bridge.js "$run_dir/client/plugin/rts-bridge.js"
-cp scripts/frontier-native-navigation-probe.js "$run_dir/client/plugin/"
-map_file="$project_dir/run-data/frontier-playable/map/frontier-outpost.scm"
-park_file="$project_dir/run-data/frontier-playable/save/frontier-outpost-playable.park"
+cp "scripts/$probe" "$run_dir/client/plugin/"
 test -s "$map_file"
 test -s "$park_file"
 
@@ -26,7 +38,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/frontier-outpost/mapping.json" \
+BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/$scenario/mapping.json" \
   BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_LAUNCH_CLIENT=0 \
   BRIDGE_SERVER_DATA_DIR="$run_dir/server-data" \
   timeout 260s scripts/run-world-session.sh "$park_file" > "$run_dir/server.log" 2>&1 &
@@ -53,8 +65,8 @@ build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
   --openrct2-data-path="$project_dir/build/openrct2-stage/usr/local/share/openrct2" \
   --user-data-path="$run_dir/client" > "$run_dir/client.log" 2>&1 &
 client_pid=$!
-if ! wait_for 'NATIVE_NAV_SEQUENCE_COMPLETE' "$run_dir/client.log" 210; then
+if ! wait_for 'NATIVE_NAV_SEQUENCE_COMPLETE|MIDWAY_NAV_SEQUENCE_COMPLETE' "$run_dir/client.log" 210; then
   printf 'Navigation sequence did not complete; checking observed positions\n' >&2
 fi
-python3 scripts/verify-frontier-native-navigation.py "$run_dir"
+python3 "$verifier" "$run_dir"
 printf 'Native navigation logs: %s\n' "$run_dir"
