@@ -9,6 +9,7 @@ import sys
 
 SNAPSHOT = re.compile(r"RTS Bridge apply tick=\d+ seq=(\d+) session=([0-9a-f]{32}) center_z=\d+ units=([^\x1b\r\n]+)")
 ACTOR = re.compile(r"openbw:(\d+),(\d+),(\d+),\d+,([^,]+),\d+,([^,]+),(\d+),(\d+),")
+PARK_STATE = re.compile(r"FRONTIER_PARK_STATE carousel=(true|false) gate=(true|false)")
 
 
 def snapshots(text):
@@ -21,6 +22,9 @@ def main(directory):
     client = [(out / f"client-{letter}.log").read_text(errors="replace")
               if (out / f"client-{letter}.log").exists() else "" for letter in "ab"]
     a, b = [snapshots(text) for text in client]
+    park_states = [PARK_STATE.findall(text) for text in client]
+    park_sync = bool(park_states[0] and park_states[1]) and park_states[0][0] == park_states[1][0] \
+        and park_states[0][-1] == park_states[1][-1]
     common = sorted(set(a) & set(b))
     matching = [seq for seq in common if a[seq] == b[seq]]
     mismatches = [seq for seq in common if a[seq] != b[seq]]
@@ -102,6 +106,11 @@ def main(directory):
         "client_a_snapshots": len(a), "client_b_snapshots": len(b),
         "shared_snapshot_sequences": len(common), "matching_snapshot_sequences": len(matching),
         "mismatched_sequences": mismatches[:20],
+        "client_park_states": [{"initial": states[0] if states else None,
+                                "final": states[-1] if states else None} for states in park_states],
+        "park_change_synchronized": park_sync and (not carousel_removed
+            or park_states[0][-1][0] == park_states[1][-1][0] == "false")
+            and (not wall_removed or park_states[0][-1][1] == park_states[1][-1][1] == "false"),
         "opened_carousel_footprint_samples": opened_footprint[:12],
         "opened_wall_crossing_samples": opened_wall_crossings[:12],
         "video": next((item["filename"] for item in json.loads((out / "video-metadata.json").read_text()).get("outputs", [])
@@ -116,7 +125,9 @@ def main(directory):
         and result["outcome"] and bool(opened_footprint or opened_wall_crossings)
         and len(common) >= 10 and not mismatches)
     result["capture_complete"] = (result["native_navigation_ready"] and len(a) >= 10
-                                  and (not b or len(common) >= 10 and not mismatches))
+                                  and (not b or len(common) >= 10 and not mismatches)
+                                  and (not park_states[0] and not park_states[1]
+                                       or result["park_change_synchronized"]))
     result["status"] = "passed" if result["demonstration_complete"] else "capture_only" if result["capture_complete"] else "incomplete"
     (out / "verification.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))

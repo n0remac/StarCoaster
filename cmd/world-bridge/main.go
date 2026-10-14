@@ -59,6 +59,8 @@ type service struct {
 	startedSession            string
 	navigationMask            world.NavigationMask
 	navigationRevision        uint64
+	navigationStarted         time.Time
+	navigationMeasured        bool
 	publisherNavigationReady  bool
 	controllerNavigationReady bool
 	ready                     bool
@@ -119,6 +121,8 @@ func (s *service) refreshNavigationMask() error {
 	if s.navigationRevision != s.registry.Revision || s.navigationMask.Hash != mask.Hash {
 		s.publisherNavigationReady = false
 		s.controllerNavigationReady = false
+		s.navigationStarted = time.Now()
+		s.navigationMeasured = false
 	}
 	s.navigationMask = mask
 	s.navigationRevision = s.registry.Revision
@@ -175,6 +179,12 @@ func (s *service) sendTargetLink(p *peer, session string, revision uint64, link 
 }
 
 func (s *service) publishReady() {
+	if s.publisherNavigationReady && s.controllerNavigationReady &&
+		!s.navigationMeasured && !s.navigationStarted.IsZero() {
+		log.Printf("navigation initialized hash=%s elapsed_ms=%d", s.navigationMask.Hash,
+			time.Since(s.navigationStarted).Milliseconds())
+		s.navigationMeasured = true
+	}
 	if s.pendingReady == nil || s.controller == nil || !s.publisherNavigationReady || !s.controllerNavigationReady || len(s.pendingLinks) != 0 {
 		return
 	}

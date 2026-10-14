@@ -62,14 +62,18 @@ registerPlugin({ name: "Frontier Native Navigation Probe", version: "1.0.0",
             console.log("NATIVE_NAV_CAROUSEL_REMOVED elapsed=" + (Date.now() - started));
             phase = 51; lastOrder = Date.now();
         } else if (phase === 51 && elapsed > 4000) {
-            phase = 6; order(state.session, "move", 624, 480);
+            phase = 6; order(state.session, "move", 624, 592);
         } else if (phase === 5 && elapsed > 10000) {
             if (request >= 8) {
                 phase = 8;
                 console.log("NATIVE_NAV_SEQUENCE_COMPLETE failed=carousel_attack_unavailable");
             } else order(state.session, "attack", 0, 0, carousel);
-        } else if (phase === 6 && state.marines.some(function (u) { return u.y < 520; })) {
+        } else if (phase === 6 && state.marines.some(function (u) {
+            return 576 <= u.x && u.x < 672 && 544 <= u.y && u.y < 640;
+        })) {
             phase = 7;
+            console.log("NATIVE_NAV_POSITION phase=7 elapsed=" + (Date.now() - started) + " units="
+                + state.marines.map(function (unit) { return unit.id + ":" + unit.x + "," + unit.y; }).join(";"));
             console.log("NATIVE_NAV_SEQUENCE_COMPLETE elapsed=" + (Date.now() - started));
         } else if (phase === 6 && elapsed > 40000) {
             phase = 8;

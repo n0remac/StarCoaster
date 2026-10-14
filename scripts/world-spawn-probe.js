@@ -22,8 +22,8 @@ registerPlugin({ name: "StarCoaster Spawn Probe", version: "1.0.0", authors: ["S
                 console.log("WORLD_SPAWN_SUBMIT session=" + snapshot.session);
                 context.executeAction("rtsbridge.spawnMarine", { session: snapshot.session,
                     request_id: snapshot.session + ":live:marines", count: 5,
-                    x: typeof STARCOASTER_TEST_SPAWN_X === "number" ? STARCOASTER_TEST_SPAWN_X : 656,
-                    y: typeof STARCOASTER_TEST_SPAWN_Y === "number" ? STARCOASTER_TEST_SPAWN_Y : 976 },
+                    x: typeof STARCOASTER_TEST_SPAWN_X === "number" ? STARCOASTER_TEST_SPAWN_X : 720,
+                    y: typeof STARCOASTER_TEST_SPAWN_Y === "number" ? STARCOASTER_TEST_SPAWN_Y : 1040 },
                     function (result) {
                         console.log("WORLD_SPAWN_REQUEST accepted=" + !result.error
                             + " reason=" + (result.errorMessage || "ok"));
@@ -35,7 +35,7 @@ registerPlugin({ name: "StarCoaster Spawn Probe", version: "1.0.0", authors: ["S
                 && initialSquadSeen && !replacementRequested && marines.indexOf("openbw:3001") === -1) {
                 replacementRequested = true;
                 context.executeAction("rtsbridge.spawnMarine", { session: snapshot.session,
-                    request_id: snapshot.session + ":live:replacement", count: 1, x: 800, y: 976 },
+                    request_id: snapshot.session + ":live:replacement", count: 1, x: 784, y: 1040 },
                     function (result) {
                         console.log("WORLD_SPAWN_REPLACEMENT_REQUEST accepted=" + !result.error
                             + " reason=" + (result.errorMessage || "ok"));

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "park_size": [256, 256],
+  "starting_units": {
+    "marines": [[5, 5], [250, 250]],
+    "zerglings": [[12, 12]]
+  }
+}

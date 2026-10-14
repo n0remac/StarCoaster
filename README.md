@@ -38,11 +38,11 @@ scripts/project.sh test-live
 scripts/project.sh record --duration 85
 ```
 
-`test` runs Go, C++, Python, and JavaScript regressions. `test-live` additionally exercises native navigation, generic park demolition with two clients, Frontier victory, shared-runtime-Marine recovery, and dynamic five-Marine and Zergling spawning. Live tests require built engines and game data. `record` launches two graphical clients and publishes screenshots, video, logs, and verification results to the [artifact viewer](docs/test-viewer.md). Use `--help` on the recorder for capture settings. The [unit spawn report](docs/unit-spawn-verification.md) records reinforcement and recovery evidence; the [shared actor report](docs/shared-actor-verification.md) and [first playable report](docs/first-playable-verification.md) record earlier baselines.
+`test` runs Go, C++, Python, and JavaScript regressions. `test-live` additionally exercises the Frontier ridge and 256×256 native map, generic park demolition with two clients, Frontier victory, shared-runtime-Marine recovery, and dynamic five-Marine and Zergling spawning. Live tests require built engines and game data. `record` launches two graphical clients and publishes screenshots, video, logs, and verification results to the [artifact viewer](docs/test-viewer.md). Use `--help` on the recorder for capture settings, including the test-only `--ridge-probe`, `--ridge-assault`, and `--world-256` runs. The [unit spawn report](docs/unit-spawn-verification.md) records reinforcement and recovery evidence; the [shared actor report](docs/shared-actor-verification.md) and [first playable report](docs/first-playable-verification.md) record earlier baselines.
 
 For a lighter capture, use `scripts/project.sh record --video-layout single --video-fps 15 --video-width 800`. The [recording benchmark](docs/recording-performance-v0.2.md) compares 15 and 30 FPS against gameplay without video; the [park design report](docs/park-design-v0.2.md) records the four camera views and geometry checks.
 
-The [v0.2 final verification](docs/final-verification-v0.2.md) records passing build, unit, integration, native navigation, lifecycle, and graphical capture results with artifact paths and remaining limits.
+The [world geometry milestone](docs/world-geometry-milestone.md) documents 256×256 maps, terrain-derived navigation, the raised Frontier ridge, live reproduction commands, performance, and limits. The [v0.2 final verification](docs/final-verification-v0.2.md) records the prior build, unit, integration, native navigation, lifecycle, and graphical capture baseline.
 
 ## Project map
 

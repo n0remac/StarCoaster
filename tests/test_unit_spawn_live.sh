@@ -40,7 +40,7 @@ BRIDGE_MAX_TARGETS=32 BRIDGE_DISABLE_ASSAULT_AI="${BRIDGE_DISABLE_ASSAULT_AI:-1}
 session_pid=$!
 wait_for() {
   local pattern="$1" file="$2" limit="$3" started=$SECONDS
-  while ! rg -q "$pattern" "$file" 2>/dev/null; do
+  while ! grep -Eq "$pattern" "$file" 2>/dev/null; do
     if (( SECONDS - started >= limit )); then
       printf 'Timed out waiting for %s in %s\n' "$pattern" "$file" >&2
       return 1
@@ -77,7 +77,7 @@ if [[ "$recovery" == 1 ]]; then
     --user-data-path="$run_dir/client-b" > "$run_dir/client-b.log" 2>&1 &
   client_b_pid=$!
   wait_for 'WORLD_ACTOR_ROSTER count=11' "$run_dir/client-b.log" 60
-  before_snapshots="$(rg -c 'RTS Bridge apply tick=' "$run_dir/client-a.log" || true)"
+  before_snapshots="$(grep -Ec 'RTS Bridge apply tick=' "$run_dir/client-a.log" || true)"
   original_bridge_pid="$(ps -eo pid,args | awk '$2 ~ /\/build\/world-bridge$/ { print $1; exit }')"
   test -n "$original_bridge_pid"
   kill "$original_bridge_pid"
@@ -95,7 +95,7 @@ if [[ "$recovery" == 1 ]]; then
     "$run_dir/bridge-restart.log" 60
   resumed=0
   for attempt in $(seq 1 60); do
-    now="$(rg -c 'RTS Bridge apply tick=' "$run_dir/client-a.log" || true)"
+    now="$(grep -Ec 'RTS Bridge apply tick=' "$run_dir/client-a.log" || true)"
     if (( now > before_snapshots )); then resumed=1; break; fi
     sleep 1
   done
@@ -147,7 +147,7 @@ if (root / 'bridge-restart.log').exists():
 print('UNIT_SPAWN_LIVE_PASS five native Marines and two matching eleven-Marine clients')
 PY
 if [[ -n "${BRIDGE_TEST_DISCONNECT_SPAWN_INDEX:-}" ]]; then
-  rg -q "injected publisher disconnect after spawn issue index=${BRIDGE_TEST_DISCONNECT_SPAWN_INDEX}" "$run_dir/session.log"
-  rg -q 'state=uncertain' "$run_dir/session.log"
+  grep -Eq "injected publisher disconnect after spawn issue index=${BRIDGE_TEST_DISCONNECT_SPAWN_INDEX}" "$run_dir/session.log"
+  grep -Eq 'state=uncertain' "$run_dir/session.log"
 fi
 printf 'Logs: %s\n' "$run_dir"

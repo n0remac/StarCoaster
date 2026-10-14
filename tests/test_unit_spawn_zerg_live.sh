@@ -31,7 +31,7 @@ BRIDGE_SCENARIO_CONFIG=scenarios/frontier-outpost-zerg-wave.json \
 session_pid=$!
 wait_for() {
   local pattern="$1" file="$2" limit="$3" started=$SECONDS
-  while ! rg -q "$pattern" "$file" 2>/dev/null; do
+  while ! grep -Eq "$pattern" "$file" 2>/dev/null; do
     if (( SECONDS - started >= limit )); then
       printf 'Timed out waiting for %s in %s\n' "$pattern" "$file" >&2
       return 1

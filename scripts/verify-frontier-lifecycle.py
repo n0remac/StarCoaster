@@ -69,11 +69,14 @@ def cycle(number: int, scenario: Path, map_file: Path, rct2: Path, starcraft: Pa
     try:
         session = start("session", [str(ROOT / "scripts/run-world-session.sh"), str(PARK)])
         wait_for(output / "session.log", r"WORLD_READY.*navigation=native", session, 90)
+        # The first connected client owns Marine commands. Complete its join
+        # before the observer connects so the commander identity is stable.
         a = client("client-a", True)
-        b = client("client-b", False)
         initial = r"LIFECYCLE_ACTORS [0-9a-f]{32} marines=6 zerglings=1 unique=7"
         first = wait_for(output / "client-a.log", initial, a, 60)
+        b = client("client-b", False)
         wait_for(output / "client-b.log", initial, b, 60)
+        wait_for(output / "client-a.log", r"LIFECYCLE_ATTACK accepted=true", a, 30)
         wait_for(output / "session.log", r"outcome=victory marines=6 zerglings=0", session, 100)
         os.killpg(b.pid, signal.SIGTERM)
         b.wait(timeout=10)

@@ -19,6 +19,28 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "build/openrct2-stage/usr/local/share/openrct2"
 
 
+def process_memory(root_pid):
+    """Read resident memory of the launched server and its native children."""
+    rows, pending, seen = [], [root_pid], set()
+    while pending:
+        pid = pending.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        process = Path(f"/proc/{pid}")
+        try:
+            children = (process / f"task/{pid}/children").read_text().split()
+            pending.extend(int(child) for child in children)
+            status = (process / "status").read_text()
+            match = re.search(r"^VmRSS:\s+(\d+) kB", status, re.MULTILINE)
+            command = (process / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+            rows.append({"pid": pid, "rss_kib": int(match.group(1)) if match else 0,
+                         "command": command[:240]})
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+    return {"total_rss_kib": sum(row["rss_kib"] for row in rows), "processes": rows}
+
+
 def wait_for(path, marker, process, seconds):
     until = time.monotonic() + seconds
     while time.monotonic() < until:
@@ -46,11 +68,14 @@ def main():
     parser.add_argument("--cycle-rotations", action="store_true", help="save screenshots from all four park views")
     parser.add_argument("--ridge-probe", action="store_true", help="run the test-only cliff, slope and combat driver on client A")
     parser.add_argument("--ridge-assault", action="store_true", help="test native Zergling approach from below the saved ridge")
+    parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
     args = parser.parse_args()
     if not 15 <= args.duration <= 300:
         parser.error("duration must be 15–300 seconds")
     if not 10 <= args.frame_ms <= 200:
         parser.error("frame pacing must be 10–200 ms")
+    if args.world_256 and (args.ridge_probe or args.ridge_assault):
+        parser.error("--world-256 cannot be combined with a ridge probe")
     try:
         video_config = VideoConfig(args.video_layout, args.video_fps, args.video_width,
                                    args.video_crf, args.video_preset,
@@ -63,12 +88,16 @@ def main():
     starcraft = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
     if not rct2.is_dir() or not starcraft.is_dir():
         parser.error("RCT2_DATA_DIR and STARCRAFT_DATA_DIR must point to installed game data")
-    run = ArtifactRun("live-capture", "Frontier Outpost v0.3",
-                      config={"scenario": "frontier-outpost", "duration": args.duration,
-                              "launcher": "scripts/run-frontier-outpost.sh", "input": "X11 mouse and keyboard",
+    run = ArtifactRun("live-capture",
+                      "World 256 Scale Fixture" if args.world_256 else "Frontier Outpost v0.3",
+                      config={"scenario": "world-256-scale" if args.world_256 else "frontier-outpost",
+                              "duration": args.duration,
+                              "launcher": "scripts/run-world-session.sh" if args.world_256 else "scripts/run-frontier-outpost.sh",
+                              "input": "X11 mouse and keyboard",
                               "video": None if args.no_video else video_config.__dict__,
                               "graphics": args.graphics, "frame_ms": args.frame_ms,
-                              "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault})
+                              "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault,
+                              "world_256": args.world_256})
     out = run.output
     env = os.environ.copy() | {"RCT2_DATA_DIR": str(rct2), "STARCRAFT_DATA_DIR": str(starcraft),
                                "BRIDGE_LAUNCH_CLIENT": "0", "BRIDGE_SERVER_DATA_DIR": str(out / "server-data"),
@@ -98,12 +127,26 @@ def main():
 
     status = "failed"
     error = None
+    startup_seconds = None
+    ready_memory = None
     try:
         for name, display in displays:
             start("display-" + name[-1], ["Xvfb", display, "-screen", "0",
                                            f"{args.display_width}x{args.display_height}x24", "-nolisten", "tcp"], env)
         time.sleep(1)
-        if args.ridge_assault:
+        if args.world_256:
+            fixture = ROOT / "run-data/world-256-park/world-256-scale.park"
+            if not fixture.is_file() or fixture.stat().st_mtime < (ROOT / "scripts/world-256-park-generator.js").stat().st_mtime:
+                subprocess.run(["python3", str(ROOT / "scripts/create-world-256-park.py")],
+                               cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
+            test_map = out / "world-256-scale.scm"
+            subprocess.run(["python3", str(ROOT / "scripts/create-world-base-map.py"),
+                            "--scenario", str(ROOT / "scenarios/world-256-scale-map.json"),
+                            "--output", str(test_map)], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+            env["BRIDGE_MAP_FILE"] = str(test_map)
+            env.pop("BRIDGE_SCENARIO_CONFIG", None)
+            session_command = [str(ROOT / "scripts/run-world-session.sh"), str(fixture)]
+        elif args.ridge_assault:
             scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
             scenario["starting_units"]["zerglings"] = [
                 [x, y] for y in range(28, 34) for x in (26, 27)]
@@ -119,6 +162,7 @@ def main():
                                str(ROOT / "run-data/frontier-playable/save/frontier-outpost-playable.park")]
         else:
             session_command = [str(ROOT / "scripts/run-frontier-outpost.sh")]
+        session_started = time.monotonic()
         session = start("server", session_command, env)
         until = time.monotonic() + 25
         while time.monotonic() < until:
@@ -137,9 +181,20 @@ def main():
             (data_dir / "plugin").mkdir(parents=True, exist_ok=True)
             source = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
             (data_dir / "plugin/rts-bridge.js").write_text("var STARCOASTER_WORLD_BRIDGE = true;\n" + source)
+            if not args.world_256:
+                (data_dir / "plugin/frontier-park-sync-probe.js").write_text(
+                    (ROOT / "scripts/frontier-park-sync-probe.js").read_text())
             if args.ridge_probe and name == "client-a":
                 (data_dir / "plugin/frontier-ridge-probe.js").write_text(
                     (ROOT / "scripts/frontier-ridge-probe.js").read_text())
+            if args.world_256 and name == "client-a":
+                (data_dir / "plugin/world-256-scale-probe.js").write_text(
+                    (ROOT / "scripts/world-256-scale-probe.js").read_text())
+            if args.world_256:
+                camera = (ROOT / "scripts/world-256-camera.js").read_text()
+                if name == "client-a":
+                    camera = camera.replace("var far = false;", "var far = true;")
+                (data_dir / "plugin/world-256-camera.js").write_text(camera)
             if args.cycle_rotations:
                 (data_dir / "plugin/frontier-camera.js").write_text(
                     (ROOT / "scripts/frontier-camera.js").read_text())
@@ -162,7 +217,10 @@ def main():
                 else:
                     clients[name] = process
                     break
-        wait_for(out / "server.log", "WORLD_READY", session, 45)
+        wait_for(out / "server.log", "WORLD_READY", session, 120 if args.world_256 else 45)
+        startup_seconds = round(time.monotonic() - session_started, 3)
+        if args.world_256:
+            ready_memory = process_memory(session.pid)
         time.sleep(2)
         for _, display in displays:
             subprocess.run(["xdotool", "mousemove", "1144", "112", "click", "1"],
@@ -209,7 +267,18 @@ def main():
                            env=env | {"DISPLAY": display}, check=True)
         snapshot = (out / "server.log").read_text(errors="replace")
         client_logs = [(out / f"{name}.log").read_text(errors="replace") for name, _ in displays]
-        report = {"status": "recorded", "scenario": "frontier-outpost",
+        if args.world_256:
+            measured = re.search(r"navigation initialized hash=([0-9a-f]{16}) elapsed_ms=(\d+)", snapshot)
+            performance = {"startup_to_world_ready_seconds": startup_seconds,
+                           "navigation_initialization_ms": int(measured.group(2)) if measured else None,
+                           "navigation_hash": measured.group(1) if measured else None,
+                           "memory_at_ready": ready_memory,
+                           "memory_after_recording": process_memory(session.pid),
+                           "client_snapshot_hz": [round(text.count("RTS Bridge apply tick=") / args.duration, 2)
+                                                  for text in client_logs],
+                           "recording_seconds": args.duration}
+            (out / "performance.json").write_text(json.dumps(performance, indent=2) + "\n")
+        report = {"status": "recorded", "scenario": "world-256-scale" if args.world_256 else "frontier-outpost",
                   "world_ready": "navigation=native" in snapshot and "WORLD_READY" in snapshot,
                   "outcome": "defeat" if "outcome=defeat" in snapshot else "victory" if "outcome=victory" in snapshot else None,
                   "demolitions": snapshot.count("WORLD_REMOVAL id="),
@@ -220,8 +289,10 @@ def main():
                   "video_layout": None if args.no_video else args.video_layout,
                   "input_method": "graphical X11 interface"}
         (out / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
-        (out / "scenario-config.json").write_text((ROOT / "scenarios/frontier-outpost.json").read_text())
-        subprocess.run(["python3", str(ROOT / "scripts/verify-frontier-capture.py"), str(out)],
+        (out / "scenario-config.json").write_text((ROOT / "scenarios/world-256-scale-map.json"
+            if args.world_256 else ROOT / "scenarios/frontier-outpost.json").read_text())
+        verifier = "verify-world-256-capture.py" if args.world_256 else "verify-frontier-capture.py"
+        subprocess.run(["python3", str(ROOT / "scripts" / verifier), str(out)],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         detailed = json.loads((out / "verification.json").read_text())
         if args.ridge_probe:

@@ -37,7 +37,9 @@ case "$command" in
         for file in tests/test_*plugin.js tests/test_plugin_snapshots.js; do node "$file"; done
         ;;
     test-live)
+        tests/test_frontier_ridge_live.sh
         tests/test_frontier_native_navigation_live.sh
+        python3 tests/test_world_256_native_live.py
         tests/test_world_live.sh
         python3 scripts/verify-frontier-lifecycle.py
         tests/test_actor_lifecycle_live.sh

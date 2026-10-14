@@ -43,7 +43,7 @@ def main(directory):
     carousel_before = [point for row in rows if row["phase"] < 6 for point in row["units"].values()
                        if 576 <= point[0] < 672 and 544 <= point[1] < 640]
     carousel_after = [{"phase": row["phase"], "unit": uid, "x": point[0], "y": point[1]}
-                      for row in rows if row["phase"] == 6 for uid, point in row["units"].items()
+                      for row in rows if row["phase"] in (6, 7) for uid, point in row["units"].items()
                       if 576 <= point[0] < 672 and 544 <= point[1] < 640]
     starts = next((row["units"] for row in rows if len(row["units"]) == 6), {})
     phase1_ends = phase1[-1]["units"] if phase1 else {}

@@ -39,7 +39,7 @@ BRIDGE_TEST_SPAWN_MARINE_FRAME="${BRIDGE_ACTOR_SPAWN_FRAME:-300}" BRIDGE_TEST_KI
 session_pid=$!
 wait_for() {
   local pattern="$1" file="$2" limit="$3" started=$SECONDS
-  while ! rg -q "$pattern" "$file" 2>/dev/null; do
+  while ! grep -Eq "$pattern" "$file" 2>/dev/null; do
     if (( SECONDS - started >= limit )); then
       printf 'Timed out waiting for %s in %s\n' "$pattern" "$file" >&2
       return 1
@@ -77,7 +77,7 @@ if [[ "${BRIDGE_ACTOR_TEST_RESTART:-0}" == 1 ]]; then
     --user-data-path="$run_dir/client-b" > "$run_dir/client-b.log" 2>&1 &
   client_b_pid=$!
   wait_for 'WORLD_ACTOR_PROBE state=active count=1' "$run_dir/client-b.log" 60
-  before_snapshots="$(rg -c 'RTS Bridge apply tick=' "$run_dir/client-a.log" || true)"
+  before_snapshots="$(grep -Ec 'RTS Bridge apply tick=' "$run_dir/client-a.log" || true)"
   original_bridge_pid="$(ps -eo pid,args | awk '$2 ~ /\/build\/world-bridge$/ { print $1; exit }')"
   test -n "$original_bridge_pid"
   kill "$original_bridge_pid"
@@ -93,7 +93,7 @@ if [[ "${BRIDGE_ACTOR_TEST_RESTART:-0}" == 1 ]]; then
     "$run_dir/bridge-restart.log" 60
   resumed=0
   for attempt in $(seq 1 60); do
-    now="$(rg -c 'RTS Bridge apply tick=' "$run_dir/client-a.log" || true)"
+    now="$(grep -Ec 'RTS Bridge apply tick=' "$run_dir/client-a.log" || true)"
     if (( now > before_snapshots )); then resumed=1; break; fi
     sleep 1
   done
