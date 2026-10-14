@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "scenario_id": "example-defense",
+  "display_name": "Example Defense",
+  "park_file": "run-data/example-defense/save/example-defense.park",
+  "park_size": [64, 64],
+  "starting_units": {
+    "marines": [[15, 30], [16, 30], [17, 30], [15, 31], [16, 31], [17, 31]],
+    "zerglings": [[47, 57], [48, 57], [49, 57], [50, 57], [47, 58], [48, 58],
+                   [49, 58], [50, 58], [47, 59], [48, 59], [49, 59], [50, 59]]
+  },
+  "objectives": [{
+    "id": "defend-carousel", "description": "Defend the carousel",
+    "entity_kind": "ride", "entity_type": "rct2.ride.mgr1",
+    "entity_name": "Frontier Carousel", "required": true
+  }],
+  "initial_ai": { "strategy": "objective_assault", "objective": "defend-carousel", "delay_frames": 144 },
+  "spawn_zones": {
+    "eastern-approach": { "tiles": [[42, 53], [43, 53], [44, 53], [45, 53], [42, 54], [43, 54], [44, 54], [45, 54]] },
+    "western-approach": { "tiles": [[11, 42], [12, 42], [13, 42], [14, 42], [11, 43], [12, 43], [13, 43], [14, 43]] }
+  },
+  "waves": [
+    { "id": "east-probe", "trigger": { "type": "on_ready" },
+      "groups": [{ "unit_type": "zerg_zergling", "count": 3, "spawn_zone": "eastern-approach" }] },
+    { "id": "west-flank", "trigger": { "type": "elapsed_frames", "frames": 300 },
+      "groups": [{ "unit_type": "zerg_zergling", "count": 3, "spawn_zone": "western-approach" }] }
+  ],
+  "victory": { "all_waves_cleared": true, "all_zerglings_eliminated": true, "objective_intact": "defend-carousel" },
+  "defeat": { "objective_destroyed": "defend-carousel", "all_marines_eliminated": true }
+}

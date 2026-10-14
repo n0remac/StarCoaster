@@ -1,0 +1,5 @@
+{
+  "generator": ["scripts/create-park-assault.py", "--example-defense"],
+  "fixture": "run-data/example-defense/fixture.json",
+  "navigation": "run-data/example-defense/navigation-elements.json"
+}

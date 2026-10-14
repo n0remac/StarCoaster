@@ -34,7 +34,7 @@ def wait_for_marker(log: Path, marker: str, park: Path | None, process: subproce
     raise TimeoutError(f"Park generation timed out; see {log}")
 
 
-def run(probe: bool, playable: bool = False) -> dict:
+def run(probe: bool, playable: bool = False, example: bool = False) -> dict:
     output = DATA / ("demolition-probe" if probe else "generator")
     (output / "plugin").mkdir(parents=True, exist_ok=True)
     (output / "config.ini").write_text("[network]\nadvertise = false\n")
@@ -43,10 +43,12 @@ def run(probe: bool, playable: bool = False) -> dict:
         source = source.replace("var probe = false;", "var probe = true;")
     if playable:
         source = source.replace("var playable = false;", "var playable = true;")
+    if example:
+        source = source.replace("var exampleDefense = false;", "var exampleDefense = true;")
     (output / "plugin/park-assault-generator.js").write_text(source)
     log = output / "openrct2.log"
     if not probe:
-        filename = "frontier-outpost-playable.park" if playable else "frontier-outpost.park"
+        filename = "example-defense.park" if example else "frontier-outpost-playable.park" if playable else "frontier-outpost.park"
         (output / "save" / filename).unlink(missing_ok=True)
     command = [str(ROOT / "build/openrct2/openrct2-cli"), "host", str(PARK if probe else SOURCE),
                "--headless", "--address=127.0.0.1", "--port=11761",
@@ -56,7 +58,7 @@ def run(probe: bool, playable: bool = False) -> dict:
     with log.open("w") as stream:
         process = subprocess.Popen(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT)
         try:
-            filename = "frontier-outpost-playable.park" if playable else "frontier-outpost.park"
+            filename = "example-defense.park" if example else "frontier-outpost-playable.park" if playable else "frontier-outpost.park"
             return wait_for_marker(log, "PARK_ASSAULT_PROBE " if probe else "PARK_ASSAULT_METADATA ",
                                    None if probe else output / "save" / filename, process)
         finally:
@@ -72,23 +74,28 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe-demolition", action="store_true")
     parser.add_argument("--playable", action="store_true", help="generate the 64x64 first-playable park")
+    parser.add_argument("--example-defense", action="store_true", help="generate the second layout with playable terrain")
     args = parser.parse_args()
     global DATA, PARK
-    if args.playable:
+    if args.example_defense:
+        args.playable = True
+        DATA = ROOT / "run-data/example-defense"
+        PARK = DATA / "save/example-defense.park"
+    elif args.playable:
         DATA = ROOT / "run-data/frontier-playable"
         PARK = DATA / "save/frontier-outpost-playable.park"
     DATA.mkdir(parents=True, exist_ok=True)
     if args.probe_demolition:
         if not PARK.is_file():
             raise RuntimeError(f"Generate {PARK} first")
-        result = run(True, args.playable)
-        if len(result) != (4 if args.playable else 3) or any(row["error"] or not row["removed"] or row["before"] < 1 or row["after"]
+        result = run(True, args.playable, args.example_defense)
+        if len(result) != (3 if args.example_defense else 4 if args.playable else 3) or any(row["error"] or not row["removed"] or row["before"] < 1 or row["after"]
                                    for row in result):
             raise RuntimeError(f"Native demolition probe failed: {result}")
         (DATA / "demolition-probe.json").write_text(json.dumps(result, indent=2) + "\n")
     else:
-        result = run(False, args.playable)
-        generated = DATA / "generator/save" / ("frontier-outpost-playable.park" if args.playable else "frontier-outpost.park")
+        result = run(False, args.playable, args.example_defense)
+        generated = DATA / "generator/save" / ("example-defense.park" if args.example_defense else "frontier-outpost-playable.park" if args.playable else "frontier-outpost.park")
         PARK.parent.mkdir(parents=True, exist_ok=True)
         generated.replace(PARK)
         contents = (DATA / "generator/openrct2.log").read_text(errors="replace")

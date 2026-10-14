@@ -30,6 +30,9 @@ case "$command" in
     run)
         exec scripts/run-frontier-outpost.sh "$@"
         ;;
+    play)
+        exec python3 scripts/play-scenario.py "$@"
+        ;;
     record)
         exec python3 scripts/record-frontier-outpost.py "$@"
         ;;
@@ -54,7 +57,7 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {start|build|park|run|record|test|test-live|validate-scenario} [options]
+Usage: scripts/project.sh {start|build|park|run|play|record|test|test-live|validate-scenario} [options]
 
 Set RCT2_DATA_DIR and STARCRAFT_DATA_DIR for build, park, run, record, and live tests.
 Run `start` to fetch sources, build, stage assets, and launch the playable session.

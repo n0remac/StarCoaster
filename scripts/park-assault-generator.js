@@ -13,6 +13,7 @@ registerPlugin({
         var resizeRequested = false;
         var probe = false; // The Python launcher substitutes this literal for an isolated probe.
         var playable = false; // The playable launcher substitutes this literal.
+        var exampleDefense = false; // The package launcher selects the minimal variant.
         var bounds = { min_x: 8, min_y: 8, max_x: 55, max_y: 55 };
         var specs = [
             { id: "carousel-1", name: "Frontier Carousel", object: "rct2.ride.mgr1", x: 19, y: 18, track: 266, expected: 9,
@@ -22,7 +23,7 @@ registerPlugin({
             { id: "ride-2", name: "Frontier Ferris Wheel", object: "rct2.ride.fwh1", x: 42, y: 39, track: 265, expected: 4,
                 proxy_type: "Terran_Armory", proxy_unit_type: 123, proxy_hp: 750, collision: { width: 96, height: 55 } }
         ];
-        if (playable) specs.push({ id: "shop-2", name: "Frontier Drink Stand", object: "rct2.ride.drnks", x: 42, y: 22,
+        if (playable && !exampleDefense) specs.push({ id: "shop-2", name: "Frontier Drink Stand", object: "rct2.ride.drnks", x: 42, y: 22,
             track: 262, expected: 1, proxy_type: "Terran_Missile_Turret", proxy_unit_type: 124,
             proxy_hp: 200, collision: { width: 33, height: 49 } });
         function fail(message) { console.log("PARK_ASSAULT_FAILED " + message); }
@@ -329,7 +330,7 @@ registerPlugin({
         }
         context.subscribe("interval.tick", function () {
             if (network.mode !== "server") return;
-            if (savePending) { savePending = false; context.saveGame({ filename: playable ? "frontier-outpost-playable" : "frontier-outpost" }); return; }
+            if (savePending) { savePending = false; context.saveGame({ filename: exampleDefense ? "example-defense" : playable ? "frontier-outpost-playable" : "frontier-outpost" }); return; }
             if (resizePending) { resizePending = false; populate(); return; }
             if (preparation) {
                 if (cleanupBusy) return;

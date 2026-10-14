@@ -1,0 +1,5 @@
+{
+  "generator": ["scripts/create-park-assault.py", "--playable"],
+  "fixture": "run-data/frontier-playable/fixture.json",
+  "navigation": "run-data/frontier-playable/navigation-elements.json"
+}
