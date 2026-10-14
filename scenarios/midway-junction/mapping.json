@@ -1,5 +1,6 @@
 {
   "rules": [
+    { "kind": "ride", "type": "rct2.ride.fwh1", "health": 2000 },
     { "kind": "wall", "destructible": false, "targetable": false, "blocks": true },
     { "kind": "wall", "type": "rct2.scenery_wall.wbr2", "destructible": true, "targetable": true, "blocks": true, "health": 80 }
   ]

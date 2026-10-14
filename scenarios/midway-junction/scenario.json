@@ -13,7 +13,7 @@
     "entity_kind": "ride", "entity_type": "rct2.ride.fwh1",
     "entity_name": "Midway Ferris Wheel", "required": true
   }],
-  "initial_ai": { "strategy": "objective_assault", "objective": "defend-midway-wheel", "delay_frames": 144 },
+  "initial_ai": { "strategy": "objective_assault", "objective": "defend-midway-wheel", "delay_frames": 450 },
   "spawn_zones": {
     "east-entrance": { "tiles": [[49, 33], [50, 33], [51, 33], [52, 33], [49, 34], [50, 34], [51, 34], [52, 34]] },
     "north-midway": { "tiles": [[33, 15], [34, 15], [35, 15], [36, 15], [37, 15], [38, 15]] },
@@ -22,7 +22,7 @@
   "waves": [
     { "id": "opening-assault", "trigger": { "type": "on_ready" },
       "groups": [{ "unit_type": "zerg_zergling", "count": 4, "spawn_zone": "east-entrance" }] },
-    { "id": "northern-flank", "trigger": { "type": "elapsed_frames", "frames": 360 },
+    { "id": "northern-flank", "trigger": { "type": "elapsed_frames", "frames": 900 },
       "groups": [{ "unit_type": "zerg_zergling", "count": 3, "spawn_zone": "north-midway" }] },
     { "id": "southern-assault", "trigger": { "type": "wave_cleared", "wave_id": "northern-flank" },
       "groups": [{ "unit_type": "zerg_zergling", "count": 5, "spawn_zone": "south-service" }] }
