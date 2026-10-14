@@ -127,7 +127,7 @@ def main():
                               "video": None if args.no_video else video_config.__dict__,
                               "graphics": args.graphics, "frame_ms": args.frame_ms,
                               "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault,
-                              "world_256": args.world_256})
+                              "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
     overrides = {"RCT2_DATA_DIR": str(rct2), "STARCRAFT_DATA_DIR": str(starcraft),
                  "BRIDGE_LAUNCH_CLIENT": "0", "BRIDGE_SERVER_DATA_DIR": str(out / "server-data"),

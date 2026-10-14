@@ -34,6 +34,18 @@ def snapshots(text):
     return {int(seq): (session, units) for seq, session, units in SNAPSHOT.findall(text)}
 
 
+def capture_assets(out, config):
+    views = [list(out.glob(f"client-{letter}-t*-rot*.png")) for letter in "ab"]
+    screenshots = [out / f"client-{letter}-{point}.png" for letter in "ab" for point in ("initial", "final")]
+    valid_screenshots = all(path.is_file() and path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+                            for path in screenshots)
+    rotations = all(len(group) >= 2 for group in views)
+    if config.get("video") is None:
+        return valid_screenshots and (not config.get("cycle_rotations") or rotations), views
+    video = out / "combined.mp4"
+    return valid_screenshots and rotations and video.is_file() and video.stat().st_size > 0, views
+
+
 def main(directory):
     out = Path(directory).resolve()
     server = (out / "server.log").read_text(errors="replace")
@@ -52,7 +64,8 @@ def main(directory):
     ticks = [[int(value) for value in PARK_TICK.findall(text)] for text in (client_a, client_b)]
     tick_rates = [round((values[-1] - values[0]) / performance["recording_seconds"], 2)
                   if len(values) >= 2 else 0 for values in ticks]
-    views = [list(out.glob(f"client-{letter}-t*-rot*.png")) for letter in "ab"]
+    config = json.loads((out / "run.json").read_text()).get("capture_config", {})
+    assets_complete, views = capture_assets(out, config)
     checks = {
         "native_map_256": dimensions(out / "world-256-scale.scm") == (256, 256),
         "full_park_snapshot": "terrain=65536" in server and "WORLD_READY entities=2 targets=2" in server,
@@ -66,8 +79,7 @@ def main(directory):
         "two_clients_match": len(common) >= 10 and all(a[seq] == b[seq] for seq in common),
         "opposite_boundary_cameras": "WORLD256_CAMERA boundary=far" in client_a
             and "WORLD256_CAMERA boundary=near" in client_b,
-        "screenshots_and_video": all(len(group) >= 2 for group in views)
-            and (out / "combined.mp4").stat().st_size > 0,
+        "screenshots_and_video": assets_complete,
         "startup_and_memory_measured": performance["startup_to_world_ready_seconds"] > 0
             and performance["memory_at_ready"]["total_rss_kib"] > 0
             and performance.get("navigation_initialization_ms") is not None,
@@ -82,7 +94,8 @@ def main(directory):
               "observed_near_x": final_near, "observed_far_edge_x": final_far,
               "distant_route_samples": cross_map[:12], "camera_screenshots": [len(group) for group in views],
               "client_park_tick_hz": tick_rates,
-              "video": "combined.mp4", "capture_complete": all(checks.values())}
+              "video": "combined.mp4" if config.get("video") is not None else None,
+              "capture_complete": all(checks.values())}
     (out / "verification.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
     return 0 if all(checks.values()) else 1

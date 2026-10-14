@@ -58,14 +58,22 @@ case "$command" in
         tests/test_unit_spawn_live.sh
         tests/test_unit_spawn_zerg_live.sh
         tests/test_playable_start_live.sh
+        python3 tests/test_scenario_runtime_live.py
         ;;
     help|-h|--help)
         cat <<'EOF'
 Usage: scripts/project.sh {start|build|park|run|play|record|test|test-live|validate-scenario} [options]
 
-Set RCT2_DATA_DIR and STARCRAFT_DATA_DIR for build, park, run, record, and live tests.
-Run `start` to fetch sources, build, stage assets, and launch the playable session.
-Use `start --help` for launch options. Individual steps remain available.
+start [--scenario ID] [--headless|--client]  Fetch, build, stage, and play (Frontier default).
+play ID [--plan]                        Play an existing build; --plan only resolves paths.
+park [ID]                               Force-generate a park (Frontier default).
+record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
+run                                     Legacy Frontier play shortcut.
+validate-scenario ID                    Validate scenario configuration.
+build, test, test-live                   Build and run offline or licensed live tests.
+
+Set RCT2_DATA_DIR and STARCRAFT_DATA_DIR for native commands.
+Use `start --help` and `record --help` for additional options.
 EOF
         ;;
     *)

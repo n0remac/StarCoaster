@@ -1,6 +1,8 @@
 """Recording mode and generic capture checks without launching graphical clients."""
 
 import importlib.util
+import contextlib
+import io
 import json
 from pathlib import Path
 import sys
@@ -23,6 +25,7 @@ def load(name, file):
 record = load("record_scenario", "record-frontier-outpost.py")
 generic = load("verify_scenario", "verify-scenario-capture.py")
 frontier = load("verify_frontier", "verify-frontier-capture.py")
+world256 = load("verify_world256", "verify-world-256-capture.py")
 
 
 class ScenarioRecordTest(unittest.TestCase):
@@ -31,7 +34,7 @@ class ScenarioRecordTest(unittest.TestCase):
                      ("--scenario", "example-defense", "--ridge-probe"),
                      ("--scenario", "example-defense", "--cycle-rotations"),
                      ("--scenario", "missing")):
-            with self.subTest(args=args), self.assertRaises(SystemExit):
+            with self.subTest(args=args), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 record.parse_args([*args, "--no-video"])
         args, _ = record.parse_args(["--scenario", "example-defense", "--no-video"])
         self.assertEqual(args.plan["scenario_id"], "example-defense")
@@ -78,8 +81,36 @@ class ScenarioRecordTest(unittest.TestCase):
             self.assertTrue(generic.verify(out)["capture_complete"])
             (out / "client-a.log").write_text("WORLD_SCENARIO_STATUS scenario=frontier-outpost wave=1/2 state=active outcome=\n" + snapshot)
             self.assertFalse(generic.verify(out)["capture_complete"])
-            frontier.main(out)
+            with contextlib.redirect_stdout(io.StringIO()):
+                frontier.main(out)
             self.assertTrue(json.loads((out / "verification.json").read_text())["capture_complete"])
+
+    def test_frontier_late_join_after_gate_removal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            (out / "server.log").write_text(
+                "WORLD_READY navigation=native\nWORLD_REMOVAL id=openrct2:wall:31:896:1120:112:0#1 state=confirmed\n"
+                "navigation-applied id=openrct2:wall:31:896:1120:112:0#1\n")
+            snapshots = "".join(f"RTS Bridge apply tick={i} seq={i} session={'a'*32} center_z=112 units=openbw:1,1,1\n"
+                                for i in range(1, 13))
+            (out / "client-a.log").write_text("FRONTIER_PARK_STATE carousel=true gate=true\n" + snapshots +
+                                               "FRONTIER_PARK_STATE carousel=true gate=false\n")
+            (out / "client-b.log").write_text("FRONTIER_PARK_STATE carousel=true gate=false\n" + snapshots)
+            with contextlib.redirect_stdout(io.StringIO()):
+                frontier.main(out)
+            report = json.loads((out / "verification.json").read_text())
+            self.assertTrue(report["park_change_synchronized"])
+            self.assertTrue(report["capture_complete"])
+
+    def test_world_256_no_video_asset_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            for letter in "ab":
+                for point in ("initial", "final"):
+                    (out / f"client-{letter}-{point}.png").write_bytes(b"\x89PNG\r\n\x1a\nimage")
+            self.assertTrue(world256.capture_assets(out, {"video": None, "cycle_rotations": False})[0])
+            self.assertFalse(world256.capture_assets(out, {"video": None, "cycle_rotations": True})[0])
+            self.assertFalse(world256.capture_assets(out, {"video": {"layout": "combined"}})[0])
 
 
 if __name__ == "__main__":

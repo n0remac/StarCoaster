@@ -1,4 +1,6 @@
 import importlib.util
+import contextlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -15,6 +17,9 @@ import scenario_package
 spec = importlib.util.spec_from_file_location("play_scenario", ROOT / "scripts/play-scenario.py")
 play = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(play)
+park_spec = importlib.util.spec_from_file_location("park_scenario", ROOT / "scripts/park-scenario.py")
+park_cli = importlib.util.module_from_spec(park_spec)
+park_spec.loader.exec_module(park_cli)
 
 
 class ScenarioPackageTest(unittest.TestCase):
@@ -81,6 +86,34 @@ class ScenarioPackageTest(unittest.TestCase):
         result = subprocess.run(["scripts/project.sh", "park", "--not-a-scenario"], cwd=ROOT, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unrecognized arguments", result.stderr)
+
+    def test_play_dispatches_one_world_session_with_package_environment(self):
+        plan = play.resolve("example-defense")
+        with mock.patch.object(sys, "argv", ["play-scenario.py", "example-defense"]), \
+             mock.patch.object(play, "ensure_park") as park, \
+             mock.patch.object(play, "build_native_map") as native, \
+             mock.patch.object(play.os, "execvpe") as launch:
+            play.main()
+        park.assert_called_once_with(plan)
+        native.assert_called_once_with(plan)
+        launch.assert_called_once()
+        command, arguments, environment = launch.call_args.args
+        self.assertEqual(command, str(ROOT / "scripts/run-world-session.sh"))
+        self.assertEqual(arguments, [command, plan["park"]])
+        self.assertEqual(environment["BRIDGE_SCENARIO_CONFIG"], plan["scenario"])
+        self.assertEqual(environment["BRIDGE_RULES_CONFIG"], plan["mapping"])
+        self.assertEqual(environment["BRIDGE_MAP_FILE"], plan["native_map"])
+        self.assertEqual(environment["BRIDGE_SPAWN_JOURNAL"], plan["spawn_journal"])
+
+    def test_park_command_only_generates_selected_package(self):
+        plan = play.resolve("example-defense")
+        with mock.patch.object(sys, "argv", ["park-scenario.py", "example-defense"]), \
+             mock.patch.object(park_cli, "resolve", return_value=plan) as resolve, \
+             mock.patch.object(park_cli, "ensure_park") as generate, \
+             contextlib.redirect_stdout(io.StringIO()):
+            park_cli.main()
+        resolve.assert_called_once_with("example-defense")
+        generate.assert_called_once_with(plan, force=True)
 
 
 if __name__ == "__main__":

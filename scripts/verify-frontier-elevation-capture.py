@@ -32,7 +32,16 @@ def main(directory, mode):
     later_mismatches = [seq for seq in joined if a[seq] != b[seq]]
     views = {int(match.group(1)) for path in directory.glob("client-a-t*-rot*.png")
              if (match := re.search(r"rot([0-3])\.png$", path.name))}
-    checks = {"graphical_video": (directory / "combined.mp4").stat().st_size > 0,
+    capture = json.loads((directory / "run.json").read_text()).get("capture_config", {})
+    if capture.get("video") is None:
+        files = [directory / f"client-{letter}-{point}.png" for letter in "ab" for point in ("initial", "final")]
+        visual_check = all(path.is_file() and path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n") for path in files)
+        visual_name = "graphical_screenshots"
+    else:
+        video = directory / "combined.mp4"
+        visual_check = video.is_file() and video.stat().st_size > 0
+        visual_name = "graphical_video"
+    checks = {visual_name: visual_check,
               "two_clients_match": len(joined) >= 10 and not later_mismatches,
               "two_camera_rotations": len(views) >= 2}
     if mode == "marine":

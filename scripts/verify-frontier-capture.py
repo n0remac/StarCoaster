@@ -23,8 +23,9 @@ def main(directory):
               if (out / f"client-{letter}.log").exists() else "" for letter in "ab"]
     a, b = [snapshots(text) for text in client]
     park_states = [PARK_STATE.findall(text) for text in client]
-    park_sync = bool(park_states[0] and park_states[1]) and park_states[0][0] == park_states[1][0] \
-        and park_states[0][-1] == park_states[1][-1]
+    # A second client may join after a demolition. Its first state should then
+    # reflect the current park, while both clients must still agree at the end.
+    park_sync = bool(park_states[0] and park_states[1]) and park_states[0][-1] == park_states[1][-1]
     common = sorted(set(a) & set(b))
     first_match = next((index for index, seq in enumerate(common) if a[seq] == b[seq]), len(common))
     joined = common[first_match:]
