@@ -94,6 +94,10 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 			}
 			if actor, ok := s.actors.Lookup(unit.ActorID); ok && actor.State == world.ActorRemoved {
 				removed[unit.ActorID] = true
+			} else if s.actorReconcileComplete && !s.reconciledActors[unit.ActorID] {
+				// A complete native reconciliation excludes this previously ready
+				// actor. Reconcile also requires absence from this complete snapshot.
+				removed[unit.ActorID] = true
 			}
 		}
 	}
@@ -178,7 +182,8 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 			s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
 			return
 		}
-		log.Printf("scenario spawn request=%s state=%s", request.RequestID, status.State)
+		log.Printf("scenario spawn request=%s wave=%s state=%s", request.RequestID,
+			s.scenarioWaveForRequest(request.RequestID), status.State)
 	}
 	r.Reconcile(s.spawns, living, removed)
 	r.Trigger(s.scenario)

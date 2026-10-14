@@ -111,3 +111,39 @@ func TestBridgeTerminalDemolitionSurvivesJournalRecovery(t *testing.T) {
 		t.Fatalf("terminal status lost: %+v", status)
 	}
 }
+
+func TestBridgeRestoredWaveRequiresReconciliationAndCompleteSnapshotForDeath(t *testing.T) {
+	s, _ := spawnService(t)
+	s.bw = nil
+	s.nativeOccupancyComplete = true
+	s.navigationMask = world.NavigationMask{Width: 128, Height: 128, Bits: make([]byte, 128*4*128*4/8)}
+	s.scenario = &world.Scenario{Version: 2, ID: "recovery", SpawnZones: map[string]world.SpawnZone{
+		"east": {Tiles: [][2]int{{43, 56}}}}, Waves: []world.ScenarioWave{{ID: "first",
+		Trigger: world.WaveTrigger{Type: "on_ready"}, Groups: []world.WaveGroup{{UnitType: "zerg_zergling", Count: 1, SpawnZone: "east"}}}}}
+	if err := s.initScenarioRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	s.advanceScenarioRuntime(100, 1, nil)
+	id := s.spawns.Order[0]
+	execute, _ := s.spawns.Next()
+	if err := s.spawns.Issue(execute); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.spawns.Created(id, 0, "openbw:3001", 1424, 1808); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.spawns.Ready(id, 0, "openbw:3001"); err != nil {
+		t.Fatal(err)
+	}
+	s.advanceScenarioRuntime(101, 2, map[string]bool{"openbw:3001": true})
+	s.advanceScenarioRuntime(102, 3, nil)
+	if s.runtime.Waves[0].State == "cleared" {
+		t.Fatal("connection gap was treated as death")
+	}
+	s.actorReconcileComplete = true
+	s.reconciledActors = map[string]bool{}
+	s.advanceScenarioRuntime(103, 4, nil)
+	if s.runtime.Waves[0].State != "cleared" {
+		t.Fatalf("native reconciliation plus complete snapshot did not confirm death: %+v", s.runtime.Waves[0])
+	}
+}

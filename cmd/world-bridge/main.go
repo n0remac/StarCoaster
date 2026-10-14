@@ -76,6 +76,8 @@ type service struct {
 	lastZerglings             int
 	nativeOccupants           []world.NativeOccupant
 	nativeOccupancyComplete   bool
+	actorReconcileComplete    bool
+	reconciledActors          map[string]bool
 	retired                   map[string]bool
 	commands                  map[string]worldCommand
 	spawns                    *world.SpawnQueue
@@ -190,6 +192,9 @@ func (s *service) publishReady() {
 		s.navigationMeasured = true
 	}
 	if s.pendingReady == nil || s.controller == nil || !s.publisherNavigationReady || !s.controllerNavigationReady || len(s.pendingLinks) != 0 {
+		return
+	}
+	if s.scenario != nil && s.scenario.Version == 2 && !s.actorReconcileComplete {
 		return
 	}
 	ready := *s.pendingReady
@@ -332,6 +337,7 @@ func (s *service) consume(role string, p *peer) {
 		s.bw = nil
 		s.ready = false
 		s.nativeOccupancyComplete = false
+		s.actorReconcileComplete = false
 		if s.spawns != nil {
 			if status, ok := s.spawns.Uncertain(); ok {
 				s.saveSpawns()
@@ -446,6 +452,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.pendingReady = nil
 		s.lastReady = nil
 		s.nativeOccupancyComplete = false
+		s.actorReconcileComplete = false
+		s.reconciledActors = nil
 		if previousSession != m.Session {
 			s.outcome = ""
 			s.runtime = nil
@@ -684,6 +692,9 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 		s.ack(p, m, true, "")
 		log.Printf("actor spawn id=%s generation=%d", identity.ID, identity.Generation)
+		if s.reconciledActors != nil {
+			s.reconciledActors[identity.ID] = true
+		}
 		_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
 	case "actor.reconcile":
 		var state world.ActorReconcile
@@ -699,6 +710,11 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 		s.ack(p, m, true, "")
 		log.Printf("actor reconcile living=%d", len(state.Living))
+		s.actorReconcileComplete = true
+		s.reconciledActors = make(map[string]bool, len(state.Living))
+		for _, identity := range state.Living {
+			s.reconciledActors[identity.ID] = true
+		}
 		for _, identity := range previous {
 			if record, found := s.actors.Lookup(identity.ID); found && record.State == world.ActorRemoved {
 				event := world.ActorDespawn{ID: identity.ID, Session: m.Session, Generation: identity.Generation}
@@ -709,6 +725,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		for _, identity := range s.actors.Living() {
 			_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
 		}
+		s.publishReady()
 	case "actor.bind":
 		var binding world.ActorBinding
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -737,6 +754,9 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 		s.ack(p, m, true, "")
 		log.Printf("actor despawn id=%s generation=%d", event.ID, event.Generation)
+		if s.reconciledActors != nil {
+			delete(s.reconciledActors, event.ID)
+		}
 		_ = s.emit(s.controller, "actor.despawn", m.Session, m.Revision, event)
 		_ = s.emit(s.park, "actor.despawn", m.Session, m.Revision, event)
 		if s.spawns != nil {

@@ -89,7 +89,7 @@ def main():
     if not rct2.is_dir() or not starcraft.is_dir():
         parser.error("RCT2_DATA_DIR and STARCRAFT_DATA_DIR must point to installed game data")
     run = ArtifactRun("live-capture",
-                      "World 256 Scale Fixture" if args.world_256 else "Frontier Outpost v0.3",
+                      "World 256 Scale Fixture" if args.world_256 else "Frontier Outpost v0.4",
                       config={"scenario": "world-256-scale" if args.world_256 else "frontier-outpost",
                               "duration": args.duration,
                               "launcher": "scripts/run-world-session.sh" if args.world_256 else "scripts/run-frontier-outpost.sh",

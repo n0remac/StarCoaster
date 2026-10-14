@@ -14,6 +14,7 @@ func TestFrontierScenarioRequiresNativeNavigationAndObjective(t *testing.T) {
 	r := NewRegistry()
 	e := exampleEntity("openrct2:ride:100#1")
 	e.Kind, e.Type = "ride", "rct2.ride.mgr1"
+	e.Name = "Frontier Carousel"
 	if err := r.Replace("session-a", 1, 64, 64, []Entity{e}, nil); err != nil {
 		t.Fatal(err)
 	}

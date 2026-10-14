@@ -72,11 +72,32 @@ func (s *service) saveSpawns() bool {
 func (s *service) spawnStatus(status world.SpawnStatus) {
 	if s.spawns != nil {
 		if request, ok := s.spawns.Request(status.RequestID); ok && request.UnitType == "zerg_zergling" {
-			log.Printf("scenario spawn request=%s state=%s", status.RequestID, status.State)
+			wave := s.scenarioWaveForRequest(status.RequestID)
+			if wave != "" {
+				log.Printf("scenario spawn request=%s wave=%s state=%s", status.RequestID, wave, status.State)
+			} else {
+				log.Printf("scenario spawn request=%s state=%s", status.RequestID, status.State)
+			}
 			return
 		}
 	}
 	_ = s.emit(s.park, "unit.spawn.status", s.registry.Session, s.registry.Revision, status)
+}
+
+func (s *service) scenarioWaveForRequest(requestID string) string {
+	if s.runtime == nil {
+		return ""
+	}
+	for _, wave := range s.runtime.Waves {
+		for _, unit := range wave.Units {
+			for _, attempt := range unit.Attempts {
+				if attempt.RequestID == requestID {
+					return wave.ID
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (s *service) submitScenarioSpawns() {

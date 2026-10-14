@@ -35,9 +35,10 @@ class FrontierScenarioMapTest(unittest.TestCase):
     def test_positions_and_ownership_are_park_relative(self):
         scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
         self.assertEqual(len(scenario["starting_units"]["marines"]), 6)
-        self.assertEqual(scenario["spawn_waves"], [{
-            "id": "opening-zerg-wave", "trigger": "on_ready", "unit_type": "zerg_zergling",
-            "count": 5, "x": 1424, "y": 1808, "formation": "compact"}])
+        self.assertEqual(scenario["version"], 2)
+        self.assertEqual(scenario["waves"][0]["id"], "opening-zerg-wave")
+        self.assertEqual(scenario["waves"][0]["groups"][0]["count"], 5)
+        self.assertEqual(scenario["spawn_zones"]["east-entrance"]["tiles"][0], [44, 56])
         units = [UNIT.unpack(value) for value in scenario_units(ROOT / "scenarios/frontier-outpost.json")]
         self.assertEqual(len(units), 18)
         self.assertEqual([row[3] for row in units[:12]], [37] * 12)

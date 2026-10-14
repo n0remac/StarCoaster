@@ -116,7 +116,12 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     config = json.loads(SCENARIO.read_text())
     config["starting_units"]["zerglings"] = [[24, 32]]
-    config.pop("spawn_waves", None)  # Isolate the two initial-actor lifecycle cycles.
+    # Keep the historical one-Zergling victory probe on the supported v1 path.
+    # The playable v2 wave schedule intentionally prevents inter-wave victory.
+    config["version"] = 1
+    config.pop("waves", None)
+    config.pop("spawn_zones", None)
+    config.pop("spawn_waves", None)
     scenario = OUT / "victory-scenario.json"
     scenario.write_text(json.dumps(config, indent=2) + "\n")
     map_file = OUT / "victory.scm"
