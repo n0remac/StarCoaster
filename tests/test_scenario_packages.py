@@ -29,6 +29,21 @@ class ScenarioPackageTest(unittest.TestCase):
         self.assertEqual(layout["name"], "Fourth Layout Proof")
         self.assertEqual([ride["expected"] for ride in layout["rides"]], [4, 1])
 
+    def test_semantically_invalid_layouts(self):
+        source = json.loads((ROOT / "tests/fixtures/fourth-layout.json").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "layout.json"
+            for field, value in (("size", [63, 64]),
+                                 ("rides", [{"id": "bad", "name": "Bad", "object": "rct2.ride.unknown", "x": 30, "y": 30}]),
+                                 ("paths", [{"kind": "horizontal", "y": 30, "x0": 40, "x1": 20}]),
+                                 ("walls", [{"x0": 20, "y0": 20, "x1": 21, "y1": 21,
+                                             "direction": 4, "object": "rct2.scenery_wall.wbr2"}])):
+                invalid = json.loads(json.dumps(source))
+                invalid[field] = value
+                path.write_text(json.dumps(invalid))
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    load_layout(path)
+
     def test_layout_validation_and_isolated_resolution(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
             root = Path(directory)
