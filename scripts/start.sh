@@ -7,11 +7,11 @@ cd "$project_dir"
 
 usage() {
     cat <<'EOF'
-Usage: scripts/project.sh start [--headless|--client]
-       scripts/start.sh [--headless|--client]
+Usage: scripts/project.sh start [--scenario ID] [--headless|--client]
+       scripts/start.sh [--scenario ID] [--headless|--client]
 
 Fetch pinned sources, build both engines and the bridge, stage OpenRCT2 assets,
-regenerate Frontier Outpost, and start the session. Ctrl+C stops it.
+and play the selected scenario (default: frontier-outpost). Ctrl+C stops it.
 
 Game data defaults to ~/games/rct2 and ~/games/starcraft.
 Override with RCT2_DATA_DIR and STARCRAFT_DATA_DIR for other installations.
@@ -24,14 +24,32 @@ Install system build dependencies first; see docs/bootstrap.md.
 EOF
 }
 
-for option in "$@"; do
-    case "$option" in
-        --headless) export BRIDGE_LAUNCH_CLIENT=0 ;;
-        --client) export BRIDGE_LAUNCH_CLIENT=1 ;;
+scenario=frontier-outpost
+client_mode=""
+while (( $# )); do
+    case "$1" in
+        --scenario)
+            if (( $# < 2 )) || [[ "$2" == --* ]]; then
+                printf 'Missing value for --scenario\n' >&2; usage >&2; exit 2
+            fi
+            scenario="$2"
+            shift 2
+            ;;
+        --headless|--client)
+            if [[ -n "$client_mode" && "$client_mode" != "$1" ]]; then
+                printf '%s and %s cannot be combined\n' "$client_mode" "$1" >&2; exit 2
+            fi
+            client_mode="$1"
+            shift
+            ;;
         -h|--help) usage; exit 0 ;;
-        *) printf 'Unknown option: %s\n' "$option" >&2; usage >&2; exit 2 ;;
+        *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
 done
+if [[ "$client_mode" == --headless ]]; then export BRIDGE_LAUNCH_CLIENT=0; fi
+if [[ "$client_mode" == --client ]]; then export BRIDGE_LAUNCH_CLIENT=1; fi
+# The plan uses the same resolver as play and has no build or gameplay side effects.
+python3 scripts/play-scenario.py "$scenario" --plan >/dev/null
 
 export RCT2_DATA_DIR="${RCT2_DATA_DIR:-$HOME/games/rct2}"
 export STARCRAFT_DATA_DIR="${STARCRAFT_DATA_DIR:-$HOME/games/starcraft}"
@@ -85,7 +103,5 @@ printf 'Building engines and world bridge...\n'
 scripts/project.sh build
 printf 'Staging OpenRCT2 assets locally...\n'
 scripts/install-openrct2-local.sh
-printf 'Generating Frontier Outpost from the current sources...\n'
-scripts/project.sh park
-printf 'Starting Frontier Outpost (Ctrl+C to stop)...\n'
-exec scripts/project.sh run
+printf 'Starting %s (Ctrl+C to stop)...\n' "$scenario"
+exec scripts/project.sh play "$scenario"
