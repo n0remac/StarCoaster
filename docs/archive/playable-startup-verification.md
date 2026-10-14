@@ -1,3 +1,5 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # Playable startup patch upgrade verification
 
 The missing-unit startup failure was reproduced on 2026-10-13 with the local
@@ -26,7 +28,7 @@ added to `PATH`; no system package was installed.
 
 | Command | Result | Evidence under `run-data/` |
 | --- | --- | --- |
-| Headless `scripts/project.sh run` before the upgrade | Reproduced failure | `startup-diagnosis/before-upgrade.log` |
+| Headless `the former Frontier shortcut` before the upgrade | Reproduced failure | `startup-diagnosis/before-upgrade.log` |
 | `python3 -m unittest discover -s tests -p test_bwapi_patches.py -v` | PASS, 3 tests | Fresh application, repeated builds, legacy upgrade, preservation of unrelated edits, and conflicting edits |
 | `scripts/build-bwapi.sh` | PASS, old navigation upgraded and engine rebuilt | `startup-diagnosis/build-bwapi.log` |
 | `scripts/project.sh test` | PASS | `startup-diagnosis/unit-tests.log`; Go, 3 C++ tests, 53 Python tests (2 skipped), JavaScript |

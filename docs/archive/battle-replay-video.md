@@ -1,3 +1,5 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # Marine versus Zergling replay video
 
 The local `run-data/battle-demo/combined.mp4` is a 10 FPS H.264 replay of a real headless OpenBW fight. It shows four Terran Marines defending against eight attacking Zerglings over an empty OpenRCT2 park capture. Positions, facings, orders, firing frames, HP, deaths, and the outcome come from OpenBW's per-frame BWAPI log. Rendering is post-produced with locally extracted StarCraft sprites; this is **not footage of both live OpenRCT2 clients**. The native bridge still needs a battle-capable protocol and renderer before that capture can be made.
@@ -9,7 +11,7 @@ To regenerate from the locally installed StarCraft archives and the captured emp
 ```bash
 scripts/build-bridge-module.sh
 BRIDGE_BATTLE_TRACE=1 STARCRAFT_DATA_DIR=/path/to/starcraft-data \
-  python3 scripts/test-battle-feasibility.py --seconds 12 --log-name video-source
+  python3 scripts/the former battle feasibility test --seconds 12 --log-name video-source
 STARCRAFT_DATA_DIR=/path/to/starcraft-data \
   python3 scripts/render-battle-replay.py
 ```

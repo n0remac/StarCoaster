@@ -81,11 +81,14 @@ class ScenarioRecordTest(unittest.TestCase):
             for point in ("initial", "final"):
                 (out / f"client-b-{point}.png").unlink()
             self.assertTrue(generic.verify(out)["capture_complete"])
-            (out / "client-a.log").write_text("WORLD_SCENARIO_STATUS scenario=frontier-outpost wave=1/2 state=active outcome=\n" + snapshot)
+            (out / "client-a.log").write_text("WORLD_SCENARIO_STATUS scenario=frontier-outpost wave=1/2 state=active outcome=\n"
+                                             "FRONTIER_PARK_STATE carousel=true gate=true\n" + snapshot)
             self.assertFalse(generic.verify(out)["capture_complete"])
             with contextlib.redirect_stdout(io.StringIO()):
                 frontier.main(out)
-            self.assertTrue(json.loads((out / "verification.json").read_text())["capture_complete"])
+            single = json.loads((out / "verification.json").read_text())
+            self.assertTrue(single["park_change_synchronized"])
+            self.assertTrue(single["capture_complete"])
 
     def test_frontier_late_join_after_gate_removal(self):
         with tempfile.TemporaryDirectory() as directory:

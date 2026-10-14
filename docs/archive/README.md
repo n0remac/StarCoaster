@@ -1,11 +1,14 @@
 # Historical documents
 
-These documents record superseded prototype plans and remain available for reference.
+This directory records superseded prototype designs and verification runs.
+Commands in these reports describe the implementation at the time of each
+experiment; use the [current packaged scenario workflow](../../README.md).
 
-| Document | Historical role |
-| --- | --- |
-| [Specification v0.1](specification-v0.1.md) | Original Recoil RTS engine and Minecraft/Fabric host proposal |
-| [Specification v0.1 Rev 2](specification-v0.1-rev2.md) | OpenBW/BWAPI × OpenRCT2 prototype implementation plan |
-| [Raspberry Pi assessment](raspberry-pi-assessment.md) | 2026-10-07 host assessment for that proposal |
+The v0.1 specifications and Raspberry Pi assessment describe the original
+proposal. The patrol, ride siege, frontier defense, park assault, rendering,
+and squad reports document retired demonstration pipelines. The v0.2 audit,
+baseline, and verification reports document the transition to the playable
+world bridge. The actor and unit spawn reports retain prior native evidence.
 
-For current work, use the [project README](../../README.md) and [v0.2 baseline](../consolidation-baseline.md).
+The [v0.6 removal inventory](../legacy-script-inventory-v0.6.md) maps retired
+scripts and modes to their packaged replacements and retained regressions.

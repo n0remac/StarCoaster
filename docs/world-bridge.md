@@ -1,19 +1,24 @@
-# World bridge startup mode
+# Packaged world bridge
 
-`world.v1` is the generic startup path. It discovers the loaded OpenRCT2 park on the authoritative server, transfers a complete revisioned snapshot through the Go bridge, and creates OpenBW target proxies at a simulation frame boundary. It uses a reusable 256×256 OpenBW base map. Parks up to 256×256 tiles retain 1:1 horizontal coordinates and are centered with offsets `(256-width)/2` and `(256-height)/2`, rounded down. Larger parks fail explicitly. The old patrol, siege, frontier, and park assault demos remain available as regression fixtures.
+`world.v1` is the generic startup path. It discovers the loaded OpenRCT2 park on the authoritative server, transfers a complete revisioned snapshot through the Go bridge, and creates OpenBW target proxies at a simulation frame boundary. It uses a reusable 256×256 OpenBW base map. Parks up to 256×256 tiles retain 1:1 horizontal coordinates and are centered with offsets `(256-width)/2` and `(256-height)/2`, rounded down. Larger parks fail explicitly. The packaged Frontier Outpost and Example Defense scenarios use this one runtime path.
 
 ## Start
 
-Build the pinned OpenRCT2 and BWAPI integrations as described in [bootstrap](bootstrap.md), then build the Go service:
+Build and launch a package through the developer CLI:
 
 ```bash
-/usr/local/go/bin/go build -o build/world-bridge ./cmd/world-bridge
-scripts/build-bridge-module.sh
-RCT2_DATA_DIR=/path/to/rct2 STARCRAFT_DATA_DIR=/path/to/starcraft \
-  scripts/run-world-session.sh /path/to/saved-park.park
+scripts/project.sh start --scenario frontier-outpost
+scripts/project.sh play example-defense
 ```
 
-The launcher uses `BRIDGE_SCENARIO=world` only to select the generic adapters. It does not create matching rides, park objects, proxy IDs, or a park-specific map. `scripts/create-world-base-map.py` produces the reusable `world-base-v5-256.scm` once. Its Zerg and Terran human slots run synchronized BWAPI adapters; a third computer slot owns park targets so either faction can attack them. The Go service listens on loopback ports 40010 for the OpenRCT2 server plugin, 40011 for the OpenBW publisher, and 40012 for the Terran unit controller. The existing actor snapshot transport and native renderer remain available in the same plugin.
+`scripts/scenario_package.py` resolves the package and prepares its park and
+native map; `scripts/run-world-session.sh` starts the common runtime. It sets
+`BRIDGE_SCENARIO=world` for the native module. Its Zerg and Terran human slots
+run synchronized BWAPI adapters; a third computer slot owns park targets so
+either faction can attack them. The Go service listens on loopback ports 40010
+for the OpenRCT2 server plugin, 40011 for the OpenBW publisher, and 40012 for
+the Terran unit controller. The native actor renderer receives synchronized
+snapshots on both OpenRCT2 clients.
 
 For a native size and capacity check, run `STARCRAFT_DATA_DIR=/path/to/StarCraft python3 tests/test_world_256_native_live.py` after building the patched engines. The probe loads both OpenBW participants, moves a Marine near the far edge, and applies a 65,536-tile blocked mask. Its ignored `run-data/world-256-native-*/verification.json` records the observed position and mask initialization time. The mask uses shared immutable VF4 variants, so confirmed demolition can restore the original tile index without consuming one variant per blocked map tile.
 
@@ -37,7 +42,7 @@ Runtime OpenBW Marines use `actor.spawn`, participant-specific `actor.bind`, and
 
 The Frontier squad window has a **Spawn Marine** placement tool and a 1–5 count selector. The current Terran commander clicks a park tile to send a synchronized OpenRCT2 action. The server checks commander authority and session before forwarding the request. The bridge validates bounds, scenario state and capacity, transforms the park point into OpenBW pixels, and journals the request ID and per-unit results. Native ownership is selected from the active OpenBW player configuration, never from the client payload. Native placement checks map bounds, walkability, static obstacles and blocking units.
 
-The bridge issues one native creation at a time, including within a five-Marine batch. It waits for the actual OpenBW creation event, canonical `actor.spawn`, and publisher and controller `actor.bind` acknowledgments before marking that unit `ready` and issuing the next. Failed units retain a reason and do not roll back successful siblings. The player sees `queued`, `issued`, `created`, `ready`, `rejected`, `failed`, or `uncertain` status. The same queue accepts trusted scenario Zergling waves through optional `spawn_waves` configuration; OpenRCT2 clients cannot request enemy ownership. The example [Zerg wave scenario](../scenarios/frontier-outpost-zerg-wave.json) adds five native Zerglings.
+The bridge issues one native creation at a time, including within a five-Marine batch. It waits for the actual OpenBW creation event, canonical `actor.spawn`, and publisher and controller `actor.bind` acknowledgments before marking that unit `ready` and issuing the next. Failed units retain a reason and do not roll back successful siblings. The player sees `queued`, `issued`, `created`, `ready`, `rejected`, `failed`, or `uncertain` status. The same queue accepts trusted scenario Zergling waves through optional `spawn_waves` configuration; OpenRCT2 clients cannot request enemy ownership. The example [Zerg wave fixture](../tests/fixtures/frontier-outpost-zerg-wave.json) adds five native Zerglings.
 
 Requests use session-unique, retry-stable IDs. Repeating the same request returns its recorded result; reusing an ID with different parameters is rejected. The bridge persists outcomes at `run-data/spawn-queue.json` by default. A bridge restart reconciles native actors and an in-flight creation before resuming the queue. It retries an uncertain command only if the same OpenBW publisher explicitly reports that it never received it. Client disconnects do not cancel or repeat native work. The queue admits at most 64 pending units, at most five per request and one creation awaiting identity at a time. The `--max-live-actors` bridge option defaults to 240, leaving room below the 256-unit combat snapshot ceiling. The park and native map remain static during spawning; no production building or economy cost is implemented.
 
@@ -49,7 +54,7 @@ The Go bridge derives one native 8-pixel navigation mask from the park snapshot.
 
 The mask is packed one bit per walk cell and sent in bounded hex chunks to both OpenBW participants. Each calculates the same FNV-1a hash before applying it to native VF4 walkability and rebuilding path regions. Startup `world.ready` waits for matching applied hashes from both participants and all target-link acknowledgements. A confirmed demolition causes the bridge to derive a new full mask, preserving permanent cliffs, and schedules both native updates at the same simulation frame. The civilian proxy retains its built-in hitbox, so the combat target and physical obstacle do not match a large ride's footprint. Live terrain construction remains unsupported: `entity.upsert`, `entity.remove`, `entity.transform`, and `navigation.terrain.update` are defined in the protocol and rejected with `live_update_unsupported`. Continuous guest/staff transfers are deferred. A failed native demolition remains failed; an authoritative resync can recreate a target for a later attempt.
 
-OpenBW builds its path regions in `upstream/openbw/bwgame.h::regions_create`. The native patches replace the walkability mask, invalidate active paths, and rebuild regions when park geometry changes. The [first playable verification](first-playable-verification.md) reports measured movement through the park and identifies any still failing demolition routes.
+OpenBW builds its path regions in `upstream/openbw/bwgame.h::regions_create`. The native patches replace the walkability mask, invalidate active paths, and rebuild regions when park geometry changes. The [first playable verification](archive/first-playable-verification.md) reports measured movement through the park and identifies any still failing demolition routes.
 
 ### Troubleshooting
 
@@ -66,15 +71,13 @@ Run unit and adapter checks:
 ```bash
 /usr/local/go/bin/go test ./...
 node tests/test_world_plugin.js
-node tests/test_plugin_snapshots.js
-node tests/test_park_assault_plugin.js
 cmake --build build/bridge-module --parallel 2
 ```
 
 A live run on `frontier-outpost.park` discovered 4,426 entities and 65,536 terrain cells without scenario configuration. With `BRIDGE_MAX_TARGETS=128`, OpenBW confirmed 113 native park targets; the remaining eligible objects were explicitly reported as unsupported by configured capacity or native placement. Native Marine combat destroyed ride 1, OpenRCT2 confirmed its removal, and two clients showed the same resulting ride set. Restarting only the Go service rebuilt the current park snapshot and returned to `world.ready` with 113 targets. A separated-army fixture delivered 100 mixed actor states to each of two clients without the old 32-unit limit.
 
-For runtime actor recovery, `tests/test_actor_lifecycle_live.sh` runs two fresh Frontier sessions with licensed local assets. Each starts with six Marines, verifies a seventh native Marine and both participant bindings, observes matching client snapshots, reconnects a client, restarts only the Go bridge, issues native move and attack orders, and confirms death and post-death command rejection. The [shared actor verification report](shared-actor-verification.md) records the actual runs and limits.
+For runtime actor recovery, `tests/test_actor_lifecycle_live.sh` runs two fresh Frontier sessions with licensed local assets. Each starts with six Marines, verifies a seventh native Marine and both participant bindings, observes matching client snapshots, reconnects a client, restarts only the Go bridge, issues native move and attack orders, and confirms death and post-death command rejection. The [shared actor verification report](archive/shared-actor-verification.md) records the actual runs and limits.
 
-`tests/test_unit_spawn_live.sh` uses the OpenRCT2 synchronized spawn action to create five native Marines and checks eleven distinct Marine IDs on two clients. Its `BRIDGE_SPAWN_RECOVERY=1` mode reconnects a client, restarts the Go bridge, kills one runtime Marine with a test-only native hook and requests a replacement. `BRIDGE_TEST_DISCONNECT_SPAWN_INDEX=2` interrupts a batch after native issue to exercise uncertain-command reconciliation. `tests/test_unit_spawn_zerg_live.sh` verifies a trusted five-Zergling wave, native movement and attack frames. The [unit spawn verification report](unit-spawn-verification.md) records commands, run artifacts and limits.
+`tests/test_unit_spawn_live.sh` uses the OpenRCT2 synchronized spawn action to create five native Marines and checks eleven distinct Marine IDs on two clients. Its `BRIDGE_SPAWN_RECOVERY=1` mode reconnects a client, restarts the Go bridge, kills one runtime Marine with a test-only native hook and requests a replacement. `BRIDGE_TEST_DISCONNECT_SPAWN_INDEX=2` interrupts a batch after native issue to exercise uncertain-command reconciliation. `tests/test_unit_spawn_zerg_live.sh` verifies a trusted five-Zergling wave, native movement and attack frames. The [unit spawn verification report](archive/unit-spawn-verification.md) records commands, run artifacts and limits.
 
 The unrelated OpenRCT2 `EverythingPark.park` test save also bootstrapped through the same launcher: 23,097 discovered entities, 65,536 terrain cells, 3,987 registered obstacle descriptors, and 113 mapped combat targets. `world.ready` reported 10,537 unsupported destructible entities by reason, so this run demonstrates discovery and explicit capacity reporting rather than complete combat coverage of that large park.

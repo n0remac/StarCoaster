@@ -1,3 +1,5 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # Two-sided OpenBW combat feasibility — resolved 2026-10-10
 
 ## Cause and fix
@@ -14,7 +16,7 @@ The Marine units begin in `PlayerGuard`. Once Zerglings approach, OpenBW changes
 scripts/build-bwapi.sh
 scripts/build-bridge-module.sh
 STARCRAFT_DATA_DIR=/path/to/your/starcraft-data \
-  python3 scripts/test-battle-feasibility.py --seconds 20
+  python3 scripts/the former battle feasibility test --seconds 20
 ```
 
 The test writes ignored logs under `run-data/battle-feasibility/`. It requires 4 Marines, 8 Zerglings, 12 unique IDs, distinct owners, mutual hostility at initialization and contact, 8 accepted Zergling orders, a Marine attack frame aimed at a registered Zergling, HP loss in both factions, an event-backed combat death, and a non-timeout outcome.

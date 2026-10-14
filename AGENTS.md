@@ -14,8 +14,8 @@ OpenRCT2 owns the park, scenery, rides, multiplayer state, and rendering. OpenBW
 
 ```sh
 scripts/project.sh build
-scripts/project.sh park
-scripts/project.sh run
+scripts/project.sh park example-defense
+scripts/project.sh play frontier-outpost
 scripts/project.sh test
 scripts/project.sh test-live
 scripts/project.sh record --duration 85
@@ -25,8 +25,9 @@ scripts/project.sh record --duration 85
 `play ID` uses an existing build. `park [ID]` force-generates only that package's
 park, fixture, and navigation data; `record [--scenario ID]` captures it.
 All default to `frontier-outpost` except `play`, which requires an ID.
-`run` remains a Frontier compatibility shortcut. Supported packages are
-`frontier-outpost` and `example-defense`; use `play ID --plan` to inspect paths.
+Supported packages are `frontier-outpost` and `example-defense`; use
+`play ID --plan` to inspect paths. `scripts/scenario_package.py` owns package
+resolution and preparation; `scripts/run-world-session.sh` launches gameplay.
 
 Use the relevant unit tests before live graphical tests. Preserve navigation, combat, synchronization, and rendering regressions when refactoring. Park changes must keep structure footprints, spawn points, chokepoints, and destructible openings aligned with the scenario and native map. Keep generated parks and captures deterministic where possible.
 

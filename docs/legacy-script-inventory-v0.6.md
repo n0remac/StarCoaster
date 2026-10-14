@@ -4,10 +4,13 @@ Source commit: `ace5c9e`; the worktree was clean. Inventory covers all 77 tracke
 files in `scripts/`. Callers were checked with repository-wide filename and
 Python module searches, along with `project.sh`, shell launchers, plugin staging,
 and the native scenario switch in `BridgeAIModule.cpp`.
+This table describes the **pre-removal** tree; removed names below are
+historical inventory entries, not supported commands. The two root Frontier
+configs were the targets of package symlinks rather than independent copies.
 
 | Class | Scripts and caller/dependency summary |
 | --- | --- |
-| Active runtime | `project.sh` dispatches `start.sh`, `play-scenario.py`, `park-scenario.py`, `record-frontier-outpost.py`, builds, tests; `scenario_package.py` resolves packages; `run-world-session.sh` launches `run-bwapi.sh` and `run-openrct2-host.sh`; `create-world-base-map.py`, `starcraft_map_pack.py`, `create-park-assault.py`, `park-assault-generator.js`, `park_navigation.py`, `frontier_geometry.py` produce packaged assets. |
+| Active runtime | `project.sh` dispatched `start.sh`, `play-scenario.py`, `park-scenario.py`, `record-frontier-outpost.py`, builds, tests; `scenario_package.py` resolved packages; `run-world-session.sh` launched `run-bwapi.sh` and `run-openrct2-host.sh`; `create-world-base-map.py`, `starcraft_map_pack.py`, `create-park-assault.py`, `park-assault-generator.js`, `park_navigation.py`, `frontier_geometry.py` produced packaged assets. |
 | Build and install utilities | `fetch-upstream.py`, `check-dependencies.py`, `apply-bwapi-patches.py`, `apply-openrct2-patches.sh`, `build-bwapi.sh`, `build-openrct2.sh`, `build-bridge-module.sh`, `install-openrct2-local.sh`, `install-bridge-sprites.py`, `prepare-starcraft-sprites.py`, `sprite_anchor_report.py`. Build and asset staging call these directly or through `start.sh`/`project.sh`. |
 | Active capture and regression | `artifact_runs.py`, `video_capture.py`, `verify-scenario-capture.py`, `verify-frontier-capture.py`, `verify-frontier-elevation-capture.py`, `verify-frontier-lifecycle.py`, `verify-frontier-native-navigation.py`, `verify-frontier-ridge.py`, `verify-world-256-capture.py`, `create-world-256-park.py`, `world-256-park-generator.js`, `frontier-camera.js`, `frontier-lifecycle-probe.js`, `frontier-native-navigation-probe.js`, `frontier-park-sync-probe.js`, `frontier-ridge-probe.js`, `world-256-camera.js`, `world-256-scale-probe.js`, `world-actor-observer.js`, `world-actor-probe.js`, `world-client-probe.js`, `world-spawn-probe.js`, `world-target-probe.js`, `world-zerg-spawn-observer.js`, `scenario-defense-probe.js`. These are loaded by recorder/live tests or their verification helpers. |
 | Legacy demonstration | `capture-live-demo.py`, `create-render-test-park.py`, `render-test-park.js`, `create-ride-siege-map.py`, `verify-ride-siege-headless.py`, `create-park-assault-map.py`, `export-park-assault-navigation.py`, `prepare-park-assault-plugin.py`, `verify-park-assault-headless.py`, `park_assault_artifacts.py`, `park_assault_verification.py`, `park_assault_visual.py`, `verify_render_fixture.py`, `demo-camera.js`, `park-assault-camera.js`, `frontier-command-probe.js`, `test-battle-feasibility.py`. The legacy capture driver, old map tests, and historical guides are their callers. |
@@ -24,7 +27,7 @@ branches in `run-bwapi.sh`, `run-openrct2-host.sh`, `BridgeAIModule.cpp`, and
 | Candidate | Current dependency | Replacement or preservation |
 | --- | --- | --- |
 | `run-frontier-outpost.sh`, `project.sh run` | package test, active guides | `project.sh play frontier-outpost` |
-| root `frontier-outpost.json`, `frontier-outpost-mapping.json` | live tests, recorder, lifecycle verifier, Go tests | identical package copies |
+| root `frontier-outpost.json`, `frontier-outpost-mapping.json` | live tests, recorder, lifecycle verifier, Go tests | package symlinks converted to authoritative regular files |
 | `frontier-outpost-zerg-wave.json` | wave Go/live tests | `tests/fixtures/` for v1 compatibility |
 | legacy capture/map/plugin pipeline above | old tests and historical guides | packaged recorder, world/scenario tests; migrate distinct assertions first |
 | legacy native and plugin branches | legacy launchers and Node tests | world adapter and world plugin regression suite |
@@ -38,6 +41,22 @@ graphical recording, map generation from local fixtures, and the live shell and
 Python tests require locally licensed RCT2 and StarCraft data plus built engines;
 these were not run for the baseline. Live verification must report its own
 results and `run-data/` evidence before any native pass claim.
+
+## Phase 3 coverage migration
+
+The world plugin test now checks server-only snapshot authority, atomic actor
+validation, target identity generations, duplicate destruction suppression,
+native demolition failure, client target catalogs, Marine orders, runtime actor
+binding, and synchronized spawn status. Its 100-actor and 512-target cases
+supersede the smaller siege and assault packet capacity checks. The current
+native map tests cover packaged starting units and 256×256 terrain sections.
+The park navigation test uses the generated Frontier package export for routes,
+wall clearance, demolition revision, and corrupted footprint rejection.
+
+`create-park-assault.py` and `park-assault-generator.js` remain active package
+generators despite their historical names. The isolated native demolition
+probe in `tests/test_park_assault_map.py` remains because it checks actual
+OpenRCT2 removal of three distinct authored rides and tracks.
 
 ## Phase 4 decisions
 

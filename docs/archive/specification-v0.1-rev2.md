@@ -86,13 +86,13 @@ cmake -S bwapi -B bwapi/build -DCMAKE_BUILD_TYPE=Release \
 cmake --build bwapi/build -j
 ```
 
-This checkout keeps all three upstream repositories under `upstream/`; see the [pinned revisions](../dependencies.lock.json) and [bootstrap commands](bootstrap.md) used on the target Pi.
+This checkout keeps all three upstream repositories under `upstream/`; see the [pinned revisions](../../dependencies.lock.json) and [bootstrap commands](../bootstrap.md) used on the target Pi.
 
 **Note:** The fork is a development branch with potential breaking changes. The commands are documented configuration guidance, **not yet validated as successful on the target machine**. Start by building the supplied `ExampleAIModule`; avoid touching private implementation until the public API proves inadequate. OpenBW can run without SDL when the UI is disabled.
 
 ### 4.2 Run prerequisites and licensing gate
 
-The README identifies three required, **user-supplied** StarCraft data archives in the launch working directory (from an appropriate original installation). The pinned OpenBW loader opens the case-sensitive names `StarDat.mpq`, `BrooDat.mpq`, and `Patch_rt.mpq`; the BWAPI README spells the first two `Stardat.mpq` and `Broodat.mpq`. The [launcher script](../scripts/run-bwapi.sh) accepts either spelling and stages the source-required names. Configure the AI plugin and map in `bwapi-data/bwapi.ini`, or use supported `BWAPI_CONFIG_*` environment variables. The launcher is `BWAPILauncher`.
+The README identifies three required, **user-supplied** StarCraft data archives in the launch working directory (from an appropriate original installation). The pinned OpenBW loader opens the case-sensitive names `StarDat.mpq`, `BrooDat.mpq`, and `Patch_rt.mpq`; the BWAPI README spells the first two `Stardat.mpq` and `Broodat.mpq`. The [launcher script](../../scripts/run-bwapi.sh) accepts either spelling and stages the source-required names. Configure the AI plugin and map in `bwapi-data/bwapi.ini`, or use supported `BWAPI_CONFIG_*` environment variables. The launcher is `BWAPILauncher`.
 
 Example concept for launching from a directory containing the required MPQs and BWAPI configuration:
 

@@ -1,3 +1,5 @@
+> Historical report. Use the [current workflow](../../README.md).
+
 # OpenBW adapter status and measurements
 
 > Historical measurement: the capacity run below predates the native
@@ -77,7 +79,7 @@ Combat still uses a Terran Civilian's native hitbox. A multi-tile ride has one h
 /usr/local/go/bin/go test ./...
 ctest --test-dir build/bridge-module --output-on-failure
 for test_file in tests/test_*plugin.js; do node "$test_file"; done
-node tests/test_plugin_snapshots.js
+node tests/the former v1 snapshot test
 python3 -m unittest discover -s tests -p 'test_*.py'
 # Requires local licensed game data:
 RCT2_DATA_DIR=/path/to/rct2 STARCRAFT_DATA_DIR=/path/to/starcraft \

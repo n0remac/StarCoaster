@@ -1,8 +1,9 @@
 # Remote test artifact viewer
 
-The read-only Go viewer indexes `run-data/artifacts/`. Each new graphical capture or battle replay creates a unique run directory and an atomic `run.json`. It does not need OpenRCT2 or OpenBW to be running. All completed runs are retained until removed manually. A failed capture retains its completed screenshots, validated video, verification result, and filtered diagnostic logs.
-
-Live capture video comes from two graphical OpenRCT2 clients. Battle replay video is an OpenBW trace **composited over a static OpenRCT2 park screenshot**; it is not live synchronized OpenRCT2 combat.
+The read-only Go viewer indexes `run-data/artifacts/`. Each packaged scenario
+recording creates a unique run directory and an atomic `run.json`. Completed
+runs remain until removed manually. Failed captures retain their completed
+screenshots, verified video, verification result, and filtered logs.
 
 ## Build and run on the Pi
 
@@ -20,19 +21,18 @@ The default listener is `127.0.0.1:8787`. `STARCOASTER_VIEWER_LISTEN` changes it
 
 ## Capture runs
 
-The current command lines continue to work. Without an output override, each invocation uses a new directory under `run-data/artifacts/`:
+Use the packaged recorder. Each invocation creates a new directory under
+`run-data/artifacts/` unless `STARCOASTER_ARTIFACT_ROOT` overrides the root:
 
 ```sh
-DEMO_PARK=run-data/park-generator/save/bridge-render-test.park \
-  python3 scripts/capture-live-demo.py --seconds 8 --record-video
-python3 scripts/render-battle-replay.py
-python3 scripts/capture-live-demo.py --scenario ride-siege --verify-destruction \
-  --record-video --video-layout combined
+scripts/project.sh record --scenario frontier-outpost --duration 85
+scripts/project.sh record --scenario example-defense --duration 85
+scripts/project.sh record --scenario example-defense --video-layout single --duration 45
 ```
 
-`DEMO_OUTPUT_DIR=run-data/my-demo` and battle replay `--output run-data/my-replay` still write there. A separate unique artifact directory receives copies of approved files when the command exits, including failures. The original output is left at the requested path. The viewer only advertises an MP4 after FFmpeg has exited and `ffprobe` has validated it. Other runtime files, extracted sprites, archives, and build assets are not published.
-
-The ride siege capture is a live two-client interaction with a real OpenRCT2 ride. See the [ride siege guide](ride-siege.md). Its detail page shows the OpenBW target HP events, native demolition result, and each client's ride and track state, alongside the combined recording and screenshots.
+`record --help` lists video settings and test-only terrain probes. The viewer
+advertises an MP4 only after FFmpeg exits and `ffprobe` validates the file.
+Extracted sprites, archives, and build assets are not published.
 
 ## User service
 

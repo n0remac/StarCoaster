@@ -12,7 +12,6 @@ Run `scripts/project.sh start` for full bootstrap, or
 `scripts/project.sh play frontier-outpost` after building the engines.
 Use `scripts/project.sh park frontier-outpost` to regenerate the park and
 `scripts/project.sh record --scenario frontier-outpost --duration 85` to capture it.
-The legacy `scripts/project.sh run` shortcut still launches this scenario.
 
 The OpenBW carousel target currently has 40 effective hit points. A mapping
 health override was tested during balancing but did not change the native

@@ -1,3 +1,5 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # Local Zergling renderer
 
 Direct developer builds default to the original CC0 alien scout;
@@ -9,22 +11,11 @@ does not change simulation or synchronized actions.
 ## Prepare and build
 
 Install Pillow and StormLib's `smpq` utility (Debian package `smpq`). Fetch and
-build the pinned upstream projects using the [bootstrap guide](bootstrap.md),
+build the pinned upstream projects using the [bootstrap guide](../bootstrap.md),
 then run:
 
-```bash
-python3 scripts/prepare-starcraft-sprites.py --game-dir "$STARCRAFT_DATA_DIR" --unit zergling
-python3 scripts/prepare-starcraft-sprites.py --game-dir "$STARCRAFT_DATA_DIR" --unit marine
-BRIDGE_SPRITE_SOURCE=starcraft-local scripts/build-openrct2.sh
-scripts/install-openrct2-local.sh
-python3 scripts/create-render-test-park.py
-DEMO_PARK=run-data/park-generator/save/bridge-render-test.park \
-  DEMO_OUTPUT_DIR=run-data/zergling-regression \
-  python3 scripts/capture-live-demo.py --seconds 65 --cycle-rotations \
-    --verify-zergling --publisher-restart --sample-animation
-python3 scripts/verify-rendered-sprites.py \
-  --capture-dir run-data/zergling-regression --expect-motion walk --axis east-west
-```
+> Historical command removed in v0.6; use the packaged scenario CLI.
+
 
 `STARCRAFT_DATA_DIR` defaults to `/home/pi/games/starcraft` if omitted. The
 preparation script requires classic MPQs and searches `Patch_rt.mpq`,
@@ -68,12 +59,12 @@ compiled `g2.dat` containing Blizzard art without appropriate permission.
 
 ## Visual regression
 
-`create-render-test-park.py` starts the pinned `BigMapTest.sv6` park locally,
+`former render park generator` starts the pinned `BigMapTest.sv6` park locally,
 adds a path along the actor's x=320..640, y=480 route, two large trees, a
 smaller tree, a fence, and a raised section, then saves an ignored `.park` file.
-The generator script in `scripts/render-test-park.js` makes this reproducible.
+The generator script in `scripts/former render park plugin` makes this reproducible.
 
-`capture-live-demo.py` starts one headless OpenBW publisher, one OpenRCT2
+`former prototype capture driver` starts one headless OpenBW publisher, one OpenRCT2
 server, and two graphical clients. Client A stays at rotation 0. With
 `--cycle-rotations`, client B rotates independently through 0–3, and screenshots
 are tagged with its actual camera rotation. The capture checks synchronized
@@ -114,13 +105,8 @@ recorder reads the two existing Xvfb displays after both clients have joined.
 It records through the screenshot checks and publisher restart, then finalizes
 the MP4 before Xvfb exits. For the full visual regression:
 
-```bash
-DEMO_PARK=run-data/park-generator/save/bridge-render-test.park \
-  DEMO_OUTPUT_DIR=run-data/zergling-video \
-  python3 scripts/capture-live-demo.py --seconds 65 --record-video \
-    --video-layout combined --cycle-rotations --verify-zergling \
-    --publisher-restart --sample-animation
-```
+> Historical command removed in v0.6; use the packaged scenario CLI.
+
 
 The default `combined.mp4` is 1920×600: client A occupies the left 960×600
 half and client B the right. The defaults are 10 FPS, H.264, CRF 32,

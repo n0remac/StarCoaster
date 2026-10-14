@@ -1,3 +1,5 @@
+> Historical verification report. Commands below record a prior baseline; use the [current workflow](../../README.md).
+
 # v0.3.1 unit spawning progress
 
 ## Phase 1 — actor creation reliability
@@ -34,7 +36,7 @@
 - Prior HEAD: `b5187d5`.
 - Added a five-choice count selector and Spawn Marine placement tool to the squad window. The action uses OpenRCT2's synchronized action path, checks the authenticated commander, and sends the player's park coordinates without a native owner. Escape cancels placement; the Select button restores Marine selection. Spawn status is synchronized to clients and shown in the window.
 - Existing snapshots, native sprites, hit testing, squad selection, control groups, and orders include the new Marines without a new render path.
-- Passed: `node tests/test_world_plugin.js`, `node tests/test_plugin_snapshots.js`, `node --check`, `scripts/project.sh test`, and the earlier five-Marine live action run in `run-data/unit-spawn-live-1791867143/`. The live test joined client A first so its authenticated player became commander.
+- Passed: `node tests/test_world_plugin.js`, `node tests/the former v1 snapshot test`, `node --check`, `scripts/project.sh test`, and the earlier five-Marine live action run in `run-data/unit-spawn-live-1791867143/`. The live test joined client A first so its authenticated player became commander.
 - Next: Phase 5, submit trusted scenario Zergling waves through the same request queue and verify native combat.
 
 ## Phase 5 — trusted scenario Zergling wave

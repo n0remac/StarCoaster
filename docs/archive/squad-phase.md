@@ -1,3 +1,5 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # Eight-unit visualization bridge
 
 `BRIDGE_DEMO_UNITS=8` makes the BWAPI module create eight Zerglings with distinct IDs and patrol endpoints. The default remains one unit. The publisher sorts by BWAPI ID and sends a complete v1 array every third BW frame. All three receiver layers cap arrays at 32 units; publisher and plugin cap a newline-delimited JSON packet at 16 KiB. The plugin rejects an entire packet on any invalid or duplicate actor. A publisher disconnect sends one synchronized empty array.
@@ -8,19 +10,8 @@ The locally extracted 296-frame classic Zergling GRP was inspected as 17 directi
 
 Build and capture on the Pi:
 
-```bash
-python3 scripts/prepare-starcraft-sprites.py
-BRIDGE_SPRITE_SOURCE=starcraft-local scripts/build-openrct2.sh
-scripts/build-bridge-module.sh
-scripts/install-openrct2-local.sh
-python3 scripts/create-render-test-park.py
-DEMO_PARK=run-data/park-generator/save/bridge-render-test.park \
-DEMO_OUTPUT_DIR=run-data/squad-demo \
-python3 scripts/capture-live-demo.py --seconds 65 --demo-units 8 \
-  --verify-units --verify-animation --cycle-rotations \
-  --publisher-restart --record-video --video-layout combined \
-  --video-fps 10 --video-crf 28
-```
+> Historical command removed in v0.6; use the packaged scenario CLI.
+
 
 `verification.json` compares canonical `(id,x,y,facing,motion)` sets for every common `(session,seq)` across the server and two graphical clients. It also records per-ID projected screenshot pixel counts and walk-region changes. `screenshot-states.json` pairs screenshots with logged source positions and terrain height. `video-metadata.json` contains FFprobe output and recording events. On a failed capture, logs, screenshots, and any finalized video stay under the requested ignored output directory.
 

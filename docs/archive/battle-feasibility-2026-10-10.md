@@ -1,3 +1,5 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # Initial battle feasibility investigation — 2026-10-10
 
 This is the historical failing result at commit `0e63433`. The gate now passes using a battle-only map configuration; see [the resolution](battle-feasibility-resolution-2026-10-10.md).
@@ -8,8 +10,8 @@ The first combat gate is **blocked** on the pinned OpenBW/BWAPI stack. The norma
 
 ```bash
 scripts/build-bridge-module.sh
-STARCRAFT_DATA_DIR=/home/pi/games/starcraft python3 scripts/test-battle-feasibility.py --seconds 12
-STARCRAFT_DATA_DIR=/home/pi/games/starcraft python3 scripts/test-battle-feasibility.py --seconds 12 --probe-enemy-orders
+STARCRAFT_DATA_DIR=/home/pi/games/starcraft python3 scripts/the former battle feasibility test --seconds 12
+STARCRAFT_DATA_DIR=/home/pi/games/starcraft python3 scripts/the former battle feasibility test --seconds 12 --probe-enemy-orders
 ```
 
 The StarCraft archive path is a local example; use your own installed game data. The two commands intentionally fail the gate and write ignored logs under `run-data/battle-feasibility/`.
@@ -32,4 +34,4 @@ I launched two `BWAPILauncher` processes with separate runtime directories, Zerg
 
 ## Current scope
 
-`BRIDGE_SCENARIO=battle` is an opt-in feasibility probe. It creates and tracks the two factions but does not publish protocol v2 snapshots or render the battle. The phase gate must pass before those features are implemented.
+`retired scenario mode` is an opt-in feasibility probe. It creates and tracks the two factions but does not publish protocol v2 snapshots or render the battle. The phase gate must pass before those features are implemented.

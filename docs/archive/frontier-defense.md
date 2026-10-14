@@ -1,3 +1,5 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # Frontier defense live demo
 
 This scenario puts four real OpenBW Marines and eight real OpenBW Zerglings in the existing Frontier Carousel park. Two OpenBW/BWAPI processes use the supported `LOCAL` transport. The Zerg endpoint publishes complete v3 snapshots; the Terran endpoint owns Marine orders. The OpenRCT2 server validates snapshots and player commands, distributes unit state through a synchronized custom action, and demolishes the carousel once its OpenBW Missile Turret proxy is destroyed.
@@ -6,18 +8,8 @@ This scenario puts four real OpenBW Marines and eight real OpenBW Zerglings in t
 
 ## Build and run on the Pi
 
-```sh
-python3 scripts/prepare-starcraft-sprites.py --unit zergling
-python3 scripts/prepare-starcraft-sprites.py --unit marine
-BRIDGE_SPRITE_SOURCE=starcraft-local scripts/build-openrct2.sh
-scripts/install-openrct2-local.sh
-scripts/build-bridge-module.sh
-python3 scripts/create-render-test-park.py --scenario frontier-defense
-python3 scripts/create-ride-siege-map.py --scenario frontier-defense \
-  --output run-data/frontier-defense-map/frontier-defense.scm
-python3 scripts/capture-live-demo.py --scenario frontier-defense \
-  --record-video --video-layout combined --verify-combat
-```
+> Historical command removed in v0.6; use the packaged scenario CLI.
+
 
 Set `STARCRAFT_DATA_DIR` to the directory containing the locally licensed `StarDat.mpq`, `BrooDat.mpq`, and `Patch_rt.mpq` before running OpenBW. The capture command starts the park server, both OpenBW factions, and two graphical clients; it also regenerates the map and park fixtures as needed. Run the public build with `BRIDGE_SPRITE_SOURCE=alien-scout`; it uses an original CC0 human soldier placeholder when local Marine art is absent. The proprietary GRP, extracted PNGs, and built g2.dat stay under ignored `run-data/`, `upstream/`, and `build/` paths.
 The `--verify-combat` gate also uses `xdotool` to exercise real map clicks and right-click orders in the graphical client.

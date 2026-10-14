@@ -1,6 +1,8 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # First Playable Verification — Frontier Outpost
 
-> Historical first-playable baseline. The v0.2 [foundation verification](foundation-verification.md) resolves the listed victory, reconnect/restart, and generic live demolition gaps; the [park design report](park-design-v0.2.md) records the corrected wall geometry and native route retest.
+> Historical first-playable baseline. The v0.2 [foundation verification](foundation-verification.md) resolves the listed victory, reconnect/restart, and generic live demolition gaps; the [park design report](../park-design-v0.2.md) records the corrected wall geometry and native route retest.
 
 **Status: In progress.** The graphical first-playable encounter, native navigation checks, and live selection-control checks pass. Victory and a live scenario restart/reconnect still need verification, so this report does not declare the milestone complete.
 
@@ -8,7 +10,7 @@
 
 - Repository baseline and tested source commit: `72b498c96bb5cf0fa2bac6918fe38d525a1c943c`.
 - The verification ran with the working-tree changes present; the source commit is the baseline, not a claim that these changes have been committed.
-- Frontier Outpost was launched through `scripts/run-frontier-outpost.sh` with the installed RCT2 and StarCraft data on this Pi.
+- Frontier Outpost was launched through `scripts/former Frontier launcher` with the installed RCT2 and StarCraft data on this Pi.
 - `WORLD_READY` reported `entities=556 targets=27 obstacles=231 navigation=native unsupported=0`. The graphical capture showed all six Marines and twelve Zerglings.
 
 ## Build and regression commands
@@ -23,7 +25,7 @@
 | `git apply --reverse --check openbw-bwapi-module/0003-native-navigation-bwapi.patch` from `upstream/bwapi` | **PASS** | Patch is present and reverse-checks cleanly. |
 | `/usr/local/go/bin/go test ./...` | **PASS** | All Go packages passed. |
 | `ctest --test-dir build/bridge-module --output-on-failure` | **PASS** | `world_state_test` and `world_navigation_test`, 2/2. |
-| `for test_file in tests/test_*plugin.js tests/test_plugin_snapshots.js; do node "$test_file"; done` | **PASS** | Plugin lifecycle, combat validation, and snapshot tests passed. |
+| `for test_file in tests/test_*plugin.js tests/the former v1 snapshot test; do node "$test_file"; done` | **PASS** | Plugin lifecycle, combat validation, and snapshot tests passed. |
 | `python3 -m unittest discover -s tests -p 'test_*.py'` | **PASS** | 43 tests passed. |
 | `tests/test_frontier_native_navigation_live.sh` | **PASS** | Six live actor-position checks passed; details below. |
 | `tests/test_world_live.sh` | **FAIL** | In `run-data/world-live-1791836216/`, the client probe repeatedly received `Invalid Zergling target` and never issued the attack. In `run-data/world-live-1791835871/`, the attack was accepted, but ride 1 was not removed within 180 seconds while the Marine navigated the park. |
@@ -37,7 +39,7 @@
 | --- | --- | --- |
 | OpenBW, BWAPI, OpenRCT2, and Go bridge compile | **PASS** | Build commands above and Go tests passed. |
 | Native navigation patches apply to their upstream checkouts | **PASS** | Both patches reverse-check cleanly; rebuilds passed. |
-| Normal Frontier Outpost launcher starts | **PASS** | Graphical capture invoked `scripts/run-frontier-outpost.sh`; `WORLD_READY` was emitted. |
+| Normal Frontier Outpost launcher starts | **PASS** | Graphical capture invoked `scripts/former Frontier launcher`; `WORLD_READY` was emitted. |
 | Six Marines, twelve Zerglings, combat targets, and geometry initialize | **PASS** | Capture log and `verification.json`; 27 supported targets, 231 obstacles, zero unsupported targets. |
 | Reject readiness when a required scenario component is absent | **DEFERRED** | The successful startup proves required components are present; a missing-component startup was not deliberately exercised. |
 

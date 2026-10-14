@@ -1,3 +1,5 @@
+> Historical report. Commands and script names below describe a retired prototype; use the [current workflow](../../README.md).
+
 # StarCoaster v0.2 final verification
 
 The consolidation build and all required automated gates passed on the Raspberry Pi with locally installed RCT2 and StarCraft data. The final commands were:
@@ -12,7 +14,7 @@ The consolidation build and all required automated gates passed on the Raspberry
 
 The live navigation check observed blocked corridors before demolition, routes through the intended opening, Marines crossing the removed wall, all six Marines moving without stalls, and a Marine entering the removed carousel footprint. The generic live check confirmed OpenRCT2 ride removal and agreement between both clients. Each lifecycle cycle reached authoritative victory with six Marines and zero Zerglings, then client B rejoined the same session with six unique actors. The restart used a new session ID. The graphical recording reached authoritative defeat after combat and carousel demolition; its 459 shared client snapshots matched with zero mismatches.
 
-The 15/30 FPS benchmarks in [recording performance](recording-performance-v0.2.md) showed no material loss of simulation tick progress relative to capture off. Combined 30 FPS used 97.7% of one CPU core, so the Pi default remains 15 FPS. Single-client capture and two-client combined/separate capture use the same `VideoRecorder` and keep validated media and logs in the artifact viewer.
+The 15/30 FPS benchmarks in [recording performance](../recording-performance-v0.2.md) showed no material loss of simulation tick progress relative to capture off. Combined 30 FPS used 97.7% of one CPU core, so the Pi default remains 15 FPS. Single-client capture and two-client combined/separate capture use the same `VideoRecorder` and keep validated media and logs in the artifact viewer.
 
 ## Remaining limits
 
