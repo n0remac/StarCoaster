@@ -17,6 +17,33 @@ from scenario_package import resolve, ensure_park, build_native_map  # noqa: E40
 from test_scenario_runtime_live import wait_for_ports, wait_for, bridge_pid  # noqa: E402
 
 
+def native_wave_approaches(client_log, waves, fixture):
+    """Require each wave to move from its spawn toward the exported wheel."""
+    wheel = next(target for target in fixture["targets"] if target["id"] == "midway-wheel")
+    center = wheel["structure_center"]
+    actor_to_wave = {unit["actor_id"]: wave["id"] for wave in waves
+                     for unit in wave["units"] if unit.get("actor_id")}
+    tracks = {actor: [] for actor in actor_to_wave}
+    for line in client_log.splitlines():
+        if "RTS Bridge apply tick=" not in line:
+            continue
+        for match in re.finditer(r"(openbw:\d+),(-?\d+),(-?\d+),", line):
+            if match[1] in tracks:
+                tracks[match[1]].append((int(match[2]), int(match[3])))
+    reached = {wave["id"]: False for wave in waves}
+    for actor, points in tracks.items():
+        if not points:
+            continue
+        origin = points[0]
+        for x, y in points:
+            moved = abs(x - origin[0]) + abs(y - origin[1]) >= 192
+            near_wheel = (x - center["x"]) ** 2 + (y - center["y"]) ** 2 <= 320 ** 2
+            if moved and near_wheel:
+                reached[actor_to_wave[actor]] = True
+                break
+    return reached
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("victory", "defeat"), required=True)
@@ -110,6 +137,14 @@ def main():
             report["checks"]["unique_native_actors"] = len(actors) == len(set(actors)) == 12
             requests = [a["request_id"] for w in waves for u in w["units"] for a in u["attempts"]]
             report["checks"]["no_duplicate_wave_requests"] = len(requests) == len(set(requests))
+            fixture = json.loads(Path(plan["fixture"]).read_text())
+            report["native_wave_approaches"] = {
+                "client_a": native_wave_approaches(log, waves, fixture),
+                "client_b": native_wave_approaches(
+                    (run/"client-b-reconnect.log").read_text(errors="replace"), waves, fixture),
+            }
+            report["checks"]["native_wave_approaches"] = all(
+                all(result.values()) for result in report["native_wave_approaches"].values())
             report["checks"]["spawn_move_hold_attack"] = all(f"MIDWAY_{verb} accepted=true" in log for verb in ("SPAWN","MOVE","HOLD","ATTACK"))
             report["checks"]["reinforcement_move"] = "MIDWAY_REINFORCEMENT_MOVE accepted=true" in log
             status = r"WORLD_SCENARIO_STATUS scenario=midway-junction wave=3/3 state=cleared outcome=victory"
