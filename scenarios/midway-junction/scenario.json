@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "scenario_id": "midway-junction",
+  "display_name": "Midway Junction",
+  "park_file": "run-data/midway-junction/save/midway-junction.park",
+  "park_size": [64, 64],
+  "starting_units": {
+    "marines": [[20, 30], [21, 30], [22, 30], [20, 31], [21, 31], [22, 31]],
+    "zerglings": [[49, 30], [50, 30], [51, 30], [52, 30], [49, 31], [50, 31], [51, 31], [52, 31]]
+  },
+  "objectives": [{
+    "id": "defend-midway-wheel", "description": "Defend the Midway Ferris Wheel",
+    "entity_kind": "ride", "entity_type": "rct2.ride.fwh1",
+    "entity_name": "Midway Ferris Wheel", "required": true
+  }],
+  "initial_ai": { "strategy": "objective_assault", "objective": "defend-midway-wheel", "delay_frames": 144 },
+  "spawn_zones": {
+    "east-entrance": { "tiles": [[49, 33], [50, 33], [51, 33], [52, 33], [49, 34], [50, 34], [51, 34], [52, 34]] },
+    "north-midway": { "tiles": [[33, 15], [34, 15], [35, 15], [36, 15], [37, 15], [38, 15]] },
+    "south-service": { "tiles": [[35, 48], [36, 48], [37, 48], [38, 48], [39, 48], [40, 48]] }
+  },
+  "waves": [
+    { "id": "opening-assault", "trigger": { "type": "on_ready" },
+      "groups": [{ "unit_type": "zerg_zergling", "count": 4, "spawn_zone": "east-entrance" }] },
+    { "id": "northern-flank", "trigger": { "type": "elapsed_frames", "frames": 360 },
+      "groups": [{ "unit_type": "zerg_zergling", "count": 3, "spawn_zone": "north-midway" }] },
+    { "id": "southern-assault", "trigger": { "type": "wave_cleared", "wave_id": "northern-flank" },
+      "groups": [{ "unit_type": "zerg_zergling", "count": 5, "spawn_zone": "south-service" }] }
+  ],
+  "victory": { "all_waves_cleared": true, "all_zerglings_eliminated": true, "objective_intact": "defend-midway-wheel" },
+  "defeat": { "objective_destroyed": "defend-midway-wheel", "all_marines_eliminated": true }
+}

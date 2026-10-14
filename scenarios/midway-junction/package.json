@@ -1,0 +1,6 @@
+{
+  "generator": "layout-v1",
+  "layout": "park-layout.json",
+  "fixture": "run-data/midway-junction/fixture.json",
+  "navigation": "run-data/midway-junction/navigation-elements.json"
+}
