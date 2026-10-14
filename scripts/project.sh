@@ -45,6 +45,7 @@ case "$command" in
         tests/test_actor_lifecycle_live.sh
         tests/test_unit_spawn_live.sh
         tests/test_unit_spawn_zerg_live.sh
+        tests/test_playable_start_live.sh
         ;;
     help|-h|--help)
         cat <<'EOF'

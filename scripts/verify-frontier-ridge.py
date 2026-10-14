@@ -42,7 +42,7 @@ def main(directory):
     attacks = [row for row in rows if row["phase"] >= 3
                for uid, point in row["units"].items()
                if (1000 <= uid <= 1005 and point[3] == "attack")
-               or (2000 <= uid <= 2011 and point[2] < 35)]
+               or ((2000 <= uid <= 2011 or 3001 <= uid <= 3005) and point[2] < 35)]
     hashes = re.findall(r"(?:controller|publisher) navigation hash=([0-9a-f]{16})", server)
     checks = {
         "both_native_participants_ready": len(hashes) >= 2 and hashes[0] == hashes[1]

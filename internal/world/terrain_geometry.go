@@ -58,7 +58,10 @@ func (t Terrain) ValidateGeometry() error {
 		if *path.SlopeDirection < 0 || *path.SlopeDirection > 3 {
 			return fmt.Errorf("invalid path slope direction %d", *path.SlopeDirection)
 		}
-		pathSlope = ((12 << *path.SlopeDirection) | (12 >> (4 - *path.SlopeDirection))) & 15
+		// Match OpenRCT2 MapHeightFromSlope's actual elevation pattern for
+		// each path direction; path bits and surface slope bits use different
+		// encodings.
+		pathSlope = [4]int{3, 6, 12, 9}[*path.SlopeDirection]
 	}
 	pathTerrain := Terrain{Height: path.BaseHeight, Slope: pathSlope}
 	pathCorners, err := pathTerrain.CornerHeights()

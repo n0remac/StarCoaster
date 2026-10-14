@@ -1,6 +1,6 @@
 # StarCoaster
 
-StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Six OpenBW Marines defend Frontier Carousel against twelve Zerglings in a deterministic 64 × 64 Frontier Outpost. The player selects Marines, calls in up to five reinforcements through the squad window's Spawn Marine tool, and gives move, attack, attack move, hold, and stop orders in OpenRCT2. OpenBW runs unit movement and combat; the OpenRCT2 server owns the park and native demolition; the Go bridge synchronizes both engines and two clients.
+StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Six OpenBW Marines start on the raised ridge in a deterministic 64 × 64 Frontier Outpost. Twelve Zerglings start on the opposite side, and five more spawn automatically when the world is ready. The player selects Marines, calls in up to five reinforcements through the squad window's Spawn Marine tool, and gives move, attack, attack move, hold, and stop orders in OpenRCT2. OpenBW runs unit movement and combat; the OpenRCT2 server owns the park and native demolition; the Go bridge synchronizes both engines and two clients.
 
 ## Build and play
 
@@ -29,6 +29,11 @@ The direct `run` command reuses the generated park unless it is missing or its
 generator inputs have changed.
 
 The launcher starts the OpenRCT2 host, OpenBW publisher and controller, and Go bridge. Set `BRIDGE_LAUNCH_CLIENT=1` with a graphical `DISPLAY` to join the local game. Frontier Outpost starts at `run-data/frontier-playable/save/frontier-outpost-playable.park`. Generated parks, extracted art, logs, and recordings stay under ignored `run-data/`.
+
+The six starting Marine tiles and twelve starting Zergling tiles are preset in
+`scenarios/frontier-outpost.json`; its `spawn_waves` entry controls the automatic
+five-Zergling wave. The launcher installs the bridge plugin for both the server
+and graphical client so native units appear in the player view.
 
 ## Test and record
 

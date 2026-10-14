@@ -30,7 +30,10 @@ func TestTerrainGeometryMatchesNativeSlopeTable(t *testing.T) {
 
 func TestTerrainGroundPathsAndUnsupportedShapes(t *testing.T) {
 	for _, terrain := range []Terrain{
-		{Height: 112, Slope: 12, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(0)}}},
+		{Height: 112, Slope: 3, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(0)}}},
+		{Height: 112, Slope: 6, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(1)}}},
+		{Height: 112, Slope: 12, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(2)}}},
+		{Height: 112, Slope: 9, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(3)}}},
 		{Height: 128, GroundPaths: []TerrainPath{{BaseHeight: 128}}},
 		{Height: 112, Water: 128, Walkable: false},
 	} {
@@ -42,6 +45,7 @@ func TestTerrainGroundPathsAndUnsupportedShapes(t *testing.T) {
 		{Height: 112, Slope: 16},
 		{Height: 112, Slope: 64},
 		{Height: 112, Slope: 12, GroundPaths: []TerrainPath{{BaseHeight: 112}}},
+		{Height: 112, Slope: 6, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(3)}}},
 		{Height: 112, GroundPaths: []TerrainPath{{BaseHeight: 128}}},
 		{Height: 112, GroundPaths: []TerrainPath{{BaseHeight: 112}, {BaseHeight: 112}}},
 		{Height: 112, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(4)}}},

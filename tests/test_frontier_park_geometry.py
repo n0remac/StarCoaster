@@ -16,7 +16,7 @@ class FrontierParkGeometryTest(unittest.TestCase):
     def setUpClass(cls):
         fixture_path = DATA / "fixture.json"
         fixture = json.loads(fixture_path.read_text()) if fixture_path.exists() else {}
-        if fixture.get("layout_version") != 3:
+        if fixture.get("layout_version") != 4:
             subprocess.run(["python3", "scripts/create-park-assault.py", "--playable"],
                            cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         cls.fixture = json.loads(fixture_path.read_text())

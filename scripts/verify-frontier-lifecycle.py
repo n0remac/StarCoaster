@@ -116,6 +116,7 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     config = json.loads(SCENARIO.read_text())
     config["starting_units"]["zerglings"] = [[24, 32]]
+    config.pop("spawn_waves", None)  # Isolate the two initial-actor lifecycle cycles.
     scenario = OUT / "victory-scenario.json"
     scenario.write_text(json.dumps(config, indent=2) + "\n")
     map_file = OUT / "victory.scm"

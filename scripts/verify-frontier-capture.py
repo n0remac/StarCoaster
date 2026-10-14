@@ -26,8 +26,10 @@ def main(directory):
     park_sync = bool(park_states[0] and park_states[1]) and park_states[0][0] == park_states[1][0] \
         and park_states[0][-1] == park_states[1][-1]
     common = sorted(set(a) & set(b))
-    matching = [seq for seq in common if a[seq] == b[seq]]
-    mismatches = [seq for seq in common if a[seq] != b[seq]]
+    first_match = next((index for index, seq in enumerate(common) if a[seq] == b[seq]), len(common))
+    joined = common[first_match:]
+    matching = [seq for seq in joined if a[seq] == b[seq]]
+    mismatches = [seq for seq in joined if a[seq] != b[seq]]
     first = min(a) if a else None
     initial = ACTOR.findall(a[first][1]) if first is not None else []
     traces = {}
@@ -105,6 +107,8 @@ def main(directory):
         "outcome": "victory" if "outcome=victory" in server else "defeat" if "outcome=defeat" in server else None,
         "client_a_snapshots": len(a), "client_b_snapshots": len(b),
         "shared_snapshot_sequences": len(common), "matching_snapshot_sequences": len(matching),
+        "join_convergence_sequence": joined[0] if joined else None,
+        "initial_join_mismatch_count": first_match,
         "mismatched_sequences": mismatches[:20],
         "client_park_states": [{"initial": states[0] if states else None,
                                 "final": states[-1] if states else None} for states in park_states],
@@ -123,9 +127,9 @@ def main(directory):
         and all(value >= 100 for value in marine_displacement.values())
         and marine_attack > 0 and zerg_damage and bool(death_ids) and carousel_removed
         and result["outcome"] and bool(opened_footprint or opened_wall_crossings)
-        and len(common) >= 10 and not mismatches)
+        and len(joined) >= 10 and not mismatches)
     result["capture_complete"] = (result["native_navigation_ready"] and len(a) >= 10
-                                  and (not b or len(common) >= 10 and not mismatches)
+                                  and (not b or len(joined) >= 10 and not mismatches)
                                   and (not park_states[0] and not park_states[1]
                                        or result["park_change_synchronized"]))
     result["status"] = "passed" if result["demonstration_complete"] else "capture_only" if result["capture_complete"] else "incomplete"

@@ -20,7 +20,7 @@ class FrontierScenarioMapTest(unittest.TestCase):
         data = ROOT / "run-data/frontier-playable"
         fixture_path = data / "fixture.json"
         fixture = json.loads(fixture_path.read_text()) if fixture_path.exists() else {}
-        if fixture.get("layout_version") != 3:
+        if fixture.get("layout_version") != 4:
             import subprocess
             subprocess.run(["python3", "scripts/create-park-assault.py", "--playable"],
                            cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
@@ -33,6 +33,11 @@ class FrontierScenarioMapTest(unittest.TestCase):
             self.assertFalse(14 <= x <= 24 and 30 <= y <= 34)
 
     def test_positions_and_ownership_are_park_relative(self):
+        scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
+        self.assertEqual(len(scenario["starting_units"]["marines"]), 6)
+        self.assertEqual(scenario["spawn_waves"], [{
+            "id": "opening-zerg-wave", "trigger": "on_ready", "unit_type": "zerg_zergling",
+            "count": 5, "x": 1424, "y": 1808, "formation": "compact"}])
         units = [UNIT.unpack(value) for value in scenario_units(ROOT / "scenarios/frontier-outpost.json")]
         self.assertEqual(len(units), 18)
         self.assertEqual([row[3] for row in units[:12]], [37] * 12)

@@ -26,11 +26,14 @@ def main(directory, mode):
     directory = Path(directory)
     a, actors = read_actors(directory / "client-a.log")
     b, _ = read_actors(directory / "client-b.log")
-    common = set(a) & set(b)
+    common = sorted(set(a) & set(b))
+    first_match = next((index for index, seq in enumerate(common) if a[seq] == b[seq]), len(common))
+    joined = common[first_match:]
+    later_mismatches = [seq for seq in joined if a[seq] != b[seq]]
     views = {int(match.group(1)) for path in directory.glob("client-a-t*-rot*.png")
              if (match := re.search(r"rot([0-3])\.png$", path.name))}
     checks = {"graphical_video": (directory / "combined.mp4").stat().st_size > 0,
-              "two_clients_match": len(common) >= 10 and all(a[seq] == b[seq] for seq in common),
+              "two_clients_match": len(joined) >= 10 and not later_mismatches,
               "two_camera_rotations": len(views) >= 2}
     if mode == "marine":
         track = actors.get(1000, [])
@@ -62,6 +65,9 @@ def main(directory, mode):
         raise ValueError("mode must be marine or zerg")
     result = {"mode": mode, "source": "two graphical OpenRCT2 clients with native painter logs",
               "checks": checks, "shared_snapshots": len(common), "rotations": sorted(views),
+              "join_convergence_sequence": joined[0] if joined else None,
+              "initial_join_mismatches": first_match,
+              "post_convergence_mismatches": later_mismatches[:12],
               "samples": samples}
     (directory / f"elevation-{mode}-verification.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))

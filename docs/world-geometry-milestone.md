@@ -35,7 +35,14 @@ Frontier Outpost remains 64×64. Its southwestern Marine staging garden now has
 cliff along the western side. Six Marines begin on the raised platform. The
 carousel, Ferris wheel, shops, defense gate, and existing wall and ride
 demolition routes remain. Regenerate with `scripts/project.sh park`; the
-playable fixture must have layout version 3.
+playable fixture must have layout version 4. Sloped footpaths use OpenRCT2's
+native uphill direction, so their visible ramps follow the ground slope.
+The normal `scripts/start.sh` launcher installs the bridge plugin for its
+graphical client. Its Frontier scenario starts six Marines and twelve
+Zerglings, then issues a five-Zergling `on_ready` spawn wave. Use
+`tests/test_playable_start_live.sh` to check the regular launcher or
+`PLAYABLE_FULL_START=1 tests/test_playable_start_live.sh` to include the full
+fetch, build, and park-regeneration startup path.
 
 ## Reproduce the live evidence
 
@@ -137,3 +144,21 @@ StarCraft high-ground combat bonuses remain outside this geometry model.
 Very narrow ramps next to multiple cliffs can be closed by the conservative
 two-tile native clearance; widen the approach in the park instead of bypassing
 OpenBW collision.
+
+The playable startup correction was verified with the full
+`scripts/start.sh --client` chain in `run-data/playable-start-1791944156/`.
+The current layout version 4 passed ridge routing in
+`run-data/frontier-ridge-1791944312/`, demolition navigation in
+`run-data/frontier-native-nav-1791944351/`, and the complete
+`scripts/project.sh test-live` suite. Its normal graphical launcher run is
+`run-data/playable-start-1791944622/`, with a screenshot and
+`verification.json` showing six starting Marines, twelve starting Zerglings,
+and five automatically spawned Zerglings in the same client.
+The updated 55-second two-client ridge capture is in
+`run-data/artifacts/20261014T023210Z-3da25e4532f5/`: its four rotations,
+combined video, actor-height samples, cliff detour, slope return, and combat
+checks passed. Client B joined after the ready wave and lacked those five
+runtime actors for 33 shared snapshots. It received their lifecycle replay at
+sequence 68; all 277 later shared snapshots matched. Capture verification
+reports this initial join interval separately and fails any mismatch after
+convergence.

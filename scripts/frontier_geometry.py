@@ -17,7 +17,7 @@ def wall_edge(element):
 
 
 def validate(export, fixture):
-    if fixture.get("layout_version") != 3:
+    if fixture.get("layout_version") != 4:
         raise ValueError("playable park layout is stale; regenerate it")
     elements = export["elements"]
     walls = [item for item in elements if item["type"] == "wall"]
@@ -80,7 +80,7 @@ def validate(export, fixture):
         if (x, y) not in raised:
             raise ValueError("Marine spawn is not on the ridge")
 
-    directions = {6: 3, 9: 1, 3: 2}
+    directions = {6: 1, 9: 3, 3: 0}
     for item in elements:
         x, y = item["x"], item["y"]
         base, slope, _ = surface(x, y)

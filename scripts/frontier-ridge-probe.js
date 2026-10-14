@@ -40,6 +40,10 @@ registerPlugin({ name: "Frontier Ridge Probe", version: "1.0.0",
                 || (unit.kind === "zerg_zergling" && unit.hp < 35);
         })) {
             phase = 4;
+            console.log("RIDGE_POSITION phase=4 elapsed=" + (Date.now() - began) + " units="
+                + actors.map(function (unit) {
+                    return unit.id + ":" + unit.x + "," + unit.y + "," + unit.hp + "," + unit.motion;
+                }).join(";"));
             console.log("RIDGE_SEQUENCE_COMPLETE elapsed=" + (Date.now() - began));
         } else if (phase > 0 && phase < 4 && elapsed > (phase === 3 ? 90000 : 45000)) {
             console.log("RIDGE_SEQUENCE_COMPLETE failed=phase_" + phase + "_timeout");
