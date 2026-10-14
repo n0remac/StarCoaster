@@ -20,7 +20,11 @@ case "$command" in
         "$go_bin" build -o build/world-bridge ./cmd/world-bridge
         ;;
     park)
-        python3 scripts/create-park-assault.py --playable "$@"
+        if [[ "${1:-}" == --probe-demolition ]]; then
+            python3 scripts/create-park-assault.py --playable "$@"
+        else
+            python3 scripts/park-scenario.py "$@"
+        fi
         ;;
     validate-scenario)
         go_bin="$(command -v go || true)"

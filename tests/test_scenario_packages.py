@@ -3,9 +3,15 @@ import json
 from pathlib import Path
 import subprocess
 import unittest
+from unittest import mock
+import tempfile
+import sys
+
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import scenario_package
 spec = importlib.util.spec_from_file_location("play_scenario", ROOT / "scripts/play-scenario.py")
 play = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(play)
@@ -30,6 +36,51 @@ class ScenarioPackageTest(unittest.TestCase):
         for value in ("../example-defense", "Frontier", "missing/package"):
             with self.assertRaises(ValueError):
                 play.resolve(value)
+
+    def test_missing_and_mismatched_packages(self):
+        with self.assertRaisesRegex(ValueError, "missing scenario package"):
+            play.resolve("does-not-exist")
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
+            package = Path(directory) / "scenarios/test"
+            package.mkdir(parents=True)
+            (package / "mapping.json").write_text("{}")
+            (package / "scenario.json").write_text(json.dumps({"scenario_id": "other", "park_file": "run-data/a.park"}))
+            (package / "package.json").write_text(json.dumps({"generator": ["scripts/create-park-assault.py", "--playable"],
+                "fixture": "run-data/fixture.json", "navigation": "run-data/navigation.json"}))
+            with self.assertRaisesRegex(ValueError, "mismatched"):
+                play.resolve("test")
+            (package / "scenario.json").write_text(json.dumps({"scenario_id": "test", "park_file": "../escape.park"}))
+            with self.assertRaisesRegex(ValueError, "run-data"):
+                play.resolve("test")
+            (package / "scenario.json").write_text(json.dumps({"scenario_id": "test", "park_file": "run-data/a.park"}))
+            (package / "package.json").write_text(json.dumps({"generator": ["scripts/evil.py"],
+                "fixture": "run-data/fixture.json", "navigation": "run-data/navigation.json"}))
+            with self.assertRaisesRegex(ValueError, "generator"):
+                play.resolve("test")
+
+    def test_park_stale_and_force_generation(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
+            root = Path(directory)
+            for name in scenario_package.GENERATOR_INPUTS:
+                source = root / name
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("source")
+            paths = [root / "run-data" / name for name in ("park", "fixture", "navigation")]
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("data")
+            plan = dict(zip(("park", "fixture", "navigation"), map(str, paths)))
+            plan.update(scenario_id="test", generator=["python3", "scripts/create-park-assault.py", "--playable"])
+            with mock.patch.object(scenario_package.subprocess, "run") as run:
+                scenario_package.ensure_park(plan)
+                run.assert_not_called()
+                scenario_package.ensure_park(plan, force=True)
+                run.assert_called_once_with(plan["generator"], cwd=root, check=True)
+
+    def test_park_rejects_unknown_flags_before_gameplay(self):
+        result = subprocess.run(["scripts/project.sh", "park", "--not-a-scenario"], cwd=ROOT, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecognized arguments", result.stderr)
 
 
 if __name__ == "__main__":
