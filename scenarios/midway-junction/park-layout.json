@@ -1,0 +1,515 @@
+{
+  "version": 1,
+  "name": "Midway Junction",
+  "size": [
+    64,
+    64
+  ],
+  "rides": [
+    {
+      "id": "midway-wheel",
+      "name": "Midway Ferris Wheel",
+      "object": "rct2.ride.fwh1",
+      "x": 31,
+      "y": 30
+    },
+    {
+      "id": "north-carousel",
+      "name": "Junction Carousel",
+      "object": "rct2.ride.mgr1",
+      "x": 43,
+      "y": 17
+    },
+    {
+      "id": "north-burgers",
+      "name": "Midway Burger Bar",
+      "object": "rct2.ride.burgb",
+      "x": 29,
+      "y": 18
+    },
+    {
+      "id": "north-drinks",
+      "name": "North Drink Stand",
+      "object": "rct2.ride.drnks",
+      "x": 39,
+      "y": 19
+    }
+  ],
+  "paths": [
+    {
+      "kind": "plaza",
+      "x0": 17,
+      "y0": 28,
+      "x1": 25,
+      "y1": 34
+    },
+    {
+      "kind": "horizontal",
+      "y": 26,
+      "x0": 18,
+      "x1": 30
+    },
+    {
+      "kind": "horizontal",
+      "y": 37,
+      "x0": 18,
+      "x1": 29
+    },
+    {
+      "kind": "vertical",
+      "x": 18,
+      "y0": 26,
+      "y1": 37
+    },
+    {
+      "kind": "plaza",
+      "x0": 28,
+      "y0": 26,
+      "x1": 38,
+      "y1": 28
+    },
+    {
+      "kind": "plaza",
+      "x0": 28,
+      "y0": 34,
+      "x1": 38,
+      "y1": 36
+    },
+    {
+      "kind": "vertical",
+      "x": 28,
+      "y0": 28,
+      "y1": 34
+    },
+    {
+      "kind": "vertical",
+      "x": 36,
+      "y0": 28,
+      "y1": 34
+    },
+    {
+      "kind": "horizontal",
+      "y": 29,
+      "x0": 28,
+      "x1": 30
+    },
+    {
+      "kind": "horizontal",
+      "y": 32,
+      "x0": 28,
+      "x1": 28
+    },
+    {
+      "kind": "horizontal",
+      "y": 29,
+      "x0": 34,
+      "x1": 38
+    },
+    {
+      "kind": "horizontal",
+      "y": 32,
+      "x0": 34,
+      "x1": 38
+    },
+    {
+      "kind": "plaza",
+      "x0": 44,
+      "y0": 28,
+      "x1": 52,
+      "y1": 35
+    },
+    {
+      "kind": "horizontal",
+      "y": 30,
+      "x0": 38,
+      "x1": 52
+    },
+    {
+      "kind": "horizontal",
+      "y": 33,
+      "x0": 38,
+      "x1": 52
+    },
+    {
+      "kind": "vertical",
+      "x": 40,
+      "y0": 22,
+      "y1": 28
+    },
+    {
+      "kind": "horizontal",
+      "y": 22,
+      "x0": 30,
+      "x1": 40
+    },
+    {
+      "kind": "horizontal",
+      "y": 16,
+      "x0": 29,
+      "x1": 41
+    },
+    {
+      "kind": "vertical",
+      "x": 31,
+      "y0": 16,
+      "y1": 22
+    },
+    {
+      "kind": "plaza",
+      "x0": 35,
+      "y0": 17,
+      "x1": 38,
+      "y1": 20
+    },
+    {
+      "kind": "vertical",
+      "x": 37,
+      "y0": 20,
+      "y1": 26
+    },
+    {
+      "kind": "vertical",
+      "x": 23,
+      "y0": 15,
+      "y1": 27
+    },
+    {
+      "kind": "horizontal",
+      "y": 15,
+      "x0": 23,
+      "x1": 29
+    },
+    {
+      "kind": "horizontal",
+      "y": 24,
+      "x0": 23,
+      "x1": 29
+    },
+    {
+      "kind": "plaza",
+      "x0": 30,
+      "y0": 45,
+      "x1": 42,
+      "y1": 49
+    },
+    {
+      "kind": "vertical",
+      "x": 39,
+      "y0": 36,
+      "y1": 45
+    },
+    {
+      "kind": "vertical",
+      "x": 47,
+      "y0": 35,
+      "y1": 49
+    },
+    {
+      "kind": "horizontal",
+      "y": 49,
+      "x0": 42,
+      "x1": 47
+    },
+    {
+      "kind": "horizontal",
+      "y": 40,
+      "x0": 19,
+      "x1": 29
+    },
+    {
+      "kind": "vertical",
+      "x": 19,
+      "y0": 37,
+      "y1": 40
+    },
+    {
+      "kind": "horizontal",
+      "y": 42,
+      "x0": 19,
+      "x1": 26
+    },
+    {
+      "kind": "vertical",
+      "x": 25,
+      "y0": 40,
+      "y1": 46
+    },
+    {
+      "kind": "horizontal",
+      "y": 46,
+      "x0": 25,
+      "x1": 30
+    }
+  ],
+  "walls": [
+    {
+      "x0": 27,
+      "y0": 18,
+      "x1": 27,
+      "y1": 28,
+      "direction": 0,
+      "object": "rct2.scenery_wall.wbr1"
+    },
+    {
+      "x0": 27,
+      "y0": 29,
+      "x1": 27,
+      "y1": 32,
+      "direction": 0,
+      "object": "rct2.scenery_wall.wbr2"
+    },
+    {
+      "x0": 27,
+      "y0": 33,
+      "x1": 27,
+      "y1": 44,
+      "direction": 0,
+      "object": "rct2.scenery_wall.wbr1"
+    },
+    {
+      "x0": 27,
+      "y0": 23,
+      "x1": 39,
+      "y1": 23,
+      "direction": 3,
+      "object": "rct2.scenery_wall.wbr1"
+    },
+    {
+      "x0": 40,
+      "y0": 23,
+      "x1": 40,
+      "y1": 23,
+      "direction": 3,
+      "object": "rct2.scenery_wall.wpf"
+    },
+    {
+      "x0": 43,
+      "y0": 24,
+      "x1": 43,
+      "y1": 28,
+      "direction": 0,
+      "object": "rct2.scenery_wall.wbr1"
+    },
+    {
+      "x0": 43,
+      "y0": 33,
+      "x1": 43,
+      "y1": 40,
+      "direction": 0,
+      "object": "rct2.scenery_wall.wbr1"
+    },
+    {
+      "x0": 29,
+      "y0": 42,
+      "x1": 38,
+      "y1": 42,
+      "direction": 3,
+      "object": "rct2.scenery_wall.wbr1"
+    },
+    {
+      "x0": 43,
+      "y0": 42,
+      "x1": 45,
+      "y1": 42,
+      "direction": 3,
+      "object": "rct2.scenery_wall.wbr1"
+    },
+    {
+      "x0": 15,
+      "y0": 25,
+      "x1": 23,
+      "y1": 25,
+      "direction": 3,
+      "object": "rct2.scenery_wall.wpf"
+    },
+    {
+      "x0": 15,
+      "y0": 38,
+      "x1": 24,
+      "y1": 38,
+      "direction": 1,
+      "object": "rct2.scenery_wall.wpf"
+    },
+    {
+      "x0": 16,
+      "y0": 25,
+      "x1": 16,
+      "y1": 37,
+      "direction": 0,
+      "object": "rct2.scenery_wall.wpf"
+    },
+    {
+      "x0": 46,
+      "y0": 25,
+      "x1": 52,
+      "y1": 25,
+      "direction": 3,
+      "object": "rct2.scenery_wall.wpf"
+    },
+    {
+      "x0": 52,
+      "y0": 36,
+      "x1": 52,
+      "y1": 43,
+      "direction": 2,
+      "object": "rct2.scenery_wall.wpf"
+    },
+    {
+      "x0": 35,
+      "y0": 14,
+      "x1": 41,
+      "y1": 14,
+      "direction": 3,
+      "object": "rct2.scenery_wall.wpf"
+    }
+  ],
+  "scenery": [
+    {
+      "x": 20,
+      "y": 20,
+      "object": "rct2.scenery_small.tap"
+    },
+    {
+      "x": 22,
+      "y": 20,
+      "object": "rct2.scenery_small.tco"
+    },
+    {
+      "x": 24,
+      "y": 20,
+      "object": "rct2.scenery_small.tbr"
+    },
+    {
+      "x": 19,
+      "y": 23,
+      "object": "rct2.scenery_small.tg1"
+    },
+    {
+      "x": 21,
+      "y": 23,
+      "object": "rct2.scenery_small.tg3"
+    },
+    {
+      "x": 20,
+      "y": 35,
+      "object": "rct2.scenery_small.tf1"
+    },
+    {
+      "x": 22,
+      "y": 35,
+      "object": "rct2.scenery_small.tg2"
+    },
+    {
+      "x": 24,
+      "y": 35,
+      "object": "rct2.scenery_small.tf2"
+    },
+    {
+      "x": 18,
+      "y": 43,
+      "object": "rct2.scenery_small.tap"
+    },
+    {
+      "x": 22,
+      "y": 44,
+      "object": "rct2.scenery_small.tcf"
+    },
+    {
+      "x": 30,
+      "y": 20,
+      "object": "rct2.scenery_small.tg1"
+    },
+    {
+      "x": 33,
+      "y": 19,
+      "object": "rct2.scenery_small.tg3"
+    },
+    {
+      "x": 34,
+      "y": 21,
+      "object": "rct2.scenery_small.tbr"
+    },
+    {
+      "x": 36,
+      "y": 21,
+      "object": "rct2.scenery_small.tf2"
+    },
+    {
+      "x": 48,
+      "y": 19,
+      "object": "rct2.scenery_small.tco"
+    },
+    {
+      "x": 50,
+      "y": 22,
+      "object": "rct2.scenery_small.tbr"
+    },
+    {
+      "x": 49,
+      "y": 26,
+      "object": "rct2.scenery_small.tg2"
+    },
+    {
+      "x": 51,
+      "y": 27,
+      "object": "rct2.scenery_small.tf1"
+    },
+    {
+      "x": 40,
+      "y": 37,
+      "object": "rct2.scenery_small.tg4"
+    },
+    {
+      "x": 42,
+      "y": 38,
+      "object": "rct2.scenery_small.tg5"
+    },
+    {
+      "x": 46,
+      "y": 39,
+      "object": "rct2.scenery_small.tap"
+    },
+    {
+      "x": 49,
+      "y": 41,
+      "object": "rct2.scenery_small.tco"
+    },
+    {
+      "x": 32,
+      "y": 40,
+      "object": "rct2.scenery_small.tg1"
+    },
+    {
+      "x": 35,
+      "y": 39,
+      "object": "rct2.scenery_small.tf1"
+    },
+    {
+      "x": 34,
+      "y": 44,
+      "object": "rct2.scenery_small.tg2"
+    },
+    {
+      "x": 28,
+      "y": 51,
+      "object": "rct2.scenery_small.tcf"
+    },
+    {
+      "x": 44,
+      "y": 51,
+      "object": "rct2.scenery_small.tap"
+    },
+    {
+      "x": 50,
+      "y": 48,
+      "object": "rct2.scenery_small.tbr"
+    }
+  ],
+  "large_scenery": [
+    {
+      "x": 15,
+      "y": 44,
+      "object": "rct2.scenery_large.ssig4"
+    }
+  ]
+}
