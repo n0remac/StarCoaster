@@ -69,6 +69,7 @@ type service struct {
 	bwHeight                  int
 	transform                 world.Transform
 	scenario                  *world.Scenario
+	runtime                   *world.ScenarioRuntime
 	objectiveID               string
 	outcome                   string
 	lastMarines               int
@@ -220,6 +221,15 @@ func (s *service) publishReady() {
 			return
 		}
 	}
+	if err := s.initScenarioRuntime(); err != nil {
+		s.ready = false
+		log.Printf("scenario %s cannot start: %v", s.scenario.ID, err)
+		_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision, map[string]string{"reason": err.Error()})
+		return
+	}
+	if s.runtime != nil {
+		s.outcome = s.runtime.Outcome
+	}
 	s.ready = true
 	if s.scenario != nil && s.startedSession != s.registry.Session {
 		_ = s.emit(s.bw, "world.start", s.registry.Session, s.registry.Revision,
@@ -228,7 +238,9 @@ func (s *service) publishReady() {
 	}
 	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
 	log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
-	s.submitScenarioSpawns()
+	if s.scenario == nil || s.scenario.Version == 1 {
+		s.submitScenarioSpawns()
+	}
 	s.reconcileUncertainSpawn()
 	s.pumpSpawns()
 }
@@ -238,10 +250,22 @@ func (s *service) announceOutcome(marines, zerglings int) {
 		return
 	}
 	state := s.scenario.Outcome(s.registry.Destroyed[s.objectiveID], marines, zerglings)
+	if s.runtime != nil && state == "victory" {
+		if !s.runtime.AllWavesCleared() || s.spawns == nil || s.spawns.PendingCount() != 0 {
+			state = ""
+		}
+	}
 	if state == "" {
 		return
 	}
 	s.outcome = state
+	if s.runtime != nil {
+		s.runtime.Outcome = state
+		if !s.saveScenarioRuntime() {
+			s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+			return
+		}
+	}
 	_ = s.emit(s.park, "world.outcome", s.registry.Session, s.registry.Revision,
 		map[string]any{"scenario_id": s.scenario.ID, "state": state,
 			"objective_id": s.objectiveID, "marines": marines, "zerglings": zerglings})
@@ -420,6 +444,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.nativeOccupancyComplete = false
 		if previousSession != m.Session {
 			s.outcome = ""
+			s.runtime = nil
 			s.startedSession = ""
 			s.lastMarines = 0
 			s.lastZerglings = 0
@@ -828,9 +853,13 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 				if s.scenario != nil && snapshot.UnitOmitted == 0 && snapshot.UnitTotal <= len(snapshot.Units) {
 					marines, zerglings := 0, 0
 					occupants := make([]world.NativeOccupant, 0, snapshot.UnitTotal)
+					living := map[string]bool{}
 					for _, unit := range snapshot.Units {
 						if unit["alive"] != true {
 							continue
+						}
+						if id, ok := unit["id"].(string); ok {
+							living[id] = true
 						}
 						if x, ok := unit["x"].(float64); ok {
 							if y, ok := unit["y"].(float64); ok {
@@ -846,6 +875,9 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 					}
 					s.lastMarines, s.lastZerglings = marines, zerglings
 					s.nativeOccupants, s.nativeOccupancyComplete = occupants, true
+					if s.runtime != nil {
+						s.advanceScenarioRuntime(snapshot.BWTick, snapshot.Seq, living)
+					}
 					s.announceOutcome(marines, zerglings)
 				}
 				visible := make([]map[string]any, 0, len(snapshot.Units))

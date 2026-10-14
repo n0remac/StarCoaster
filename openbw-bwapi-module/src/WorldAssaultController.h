@@ -12,13 +12,16 @@
 // combat remain authoritative; the generic world adapter owns no target IDs.
 class WorldAssaultController {
 public:
-    void configure(std::string objectiveID) {
+    void configure(std::string objectiveID, std::string session = "") {
+        if (session == session_ && objectiveID == objectiveID_) return;
+        session_ = std::move(session);
         objectiveID_ = std::move(objectiveID);
         started_ = false;
         notBeforeFrame_ = 0;
     }
     bool start(int frame, int delayFrames) {
         if (objectiveID_.empty()) return false;
+        if (started_) return true;
         started_ = true;
         notBeforeFrame_ = frame + std::max(0, std::min(600, delayFrames));
         return true;
@@ -50,6 +53,7 @@ public:
     }
 private:
     std::string objectiveID_;
+    std::string session_;
     int notBeforeFrame_ = 0;
     bool started_ = false;
 };

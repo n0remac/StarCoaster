@@ -264,7 +264,7 @@ private:
                 ack(message,false,error); return;
             }
             ready_=false;
-            assault_.configure(payload.value("objective_id", ""));
+            assault_.configure(payload.value("objective_id", ""), message.at("session").get<std::string>());
             ack(message,true); return;
         }
         if (kind=="world.start") {
