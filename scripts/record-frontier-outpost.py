@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture the normal Frontier Outpost launcher with one or two graphical clients."""
+"""Capture a packaged scenario with one or two graphical clients."""
 
 import argparse
 import json
@@ -12,6 +12,7 @@ import subprocess
 import time
 
 from artifact_runs import ArtifactRun
+from scenario_package import build_native_map, ensure_park, resolve, session_environment
 from video_capture import VideoConfig, VideoRecorder, check_dependencies
 
 
@@ -52,8 +53,16 @@ def wait_for(path, marker, process, seconds):
     raise TimeoutError(f"missing {marker}: {path}")
 
 
-def main():
+def prepare_packaged_session(plan, out, env):
+    ensure_park(plan)
+    native_map = build_native_map(plan, out / f"{plan['scenario_id']}.scm")
+    env["BRIDGE_MAP_FILE"] = str(native_map)
+    return [str(ROOT / "scripts/run-world-session.sh"), plan["park"]], native_map
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scenario", help="scenario package ID (default: frontier-outpost)")
     parser.add_argument("--duration", type=int, default=85)
     parser.add_argument("--video-layout", choices=("single", "combined", "separate"), default="combined")
     parser.add_argument("--video-fps", type=int, default=15)
@@ -69,13 +78,25 @@ def main():
     parser.add_argument("--ridge-probe", action="store_true", help="run the test-only cliff, slope and combat driver on client A")
     parser.add_argument("--ridge-assault", action="store_true", help="test native Zergling approach from below the saved ridge")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if not 15 <= args.duration <= 300:
         parser.error("duration must be 15–300 seconds")
     if not 10 <= args.frame_ms <= 200:
         parser.error("frame pacing must be 10–200 ms")
     if args.world_256 and (args.ridge_probe or args.ridge_assault):
         parser.error("--world-256 cannot be combined with a ridge probe")
+    if args.world_256 and args.scenario is not None:
+        parser.error("--scenario cannot be combined with --world-256")
+    scenario_id = args.scenario or "frontier-outpost"
+    if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault or args.cycle_rotations):
+        parser.error("Frontier visual probes require --scenario frontier-outpost")
+    if not args.world_256:
+        try:
+            args.plan = resolve(scenario_id)
+        except (ValueError, OSError, KeyError) as exc:
+            parser.error(str(exc))
+    else:
+        args.plan = None
     try:
         video_config = VideoConfig(args.video_layout, args.video_fps, args.video_width,
                                    args.video_crf, args.video_preset,
@@ -84,24 +105,36 @@ def main():
             check_dependencies()
     except (ValueError, RuntimeError) as exc:
         parser.error(str(exc))
+    return args, video_config
+
+
+def main():
+    args, video_config = parse_args()
     rct2 = Path(os.environ.get("RCT2_DATA_DIR", "/home/pi/games/rct2"))
     starcraft = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
     if not rct2.is_dir() or not starcraft.is_dir():
         parser.error("RCT2_DATA_DIR and STARCRAFT_DATA_DIR must point to installed game data")
-    run = ArtifactRun("live-capture",
-                      "World 256 Scale Fixture" if args.world_256 else "Frontier Outpost v0.4",
-                      config={"scenario": "world-256-scale" if args.world_256 else "frontier-outpost",
+    scenario_id = "world-256-scale" if args.world_256 else args.plan["scenario_id"]
+    scenario_name = "World 256 Scale Fixture" if args.world_256 else json.loads(Path(args.plan["scenario"]).read_text())["display_name"]
+    run = ArtifactRun("live-capture", scenario_name,
+                      config={"scenario": scenario_id, "display_name": scenario_name,
+                              "source_scenario": None if args.world_256 else args.plan["scenario"],
+                              "source_mapping": None if args.world_256 else args.plan["mapping"],
+                              "park": None if args.world_256 else args.plan["park"],
                               "duration": args.duration,
-                              "launcher": "scripts/run-world-session.sh" if args.world_256 else "scripts/run-frontier-outpost.sh",
+                              "launcher": "scripts/run-world-session.sh",
                               "input": "X11 mouse and keyboard",
                               "video": None if args.no_video else video_config.__dict__,
                               "graphics": args.graphics, "frame_ms": args.frame_ms,
                               "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault,
                               "world_256": args.world_256})
     out = run.output
-    env = os.environ.copy() | {"RCT2_DATA_DIR": str(rct2), "STARCRAFT_DATA_DIR": str(starcraft),
-                               "BRIDGE_LAUNCH_CLIENT": "0", "BRIDGE_SERVER_DATA_DIR": str(out / "server-data"),
-                               "SDL_AUDIODRIVER": "dummy", "BRIDGE_FRAME_MS": str(args.frame_ms)}
+    overrides = {"RCT2_DATA_DIR": str(rct2), "STARCRAFT_DATA_DIR": str(starcraft),
+                 "BRIDGE_LAUNCH_CLIENT": "0", "BRIDGE_SERVER_DATA_DIR": str(out / "server-data"),
+                 "BRIDGE_CLIENT_DATA_DIR": str(out / "session-client-data"),
+                 "BRIDGE_SPAWN_JOURNAL": str(out / "spawn-queue.json"),
+                 "SDL_AUDIODRIVER": "dummy", "BRIDGE_FRAME_MS": str(args.frame_ms)}
+    env = os.environ.copy() | overrides if args.world_256 else session_environment(args.plan, overrides)
     if args.graphics == "software":
         env["LIBGL_ALWAYS_SOFTWARE"] = "1"
     else:
@@ -130,6 +163,9 @@ def main():
     startup_seconds = None
     ready_memory = None
     try:
+        if not args.world_256 and not args.ridge_assault:
+            packaged_command, native_map = prepare_packaged_session(args.plan, out, env)
+            run.manifest["capture_config"]["native_map"] = str(native_map)
         for name, display in displays:
             start("display-" + name[-1], ["Xvfb", display, "-screen", "0",
                                            f"{args.display_width}x{args.display_height}x24", "-nolisten", "tcp"], env)
@@ -161,7 +197,7 @@ def main():
             session_command = [str(ROOT / "scripts/run-world-session.sh"),
                                str(ROOT / "run-data/frontier-playable/save/frontier-outpost-playable.park")]
         else:
-            session_command = [str(ROOT / "scripts/run-frontier-outpost.sh")]
+            session_command = packaged_command
         session_started = time.monotonic()
         session = start("server", session_command, env)
         until = time.monotonic() + 25
@@ -171,7 +207,7 @@ def main():
                     break
             except OSError:
                 if session.poll() is not None:
-                    raise RuntimeError("Frontier launcher exited before park hosting")
+                    raise RuntimeError("scenario launcher exited before park hosting")
                 time.sleep(0.2)
         else:
             raise TimeoutError("OpenRCT2 host did not open port 11753")
@@ -181,7 +217,7 @@ def main():
             (data_dir / "plugin").mkdir(parents=True, exist_ok=True)
             source = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
             (data_dir / "plugin/rts-bridge.js").write_text("var STARCOASTER_WORLD_BRIDGE = true;\n" + source)
-            if not args.world_256:
+            if not args.world_256 and scenario_id == "frontier-outpost":
                 (data_dir / "plugin/frontier-park-sync-probe.js").write_text(
                     (ROOT / "scripts/frontier-park-sync-probe.js").read_text())
             if args.ridge_probe and name == "client-a":
@@ -278,7 +314,7 @@ def main():
                                                   for text in client_logs],
                            "recording_seconds": args.duration}
             (out / "performance.json").write_text(json.dumps(performance, indent=2) + "\n")
-        report = {"status": "recorded", "scenario": "world-256-scale" if args.world_256 else "frontier-outpost",
+        report = {"status": "recorded", "scenario": scenario_id,
                   "world_ready": "navigation=native" in snapshot and "WORLD_READY" in snapshot,
                   "outcome": "defeat" if "outcome=defeat" in snapshot else "victory" if "outcome=victory" in snapshot else None,
                   "demolitions": snapshot.count("WORLD_REMOVAL id="),
@@ -290,8 +326,10 @@ def main():
                   "input_method": "graphical X11 interface"}
         (out / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
         (out / "scenario-config.json").write_text((ROOT / "scenarios/world-256-scale-map.json"
-            if args.world_256 else ROOT / "scenarios/frontier-outpost.json").read_text())
-        verifier = "verify-world-256-capture.py" if args.world_256 else "verify-frontier-capture.py"
+            if args.world_256 else Path(args.plan["scenario"])).read_text())
+        verifier = ("verify-world-256-capture.py" if args.world_256 else
+                    "verify-frontier-capture.py" if scenario_id == "frontier-outpost" else
+                    "verify-scenario-capture.py")
         subprocess.run(["python3", str(ROOT / "scripts" / verifier), str(out)],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         detailed = json.loads((out / "verification.json").read_text())
