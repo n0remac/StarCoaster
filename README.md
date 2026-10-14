@@ -1,6 +1,6 @@
 # StarCoaster
 
-StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Six OpenBW Marines start on the raised ridge in a deterministic 64 × 64 Frontier Outpost. Twelve Zerglings start on the opposite side, and five more spawn automatically when the world is ready. The player selects Marines, calls in up to five reinforcements through the squad window's Spawn Marine tool, and gives move, attack, attack move, hold, and stop orders in OpenRCT2. OpenBW runs unit movement and combat; the OpenRCT2 server owns the park and native demolition; the Go bridge synchronizes both engines and two clients.
+StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Its packaged missions include Frontier Outpost, Example Defense, and Midway Junction. The player selects Marines, calls in up to five reinforcements per Spawn Marine request, and gives move, attack, attack move, hold, and stop orders in OpenRCT2. OpenBW runs unit movement and combat; the OpenRCT2 server owns the park and native demolition; the Go bridge synchronizes both engines and two clients.
 
 ## Build and play
 
@@ -15,12 +15,15 @@ export RCT2_DATA_DIR=/path/to/your/rct2
 export STARCRAFT_DATA_DIR=/path/to/your/starcraft
 scripts/project.sh start --scenario frontier-outpost # full bootstrap
 scripts/project.sh start --scenario example-defense
+scripts/project.sh start --scenario midway-junction
 ./scripts/start.sh --scenario example-defense --client
 scripts/project.sh build                          # rebuild an existing checkout
 scripts/project.sh play frontier-outpost         # existing build
 scripts/project.sh play example-defense
+scripts/project.sh play midway-junction
 scripts/project.sh play example-defense --plan   # inspect paths without launching
 scripts/project.sh park example-defense          # generate park, fixture, navigation
+scripts/project.sh park midway-junction
 ```
 
 `start` fetches the pinned upstream sources, extracts Marine and Zergling sprites
@@ -42,11 +45,13 @@ steps manually.
 
 The launcher starts the OpenRCT2 host, OpenBW publisher and controller, and Go bridge. Set `BRIDGE_LAUNCH_CLIENT=1` with a graphical `DISPLAY` to join the local game. Frontier Outpost starts at `run-data/frontier-playable/save/frontier-outpost-playable.park`. Generated parks, extracted art, logs, and recordings stay under ignored `run-data/`.
 
-The packaged scenario definitions under `scenarios/frontier-outpost/` and
-`scenarios/example-defense/` select the park, mapping, starting actors, objectives,
-and automatic waves. Frontier has a ready wave, a timed southern wave, and a final
-wave after the southern one clears. Example Defense has eastern and western waves.
-Manual Marine reinforcements work in both scenarios. The launcher installs the
+The packaged scenario definitions under `scenarios/frontier-outpost/`,
+`scenarios/example-defense/`, and `scenarios/midway-junction/` select the park,
+mapping, starting actors, objectives, and automatic waves. Frontier has a ready
+wave, a timed southern wave, and a final wave after the southern one clears.
+Example Defense has eastern and western waves. Midway Junction uses an independent
+64 × 64 layout with a Ferris wheel objective and east, north, and south attacks.
+Manual Marine reinforcements work in all three scenarios. The launcher installs the
 bridge plugin for both the server and graphical client so native units appear
 in the player view.
 
@@ -57,9 +62,10 @@ scripts/project.sh test
 scripts/project.sh test-live
 scripts/project.sh record --duration 85
 scripts/project.sh record --scenario example-defense --duration 85
+scripts/project.sh record --scenario midway-junction --duration 120
 ```
 
-`test` runs Go, C++, Python, and JavaScript regressions. `test-live` additionally exercises the Frontier ridge and 256×256 native map, generic park demolition with two clients, Frontier victory, shared-runtime-Marine recovery, scenario waves and restart, and dynamic five-Marine and Zergling spawning. Live tests require built engines and game data. `record` launches two graphical clients and publishes screenshots, video, logs, and verification results to the [artifact viewer](docs/test-viewer.md). Frontier recordings retain their specialized visual checks; Example Defense uses scenario identity, native readiness, and client snapshot checks. Use `--help` on the recorder for capture settings, including `--no-video` and the test-only `--ridge-probe`, `--ridge-assault`, and `--world-256` runs. Ridge probes require Frontier; `--world-256` is a separate fixture and cannot be combined with `--scenario`. The [unit spawn report](docs/archive/unit-spawn-verification.md) records reinforcement and recovery evidence; the [shared actor report](docs/archive/shared-actor-verification.md) and [first playable report](docs/archive/first-playable-verification.md) record earlier baselines.
+`test` runs Go, C++, Python, and JavaScript regressions. `test-live` exercises native movement, demolition, Frontier's scenario runtime, recovery, and dynamic spawning. The Frontier scenario runtime test is Frontier-specific; run `python3 tests/test_midway_scenario_live.py --mode victory` and `--mode defeat` for Midway's outcomes and two-client checks. Use `NAV_SCENARIO=midway-junction tests/test_frontier_native_navigation_live.sh` for its gate route. Live tests require built engines and game data. `record` launches two graphical clients and publishes screenshots, video, logs, and verification results to the [artifact viewer](docs/test-viewer.md). Frontier recordings retain their specialized visual checks; the other packages use scenario identity, native readiness, and client snapshot checks. Use `--help` on the recorder for capture settings. The [Midway Junction verification report](docs/midway-junction-verification.md) records its geometry, gameplay, and graphical results. The [unit spawn report](docs/archive/unit-spawn-verification.md) records reinforcement and recovery evidence; the [shared actor report](docs/archive/shared-actor-verification.md) and [first playable report](docs/archive/first-playable-verification.md) record earlier baselines.
 
 For a lighter capture, use `scripts/project.sh record --video-layout single --video-fps 15 --video-width 800`. The [recording benchmark](docs/recording-performance-v0.2.md) compares 15 and 30 FPS against gameplay without video; the [park design report](docs/park-design-v0.2.md) records the four camera views and geometry checks.
 

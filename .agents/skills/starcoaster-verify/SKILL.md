@@ -16,6 +16,7 @@ Run `scripts/project.sh test` for the Go, C++, Python, and JavaScript suite. Use
 | Native actor lifecycle | `tests/test_actor_lifecycle_live.sh` |
 | Dynamic Marine or Zergling spawning | `tests/test_unit_spawn_live.sh`, `tests/test_unit_spawn_zerg_live.sh` |
 | Scenario waves, manual reinforcements, or runtime recovery | `python3 tests/test_scenario_runtime_live.py` |
+| Midway Junction geometry, gate, and outcomes | `python3 -m unittest tests.test_midway_park_geometry`; `NAV_SCENARIO=midway-junction tests/test_frontier_native_navigation_live.sh`; `python3 tests/test_midway_scenario_live.py --mode victory` and `--mode defeat` |
 
 For actor lifecycle changes, inspect both cycles, including client reconnect, bridge restart, death, and post-death command rejection. For spawn recovery, run `BRIDGE_SPAWN_RECOVERY=1 BRIDGE_TEST_KILL_RUNTIME_MARINE_FRAME=450 tests/test_unit_spawn_live.sh`; for in-flight reconciliation, run `BRIDGE_TEST_DISCONNECT_SPAWN_INDEX=2 tests/test_unit_spawn_live.sh`. Verify unique native actor IDs and both client bindings. These hooks and `scripts/world-spawn-probe.js` are test-only.
 

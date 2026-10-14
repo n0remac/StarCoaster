@@ -1,6 +1,6 @@
 # Packaged world bridge
 
-`world.v1` is the generic startup path. It discovers the loaded OpenRCT2 park on the authoritative server, transfers a complete revisioned snapshot through the Go bridge, and creates OpenBW target proxies at a simulation frame boundary. It uses a reusable 256×256 OpenBW base map. Parks up to 256×256 tiles retain 1:1 horizontal coordinates and are centered with offsets `(256-width)/2` and `(256-height)/2`, rounded down. Larger parks fail explicitly. The packaged Frontier Outpost and Example Defense scenarios use this one runtime path.
+`world.v1` is the generic startup path. It discovers the loaded OpenRCT2 park on the authoritative server, transfers a complete revisioned snapshot through the Go bridge, and creates OpenBW target proxies at a simulation frame boundary. It uses a reusable 256×256 OpenBW base map. Parks up to 256×256 tiles retain 1:1 horizontal coordinates and are centered with offsets `(256-width)/2` and `(256-height)/2`, rounded down. Larger parks fail explicitly. Frontier Outpost, Example Defense, and Midway Junction use this one runtime path.
 
 ## Start
 
