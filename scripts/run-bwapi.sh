@@ -3,29 +3,9 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 data_dir="${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR to your own StarCraft data directory}"
-default_map="$project_dir/upstream/bwapi/bwapi/TestAIModule/maps/TestModule/ZergTest.scm"
-if [[ "${BRIDGE_SCENARIO:-patrol}" == battle ]]; then
-  default_map="$project_dir/upstream/bwapi/bwapi/TestAIModule/maps/TestModule/testmap1.scm"
-elif [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege ]]; then
-  default_map="$project_dir/run-data/ride-siege-map/ride-siege.scm"
-  if [[ ! -f "$default_map" ]]; then
-    python3 "$project_dir/scripts/create-ride-siege-map.py" --output "$default_map"
-  fi
-elif [[ "${BRIDGE_SCENARIO:-patrol}" == frontier_defense ]]; then
-  default_map="$project_dir/run-data/frontier-defense-map/frontier-defense.scm"
-  if [[ ! -f "$default_map" ]]; then
-    python3 "$project_dir/scripts/create-ride-siege-map.py" --scenario frontier-defense --output "$default_map"
-  fi
-elif [[ "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then
-  default_map="$project_dir/run-data/park-assault/map/park-assault.scm"
-  if [[ ! -f "$default_map" ]]; then
-    python3 "$project_dir/scripts/create-park-assault-map.py" --output "$default_map"
-  fi
-elif [[ "${BRIDGE_SCENARIO:-patrol}" == world ]]; then
-  default_map="$project_dir/run-data/world-base/world-base-v5-256.scm"
-  if [[ ! -f "$default_map" ]]; then
-    python3 "$project_dir/scripts/create-world-base-map.py" --output "$default_map"
-  fi
+default_map="$project_dir/run-data/world-base/world-base-v5-256.scm"
+if [[ ! -f "$default_map" && -z "${BRIDGE_MAP_FILE:-}" ]]; then
+  python3 "$project_dir/scripts/create-world-base-map.py" --output "$default_map"
 fi
 map_file="${BRIDGE_MAP_FILE:-$default_map}"
 launcher="$project_dir/build/bwapi/bin/BWAPILauncher"
@@ -69,23 +49,12 @@ race = ${BRIDGE_BWAPI_RACE:-Zerg}
 player_slot = ${BRIDGE_BWAPI_SLOT:--1}
 enemy_count = 1
 enemy_race = Terran
-game_type = ${BRIDGE_BWAPI_GAME_TYPE:-$(if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege || "${BRIDGE_SCENARIO:-patrol}" == frontier_defense || "${BRIDGE_SCENARIO:-patrol}" == park_assault || "${BRIDGE_SCENARIO:-patrol}" == world ]]; then printf USE_MAP_SETTINGS; else printf MELEE; fi)}
+game_type = ${BRIDGE_BWAPI_GAME_TYPE:-USE_MAP_SETTINGS}
 auto_restart = OFF
 EOF
 
 export OPENBW_ENABLE_UI=0
-if [[ "${BRIDGE_SCENARIO:-patrol}" == ride_siege ]]; then
-  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-ride-siege}"
-elif [[ "${BRIDGE_SCENARIO:-patrol}" == frontier_defense ]]; then
-  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-frontier-defense}"
-elif [[ "${BRIDGE_SCENARIO:-patrol}" == park_assault ]]; then
-  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-park-assault}"
-  export BRIDGE_NAV_FILE="${BRIDGE_NAV_FILE:-$project_dir/run-data/park-assault/navigation.grid}"
-elif [[ "${BRIDGE_SCENARIO:-patrol}" == world ]]; then
-  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-world-base}"
-else
-  export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-demo-flat}"
-fi
+export BRIDGE_MAP_ID="${BRIDGE_MAP_ID:-world-base}"
 export LD_LIBRARY_PATH="$project_dir/build/bwapi/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 cd "$runtime_dir"
 exec "$launcher"

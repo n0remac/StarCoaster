@@ -15,10 +15,7 @@ python3 scripts/create-world-base-map.py --output "$run_dir/world-live.scm" \
 cp scripts/world-target-probe.js scripts/world-client-probe.js "$run_dir/client-a/plugin/"
 cp scripts/world-client-probe.js "$run_dir/client-b/plugin/"
 for client in client-a client-b; do
-  {
-    printf 'var STARCOASTER_WORLD_BRIDGE = true;\n'
-    cat openrct2-plugin/rts-bridge.js
-  } > "$run_dir/$client/plugin/rts-bridge.js"
+  cp openrct2-plugin/rts-bridge.js "$run_dir/$client/plugin/rts-bridge.js"
 done
 
 session_pid=""; client_a_pid=""; client_b_pid=""

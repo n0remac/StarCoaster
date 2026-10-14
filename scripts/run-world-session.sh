@@ -49,10 +49,7 @@ if [[ "${BRIDGE_LAUNCH_CLIENT:-0}" == 1 ]]; then
     done
     client_data="${BRIDGE_CLIENT_DATA_DIR:-$project_dir/run-data/world-base/openrct2-client}"
     mkdir -p "$client_data/plugin"
-    if [[ "${BRIDGE_SCENARIO:-}" == world ]]; then
-        { printf 'var STARCOASTER_WORLD_BRIDGE = true;\n'; cat "$project_dir/openrct2-plugin/rts-bridge.js"; } \
-            > "$client_data/plugin/rts-bridge.js"
-    fi
+    cp "$project_dir/openrct2-plugin/rts-bridge.js" "$client_data/plugin/rts-bridge.js"
     client_command=("$project_dir/build/openrct2/openrct2" join 127.0.0.1 --port="$port"
       --rct2-data-path="$(realpath "$RCT2_DATA_DIR")"
       --openrct2-data-path="$project_dir/build/openrct2-stage/usr/local/share/openrct2"

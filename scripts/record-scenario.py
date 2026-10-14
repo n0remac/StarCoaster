@@ -216,7 +216,7 @@ def main():
             data_dir = out / name
             (data_dir / "plugin").mkdir(parents=True, exist_ok=True)
             source = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
-            (data_dir / "plugin/rts-bridge.js").write_text("var STARCOASTER_WORLD_BRIDGE = true;\n" + source)
+            (data_dir / "plugin/rts-bridge.js").write_text(source)
             if not args.world_256 and scenario_id == "frontier-outpost":
                 (data_dir / "plugin/frontier-park-sync-probe.js").write_text(
                     (ROOT / "scripts/frontier-park-sync-probe.js").read_text())

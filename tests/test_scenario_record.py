@@ -36,7 +36,9 @@ class ScenarioRecordTest(unittest.TestCase):
                      ("--scenario", "missing")):
             with self.subTest(args=args), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 record.parse_args([*args, "--no-video"])
-        args, _ = record.parse_args(["--scenario", "example-defense", "--no-video"])
+        with mock.patch.object(record, "check_dependencies") as dependencies:
+            args, _ = record.parse_args(["--scenario", "example-defense", "--no-video"])
+        dependencies.assert_not_called()
         self.assertEqual(args.plan["scenario_id"], "example-defense")
         args, _ = record.parse_args(["--world-256", "--no-video"])
         self.assertIsNone(args.plan)

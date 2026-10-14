@@ -43,7 +43,7 @@ case "$command" in
         "$go_bin" test ./...
         ctest --test-dir build/bridge-module --output-on-failure
         python3 -m unittest discover -s tests -p 'test_*.py'
-        for file in tests/test_*plugin.js tests/test_plugin_snapshots.js; do node "$file"; done
+        for file in tests/test_*plugin.js; do node "$file"; done
         ;;
     test-live)
         tests/test_frontier_ridge_live.sh

@@ -82,7 +82,7 @@ for snapshot in snapshots:
     seen.update(re.findall(r"openbw:\d+", snapshot))
 checks = {
     "graphical_client_bridge_installed": (root / "client/plugin/rts-bridge.js").read_text().startswith(
-        "var STARCOASTER_WORLD_BRIDGE = true;"),
+        "/* Passthrough RTS Bridge"),
     "native_world_ready": "WORLD_READY" in server and "navigation=native" in server,
     "six_starting_marines_visible": {f"openbw:{n}" for n in range(1000, 1006)} <= seen,
     "twelve_starting_zerglings_visible": {f"openbw:{n}" for n in range(2000, 2012)} <= seen,

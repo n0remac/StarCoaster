@@ -113,8 +113,7 @@ def main() -> None:
         directory = run / name
         (directory / "plugin").mkdir(parents=True, exist_ok=True)
         (directory / "plugin/rts-bridge.js").write_text(
-            "var STARCOASTER_WORLD_BRIDGE = true;\n" +
-            (ROOT / "openrct2-plugin/rts-bridge.js").read_text())
+                        (ROOT / "openrct2-plugin/rts-bridge.js").read_text())
         (directory / "plugin/scenario-defense-probe.js").write_text(
             f"var SCENARIO_PROBE_COMMANDER = {'true' if commander else 'false'};\n" +
             (ROOT / "scripts/scenario-defense-probe.js").read_text())

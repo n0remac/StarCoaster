@@ -57,8 +57,7 @@ def cycle(number: int, scenario: Path, map_file: Path, rct2: Path, starcraft: Pa
         directory = output / name
         (directory / "plugin").mkdir(parents=True, exist_ok=True)
         (directory / "plugin/rts-bridge.js").write_text(
-            "var STARCOASTER_WORLD_BRIDGE = true;\n" +
-            (ROOT / "openrct2-plugin/rts-bridge.js").read_text())
+                        (ROOT / "openrct2-plugin/rts-bridge.js").read_text())
         (directory / "plugin/frontier-lifecycle-probe.js").write_text(
             f"var LIFECYCLE_COMMANDER = {'true' if commander else 'false'};\n" +
             (ROOT / "scripts/frontier-lifecycle-probe.js").read_text())

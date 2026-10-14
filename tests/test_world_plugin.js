@@ -9,6 +9,7 @@ at(0, 0)[0].baseZ = 112;
 at(1, 0)[0].waterHeight = 128;
 let ride = { id: 17, name: 'Any Carousel', type: 33, classification: 'ride',
     object: { identifier: 'rct2.ride.mgr1' }, status: 'closed', isEmpty: true };
+let rejectNextRideDemolition = false;
 at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14 });
 at(1, 2).push({ type: 'track', ride: 17, baseHeight: 14 });
 at(4, 1).push({ type: 'small_scenery', object: 2, baseHeight: 14, quadrant: 0, direction: 0 });
@@ -24,7 +25,6 @@ let selectionTool;
 let squadWidgets;
 let socket;
 const sandbox = {
-    STARCOASTER_WORLD_BRIDGE: true,
     map: { size: { x: 8, y: 8 }, get rides() { return ride ? [ride] : []; },
         getRide(id) { return ride && id === ride.id ? ride : null; },
         getTile(x, y) { const elements = at(x, y); return { numElements: elements.length,
@@ -55,6 +55,11 @@ const sandbox = {
             subscriptions.set(name, previous ? function (event) { previous(event); callback(event); } : callback);
         }, executeAction(name, args, callback) { actions.push({ name, args });
             if (name === 'ridedemolish') {
+                if (rejectNextRideDemolition) {
+                    rejectNextRideDemolition = false;
+                    callback({ error: 1, errorMessage: 'native rejection' });
+                    return;
+                }
                 assert.equal(args.ride, 17); ride = null;
                 for (const elements of tiles.values()) for (let i = elements.length - 1; i >= 0; i--)
                     if (elements[i].type === 'track') elements.splice(i, 1);
@@ -102,6 +107,18 @@ socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: si
     payload: { seq: 1, bw_tick: 3, units: [{ id: 'openbw:7', kind: 'zerg_zergling', owner: 0,
         x: 48, y: 48, facing: 0, motion: 'walk', hp: 35, max_hp: 35, attack_frames: 0 }] } }) + '\n');
 assert.equal(applied.length, 1, 'combat actors use synchronized native action');
+const snapshotAction = registered.get('rtsbridge.applySnapshot');
+const validActor = { id: 'openbw:7', kind: 'zerg_zergling', owner: 0,
+    x: 48, y: 48, facing: 0, motion: 'walk', hp: 35, max_hp: 35, attack_frames: 0 };
+const validSnapshot = { session: sid, seq: 20, units: [validActor] };
+assert.equal(snapshotAction.query({ player: 2, args: validSnapshot }).error, 1,
+    'clients cannot author actor snapshots');
+for (const units of [[validActor, validActor], [{ ...validActor, hp: -1 }],
+    [{ ...validActor, x: 9999 }], [{ ...validActor, facing: 256 }],
+    [{ ...validActor, motion: 'teleport' }]]) {
+    assert.equal(snapshotAction.query({ player: 1, args: { ...validSnapshot, units } }).error, 1,
+        'invalid actor arrays are rejected atomically');
+}
 const mission = { session: sid, scenario_id: 'example-defense', display_name: 'Example Defense',
     objective: 'Defend the carousel', wave_ordinal: 1, wave_total: 3,
     wave_state: 'spawning', outcome: '', error: '' };
@@ -334,6 +351,13 @@ drain();
 const rebuilt = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.entities || [])
     .filter(e => e.source_id === 'ride:17').at(-1);
 assert.notEqual(rebuilt.id, rideEntity.id, 'rebuilt object receives a new generation');
+rejectNextRideDemolition = true;
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid,
+    payload: { id: 'death:rebuilt', entity_id: rebuilt.id, proxy_id: 'openbw:11',
+        type: 'destruction', health: 0 } }) + '\n');
+drain();
+assert.ok(ride, 'rejected native demolition leaves the ride intact');
+assert.equal(sent.filter(m => m.kind === 'combat.result').at(-1).payload.state, 'removal_failed');
 const oldScenery = all.find(e => e.kind === 'small_scenery');
 subscriptions.get('action.execute')({ action: 'smallsceneryremove',
     args: { x: 4 * 32, y: 1 * 32, z: 112 }, result: { error: 0 } });

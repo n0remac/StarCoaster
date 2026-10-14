@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
-import struct
 import subprocess
-import tempfile
 import unittest
 
 
@@ -15,8 +13,6 @@ class ParkAssaultMapTest(unittest.TestCase):
     def setUpClass(cls):
         if not (DATA / "fixture.json").is_file():
             subprocess.run(["python3", "scripts/create-park-assault.py"], cwd=ROOT, check=True)
-        if not (DATA / "map/park-assault.scm").is_file():
-            subprocess.run(["python3", "scripts/create-park-assault-map.py"], cwd=ROOT, check=True)
         cls.fixture = json.loads((DATA / "fixture.json").read_text())
         cls.export = json.loads((DATA / "navigation-elements.json").read_text())
 
@@ -62,25 +58,6 @@ class ParkAssaultMapTest(unittest.TestCase):
         self.assertTrue(all(row["error"] == 0 and row["removed"] and row["after"] == 0
                             for row in probes))
 
-    def test_openbw_map_contains_twenty_zerglings_and_three_nonattacking_proxies(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            subprocess.run(["smpq", "-q", "-x", str(DATA / "map/park-assault.scm"),
-                            "staredit/scenario.chk"], cwd=temporary, check=True)
-            chk = (Path(temporary) / "staredit/scenario.chk").read_bytes()
-        cursor, records = 0, b""
-        while cursor + 8 <= len(chk):
-            tag = chk[cursor:cursor + 4]
-            size = struct.unpack_from("<I", chk, cursor + 4)[0]
-            if tag == b"UNIT":
-                records = chk[cursor + 8:cursor + 8 + size]
-            cursor += 8 + size
-        self.assertTrue(records)
-        unit = struct.Struct("<IHHHHHHBBBBIHHII")
-        kinds = [unit.unpack_from(records, offset)[3] for offset in range(0, len(records), unit.size)]
-        self.assertEqual(kinds.count(37), 20)
-        self.assertEqual(kinds.count(111), 1)
-        self.assertEqual(kinds.count(124), 1)
-        self.assertEqual(kinds.count(123), 1)
 
 
 if __name__ == "__main__":

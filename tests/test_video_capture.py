@@ -1,6 +1,5 @@
 """Focused tests for the optional graphical recorder."""
 
-import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -172,29 +171,6 @@ class RecorderTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, "video recording failed"):
                         recorder.stop(False, "FFmpeg exited early")
 
-
-class ExistingWorkflowTests(unittest.TestCase):
-    def test_disabled_recording_does_not_check_ffmpeg(self):
-        spec = importlib.util.spec_from_file_location("capture_live_demo", SCRIPTS / "capture-live-demo.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "rct2/Data").mkdir(parents=True)
-            (root / "rct2/Data/g1.dat").touch()
-            (root / "starcraft").mkdir()
-            for name in ("StarDat.mpq", "BrooDat.mpq", "Patch_rt.mpq"):
-                (root / "starcraft" / name).touch()
-            with patch.object(module, "RCT2_DATA", root / "rct2"), \
-                 patch.object(module, "SC_DATA", root / "starcraft"), \
-                 patch.object(module, "OUT", root / "out"), \
-             patch("artifact_runs.ARTIFACT_ROOT", root / "artifacts"), \
-                 patch.object(module, "start", side_effect=RuntimeError("stopped before launch")), \
-                 patch.object(module, "check_dependencies") as dependencies, \
-                 patch.object(sys, "argv", ["capture-live-demo.py", "--seconds", "8", "--video-fps", "0"]):
-                with self.assertRaisesRegex(RuntimeError, "stopped before launch"):
-                    module.main()
-            dependencies.assert_not_called()
 
 
 if __name__ == "__main__":
