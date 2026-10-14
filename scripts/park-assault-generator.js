@@ -14,6 +14,7 @@ registerPlugin({
         var probe = false; // The Python launcher substitutes this literal for an isolated probe.
         var playable = false; // The playable launcher substitutes this literal.
         var exampleDefense = false; // The package launcher selects the minimal variant.
+        var layout = null; // A validated layout-v1 object is injected by the launcher.
         var bounds = { min_x: 8, min_y: 8, max_x: 55, max_y: 55 };
         var specs = [
             { id: "carousel-1", name: "Frontier Carousel", object: "rct2.ride.mgr1", x: 19, y: 18, track: 266, expected: 9,
@@ -26,6 +27,7 @@ registerPlugin({
         if (playable && !exampleDefense) specs.push({ id: "shop-2", name: "Frontier Drink Stand", object: "rct2.ride.drnks", x: 42, y: 22,
             track: 262, expected: 1, proxy_type: "Terran_Missile_Turret", proxy_unit_type: 124,
             proxy_hp: 200, collision: { width: 33, height: 49 } });
+        if (layout) specs = layout.rides;
         function fail(message) { console.log("PARK_ASSAULT_FAILED " + message); }
         function object(type, identifier) {
             var matches = objectManager.getAllObjects(type).filter(function (entry) {
@@ -71,6 +73,7 @@ registerPlugin({
         // Native land bits: 9 rises with Y, 6 falls with Y, 12 falls with X.
         // Footpath uphill directions use a separate encoding.
         function ridgeSurface(x, y) {
+            if (layout) return { base: 14, slope: 0 };
             if (!playable) return { base: 14, slope: 0 };
             if (x >= 14 && x <= 24 && y >= 30 && y <= 34) return { base: 16, slope: 0 };
             if (x >= 14 && x <= 18 && y === 29) return { base: 14, slope: 9 };
@@ -94,6 +97,7 @@ registerPlugin({
             }
         }
         function scenery() {
+            if (layout) { layoutScenery(); return; }
             var paths = {};
             function path(x, y) { paths[x + "," + y] = true; }
             function horizontal(y, x0, x1) {
@@ -201,6 +205,42 @@ registerPlugin({
                 e.quadrant = 0;
             });
         }
+        function layoutScenery() {
+            var paths = {}, occupied = {}, walls = {};
+            layout.paths.forEach(function (segment) {
+                var x0 = segment.x0 === undefined ? segment.x : segment.x0;
+                var x1 = segment.x1 === undefined ? segment.x : segment.x1;
+                var y0 = segment.y0 === undefined ? segment.y : segment.y0;
+                var y1 = segment.y1 === undefined ? segment.y : segment.y1;
+                for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) paths[x + "," + y] = true;
+            });
+            Object.keys(paths).sort().forEach(function (key) {
+                var p = key.split(",").map(Number);
+                var e = add(p[0], p[1], "footpath", 14, 16, 4);
+                e.surfaceObject = 4; e.railingsObject = 0; e.edges = 15;
+            });
+            layout.walls.forEach(function (segment) {
+                if (!objectManager.getAllObjects("wall").some(function (entry) { return entry.identifier === segment.object; })
+                    && !objectManager.load(segment.object)) throw new Error("wall unavailable " + segment.object);
+                for (var y = segment.y0; y <= segment.y1; y++) for (var x = segment.x0; x <= segment.x1; x++) {
+                    var key = x + "," + y + ":" + segment.direction;
+                    if (walls[key]) throw new Error("duplicate wall edge " + key);
+                    walls[key] = true;
+                    var e = add(x, y, "wall", 14, 18, object("wall", segment.object).index);
+                    e.direction = segment.direction;
+                    occupied[x + "," + y] = true;
+                }
+            });
+            layout.scenery.forEach(function (item) {
+                var key = item.x + "," + item.y;
+                if (paths[key] || occupied[key]) throw new Error("scenery overlaps path or wall at " + key);
+                if (!objectManager.getAllObjects("small_scenery").some(function (entry) { return entry.identifier === item.object; })
+                    && !objectManager.load(item.object)) throw new Error("scenery unavailable " + item.object);
+                var e = add(item.x, item.y, "small_scenery", 14, 26, object("small_scenery", item.object).index);
+                e.quadrant = 0;
+                occupied[key] = true;
+            });
+        }
         function metadata() {
             var targets = specs.map(function (spec) {
                 var rides = map.rides.filter(function (ride) { return ride.name === spec.name; });
@@ -219,7 +259,7 @@ registerPlugin({
                     attack_approaches: [], footprint_tiles: tiles.map(function (tile) { return { x: tile.x, y: tile.y }; }),
                     tiles: tiles };
             });
-            return { name: "Frontier Outpost", layout_version: playable ? 4 : 1, terrain_version: playable ? 1 : 0,
+            return { name: layout ? layout.name : "Frontier Outpost", layout_version: layout ? 1 : playable ? 4 : 1, terrain_version: playable && !layout ? 1 : 0,
                 bounds: bounds, tile_size: 32,
                 cell_size: 8, transform: playable ? { x: 1024, y: 1024 } : { x: -128, y: -96 }, targets: targets };
         }
@@ -295,7 +335,7 @@ registerPlugin({
             });
         }
         function placeLarge(index) {
-            var placements = playable ? [[17, 38, "rct2.scenery_large.sip"],
+            var placements = layout ? layout.large_scenery.map(function (item) { return [item.x, item.y, item.object]; }) : playable ? [[17, 38, "rct2.scenery_large.sip"],
                 [9, 29, "rct2.scenery_large.ssig4"]] : [];
             if (index === placements.length) {
                 try {
@@ -330,7 +370,7 @@ registerPlugin({
         }
         context.subscribe("interval.tick", function () {
             if (network.mode !== "server") return;
-            if (savePending) { savePending = false; context.saveGame({ filename: exampleDefense ? "example-defense" : playable ? "frontier-outpost-playable" : "frontier-outpost" }); return; }
+            if (savePending) { savePending = false; context.saveGame({ filename: layout ? layout.scenario_id : exampleDefense ? "example-defense" : playable ? "frontier-outpost-playable" : "frontier-outpost" }); return; }
             if (resizePending) { resizePending = false; populate(); return; }
             if (preparation) {
                 if (cleanupBusy) return;
@@ -368,7 +408,7 @@ registerPlugin({
             else populate();
         });
         function populate() {
-            try { park.name = "Frontier Outpost"; terrain(); scenery(); createAt(0); }
+            try { park.name = layout ? layout.name : "Frontier Outpost"; terrain(); scenery(); createAt(0); }
             catch (error) { fail(String(error)); }
         }
     }

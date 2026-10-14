@@ -14,6 +14,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import scenario_package
+from park_layout import load as load_layout
 spec = importlib.util.spec_from_file_location("play_scenario", ROOT / "scripts/play-scenario.py")
 play = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(play)
@@ -23,6 +24,42 @@ park_spec.loader.exec_module(park_cli)
 
 
 class ScenarioPackageTest(unittest.TestCase):
+    def test_layout_validation_and_isolated_resolution(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
+            root = Path(directory)
+            def make(identifier):
+                package = root / "scenarios" / identifier
+                package.mkdir(parents=True)
+                (package / "scenario.json").write_text(json.dumps({"scenario_id": identifier,
+                    "park_file": f"run-data/{identifier}/save/{identifier}.park"}))
+                (package / "mapping.json").write_text("{}")
+                (package / "package.json").write_text(json.dumps({"generator": "layout-v1", "layout": "park-layout.json",
+                    "fixture": f"run-data/{identifier}/fixture.json", "navigation": f"run-data/{identifier}/navigation-elements.json"}))
+                (package / "park-layout.json").write_text(json.dumps({"version": 1, "name": identifier,
+                    "size": [64, 64], "rides": [{"id": "wheel", "name": "Wheel", "object": "rct2.ride.fwh1", "x": 30, "y": 30}],
+                    "paths": [{"kind": "horizontal", "y": 28, "x0": 12, "x1": 40}],
+                    "walls": [{"x0": 20, "y0": 20, "x1": 20, "y1": 24, "direction": 0, "object": "rct2.scenery_wall.wbr1"}],
+                    "scenery": [], "large_scenery": []}))
+                return package
+            a, b = make("alpha"), make("beta")
+            first = scenario_package.resolve("alpha")
+            second = scenario_package.resolve("beta")
+            self.assertNotEqual(first["park"], second["park"])
+            self.assertEqual(load_layout(a / "park-layout.json"), load_layout(a / "park-layout.json"))
+            (a / "park-layout.json").unlink()
+            with self.assertRaisesRegex(ValueError, "layout"):
+                scenario_package.resolve("alpha")
+            (a / "park-layout.json").symlink_to(b / "park-layout.json")
+            with self.assertRaisesRegex(ValueError, "unsafe layout"):
+                scenario_package.resolve("alpha")
+            (a / "park-layout.json").unlink()
+            (a / "park-layout.json").write_text("{bad")
+            with self.assertRaisesRegex(ValueError, "invalid park layout"):
+                scenario_package.resolve("alpha")
+            (a / "package.json").write_text(json.dumps({"generator": "os.system('bad')"}))
+            with self.assertRaisesRegex(ValueError, "generator"):
+                scenario_package.resolve("alpha")
+
     def test_distinct_packages_share_launcher_and_native_map_builder(self):
         frontier = play.resolve("frontier-outpost")
         example = play.resolve("example-defense")
