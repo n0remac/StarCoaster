@@ -82,6 +82,7 @@ type service struct {
 	spawnOps                  map[string]world.SpawnExecute
 	spawnJournalPath          string
 	maxLiveActors             int
+	lastScenarioStatus        string
 }
 
 type worldCommand struct {
@@ -200,6 +201,12 @@ func (s *service) publishReady() {
 		}
 	}
 	sort.Strings(ready.TargetIDs)
+	if err := s.initScenarioRuntime(); err != nil {
+		s.ready = false
+		log.Printf("scenario %s cannot start: %v", s.scenario.ID, err)
+		_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision, map[string]string{"reason": err.Error()})
+		return
+	}
 	if s.scenario != nil {
 		runtimeMarines, runtimeZerglings := 0, 0
 		if s.actors != nil {
@@ -212,8 +219,9 @@ func (s *service) publishReady() {
 				}
 			}
 		}
-		if err := s.scenario.CheckReadyWithRuntime(s.registry, s.proxies, ready,
-			runtimeMarines, runtimeZerglings); err != nil {
+		destroyed := s.runtime != nil && s.runtime.ObjectiveDestroyed && s.runtime.Outcome == "defeat"
+		if err := s.scenario.CheckReadyWithRuntimeState(s.registry, s.proxies, ready,
+			runtimeMarines, runtimeZerglings, destroyed); err != nil {
 			s.ready = false
 			log.Printf("scenario %s cannot start: %v", s.scenario.ID, err)
 			_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision,
@@ -221,22 +229,17 @@ func (s *service) publishReady() {
 			return
 		}
 	}
-	if err := s.initScenarioRuntime(); err != nil {
-		s.ready = false
-		log.Printf("scenario %s cannot start: %v", s.scenario.ID, err)
-		_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision, map[string]string{"reason": err.Error()})
-		return
-	}
 	if s.runtime != nil {
 		s.outcome = s.runtime.Outcome
 	}
 	s.ready = true
-	if s.scenario != nil && s.startedSession != s.registry.Session {
+	if s.scenario != nil && s.startedSession != s.registry.Session && s.outcome == "" {
 		_ = s.emit(s.bw, "world.start", s.registry.Session, s.registry.Revision,
 			map[string]any{"scenario_id": s.scenario.ID, "delay_frames": s.scenario.InitialAI.DelayFrames})
 		s.startedSession = s.registry.Session
 	}
 	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
+	s.publishScenarioStatus(true)
 	log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
 	if s.scenario == nil || s.scenario.Version == 1 {
 		s.submitScenarioSpawns()
@@ -270,6 +273,7 @@ func (s *service) announceOutcome(marines, zerglings int) {
 		map[string]any{"scenario_id": s.scenario.ID, "state": state,
 			"objective_id": s.objectiveID, "marines": marines, "zerglings": zerglings})
 	log.Printf("scenario %s outcome=%s marines=%d zerglings=%d", s.scenario.ID, state, marines, zerglings)
+	s.publishScenarioStatus(true)
 }
 
 func (s *service) failCommands(reason string) {
@@ -448,6 +452,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.startedSession = ""
 			s.lastMarines = 0
 			s.lastZerglings = 0
+			s.lastScenarioStatus = ""
 		}
 		s.navigationMask = world.NavigationMask{}
 		s.navigationRevision = 0
@@ -484,6 +489,13 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				return
 			}
 			s.registry.Destroyed[result.EntityID] = true
+			if s.runtime != nil && result.EntityID == s.objectiveID {
+				s.runtime.ObjectiveDestroyed = true
+				if !s.saveScenarioRuntime() {
+					s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+					return
+				}
+			}
 			s.registry.Revision = m.Revision
 			delete(s.targetLinks, result.EntityID)
 			_ = s.emit(s.controller, "entity.remove", m.Session, m.Revision, map[string]string{"id": result.EntityID})
@@ -575,6 +587,11 @@ func (s *service) forwardSnapshot() {
 	if s.bw == nil || s.registry.Session == "" {
 		return
 	}
+	if err := s.initScenarioRuntime(); err != nil {
+		log.Printf("scenario snapshot rejected: %v", err)
+		_ = s.emit(s.park, "world.error", s.registry.Session, s.registry.Revision, map[string]string{"reason": err.Error()})
+		return
+	}
 	r := s.registry
 	s.bwResyncPending = false
 	rev := r.Revision
@@ -616,12 +633,26 @@ func (s *service) forwardSnapshot() {
 	}
 	begin := world.SnapshotBegin{Width: derivedWidth, Height: derivedHeight, Chunks: len(chunks)}
 	if s.scenario != nil {
-		id, err := s.scenario.ObjectiveEntityID(r, s.scenario.InitialAI.Objective)
-		if err != nil {
-			log.Printf("scenario objective: %v", err)
+		if s.runtime != nil && s.runtime.ObjectiveDestroyed {
+			s.objectiveID = s.runtime.ObjectiveEntityID
 		} else {
-			begin.ObjectiveID = id
-			s.objectiveID = id
+			id, err := s.scenario.ObjectiveEntityID(r, s.scenario.InitialAI.Objective)
+			if err != nil {
+				log.Printf("scenario objective: %v", err)
+			} else if s.runtime != nil && s.runtime.ObjectiveEntityID != "" && s.runtime.ObjectiveEntityID != id {
+				s.scenarioRuntimeError(fmt.Errorf("objective_binding_changed: %s to %s", s.runtime.ObjectiveEntityID, id))
+				return
+			} else {
+				begin.ObjectiveID = id
+				s.objectiveID = id
+				if s.runtime != nil && s.runtime.ObjectiveEntityID == "" {
+					s.runtime.ObjectiveEntityID = id
+					if !s.saveScenarioRuntime() {
+						s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+						return
+					}
+				}
+			}
 		}
 	}
 	if err := s.emit(s.bw, "world.snapshot.begin", r.Session, rev, begin); err != nil {
@@ -879,6 +910,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 						s.advanceScenarioRuntime(snapshot.BWTick, snapshot.Seq, living)
 					}
 					s.announceOutcome(marines, zerglings)
+					s.publishScenarioStatus(false)
 				}
 				visible := make([]map[string]any, 0, len(snapshot.Units))
 				for _, unit := range snapshot.Units {

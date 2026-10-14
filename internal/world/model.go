@@ -42,6 +42,7 @@ type Removal struct {
 }
 type Entity struct {
 	ID           string    `json:"id"`
+	Name         string    `json:"name,omitempty"`
 	Source       string    `json:"source"`
 	SourceID     string    `json:"source_id"`
 	Kind         string    `json:"kind"`

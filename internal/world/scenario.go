@@ -259,6 +259,13 @@ func (s *Scenario) CheckReady(registry *Registry, proxies map[string]string, rea
 
 func (s *Scenario) CheckReadyWithRuntime(registry *Registry, proxies map[string]string, ready Ready,
 	runtimeMarines, runtimeZerglings int) error {
+	return s.CheckReadyWithRuntimeState(registry, proxies, ready, runtimeMarines, runtimeZerglings, false)
+}
+
+// A durable confirmed demolition permits terminal recovery without the ride
+// reappearing in a fresh park snapshot.
+func (s *Scenario) CheckReadyWithRuntimeState(registry *Registry, proxies map[string]string, ready Ready,
+	runtimeMarines, runtimeZerglings int, objectiveDestroyed bool) error {
 	if registry.Width != s.ParkSize[0] || registry.Height != s.ParkSize[1] {
 		return fmt.Errorf("park_size_mismatch: expected %dx%d, got %dx%d", s.ParkSize[0], s.ParkSize[1], registry.Width, registry.Height)
 	}
@@ -281,6 +288,9 @@ func (s *Scenario) CheckReadyWithRuntime(registry *Registry, proxies map[string]
 		if !objective.Required {
 			continue
 		}
+		if objectiveDestroyed && objective.ID == s.Defeat.ObjectiveDestroyed {
+			continue
+		}
 		id, err := s.ObjectiveEntityID(registry, objective.ID)
 		if err != nil {
 			return err
@@ -300,7 +310,8 @@ func (s *Scenario) ObjectiveEntityID(registry *Registry, objectiveID string) (st
 		var match string
 		count := 0
 		for id, entity := range registry.Entities {
-			if entity.Kind == objective.EntityKind && entity.Type == objective.EntityType && !registry.Destroyed[id] {
+			if entity.Kind == objective.EntityKind && entity.Type == objective.EntityType &&
+				(objective.EntityName == "" || entity.Name == objective.EntityName) && !registry.Destroyed[id] {
 				match = id
 				count++
 			}

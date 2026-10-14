@@ -6,6 +6,7 @@
     const COMMAND_ACTION = "rtsbridge.marineCommand";
     const RESULT_ACTION = "rtsbridge.commandResult";
     const OUTCOME_ACTION = "rtsbridge.worldOutcome";
+    const SCENARIO_STATUS_ACTION = "rtsbridge.scenarioStatus";
     const TARGET_ACTION = "rtsbridge.targetCatalog";
     const ACTOR_LIFECYCLE_ACTION = "rtsbridge.actorLifecycle";
     const CLIENT_READY_ACTION = "rtsbridge.clientReady";
@@ -142,6 +143,7 @@
                 const kind = ride.classification === "stall" ? "shop" : ride.classification === "facility" ? "facility" : "ride";
                 const key = "ride:" + id;
                 grouped[key] = { key: key, kind: kind, type: ride.object ? ride.object.identifier : String(ride.type),
+                    name: ride.name,
                     x: item.cells[0].x * 32, y: item.cells[0].y * 32, z: item.height || 0, direction: 0,
                     cells: item.cells, rects: [], removal: { action: "ridedemolish", args: { ride: ride.id, modifyType: 0 } },
                     rideId: ride.id, rideType: ride.type };
@@ -183,6 +185,7 @@
                     destructible: item.kind !== "guest" && item.kind !== "staff",
                     combat: { targetable: item.kind !== "path" && item.kind !== "guest" && item.kind !== "staff", health: 100 },
                     removal: item.removal, revision: revision };
+                if (item.name) entity.name = item.name;
                 item.id = id; item.entity = entity;
                 item.activeTarget = !!(entities[id] && entities[id].activeTarget);
                 entities[id] = item; activeItems[key] = item; result.push(entity);
@@ -319,6 +322,10 @@
                     scenario_id: message.payload.scenario_id, state: message.payload.state,
                     objective_id: message.payload.objective_id }, function (result) {
                     if (result.error) console.log("WORLD_OUTCOME_ERROR " + result.errorMessage);
+                });
+            else if (message.kind === "scenario.status" && message.payload)
+                context.executeAction(SCENARIO_STATUS_ACTION, message.payload, function (result) {
+                    if (result.error) console.log("WORLD_SCENARIO_STATUS_ERROR " + result.errorMessage);
                 });
             else if (message.kind === "entity.remove") {
                 const removed = message.payload && message.payload.id;
@@ -629,6 +636,7 @@
             });
         }
         let outcomeState = null;
+        let missionStatus = null;
         let shownOutcome = "";
         let commandFeedback = "";
         const pendingCommands = {};
@@ -677,7 +685,10 @@
                         && activeActorGenerations[unit.id] > 0);
             });
             rtsBridge.applySnapshot({ session: event.args.session, seq: event.args.seq, units: visible });
-            if (controlSession !== event.args.session) { outcomeState = null; shownOutcome = ""; }
+            if (controlSession !== event.args.session) {
+                outcomeState = null; shownOutcome = "";
+                if (missionStatus && missionStatus.session !== event.args.session) missionStatus = null;
+            }
             controlSession = event.args.session;
             controlUnits = {};
             visible.forEach(function (unit) { controlUnits[unit.id] = unit; });
@@ -815,6 +826,29 @@
                     ? {} : { error: 1, errorMessage: "Invalid battle outcome" };
             }, function (event) {
                 outcomeState = event.args.state;
+                return {};
+            });
+            if (WORLD_ENABLED) context.registerAction(SCENARIO_STATUS_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may report scenario status" };
+                if (!/^[0-9a-f]{32}$/.test(args.session || "")
+                    || !/^[a-zA-Z0-9_.:/#-]{1,128}$/.test(args.scenario_id || "")
+                    || typeof args.display_name !== "string" || args.display_name.length > 128
+                    || typeof args.objective !== "string" || args.objective.length > 256
+                    || !Number.isInteger(args.wave_ordinal) || args.wave_ordinal < 0 || args.wave_ordinal > 64
+                    || !Number.isInteger(args.wave_total) || args.wave_total < 0 || args.wave_total > 64
+                    || !["", "pending", "triggered", "spawning", "active", "cleared", "failed"].includes(args.wave_state)
+                    || !["", "victory", "defeat"].includes(args.outcome)
+                    || typeof args.error !== "string" || args.error.length > 256)
+                    return { error: 1, errorMessage: "Invalid scenario status" };
+                return {};
+            }, function (event) {
+                missionStatus = event.args;
+                if (missionStatus.outcome) outcomeState = missionStatus.outcome;
+                console.log("WORLD_SCENARIO_STATUS scenario=" + missionStatus.scenario_id
+                    + " wave=" + missionStatus.wave_ordinal + "/" + missionStatus.wave_total
+                    + " state=" + missionStatus.wave_state + " outcome=" + missionStatus.outcome);
                 return {};
             });
             context.registerAction(COMMAND_ACTION, function (event) {
@@ -961,6 +995,8 @@
                     if (status.session === controlSession)
                         context.executeAction(SPAWN_STATUS_ACTION, status, function () {});
                 });
+                if (missionStatus && missionStatus.session === controlSession)
+                    context.executeAction(SCENARIO_STATUS_ACTION, missionStatus, function () {});
             }
             if (WORLD_ENABLED && network.mode === "client" && controlSession
                 && clientReadySession !== controlSession && !clientReadyPending
@@ -1045,12 +1081,19 @@
                     }
                 }
                 if (squadWindow) {
+                    if (missionStatus && missionStatus.session === controlSession)
+                        squadWindow.title = missionStatus.display_name;
                     const info = squadWindow.findWidget("selection");
                     if (info) info.text = selected.length + " Marine" + (selected.length === 1 ? "" : "s")
                         + " selected" + (selected.length === 1 ? " | HP " + controlUnits[selected[0]].hp : "");
                     const objective = squadWindow.findWidget("objective");
-                    if (objective) objective.text = outcomeState === "victory" ? "Victory: Outpost defended"
-                        : outcomeState === "defeat" ? "Defeat: Outpost lost" : "Defend Frontier Carousel";
+                    if (objective) objective.text = missionStatus && missionStatus.session === controlSession
+                        ? (missionStatus.error ? "Wave error: " + missionStatus.error
+                            : missionStatus.outcome === "victory" ? "Victory: " + missionStatus.objective
+                            : missionStatus.outcome === "defeat" ? "Defeat: " + missionStatus.objective
+                            : missionStatus.objective + (missionStatus.wave_total
+                                ? " | Wave " + missionStatus.wave_ordinal + "/" + missionStatus.wave_total : ""))
+                        : "Waiting for mission status";
                     const command = squadWindow.findWidget("command");
                     if (command) command.text = commandFeedback || "Select Marines to issue orders";
                     const status = squadWindow.findWidget("spawn-status");
@@ -1059,8 +1102,9 @@
                 }
                 if (outcomeState && shownOutcome !== controlSession + ":" + outcomeState) {
                     shownOutcome = controlSession + ":" + outcomeState;
-                    ui.showError("Frontier Outpost", outcomeState === "victory"
-                        ? "Victory! The carousel survived." : "Defeat! The outpost has fallen.");
+                    ui.showError(missionStatus ? missionStatus.display_name : "Scenario", outcomeState === "victory"
+                        ? "Victory! " + (missionStatus ? missionStatus.objective : "Objective defended")
+                        : "Defeat! " + (missionStatus ? missionStatus.objective : "Objective lost"));
                 }
             }
             onActorRemoved = function (id) {

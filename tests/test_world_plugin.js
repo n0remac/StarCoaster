@@ -78,6 +78,7 @@ drain();
 const begin = sent.find(m => m.kind === 'world.snapshot.begin');
 assert.ok(begin, 'discovery begins without a scenario configuration');
 const all = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.entities || []);
+assert.equal(all.find(e => e.kind === 'ride').name, 'Any Carousel', 'ride name is exported for authored objectives');
 const ground = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.terrain || []);
 const terrainAt = (x, y) => ground.find(cell => cell.x === x && cell.y === y);
 assert.equal(terrainAt(0, 0).height, 112);
@@ -101,6 +102,15 @@ socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: si
     payload: { seq: 1, bw_tick: 3, units: [{ id: 'openbw:7', kind: 'zerg_zergling', owner: 0,
         x: 48, y: 48, facing: 0, motion: 'walk', hp: 35, max_hp: 35, attack_frames: 0 }] } }) + '\n');
 assert.equal(applied.length, 1, 'combat actors use synchronized native action');
+const mission = { session: sid, scenario_id: 'example-defense', display_name: 'Example Defense',
+    objective: 'Defend the carousel', wave_ordinal: 1, wave_total: 3,
+    wave_state: 'spawning', outcome: '', error: '' };
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'scenario.status', session: sid, payload: mission }) + '\n');
+const missionAction = registered.get('rtsbridge.scenarioStatus');
+assert.ok(missionAction, 'mission action registered');
+assert.equal(missionAction.query({ player: 2, args: mission }).error, 1, 'clients cannot author mission status');
+assert.ok(actions.some(action => action.name === 'rtsbridge.scenarioStatus'
+    && action.args.scenario_id === 'example-defense'), 'host synchronized mission status');
 const many = Array.from({ length: 100 }, function (_, index) {
     const marine = index % 2 === 0;
     return { id: 'openbw:' + (1000 + index), kind: marine ? 'terran_marine' : 'zerg_zergling',
@@ -284,6 +294,9 @@ clientReady.execute({ player: 2, args: { session: sid } });
 subscriptions.get('interval.tick')();
 assert.ok(actions.filter(a => a.name === 'rtsbridge.targetCatalog').length > beforeReady,
     'client readiness replays the current catalog after plugin startup');
+assert.ok(actions.filter(action => action.name === 'rtsbridge.scenarioStatus'
+    && action.args.scenario_id === 'example-defense').length >= 2,
+    'late client receives the current authoritative mission status');
 assert.match(command.query({ player: 2, args: squadArgs }).errorMessage, /commander/);
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
     payload: { scenario_id: 'frontier-outpost', state: 'victory', objective_id: 'openrct2:ride:17#1' } }) + '\n');

@@ -12,15 +12,17 @@ import (
 // submitted; native creation and death are learned only from authoritative
 // queue, actor lifecycle, and complete combat snapshots.
 type ScenarioRuntime struct {
-	Session        string        `json:"session"`
-	DefinitionHash string        `json:"definition_hash"`
-	StartFrame     int           `json:"start_frame"`
-	Started        bool          `json:"started"`
-	LastFrame      int           `json:"last_frame"`
-	LastSeq        uint64        `json:"last_seq"`
-	Waves          []RuntimeWave `json:"waves"`
-	Outcome        string        `json:"outcome,omitempty"`
-	Error          string        `json:"error,omitempty"`
+	Session            string        `json:"session"`
+	DefinitionHash     string        `json:"definition_hash"`
+	ObjectiveEntityID  string        `json:"objective_entity_id,omitempty"`
+	ObjectiveDestroyed bool          `json:"objective_destroyed,omitempty"`
+	StartFrame         int           `json:"start_frame"`
+	Started            bool          `json:"started"`
+	LastFrame          int           `json:"last_frame"`
+	LastSeq            uint64        `json:"last_seq"`
+	Waves              []RuntimeWave `json:"waves"`
+	Outcome            string        `json:"outcome,omitempty"`
+	Error              string        `json:"error,omitempty"`
 }
 type RuntimeWave struct {
 	ID             string        `json:"id"`

@@ -86,3 +86,26 @@ func TestV2RejectsUnknownFields(t *testing.T) {
 		t.Fatalf("unknown trigger field: %v", err)
 	}
 }
+
+func TestV2NamedObjectiveSelectsUniqueRide(t *testing.T) {
+	s := validV2(t)
+	r := NewRegistry()
+	first := exampleEntity("openrct2:ride:100#1")
+	first.Kind, first.Type, first.Name = "ride", "rct2.ride.mgr1", "Frontier Carousel"
+	second := exampleEntity("openrct2:ride:101#1")
+	second.Kind, second.Type, second.Name = "ride", "rct2.ride.mgr1", "Other Carousel"
+	if err := r.Replace("session-a", 1, 64, 64, []Entity{first, second}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := s.ObjectiveEntityID(r, "defend-carousel"); err != nil || id != first.ID {
+		t.Fatalf("named selector: %s %v", id, err)
+	}
+	s.Objectives[0].EntityName = ""
+	if _, err := s.ObjectiveEntityID(r, "defend-carousel"); err == nil {
+		t.Fatal("type-only ambiguous selector accepted")
+	}
+	s.Objectives[0].EntityName = "Other Carousel"
+	if id, err := s.ObjectiveEntityID(r, "defend-carousel"); err != nil || id != second.ID {
+		t.Fatalf("second named selector: %s %v", id, err)
+	}
+}
