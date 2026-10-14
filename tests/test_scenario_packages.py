@@ -24,6 +24,11 @@ park_spec.loader.exec_module(park_cli)
 
 
 class ScenarioPackageTest(unittest.TestCase):
+    def test_fourth_independent_layout_fixture(self):
+        layout = load_layout(ROOT / "tests/fixtures/fourth-layout.json")
+        self.assertEqual(layout["name"], "Fourth Layout Proof")
+        self.assertEqual([ride["expected"] for ride in layout["rides"]], [4, 1])
+
     def test_layout_validation_and_isolated_resolution(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
             root = Path(directory)
@@ -59,6 +64,12 @@ class ScenarioPackageTest(unittest.TestCase):
             (a / "package.json").write_text(json.dumps({"generator": "os.system('bad')"}))
             with self.assertRaisesRegex(ValueError, "generator"):
                 scenario_package.resolve("alpha")
+            (a / "park-layout.json").write_text((b / "park-layout.json").read_text())
+            (a / "package.json").write_text((b / "package.json").read_text().replace("beta", "alpha"))
+            (root / "run-data").mkdir()
+            (root / "run-data/alpha").symlink_to(Path(directory) / "outside")
+            with self.assertRaisesRegex(ValueError, "unsafe .* output"):
+                scenario_package.resolve("alpha")
 
     def test_distinct_packages_share_launcher_and_native_map_builder(self):
         frontier = play.resolve("frontier-outpost")
@@ -77,6 +88,19 @@ class ScenarioPackageTest(unittest.TestCase):
         for value in ("../example-defense", "Frontier", "missing/package"):
             with self.assertRaises(ValueError):
                 play.resolve(value)
+
+    def test_legacy_generator_cannot_claim_another_scenarios_outputs(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
+            package = Path(directory) / "scenarios/other"
+            package.mkdir(parents=True)
+            (package / "scenario.json").write_text(json.dumps({"scenario_id": "other",
+                "park_file": "run-data/frontier-playable/save/frontier-outpost-playable.park"}))
+            (package / "mapping.json").write_text("{}")
+            (package / "package.json").write_text(json.dumps({"generator": ["scripts/create-park-assault.py", "--playable"],
+                "fixture": "run-data/frontier-playable/fixture.json",
+                "navigation": "run-data/frontier-playable/navigation-elements.json"}))
+            with self.assertRaisesRegex(ValueError, "belong"):
+                scenario_package.resolve("other")
 
     def test_missing_and_mismatched_packages(self):
         with self.assertRaisesRegex(ValueError, "missing scenario package"):
@@ -117,6 +141,36 @@ class ScenarioPackageTest(unittest.TestCase):
                 run.assert_not_called()
                 scenario_package.ensure_park(plan, force=True)
                 run.assert_called_once_with(plan["generator"], cwd=root, check=True)
+
+    def test_layout_change_or_missing_export_regenerates(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
+            root = Path(directory)
+            for name in scenario_package.GENERATOR_INPUTS:
+                source = root / name
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("source")
+            layout = root / "scenarios/test/park-layout.json"
+            layout.parent.mkdir(parents=True)
+            layout.write_text("layout")
+            paths = [root / "run-data/test" / name for name in ("park", "fixture", "navigation")]
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("data")
+            plan = dict(zip(("park", "fixture", "navigation"), map(str, paths)))
+            plan.update(scenario_id="test", layout=str(layout), generator=["python3", "generator"])
+            with mock.patch.object(scenario_package.subprocess, "run") as run:
+                scenario_package.ensure_park(plan)
+                run.assert_not_called()
+                layout.touch()
+                import os
+                os.utime(layout, (max(p.stat().st_mtime for p in paths) + 2,)*2)
+                scenario_package.ensure_park(plan)
+                run.assert_called_once()
+                run.reset_mock()
+                paths[2].unlink()
+                with self.assertRaisesRegex(RuntimeError, "complete"):
+                    scenario_package.ensure_park(plan)
+                run.assert_called_once()
 
     def test_park_rejects_unknown_flags_before_gameplay(self):
         result = subprocess.run(["scripts/project.sh", "park", "--not-a-scenario"], cwd=ROOT, capture_output=True, text=True)

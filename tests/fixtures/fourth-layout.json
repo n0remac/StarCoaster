@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "name": "Fourth Layout Proof",
+  "size": [64, 64],
+  "rides": [
+    {"id": "proof-wheel", "name": "Proof Ferris Wheel", "object": "rct2.ride.fwh1", "x": 30, "y": 30},
+    {"id": "proof-shop", "name": "Proof Drink Stand", "object": "rct2.ride.drnks", "x": 38, "y": 20}
+  ],
+  "paths": [
+    {"kind": "plaza", "x0": 25, "y0": 25, "x1": 38, "y1": 28},
+    {"kind": "horizontal", "x0": 25, "x1": 38, "y": 35},
+    {"kind": "vertical", "x": 25, "y0": 28, "y1": 35},
+    {"kind": "vertical", "x": 38, "y0": 28, "y1": 35}
+  ],
+  "walls": [
+    {"x0": 22, "y0": 24, "x1": 22, "y1": 38, "direction": 0, "object": "rct2.scenery_wall.wbr1"}
+  ],
+  "scenery": [{"x": 20, "y": 20, "object": "rct2.scenery_small.tap"}],
+  "large_scenery": []
+}

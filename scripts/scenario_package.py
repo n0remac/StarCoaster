@@ -37,7 +37,9 @@ def resolve(scenario_id: str) -> dict:
             raise ValueError(f"{field} must be under run-data")
         target = ROOT / relative
         base = ROOT / "run-data" / scenario_id if isolated else ROOT / "run-data"
-        if not target.resolve().is_relative_to(base.resolve()):
+        if (not (ROOT / "run-data").resolve().is_relative_to(ROOT.resolve())
+                or not target.resolve().is_relative_to((ROOT / "run-data").resolve())
+                or not target.resolve().is_relative_to(base.resolve())):
             raise ValueError(f"unsafe {field} output location")
         return str(target)
 
@@ -66,6 +68,15 @@ def resolve(scenario_id: str) -> dict:
     if isolated and (fixture != str(ROOT / "run-data" / scenario_id / "fixture.json") or
                      navigation != str(ROOT / "run-data" / scenario_id / "navigation-elements.json")):
         raise ValueError("layout export output does not match generator")
+    if not isolated:
+        legacy = {"--playable": ("frontier-outpost", "frontier-playable", "frontier-outpost-playable.park"),
+                  "--example-defense": ("example-defense", "example-defense", "example-defense.park")}
+        owner, directory, filename = legacy[generator[1]]
+        expected = ROOT / "run-data" / directory
+        if (scenario_id != owner or park != str(expected / "save" / filename)
+                or fixture != str(expected / "fixture.json")
+                or navigation != str(expected / "navigation-elements.json")):
+            raise ValueError("legacy generator outputs do not belong to selected scenario")
     output = ROOT / "run-data/scenarios" / scenario_id
     return {"scenario_id": scenario_id, "scenario": str(scenario_path),
             "mapping": str(mapping_path), "park": park,
