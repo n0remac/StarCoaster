@@ -9,7 +9,7 @@ park_file="${PARK_FILE:-$project_dir/run-data/frontier-playable/save/frontier-ou
 test -f "$park_file"
 run_dir="$project_dir/run-data/actor-live-$(date +%s)"
 mkdir -p "$run_dir/client-a/plugin" "$run_dir/client-b/plugin"
-python3 scripts/create-world-base-map.py --output "$run_dir/world-live.scm" --scenario scenarios/frontier-outpost.json
+python3 scripts/create-world-base-map.py --output "$run_dir/world-live.scm" --scenario scenarios/frontier-outpost/scenario.json
 if [[ "${BRIDGE_ACTOR_TEST_RESTART:-0}" == 1 ]]; then
   { printf 'var STARCOASTER_ACTOR_ATTACK_DELAY = 900;\n'; cat scripts/world-actor-probe.js; } \
     > "$run_dir/client-a/plugin/world-actor-probe.js"
@@ -85,8 +85,8 @@ if [[ "${BRIDGE_ACTOR_TEST_RESTART:-0}" == 1 ]]; then
     if ! kill -0 "$original_bridge_pid" 2>/dev/null; then break; fi
     sleep 0.1
   done
-  build/world-bridge --scenario scenarios/frontier-outpost.json \
-    --rules scenarios/frontier-outpost-mapping.json > "$run_dir/bridge-restart.log" 2>&1 &
+  build/world-bridge --scenario scenarios/frontier-outpost/scenario.json \
+    --rules scenarios/frontier-outpost/mapping.json > "$run_dir/bridge-restart.log" 2>&1 &
   bridge_restart_pid=$!
   wait_for 'actor reconcile living=1' "$run_dir/bridge-restart.log" 60
   wait_for 'actor binding id=openbw:3001 participant=controller.*active=true' \

@@ -10,7 +10,7 @@ import (
 
 func validV2(t *testing.T) Scenario {
 	t.Helper()
-	s, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost.json"))
+	s, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost", "scenario.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -183,7 +183,7 @@ def main():
             env.pop("BRIDGE_SCENARIO_CONFIG", None)
             session_command = [str(ROOT / "scripts/run-world-session.sh"), str(fixture)]
         elif args.ridge_assault:
-            scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
+            scenario = json.loads((ROOT / "scenarios/frontier-outpost/scenario.json").read_text())
             scenario["starting_units"]["zerglings"] = [
                 [x, y] for y in range(28, 34) for x in (26, 27)]
             test_scenario = out / "ridge-assault-scenario.json"
@@ -193,7 +193,7 @@ def main():
                             "--scenario", str(test_scenario), "--output", str(test_map)],
                            cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
             env.update(BRIDGE_MAP_FILE=str(test_map), BRIDGE_SCENARIO_CONFIG=str(test_scenario),
-                       BRIDGE_RULES_CONFIG=str(ROOT / "scenarios/frontier-outpost-mapping.json"))
+                       BRIDGE_RULES_CONFIG=str(ROOT / "scenarios/frontier-outpost/mapping.json"))
             session_command = [str(ROOT / "scripts/run-world-session.sh"),
                                str(ROOT / "run-data/frontier-playable/save/frontier-outpost-playable.park")]
         else:

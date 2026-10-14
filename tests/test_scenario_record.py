@@ -22,7 +22,7 @@ def load(name, file):
     return module
 
 
-record = load("record_scenario", "record-frontier-outpost.py")
+record = load("record_scenario", "record-scenario.py")
 generic = load("verify_scenario", "verify-scenario-capture.py")
 frontier = load("verify_frontier", "verify-frontier-capture.py")
 world256 = load("verify_world256", "verify-world-256-capture.py")

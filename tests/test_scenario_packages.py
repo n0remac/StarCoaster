@@ -32,10 +32,9 @@ class ScenarioPackageTest(unittest.TestCase):
         self.assertEqual(json.loads(Path(example["scenario"]).read_text())["version"], 2)
         self.assertEqual(json.loads(Path(frontier["scenario"]).read_text())["scenario_id"], "frontier-outpost")
 
-    def test_compatibility_wrapper_resolves_same_frontier_package(self):
-        original = subprocess.check_output(["scripts/run-frontier-outpost.sh", "--plan"], cwd=ROOT)
-        generic = subprocess.check_output(["scripts/project.sh", "play", "frontier-outpost", "--plan"], cwd=ROOT)
-        self.assertEqual(json.loads(original), json.loads(generic))
+    def test_project_play_resolves_frontier_package(self):
+        output = subprocess.check_output(["scripts/project.sh", "play", "frontier-outpost", "--plan"], cwd=ROOT)
+        self.assertEqual(json.loads(output), play.resolve("frontier-outpost"))
 
     def test_invalid_package_id_rejected(self):
         for value in ("../example-defense", "Frontier", "missing/package"):

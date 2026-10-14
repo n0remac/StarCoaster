@@ -7,7 +7,7 @@ import (
 )
 
 func TestFrontierScenarioRequiresNativeNavigationAndObjective(t *testing.T) {
-	scenario, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost.json"))
+	scenario, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost", "scenario.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestFrontierScenarioRequiresNativeNavigationAndObjective(t *testing.T) {
 }
 
 func TestFrontierOutcomeUsesConfirmedState(t *testing.T) {
-	scenario, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost.json"))
+	scenario, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost", "scenario.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestFrontierOutcomeUsesConfirmedState(t *testing.T) {
 }
 
 func TestTrustedZergWaveScenario(t *testing.T) {
-	scenario, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost-zerg-wave.json"))
+	scenario, err := LoadScenario(filepath.Join("..", "..", "tests", "fixtures", "frontier-outpost-zerg-wave.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

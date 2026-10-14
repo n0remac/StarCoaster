@@ -53,9 +53,9 @@ class WorldBaseMapTest(unittest.TestCase):
         self.assertEqual(parts[b"MASK"], b"\xff" * (256 * 256))
 
     def test_frontier_starting_units_use_map_center(self):
-        parts = sections(module.patch_chk(self.source, scenario=ROOT / "scenarios/frontier-outpost.json"))
+        parts = sections(module.patch_chk(self.source, scenario=ROOT / "scenarios/frontier-outpost/scenario.json"))
         units = [UNIT.unpack_from(parts[b"UNIT"], i) for i in range(0, len(parts[b"UNIT"]), UNIT.size)]
-        scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
+        scenario = json.loads((ROOT / "scenarios/frontier-outpost/scenario.json").read_text())
         offset = (module.MAP_SIZE - scenario["park_size"][0]) // 2
         first = scenario["starting_units"]["zerglings"][0]
         self.assertEqual(units[0][1:3], ((first[0] + offset) * 32 + 16,
@@ -67,7 +67,7 @@ class WorldBaseMapTest(unittest.TestCase):
     def test_rejects_oversized_park(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "scenario.json"
-            scenario = json.loads((ROOT / "scenarios/frontier-outpost.json").read_text())
+            scenario = json.loads((ROOT / "scenarios/frontier-outpost/scenario.json").read_text())
             scenario["park_size"] = [257, 256]
             path.write_text(json.dumps(scenario))
             with self.assertRaisesRegex(ValueError, "256x256"):

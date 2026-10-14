@@ -32,7 +32,7 @@ for attempt in $(seq 1 50); do
   sleep 0.1
 done
 test -S "/tmp/.X11-unix/X$display_num"
-launcher=(scripts/project.sh run)
+launcher=(scripts/project.sh play frontier-outpost)
 ready_limit=75
 if [[ "${PLAYABLE_FULL_START:-0}" == 1 ]]; then
   launcher=(scripts/start.sh --client)

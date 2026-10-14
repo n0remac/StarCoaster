@@ -9,7 +9,7 @@ park_file="${PARK_FILE:-$project_dir/run-data/frontier-playable/save/frontier-ou
 test -f "$park_file"
 run_dir="$project_dir/run-data/unit-spawn-live-$(date +%s)"
 mkdir -p "$run_dir/client-a/plugin" "$run_dir/client-b/plugin"
-python3 scripts/create-world-base-map.py --output "$run_dir/world-live.scm" --scenario scenarios/frontier-outpost.json
+python3 scripts/create-world-base-map.py --output "$run_dir/world-live.scm" --scenario scenarios/frontier-outpost/scenario.json
 recovery="${BRIDGE_SPAWN_RECOVERY:-0}"
 if [[ "$recovery" == 1 ]]; then
   { printf 'var STARCOASTER_TEST_RECOVERY = true;\n'; cat scripts/world-spawn-probe.js; } \

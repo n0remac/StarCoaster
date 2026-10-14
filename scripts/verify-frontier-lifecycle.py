@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "build/openrct2-stage/usr/local/share/openrct2"
 OUT = ROOT / "run-data/frontier-lifecycle"
 PARK = ROOT / "run-data/frontier-playable/save/frontier-outpost-playable.park"
-SCENARIO = ROOT / "scenarios/frontier-outpost.json"
+SCENARIO = ROOT / "scenarios/frontier-outpost/scenario.json"
 
 
 def wait_for(path: Path, pattern: str, process: subprocess.Popen, seconds: int) -> str:
@@ -36,7 +36,7 @@ def cycle(number: int, scenario: Path, map_file: Path, rct2: Path, starcraft: Pa
     env = os.environ.copy() | {
         "RCT2_DATA_DIR": str(rct2), "STARCRAFT_DATA_DIR": str(starcraft),
         "BRIDGE_SCENARIO_CONFIG": str(scenario),
-        "BRIDGE_RULES_CONFIG": str(ROOT / "scenarios/frontier-outpost-mapping.json"),
+        "BRIDGE_RULES_CONFIG": str(ROOT / "scenarios/frontier-outpost/mapping.json"),
         "BRIDGE_MAP_FILE": str(map_file), "BRIDGE_DISABLE_ASSAULT_AI": "1",
         "BRIDGE_LAUNCH_CLIENT": "0", "BRIDGE_SERVER_DATA_DIR": str(output / "server-data"),
         "OPENBW_LOCAL_PATH": str(output / "openbw-local.socket"),

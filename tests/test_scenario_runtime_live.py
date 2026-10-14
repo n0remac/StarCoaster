@@ -13,7 +13,7 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCENARIO = ROOT / "scenarios/frontier-outpost.json"
+SCENARIO = ROOT / "scenarios/frontier-outpost/scenario.json"
 PARK = ROOT / "run-data/frontier-playable/save/frontier-outpost-playable.park"
 OPENRCT2_DATA = ROOT / "build/openrct2-stage/usr/local/share/openrct2"
 SESSION_PORTS = (40010, 40011, 40012, 11753)

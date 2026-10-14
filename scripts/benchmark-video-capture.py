@@ -46,7 +46,7 @@ def benchmark(mode: str, seconds: int, prefix: str, layout: str, width: int,
     output.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["STARCOASTER_ARTIFACT_ROOT"] = str(output / "artifacts")
-    command = [sys.executable, str(ROOT / "scripts/record-frontier-outpost.py"),
+    command = [sys.executable, str(ROOT / "scripts/record-scenario.py"),
                "--duration", str(seconds), "--video-layout", layout,
                "--video-width", str(width), "--video-preset", preset,
                "--video-crf", str(crf), "--frame-ms", str(frame_ms),

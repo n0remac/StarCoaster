@@ -9,7 +9,7 @@ park_file="${PARK_FILE:-$project_dir/run-data/frontier-playable/save/frontier-ou
 test -f "$park_file"
 run_dir="$project_dir/run-data/zerg-spawn-live-$(date +%s)"
 mkdir -p "$run_dir/client-a/plugin" "$run_dir/client-b/plugin"
-python3 scripts/create-world-base-map.py --output "$run_dir/world-live.scm" --scenario scenarios/frontier-outpost.json
+python3 scripts/create-world-base-map.py --output "$run_dir/world-live.scm" --scenario scenarios/frontier-outpost/scenario.json
 for client in client-a client-b; do
   cp scripts/world-zerg-spawn-observer.js "$run_dir/$client/plugin/"
   { printf 'var STARCOASTER_WORLD_BRIDGE = true;\n'; cat openrct2-plugin/rts-bridge.js; } \
@@ -25,7 +25,7 @@ cleanup() {
   done
 }
 trap cleanup EXIT INT TERM
-BRIDGE_SCENARIO_CONFIG=scenarios/frontier-outpost-zerg-wave.json \
+BRIDGE_SCENARIO_CONFIG=tests/fixtures/frontier-outpost-zerg-wave.json \
   BRIDGE_MAX_TARGETS=32 BRIDGE_MAP_FILE="$run_dir/world-live.scm" \
   timeout 180s scripts/run-world-session.sh "$park_file" > "$run_dir/session.log" 2>&1 &
 session_pid=$!

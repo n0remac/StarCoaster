@@ -31,14 +31,11 @@ case "$command" in
         go_bin="${go_bin:-/usr/local/go/bin/go}"
         "$go_bin" run ./cmd/scenario-validate "$@"
         ;;
-    run)
-        exec scripts/run-frontier-outpost.sh "$@"
-        ;;
     play)
         exec python3 scripts/play-scenario.py "$@"
         ;;
     record)
-        exec python3 scripts/record-frontier-outpost.py "$@"
+        exec python3 scripts/record-scenario.py "$@"
         ;;
     test)
         go_bin="$(command -v go || true)"
@@ -62,13 +59,12 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {start|build|park|run|play|record|test|test-live|validate-scenario} [options]
+Usage: scripts/project.sh {start|build|park|play|record|test|test-live|validate-scenario} [options]
 
 start [--scenario ID] [--headless|--client]  Fetch, build, stage, and play (Frontier default).
 play ID [--plan]                        Play an existing build; --plan only resolves paths.
 park [ID]                               Force-generate a park (Frontier default).
 record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
-run                                     Legacy Frontier play shortcut.
 validate-scenario ID                    Validate scenario configuration.
 build, test, test-live                   Build and run offline or licensed live tests.
 

@@ -27,7 +27,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/frontier-outpost-mapping.json" \
+BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/frontier-outpost/mapping.json" \
   BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_LAUNCH_CLIENT=0 \
   BRIDGE_SERVER_DATA_DIR="$run_dir/server-data" \
   timeout 260s scripts/run-world-session.sh "$park_file" > "$run_dir/server.log" 2>&1 &
