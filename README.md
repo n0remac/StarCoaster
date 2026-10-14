@@ -16,9 +16,12 @@ export STARCRAFT_DATA_DIR=/path/to/your/starcraft
 scripts/project.sh start
 ```
 
-`start` fetches the pinned upstream sources, builds both engines and the Go bridge,
+`start` fetches the pinned upstream sources, extracts Marine and Zergling sprites
+from your local StarCraft archives, builds both engines and the Go bridge,
 stages OpenRCT2 assets under `build/`, regenerates Frontier Outpost from the current
 sources, and launches the session. It reuses existing build output on later runs.
+It selects `BRIDGE_SPRITE_SOURCE=starcraft-local` by default. Set
+`BRIDGE_SPRITE_SOURCE=alien-scout` explicitly to use the original placeholder art.
 Use `start --headless` for the server stack or `start --client` to require a
 graphical client. Press Ctrl+C to stop the session. System dependencies must
 already be installed; see the bootstrap guide. You can also run

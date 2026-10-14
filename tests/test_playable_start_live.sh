@@ -64,8 +64,10 @@ ffmpeg -loglevel error -y -f x11grab -video_size 1280x800 -i "$DISPLAY" \
   -frames:v 1 "$run_dir/screen.png"
 python3 - "$run_dir" <<'PY'
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 root = Path(sys.argv[1])
@@ -87,6 +89,34 @@ checks = {
     "automatic_wave_visible": {f"openbw:{n}" for n in range(3001, 3006)} <= seen,
     "graphical_capture": (root / "screen.png").stat().st_size > 0,
 }
+if os.environ.get("PLAYABLE_FULL_START") == "1":
+    pack = os.environ.get("BRIDGE_SPRITE_SOURCE") or "starcraft-local"
+    checks["selected_sprite_pack"] = "Unit sprites: " + pack in server
+    if pack == "starcraft-local":
+        from PIL import Image
+        project = Path.cwd()
+        staged = project / "upstream/openrct2/resources/g2/bridge"
+        entries = json.loads((project / "upstream/openrct2/resources/g2/sprites.json").read_text())
+        sprite_indices = {entry.get("path"): index for index, entry in enumerate(entries)}
+        asset_pack = project / "build/openrct2-stage/usr/local/share/openrct2/g2.dat"
+        for unit in ("marine", "zergling"):
+            source = project / "run-data/generated-assets/starcraft" / unit
+            frames = json.loads((source / "manifest.json").read_text())["frames"]
+            checks[unit + "_starcraft_frames_staged"] = all(
+                (source / name).read_bytes() == (staged / ("marine" if unit == "marine" else "") / name).read_bytes()
+                for name in frames)
+            name = "idle0_east.png" if unit == "marine" else "idle_east.png"
+            resource = "bridge/" + ("marine/" if unit == "marine" else "") + name
+            exported = root / ("compiled-" + unit + ".png")
+            subprocess.run([str(project / "build/openrct2/openrct2-cli"), "sprite", "export",
+                            str(asset_pack), str(sprite_indices[resource]), str(exported)],
+                           check=True, stdout=subprocess.DEVNULL)
+            with Image.open(source / name) as expected, Image.open(exported) as compiled:
+                checks[unit + "_compiled_sprite_matches_source"] = (
+                    expected.size == compiled.size
+                    and expected.convert("RGBA").tobytes() == compiled.convert("RGBA").tobytes())
+        checks["rebuilt_asset_pack_installed"] = (
+            project / "build/openrct2/g2.dat").read_bytes() == asset_pack.read_bytes()
 report = {"status": "passed" if all(checks.values()) else "failed", "checks": checks,
           "observed_actor_ids": sorted(seen), "client_snapshot_count": len(snapshots)}
 (root / "verification.json").write_text(json.dumps(report, indent=2) + "\n")

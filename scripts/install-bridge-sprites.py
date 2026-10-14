@@ -125,6 +125,9 @@ def main() -> None:
                 raise SystemExit(f"Missing or duplicate g2 metadata entry: {name}")
             prepared.append((path, name))
     local_marine = source.parent / "marine" if pack == "starcraft-local" else Path("/") / "missing-marine-pack"
+    if pack == "starcraft-local" and not (local_marine / "manifest.json").is_file():
+        raise SystemExit(f"Missing StarCraft Marine manifest: {local_marine / 'manifest.json'}. "
+                         "Run scripts/prepare-starcraft-sprites.py --unit marine first.")
     marine_source = local_marine if (local_marine / "manifest.json").is_file() else Path(__file__).resolve().parent.parent / "run-data/generated-assets/placeholder/marine"
     if marine_source != local_marine:
         placeholder_marine(marine_source, upstream)

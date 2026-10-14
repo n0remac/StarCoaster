@@ -64,10 +64,13 @@ def quantize(image: Image.Image, palette: list[tuple[int, int, int]]) -> Image.I
 
 
 def extract(game_dir: Path, name: str, target: Path) -> str:
-    for archive_name in ("Patch_rt.mpq", "BrooDat.mpq", "StarDat.mpq"):
-        archive = game_dir / archive_name
-        if not archive.is_file():
+    for candidates in (("Patch_rt.mpq",), ("BrooDat.mpq", "Broodat.mpq"),
+                       ("StarDat.mpq", "Stardat.mpq")):
+        archive = next((game_dir / candidate for candidate in candidates
+                        if (game_dir / candidate).is_file()), None)
+        if archive is None:
             continue
+        archive = archive.resolve()
         with tempfile.TemporaryDirectory(dir=target.parent) as temp:
             result = subprocess.run(["smpq", "--extract", str(archive), name],
                                     cwd=temp, capture_output=True, text=True)
@@ -75,7 +78,7 @@ def extract(game_dir: Path, name: str, target: Path) -> str:
             if result.returncode == 0 and found.is_file():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(found, target)
-                return archive_name
+                return archive.name
     raise RuntimeError(f"Could not extract {name} from MPQs in {game_dir}")
 
 

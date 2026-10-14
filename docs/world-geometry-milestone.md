@@ -162,3 +162,48 @@ runtime actors for 33 shared snapshots. It received their lifecycle replay at
 sequence 68; all 277 later shared snapshots matched. Capture verification
 reports this initial join interval separately and fails any mismatch after
 convergence.
+
+## Frontier terrain orientation correction
+
+The terrain correction keeps layout version 4 and adds `terrain_version: 1`
+to the playable fixture. Regenerate older fixtures with `scripts/project.sh park`.
+The northern approach uses land slope 9, the southern approach slope 6,
+and the eastern approach slope 12. Their footpath uphill directions remain
+1, 3, and 0 respectively. All three approaches rise toward the platform.
+
+OpenRCT2's named north corner lies at tile-local `(32,32)`, rather than
+`(0,0)`. The bridge now compares corners in map-coordinate order
+`(0,0), (32,0), (32,32), (0,32)`, using raised-corner bits 4, 2, 1, 8.
+Footpath directions map to land slopes 12, 9, 3, 6, as in OpenRCT2's
+`kPathSlopeToLandSlope`. The previous terrain and bridge edge mapping were
+both reversed, so their agreement did not establish correct native painting.
+The earlier visual evidence above predates this correction.
+
+Verification after the correction:
+
+- `scripts/project.sh park` regenerated `run-data/frontier-playable/save/frontier-outpost-playable.park`: 216 walls, 350 path tiles, 15 ride tiles, 55 raised tiles, and 15 slopes.
+- `python3 -m unittest tests/test_frontier_park_geometry.py` passed both geometry checks, including connections at all three ridge approaches.
+- `scripts/project.sh test` passed Go, three C++ checks, Python (55 tests, two skipped), and JavaScript checks; log: `run-data/frontier-slope-tests.log`.
+- `go build -o build/world-bridge ./cmd/world-bridge` rebuilt the bridge used by the live runs.
+- `tests/test_frontier_ridge_live.sh` passed all six route/combat checks in `run-data/frontier-ridge-1791949428/verification.json`.
+- `tests/test_frontier_native_navigation_live.sh` passed all six navigation/demolition checks in `run-data/frontier-native-nav-1791949475/verification.json`.
+- `python3 tests/test_world_256_native_live.py` passed in `run-data/world-256-native-1791949575/`. An earlier attempt overlapped the ridge run and failed because port 40011 was in use; the sequential retry passed.
+
+Local runs set `RCT2_DATA_DIR=/home/cameron/games/rct2` and
+`STARCRAFT_DATA_DIR=/home/cameron/games/starcraft`. The initial sandboxed
+park-generation and regression attempts could not access localhost sockets
+and the Go cache; the successful runs used the approved local execution context.
+
+The two-client graphical command
+`scripts/project.sh record --duration 55 --video-layout combined --cycle-rotations --ridge-probe`
+passed in `run-data/artifacts/20261014T034649Z-e36a349a88fd/`, using
+`PATH=/tmp/starcoaster-xvfb/usr/bin:$PATH`. The first attempt could not find
+Xvfb on the default PATH (`run-data/artifacts/20261014T034630Z-bf96b2345450/`);
+the retry used the already available local binary. All four saved camera
+views were inspected for aligned land and path ramps. The elevation JSON
+passes all eight checks: native painter heights include 112, 114, 116, 119,
+120, 122, 123, 126, 127, and 128 with no sampled jump over 16. The clients
+matched 272 shared snapshots after five initial join mismatches, with no
+post-convergence mismatch. This is a capture-only check driven by the
+test-only ridge probe, not a completed player-controlled gameplay demo.
+Generated parks, screenshots, and the combined MP4 remain ignored local artifacts.

@@ -67,12 +67,14 @@ registerPlugin({
             occupied.forEach(function (tile) { x += tile.x * 32 + 16; y += tile.y * 32 + 16; });
             return { x: Math.round(x / occupied.length), y: Math.round(y / occupied.length) };
         }
+        // Native land bits: 9 rises with Y, 6 falls with Y, 12 falls with X.
+        // Footpath uphill directions use a separate encoding.
         function ridgeSurface(x, y) {
             if (!playable) return { base: 14, slope: 0 };
             if (x >= 14 && x <= 24 && y >= 30 && y <= 34) return { base: 16, slope: 0 };
-            if (x >= 14 && x <= 18 && y === 29) return { base: 14, slope: 6 };
-            if (x >= 14 && x <= 18 && y === 35) return { base: 14, slope: 9 };
-            if (x === 25 && y >= 30 && y <= 34) return { base: 14, slope: 3 };
+            if (x >= 14 && x <= 18 && y === 29) return { base: 14, slope: 9 };
+            if (x >= 14 && x <= 18 && y === 35) return { base: 14, slope: 6 };
+            if (x === 25 && y >= 30 && y <= 34) return { base: 14, slope: 12 };
             return { base: 14, slope: 0 };
         }
         function terrain() {
@@ -134,7 +136,7 @@ registerPlugin({
                 var ground = ridgeSurface(point[0], point[1]);
                 var e = add(point[0], point[1], "footpath", ground.base, ground.base + 2, 4);
                 e.surfaceObject = 4; e.railingsObject = 0; e.edges = 15;
-                if (ground.slope) e.slopeDirection = { 6: 1, 9: 3, 3: 0 }[ground.slope];
+                if (ground.slope) e.slopeDirection = { 9: 1, 6: 3, 12: 0 }[ground.slope];
             });
             if (playable && !objectManager.getAllObjects("wall").some(function (entry) {
                 return entry.identifier === "rct2.scenery_wall.wbr2";
@@ -216,7 +218,7 @@ registerPlugin({
                     attack_approaches: [], footprint_tiles: tiles.map(function (tile) { return { x: tile.x, y: tile.y }; }),
                     tiles: tiles };
             });
-            return { name: "Frontier Outpost", layout_version: playable ? 4 : 1,
+            return { name: "Frontier Outpost", layout_version: playable ? 4 : 1, terrain_version: playable ? 1 : 0,
                 bounds: bounds, tile_size: 32,
                 cell_size: 8, transform: playable ? { x: 1024, y: 1024 } : { x: -128, y: -96 }, targets: targets };
         }

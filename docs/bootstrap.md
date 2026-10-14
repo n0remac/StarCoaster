@@ -11,7 +11,7 @@ sudo apt-get install --no-install-recommends -y \
   git python3 ninja-build cmake ccache libsdl2-dev libicu-dev pkg-config libcurl4-openssl-dev \
   libcrypto++-dev libfontconfig1-dev libfreetype6-dev libpng-dev \
   libssl-dev libzip-dev build-essential nlohmann-json3-dev \
-  libflac-dev libvorbis-dev libzstd-dev xvfb scrot ffmpeg
+  libflac-dev libvorbis-dev libzstd-dev xvfb scrot ffmpeg smpq
 ```
 
 From the project root:
@@ -26,8 +26,14 @@ scripts/install-openrct2-local.sh
 ```
 
 `BRIDGE_BUILD_JOBS=2` is the default to limit memory use on the Pi. Build trees stay in `build/` on the attached drive. The OpenRCT2 build keeps networking, scripting, and its GUI enabled because the proof of concept requires both a headless server and graphical clients.
+`scripts/build-bwapi.sh` verifies the complete current engine patches and upgrades the older OpenBW navigation overlay in place. The upgrade preserves unrelated local edits. An older overlay can exhaust native tile indices when blocking the padding around the centered Frontier park, leaving startup at `WORLD_NOT_READY` with no visible units; rerunning `scripts/start.sh` applies the upgrade and rebuilds the engine. Unexpected patch conflicts stop the build with the checkout path instead of silently reusing old code. See the [startup verification](playable-startup-verification.md) for reproduction and live test evidence.
 The local install stages OpenRCT2's project object and media packs in `build/openrct2-stage/usr/local/share/openrct2/`; it does not install into the system `/usr/local` tree and it does not provide the proprietary RCT2 assets.
 `scripts/build-openrct2.sh` applies the reviewable native patch from `openrct2-patches/` and copies the original creature frames from `assets/alien-scout/` into the pinned checkout before building. The native build provides a render-only actor registry and script binding. The server-distributed plugin in `openrct2-plugin/` receives BWAPI snapshots and calls the binding through synchronized custom actions.
+The complete `scripts/start.sh` flow selects `BRIDGE_SPRITE_SOURCE=starcraft-local`
+by default and extracts both Marine and Zergling frames from the supplied MPQs
+before building. Direct developer builds still default to the original art;
+set `BRIDGE_SPRITE_SOURCE=starcraft-local` when building the extracted packs
+manually. A selected StarCraft pack requires both unit manifests.
 
 The locally built OpenRCT2 v0.5.5 uses the user-supplied RCT2 graphics at `/home/pi/games/rct2/Data/g1.dat` on this Pi. The apt-installed OpenRCT2 v0.4.3 does not have the native bridge patch or matching plugin API. To start a host manually:
 

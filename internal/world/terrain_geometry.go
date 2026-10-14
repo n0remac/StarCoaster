@@ -2,8 +2,8 @@ package world
 
 import "fmt"
 
-// CornerHeights returns OpenRCT2's north, east, south, west quarter heights in
-// world Z units. It follows GetSlopeCornerHeights in OpenRCT2's Slope.cpp.
+// CornerHeights returns the corners at (0,0), (32,0), (32,32), (0,32)
+// in tile-local X/Y and world Z units, following OpenRCT2 TileElementHeight.
 // The low four slope bits encode raised quarters; the diagonal bit is valid
 // only for the four native steep-corner shapes. Bit 5 is a scenery support flag.
 func (t Terrain) CornerHeights() ([4]int, error) {
@@ -19,9 +19,9 @@ func (t Terrain) CornerHeights() ([4]int, error) {
 			return corners, fmt.Errorf("ambiguous diagonal slope %d", t.Slope)
 		}
 	}
-	// OpenRCT2's relative table maps the raised-corner bits to these native
-	// quarter names. The order here matches TileCornersZ, not screen rotation.
-	for index, bit := range [4]int{1, 8, 4, 2} {
+	// OpenRCT2's named north corner is at (32,32), south at (0,0),
+	// east at (32,0), and west at (0,32). Use map coordinates for edges.
+	for index, bit := range [4]int{4, 2, 1, 8} {
 		corners[index] = t.Height
 		if slope&bit != 0 {
 			corners[index] += 16
@@ -30,13 +30,13 @@ func (t Terrain) CornerHeights() ([4]int, error) {
 	// A steep corner has one quarter two land-height steps above its base.
 	switch slope {
 	case 23:
-		corners[3] += 16
-	case 27:
-		corners[0] += 16
-	case 29:
 		corners[1] += 16
-	case 30:
+	case 27:
 		corners[2] += 16
+	case 29:
+		corners[3] += 16
+	case 30:
+		corners[0] += 16
 	}
 	return corners, nil
 }
@@ -58,10 +58,10 @@ func (t Terrain) ValidateGeometry() error {
 		if *path.SlopeDirection < 0 || *path.SlopeDirection > 3 {
 			return fmt.Errorf("invalid path slope direction %d", *path.SlopeDirection)
 		}
-		// Match OpenRCT2 MapHeightFromSlope's actual elevation pattern for
+		// Match OpenRCT2 kPathSlopeToLandSlope's elevation pattern for
 		// each path direction; path bits and surface slope bits use different
 		// encodings.
-		pathSlope = [4]int{3, 6, 12, 9}[*path.SlopeDirection]
+		pathSlope = [4]int{12, 9, 3, 6}[*path.SlopeDirection]
 	}
 	pathTerrain := Terrain{Height: path.BaseHeight, Slope: pathSlope}
 	pathCorners, err := pathTerrain.CornerHeights()

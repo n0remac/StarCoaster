@@ -1,7 +1,8 @@
 # Local Zergling renderer
 
-The repository defaults to the original CC0 alien scout. The classic StarCraft
-artwork is prepared only from a local installation and stays under ignored
+Direct developer builds default to the original CC0 alien scout;
+`scripts/start.sh` selects and prepares local StarCraft Marine and Zergling art
+by default. The classic StarCraft artwork is prepared from a local installation and stays under ignored
 `run-data/`. The network unit still has `kind: "alien_scout"`; artwork selection
 does not change simulation or synchronized actions.
 
@@ -13,6 +14,7 @@ then run:
 
 ```bash
 python3 scripts/prepare-starcraft-sprites.py --game-dir "$STARCRAFT_DATA_DIR" --unit zergling
+python3 scripts/prepare-starcraft-sprites.py --game-dir "$STARCRAFT_DATA_DIR" --unit marine
 BRIDGE_SPRITE_SOURCE=starcraft-local scripts/build-openrct2.sh
 scripts/install-openrct2-local.sh
 python3 scripts/create-render-test-park.py
@@ -27,16 +29,16 @@ python3 scripts/verify-rendered-sprites.py \
 `STARCRAFT_DATA_DIR` defaults to `/home/pi/games/starcraft` if omitted. The
 preparation script requires classic MPQs and searches `Patch_rt.mpq`,
 `BrooDat.mpq`, then `StarDat.mpq` for each resource. It records which archive
-provided each resource. The selected pack contains 24 transparent PNGs and a
+provided each resource. The Zergling pack contains 136 transparent PNGs and a
 manifest with source frame, dimensions, mirroring, visible pixel count, and
-OpenRCT2 draw offset. The build script validates every frame before staging it
+OpenRCT2 draw offset; the Marine pack contains 56 frames. The build script validates every frame before staging it
 in the ignored upstream checkout. A missing local pack fails with a direct
 message before compilation.
 
 The Zergling body is `unit/zerg/zergling.grp`. This installation's resource is
 296 frames on a 128×128 canvas. The script uses `Tileset/Badlands.wpe`, the
-palette OpenBW loads for the Badlands terrain. Three 17-direction groups are
-used for idle and two walking poses. Source directions 0, 4, 8, 12, and 16 are
+palette OpenBW loads for the Badlands terrain. Seventeen directional groups are
+used for idle, ten walking poses, and six death poses. Source directions 0, 4, 8, 12, and 16 are
 north, northeast, east, southeast, and south; western directions mirror the
 eastern counterparts. The CC0 pack's four diagonal slots reuse nearby cardinal
 art. StarCraft's team colour indices 8–15 are

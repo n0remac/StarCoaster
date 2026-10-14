@@ -15,6 +15,9 @@ regenerate Frontier Outpost, and start the session. Ctrl+C stops it.
 
 Game data defaults to ~/games/rct2 and ~/games/starcraft.
 Override with RCT2_DATA_DIR and STARCRAFT_DATA_DIR for other installations.
+Marine and Zergling sprites are extracted from those local StarCraft archives.
+BRIDGE_SPRITE_SOURCE defaults to starcraft-local; set it to alien-scout to use
+the original placeholder art.
 BRIDGE_BUILD_JOBS defaults to 2. A graphical client opens when DISPLAY is set;
 use --headless to disable it or --client to require it.
 Install system build dependencies first; see docs/bootstrap.md.
@@ -32,6 +35,11 @@ done
 
 export RCT2_DATA_DIR="${RCT2_DATA_DIR:-$HOME/games/rct2}"
 export STARCRAFT_DATA_DIR="${STARCRAFT_DATA_DIR:-$HOME/games/starcraft}"
+export BRIDGE_SPRITE_SOURCE="${BRIDGE_SPRITE_SOURCE:-starcraft-local}"
+case "$BRIDGE_SPRITE_SOURCE" in
+    starcraft-local|alien-scout) ;;
+    *) printf 'Unknown BRIDGE_SPRITE_SOURCE: %s\n' "$BRIDGE_SPRITE_SOURCE" >&2; exit 1 ;;
+esac
 for variable in RCT2_DATA_DIR STARCRAFT_DATA_DIR; do
     data_dir="${!variable}"
     if [[ ! -d "$data_dir" ]]; then
@@ -40,6 +48,7 @@ for variable in RCT2_DATA_DIR STARCRAFT_DATA_DIR; do
     fi
 done
 printf 'RCT2 data: %s\nStarCraft data: %s\n' "$RCT2_DATA_DIR" "$STARCRAFT_DATA_DIR"
+printf 'Unit sprites: %s\n' "$BRIDGE_SPRITE_SOURCE"
 # Keep alternate archive spellings aligned with run-bwapi.sh.
 for archive in StarDat.mpq BrooDat.mpq Patch_rt.mpq; do
     alternate="$archive"
@@ -56,7 +65,7 @@ if [[ "${BRIDGE_LAUNCH_CLIENT:-0}" == 1 && -z "${DISPLAY:-}" ]]; then
     printf 'A graphical DISPLAY is required for --client or BRIDGE_LAUNCH_CLIENT=1.\n' >&2
     exit 1
 fi
-for tool in git python3 cmake ninja c++; do
+for tool in git python3 cmake ninja c++ smpq; do
     command -v "$tool" >/dev/null || { printf 'Missing build tool: %s; see docs/bootstrap.md\n' "$tool" >&2; exit 1; }
 done
 if ! command -v go >/dev/null && [[ ! -x /usr/local/go/bin/go ]]; then
@@ -66,6 +75,12 @@ fi
 
 printf 'Fetching pinned upstream sources...\n'
 python3 scripts/fetch-upstream.py
+if [[ "$BRIDGE_SPRITE_SOURCE" == starcraft-local ]]; then
+    printf 'Preparing local StarCraft Marine and Zergling sprites...\n'
+    for unit in marine zergling; do
+        python3 scripts/prepare-starcraft-sprites.py --game-dir "$STARCRAFT_DATA_DIR" --unit "$unit"
+    done
+fi
 printf 'Building engines and world bridge...\n'
 scripts/project.sh build
 printf 'Staging OpenRCT2 assets locally...\n'

@@ -14,10 +14,12 @@ func TestTerrainGeometryMatchesNativeSlopeTable(t *testing.T) {
 		want    [4]int
 	}{
 		{"flat", Terrain{Height: 112}, [4]int{112, 112, 112, 112}},
-		{"north corner", Terrain{Height: 112, Slope: 1}, [4]int{128, 112, 112, 112}},
-		{"east side", Terrain{Height: 112, Slope: 12}, [4]int{112, 128, 128, 112}},
-		{"opposite side", Terrain{Height: 112, Slope: 3}, [4]int{128, 112, 112, 128}},
-		{"steep corner", Terrain{Height: 112, Slope: 23}, [4]int{128, 112, 128, 144}},
+		{"map origin corner", Terrain{Height: 112, Slope: 4}, [4]int{128, 112, 112, 112}},
+		{"east side", Terrain{Height: 112, Slope: 3}, [4]int{112, 128, 128, 112}},
+		{"opposite side", Terrain{Height: 112, Slope: 12}, [4]int{128, 112, 112, 128}},
+		{"south side", Terrain{Height: 112, Slope: 9}, [4]int{112, 112, 128, 128}},
+		{"north side", Terrain{Height: 112, Slope: 6}, [4]int{128, 128, 112, 112}},
+		{"steep corner", Terrain{Height: 112, Slope: 23}, [4]int{128, 144, 128, 112}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := test.terrain.CornerHeights()
@@ -30,10 +32,10 @@ func TestTerrainGeometryMatchesNativeSlopeTable(t *testing.T) {
 
 func TestTerrainGroundPathsAndUnsupportedShapes(t *testing.T) {
 	for _, terrain := range []Terrain{
-		{Height: 112, Slope: 3, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(0)}}},
-		{Height: 112, Slope: 6, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(1)}}},
-		{Height: 112, Slope: 12, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(2)}}},
-		{Height: 112, Slope: 9, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(3)}}},
+		{Height: 112, Slope: 12, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(0)}}},
+		{Height: 112, Slope: 9, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(1)}}},
+		{Height: 112, Slope: 3, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(2)}}},
+		{Height: 112, Slope: 6, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(3)}}},
 		{Height: 128, GroundPaths: []TerrainPath{{BaseHeight: 128}}},
 		{Height: 112, Water: 128, Walkable: false},
 	} {
@@ -44,8 +46,8 @@ func TestTerrainGroundPathsAndUnsupportedShapes(t *testing.T) {
 	for _, terrain := range []Terrain{
 		{Height: 112, Slope: 16},
 		{Height: 112, Slope: 64},
-		{Height: 112, Slope: 12, GroundPaths: []TerrainPath{{BaseHeight: 112}}},
-		{Height: 112, Slope: 6, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(3)}}},
+		{Height: 112, Slope: 3, GroundPaths: []TerrainPath{{BaseHeight: 112}}},
+		{Height: 112, Slope: 9, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(3)}}},
 		{Height: 112, GroundPaths: []TerrainPath{{BaseHeight: 128}}},
 		{Height: 112, GroundPaths: []TerrainPath{{BaseHeight: 112}, {BaseHeight: 112}}},
 		{Height: 112, GroundPaths: []TerrainPath{{BaseHeight: 112, SlopeDirection: direction(4)}}},
@@ -64,8 +66,8 @@ func TestTerrainGroundPathsAndUnsupportedShapes(t *testing.T) {
 func TestTerrainEdgesDistinguishSlopesAndCliffs(t *testing.T) {
 	low := Terrain{Height: 112, Walkable: true}
 	high := Terrain{Height: 128, Walkable: true}
-	ramp := Terrain{Height: 112, Slope: 12, Walkable: true}
-	opposite := Terrain{Height: 112, Slope: 3, Walkable: true}
+	ramp := Terrain{Height: 112, Slope: 3, Walkable: true}
+	opposite := Terrain{Height: 112, Slope: 12, Walkable: true}
 	for _, test := range []struct {
 		name      string
 		from, to  Terrain
@@ -75,7 +77,11 @@ func TestTerrainEdgesDistinguishSlopesAndCliffs(t *testing.T) {
 		{"flat", low, low, 1, 0, true},
 		{"slope entry", low, ramp, 1, 0, true},
 		{"slope exit", ramp, high, 1, 0, true},
-		{"gradual second slope", ramp, Terrain{Height: 128, Slope: 12, Walkable: true}, 1, 0, true},
+		{"south slope entry", low, Terrain{Height: 112, Slope: 9, Walkable: true}, 0, 1, true},
+		{"south slope exit", Terrain{Height: 112, Slope: 9, Walkable: true}, high, 0, 1, true},
+		{"north slope entry", high, Terrain{Height: 112, Slope: 6, Walkable: true}, 0, 1, true},
+		{"north slope exit", Terrain{Height: 112, Slope: 6, Walkable: true}, low, 0, 1, true},
+		{"gradual second slope", ramp, Terrain{Height: 128, Slope: 3, Walkable: true}, 1, 0, true},
 		{"opposite slope", low, opposite, 1, 0, false},
 		{"vertical cliff", low, high, 1, 0, false},
 		{"hilltop south cliff", low, high, 0, 1, false},

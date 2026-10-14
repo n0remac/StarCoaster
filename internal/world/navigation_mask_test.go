@@ -34,7 +34,7 @@ func TestNavigationMaskBlocksPaddingAndKeepsParkScale(t *testing.T) {
 
 func TestNavigationMaskRoutesThroughSlopeAndBlocksCliff(t *testing.T) {
 	low := Terrain{X: 0, Height: 112, Walkable: true}
-	ramp := Terrain{X: 1, Height: 112, Slope: 12, Walkable: true}
+	ramp := Terrain{X: 1, Height: 112, Slope: 3, Walkable: true}
 	high := Terrain{X: 2, Height: 128, Walkable: true}
 	m := navFor(t, 3, 1, 3, 1, []Terrain{low, ramp, high}, nil)
 	for _, x := range []int{3, 4, 7, 8} {

@@ -17,7 +17,7 @@ def wall_edge(element):
 
 
 def validate(export, fixture):
-    if fixture.get("layout_version") != 4:
+    if fixture.get("layout_version") != 4 or fixture.get("terrain_version") != 1:
         raise ValueError("playable park layout is stale; regenerate it")
     elements = export["elements"]
     walls = [item for item in elements if item["type"] == "wall"]
@@ -71,16 +71,16 @@ def validate(export, fixture):
         raise ValueError("Marine defensive ridge is absent or misplaced")
     ramps = {(x, y): surface(x, y)[1] for y in range(8, 56) for x in range(8, 56)
              if surface(x, y)[1]}
-    expected_ramps = ({(x, 29): 6 for x in range(14, 19)} |
-                      {(x, 35): 9 for x in range(14, 19)} |
-                      {(25, y): 3 for y in range(30, 35)})
+    expected_ramps = ({(x, 29): 9 for x in range(14, 19)} |
+                      {(x, 35): 6 for x in range(14, 19)} |
+                      {(25, y): 12 for y in range(30, 35)})
     if ramps != expected_ramps or any(surface(x, y)[2] for y in range(8, 56) for x in range(8, 56)):
         raise ValueError("ridge slopes or water differ from the playable layout")
     for x, y in ((15, 30), (16, 30), (17, 30), (15, 31), (16, 31), (17, 31)):
         if (x, y) not in raised:
             raise ValueError("Marine spawn is not on the ridge")
 
-    directions = {6: 1, 9: 3, 3: 0}
+    directions = {9: 1, 6: 3, 12: 0}
     for item in elements:
         x, y = item["x"], item["y"]
         base, slope, _ = surface(x, y)
@@ -91,11 +91,12 @@ def validate(export, fixture):
             if item["z"] != base:
                 raise ValueError(f"construction elevation does not match ridge at {x},{y}")
 
+    # Corners use tile-local (0,0), (32,0), (32,32), (0,32).
     # Native corner heights determine connection. The direct western edge is
     # a cliff, while the eastern side slope must join low and raised ground.
     def corners(x, y):
         base, slope, _ = surface(x, y)
-        return tuple(base + (16 if slope & bit else 0) for bit in (1, 8, 4, 2))
+        return tuple(base + (16 if slope & bit else 0) for bit in (4, 2, 1, 8))
 
     def connected(x, y, nx, ny):
         a, b = corners(x, y), corners(nx, ny)
@@ -109,6 +110,10 @@ def validate(export, fixture):
 
     if connected(13, 32, 14, 32) or not connected(26, 32, 25, 32) or not connected(25, 32, 24, 32):
         raise ValueError("cliff or eastern slope has invalid edge geometry")
+    for x in range(14, 19):
+        if not (connected(x, 28, x, 29) and connected(x, 29, x, 30)
+                and connected(x, 34, x, 35) and connected(x, 35, x, 36)):
+            raise ValueError("north or south slope does not join the ridge")
     reached = {(26, 32)}
     todo = [(26, 32)]
     while todo:

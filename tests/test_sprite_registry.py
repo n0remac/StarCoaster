@@ -1,8 +1,13 @@
 import json
 import importlib.util
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -13,6 +18,54 @@ MARINE_MANIFEST = ROOT / "run-data/generated-assets/starcraft/marine/manifest.js
 
 
 class SpriteRegistryTests(unittest.TestCase):
+    def test_extraction_accepts_archive_aliases_and_relative_paths(self):
+        spec = importlib.util.spec_from_file_location("starcraft_sprites", ROOT / "scripts/prepare-starcraft-sprites.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for archives, expected in (
+            (("Stardat.mpq",), "Stardat.mpq"),
+            (("Broodat.mpq", "Stardat.mpq"), "Broodat.mpq"),
+            (("StarDat.mpq", "Stardat.mpq"), "StarDat.mpq"),
+            (("Patch_rt.mpq", "BrooDat.mpq", "StarDat.mpq"), "Patch_rt.mpq"),
+        ):
+            with self.subTest(archives=archives), tempfile.TemporaryDirectory() as directory:
+                game = Path(directory) / "game"
+                game.mkdir()
+                for archive in archives:
+                    (game / archive).touch()
+                target = Path(directory) / "sprite.grp"
+                def extract(command, cwd, **kwargs):
+                    self.assertEqual(Path(command[2]), game / expected)
+                    found = Path(cwd) / command[3]
+                    found.parent.mkdir(parents=True, exist_ok=True)
+                    found.write_bytes(b"fixture sprite")
+                    return subprocess.CompletedProcess(command, 0)
+                with patch.object(module.subprocess, "run", side_effect=extract):
+                    self.assertEqual(module.extract(Path(os.path.relpath(game)),
+                                                    "unit/terran/marine.grp", target), expected)
+                self.assertEqual(target.read_bytes(), b"fixture sprite")
+
+    @unittest.skipUnless(MANIFEST.is_file(), "local licensed sprites have not been prepared")
+    def test_starcraft_pack_requires_marine_art(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            source = temporary / "zergling"
+            source.mkdir()
+            for name in ["manifest.json", *json.loads(MANIFEST.read_text())["frames"]]:
+                shutil.copyfile(MANIFEST.parent / name, source / name)
+            upstream = temporary / "openrct2"
+            for name in ("resources/g2/sprites.json", "src/openrct2/SpriteIds.h",
+                         "src/openrct2/drawing/ImageImporter.h"):
+                target = upstream / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / "upstream/openrct2" / name, target)
+            result = subprocess.run([sys.executable, str(ROOT / "scripts/install-bridge-sprites.py"),
+                                     str(source), str(upstream), "starcraft-local"],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Missing StarCraft Marine manifest", result.stderr)
+            self.assertFalse((upstream / "resources/g2/bridge").exists())
+
     @unittest.skipUnless((ROOT / "upstream/openrct2/src/openrct2/drawing/ImageImporter.h").is_file(),
                          "pinned OpenRCT2 checkout is not installed")
     def test_public_marine_placeholder_and_native_asset_version(self):
