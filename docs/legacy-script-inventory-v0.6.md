@@ -38,3 +38,22 @@ graphical recording, map generation from local fixtures, and the live shell and
 Python tests require locally licensed RCT2 and StarCraft data plus built engines;
 these were not run for the baseline. Live verification must report its own
 results and `run-data/` evidence before any native pass claim.
+
+## Phase 4 decisions
+
+The v1 `receive-snapshots.py`, `test-bwapi-headless.py`, and
+`test-two-clients-headless.py` expected patrol packets and native log markers
+that the world adapter no longer emits. The world plugin suite and
+`tests/test_world_live.sh` now cover snapshot validation, two-client identity,
+movement, and synchronization. `scripts/project.sh test-live` also covers
+native movement and reconnect.
+
+Keep `benchmark-video-capture.py`: it benchmarks the packaged recorder at
+several frame rates and reports client progress and FFmpeg load. Keep
+`verify-rendered-sprites.py` and `verify-squad-frames.py` for exact bitmap
+and gait-frame diagnostics, `squad_verification.py` for log identity and
+projection checks, and `render-battle-replay.py` with its occlusion test for
+historical trace replay. That replay tool is an offline diagnostic; it does
+not launch a gameplay mode. `frontier-camera.js` and `world-256-camera.js`
+remain current recorder probes. No shared live-test harness was introduced:
+the existing tests use distinct client and reconnect setups.
