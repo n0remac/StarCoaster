@@ -158,6 +158,27 @@ func TestScenarioZergWaveUsesSameNativeQueue(t *testing.T) {
 	}
 }
 
+func TestScenarioZoneReservesManualMarineRequests(t *testing.T) {
+	s, _ := spawnService(t)
+	s.nativeOccupancyComplete = true
+	s.navigationMask = world.NavigationMask{Width: 128, Height: 128, Bits: make([]byte, 128*4*128*4/8)}
+	zone := world.SpawnZone{Tiles: [][2]int{{43, 56}, {44, 56}, {45, 56}}}
+	first := world.Point{X: 43*32 + 16, Y: 56*32 + 16}
+	request := world.SpawnRequest{RequestID: "manual-marine", UnitType: "terran_marine", Count: 1,
+		X: first.X, Y: first.Y, Formation: "compact", PlayerID: 1}
+	if _, err := s.spawns.Submit("session-a", request); err != nil {
+		t.Fatal(err)
+	}
+	s.nativeOccupants = []world.NativeOccupant{{X: s.transform.X(44*32 + 16), Y: s.transform.Y(56*32 + 16)}}
+	if got, ok := s.scenarioZoneCandidate(zone, nil); !ok || got != (world.Point{X: 45*32 + 16, Y: 56*32 + 16}) {
+		t.Fatalf("native occupancy or manual reservation ignored: %v %v", got, ok)
+	}
+	s.nativeOccupancyComplete = false
+	if _, ok := s.scenarioZoneCandidate(zone, nil); ok {
+		t.Fatal("incomplete native occupancy accepted")
+	}
+}
+
 func TestDisconnectedClientCanQueryCompletedSpawnStatus(t *testing.T) {
 	s, _ := spawnService(t)
 	s.park = nil

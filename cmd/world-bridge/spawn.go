@@ -115,6 +115,33 @@ func (s *service) submitScenarioSpawns() {
 	}
 }
 
+// scenarioZoneCandidate reads the latest complete native occupancy and the
+// shared queue. It leaves the manual Marine request and placement flow alone.
+func (s *service) scenarioZoneCandidate(zone world.SpawnZone, extra []world.Point) (world.Point, bool) {
+	if !s.nativeOccupancyComplete || s.navigationMask.Width == 0 || s.spawns == nil {
+		return world.Point{}, false
+	}
+	reserved := append([]world.Point(nil), extra...)
+	offsets := [...]world.Point{{}, {X: 32}, {X: -32}, {Y: 32}, {Y: -32}}
+	for _, id := range s.spawns.Order {
+		request, ok := s.spawns.Request(id)
+		if !ok {
+			continue
+		}
+		status, ok := s.spawns.Lookup(id)
+		if !ok {
+			continue
+		}
+		for _, unit := range status.Units {
+			if unit.State != "failed" && unit.State != "rejected" {
+				offset := offsets[unit.Index]
+				reserved = append(reserved, world.Point{X: request.X + offset.X, Y: request.Y + offset.Y})
+			}
+		}
+	}
+	return world.SelectZonePosition(zone, s.navigationMask, s.transform, s.nativeOccupants, reserved)
+}
+
 func (s *service) rejectSpawn(p *peer, m world.Envelope, requestID, reason string) {
 	s.ack(p, m, false, reason)
 	if requestID != "" {

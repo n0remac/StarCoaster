@@ -73,6 +73,8 @@ type service struct {
 	outcome                   string
 	lastMarines               int
 	lastZerglings             int
+	nativeOccupants           []world.NativeOccupant
+	nativeOccupancyComplete   bool
 	retired                   map[string]bool
 	commands                  map[string]worldCommand
 	spawns                    *world.SpawnQueue
@@ -301,6 +303,7 @@ func (s *service) consume(role string, p *peer) {
 	if role == "bw" && s.bw == p {
 		s.bw = nil
 		s.ready = false
+		s.nativeOccupancyComplete = false
 		if s.spawns != nil {
 			if status, ok := s.spawns.Uncertain(); ok {
 				s.saveSpawns()
@@ -414,6 +417,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.pendingLinks = map[string]string{}
 		s.pendingReady = nil
 		s.lastReady = nil
+		s.nativeOccupancyComplete = false
 		if previousSession != m.Session {
 			s.outcome = ""
 			s.startedSession = ""
@@ -820,11 +824,18 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 				Units       []map[string]any `json:"units"`
 			}
 			if m.Decode(&snapshot) == nil {
+				s.nativeOccupancyComplete = false
 				if s.scenario != nil && snapshot.UnitOmitted == 0 && snapshot.UnitTotal <= len(snapshot.Units) {
 					marines, zerglings := 0, 0
+					occupants := make([]world.NativeOccupant, 0, snapshot.UnitTotal)
 					for _, unit := range snapshot.Units {
 						if unit["alive"] != true {
 							continue
+						}
+						if x, ok := unit["x"].(float64); ok {
+							if y, ok := unit["y"].(float64); ok {
+								occupants = append(occupants, world.NativeOccupant{X: int(x), Y: int(y)})
+							}
 						}
 						switch unit["kind"] {
 						case "terran_marine":
@@ -834,6 +845,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 						}
 					}
 					s.lastMarines, s.lastZerglings = marines, zerglings
+					s.nativeOccupants, s.nativeOccupancyComplete = occupants, true
 					s.announceOutcome(marines, zerglings)
 				}
 				visible := make([]map[string]any, 0, len(snapshot.Units))
