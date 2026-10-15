@@ -102,6 +102,14 @@ the publisher and controller rebuilt their native masks in 22.618 and 24.981
 ms, and synchronization took 4,361 ms. The initial entity and snapshot chunk
 maxima in that run were 3,138 and 29,807 bytes.
 
+Exact UTF-8 payload sizing initially raised one layered-park discovery from
+373 to 1,293 ms. An ASCII fast path reduced two subsequent discoveries to
+628 and 635 ms while retaining the Unicode byte-count test. In the final
+`run-data/layered-nav-live-1792103865/` run, construction discoveries took
+137–172 ms; patch payloads were 3,599, 876, and 3,599 bytes. The three
+navigation derivations took 5.187, 3.664, and 4.151 ms. Revision 4 rebuilt
+native masks in 23.104 and 23.598 ms and synchronized in 4,364 ms.
+
 Initial `source` tags classify those volumes as 217 wall edges, 48 scenery
 support fallbacks, 2 scenery elements flagged without supports, 25 complex
 track fallbacks, 2 straight rails, and 1 station. These are approximation
@@ -123,7 +131,7 @@ remain follow-up work.
 
 | Command | Result | Evidence |
 | --- | --- | --- |
-| `scripts/project.sh test` | Passed: Go, C++, Python, and plugin checks. | `run-data/height-aware-offline-final.log` |
+| `scripts/project.sh test` | Passed: Go, C++, Python, and plugin checks. | `run-data/height-aware-offline-complete.log` |
 | `tests/test_height_navigation_live.sh` | Passed 26/26 mask, source, native movement, height-change, and synchronization checks after the final payload optimization. | `run-data/layered-nav-live-1792103865/verification.json` |
 | `scripts/project.sh test-live-construction` | Passed the complete sequential construction suite, including overlap, unchanged masks, target HP, restart, interruption, and death recovery. | `run-data/height-aware-test-live-construction-phase6.log` |
 | `scripts/project.sh test-live` | Passed on the second aggregate, including graphical startup, scenario runtime, and all nested construction cases. | `run-data/height-aware-test-live-rerun.log` |
