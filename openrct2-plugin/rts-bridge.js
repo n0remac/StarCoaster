@@ -36,6 +36,20 @@
         const CONSTRUCTION_DEBOUNCE_TICKS = 6, RECONCILE_TICKS = 1200;
         const MAX_CHANGE_OPERATIONS = 4096, MAX_CHANGE_BYTES = 4194304;
         const MAX_WIRE_PAYLOAD_BYTES = 900000;
+        function serializedBytes(value) {
+            const json = JSON.stringify(value);
+            let bytes = 0;
+            for (let i = 0; i < json.length; i++) {
+                const code = json.charCodeAt(i);
+                if (code < 0x80) bytes++;
+                else if (code < 0x800) bytes += 2;
+                else if (code >= 0xd800 && code <= 0xdbff && i + 1 < json.length
+                    && json.charCodeAt(i + 1) >= 0xdc00 && json.charCodeAt(i + 1) <= 0xdfff) {
+                    bytes += 4; i++;
+                } else bytes += 3;
+            }
+            return bytes;
+        }
         let constructionTick = 0, dirtySince = -1, publishedWorld = null, snapshotWorld = null;
         let detectedBatch = null, detectedSignature = "", combatRemovalKey = "", patchInFlight = null;
         let combatSyncID = "";
@@ -333,7 +347,7 @@
             const current = discover(), changes = compareWorld(publishedWorld, current);
             const operations = changes.additions.length + changes.modifications.length
                 + changes.removals.length + changes.terrain.length;
-            if (operations > MAX_CHANGE_OPERATIONS || JSON.stringify(changes).length > MAX_CHANGE_BYTES) {
+            if (operations > MAX_CHANGE_OPERATIONS || serializedBytes(changes) > MAX_CHANGE_BYTES) {
                 console.log("WORLD_CHANGESET_OVERFLOW operations=" + operations + " recovery=snapshot");
                 detectedBatch = null; detectedSignature = ""; dirtySince = -1;
                 snapshot();
@@ -371,7 +385,7 @@
                 removals: changes.removals, terrain: changes.terrain,
                 counts: { additions: changes.additions.length, modifications: changes.modifications.length,
                     removals: changes.removals.length, terrain: changes.terrain.length } };
-            const payloadBytes = JSON.stringify(payload).length;
+            const payloadBytes = serializedBytes(payload);
             if (payloadBytes > MAX_WIRE_PAYLOAD_BYTES) {
                 console.log("WORLD_CHANGESET_OVERFLOW bytes=" + payloadBytes + " recovery=snapshot");
                 snapshot(); return;
@@ -416,7 +430,7 @@
             const current = discover(), chunks = [];
             let largestEntity = 0, largestEntityID = "", volumeCount = 0;
             current.entities.forEach(function (entity) {
-                const bytes = JSON.stringify(entity).length;
+                const bytes = serializedBytes(entity);
                 if (bytes > largestEntity) { largestEntity = bytes; largestEntityID = entity.id; }
                 volumeCount += (entity.collision.volumes || []).length;
             });
@@ -430,7 +444,7 @@
             let entityChunk = [];
             current.entities.forEach(function (entity) {
                 const next = entityChunk.concat([entity]);
-                if (entityChunk.length && (next.length > 32 || JSON.stringify(next).length > 48000)) {
+                if (entityChunk.length && (next.length > 32 || serializedBytes(next) > 48000)) {
                     chunks.push({ entities: entityChunk }); entityChunk = [entity];
                 } else entityChunk = next;
             });
@@ -438,7 +452,7 @@
             for (let i = 0; i < current.terrain.length; i += 128)
                 chunks.push({ terrain: current.terrain.slice(i, i + 128) });
             const maxChunk = chunks.reduce(function (size, chunk) {
-                return Math.max(size, JSON.stringify(chunk).length);
+                return Math.max(size, serializedBytes(chunk));
             }, 0);
             if (maxChunk > MAX_WIRE_PAYLOAD_BYTES) {
                 console.log("WORLD_ERROR snapshot_chunk_too_large bytes=" + maxChunk);

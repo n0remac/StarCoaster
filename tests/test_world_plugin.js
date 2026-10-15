@@ -7,7 +7,7 @@ function at(x, y) { const key = `${x},${y}`; if (!tiles.has(key)) tiles.set(key,
 at(0, 0)[0].slope = 3;
 at(0, 0)[0].baseZ = 112;
 at(1, 0)[0].waterHeight = 128;
-let ride = { id: 17, name: 'Any Carousel', type: 33, classification: 'ride',
+let ride = { id: 17, name: 'Café 🎢 Carousel', type: 33, classification: 'ride',
     object: { identifier: 'rct2.ride.mgr1' }, status: 'closed', isEmpty: true };
 let rejectNextRideDemolition = false;
 at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
@@ -94,7 +94,11 @@ drain();
 const begin = sent.find(m => m.kind === 'world.snapshot.begin');
 assert.ok(begin, 'discovery begins without a scenario configuration');
 const all = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.entities || []);
-assert.equal(all.find(e => e.kind === 'ride').name, 'Any Carousel', 'ride name is exported for authored objectives');
+assert.equal(all.find(e => e.kind === 'ride').name, 'Café 🎢 Carousel', 'ride name is exported for authored objectives');
+const geometryMetric = logs.find(line => line.startsWith('WORLD_GEOMETRY_METRIC '));
+const largestBytes = Math.max(...all.map(entity => Buffer.byteLength(JSON.stringify(entity), 'utf8')));
+assert.equal(Number(/largest_entity_bytes=(\d+)/.exec(geometryMetric)[1]), largestBytes,
+    'payload sizing counts serialized UTF-8 bytes, including non-ASCII ride names');
 assert.equal(all.find(e => e.kind === 'ride').collision.volumes.length, 2,
     'ride retains separate track segments below one combat identity');
 assert.equal(all.find(e => e.kind === 'ride').collision.volumes[0].base_z, 112);
