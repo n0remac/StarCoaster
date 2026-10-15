@@ -60,7 +60,9 @@ configuration. The original Frontier park is not
 modified. `tests/test_height_navigation_live.sh` launches two OpenBW
 participants and two OpenRCT2 clients, orders a Marine from beneath the high
 track, observes a Zergling moving from beneath the raised path, and places
-additional high track and footpath sections through real client actions.
+additional high track and footpath sections through real client actions. The
+driver then removes and replaces a low straight rail at the same X/Y tile but
+at a higher Z, preserving its ride identity.
 
 With `BRIDGE_NAV_DIAGNOSTICS_DIR` set by the test, the bridge writes the exact
 committed mask, source entities, Z volumes, terrain layers, and per-cell
@@ -74,7 +76,11 @@ samples also show the Zergling leaving its raised-path starting tile. Two real
 overhead actions became synchronized revisions 2 and 3 at frames 393 and 501 with
 identical native hash `841939c51f4bc26d`; both participants reported
 `unchanged=1`. See `source-elements.json`, `navigation/*.json`,
-`initial-ground-mask.svg`, and `after-overhead-edits.svg` there.
+`initial-ground-mask.svg`, and `after-overhead-edits.svg` there. A later run at
+`run-data/layered-nav-live-1792103663/` passed all 26 checks, including the
+same-X/Y height edit: the low rail's tile reopened, the ride ID stayed stable,
+and both native participants applied revision 4 at frame 665 with new hash
+`c882c2fb325024ad`. Its `after-height-change.svg` shows the reopened cells.
 
 ## Measurements and limits
 
@@ -90,6 +96,11 @@ reported 3.338–3.538 ms derivation, 16–23 ms native rebuild, and 4,346–4,4
 ms synchronization. These are individual runs with different park geometry;
 they do not establish a statistically significant regression. Full-mask
 derivation remains in use.
+
+In the later height-change run, the 3,599-byte patch took 3.662 ms to derive;
+the publisher and controller rebuilt their native masks in 22.618 and 24.981
+ms, and synchronization took 4,361 ms. The initial entity and snapshot chunk
+maxima in that run were 3,138 and 29,807 bytes.
 
 Initial `source` tags classify those volumes as 217 wall edges, 48 scenery
 support fallbacks, 2 scenery elements flagged without supports, 25 complex
@@ -107,3 +118,32 @@ overhead ride footprints cannot cause a provisional overlap rejection.
 The optional locally authored `Mt. Zergling.park` was absent during this run.
 Exact support pillars, unusual scenery meshes, and upper-level unit routes
 remain follow-up work.
+
+## Regression commands
+
+| Command | Result | Evidence |
+| --- | --- | --- |
+| `scripts/project.sh test` | Passed: Go, C++, Python, and plugin checks. | `run-data/height-aware-offline-final.log` |
+| `tests/test_height_navigation_live.sh` | Passed 26/26 mask, source, native movement, height-change, and synchronization checks. | `run-data/layered-nav-live-1792103663/verification.json` |
+| `scripts/project.sh test-live-construction` | Passed the complete sequential construction suite, including overlap, unchanged masks, target HP, restart, interruption, and death recovery. | `run-data/height-aware-test-live-construction-phase6.log` |
+| `scripts/project.sh test-live` | Passed on the second aggregate, including graphical startup, scenario runtime, and all nested construction cases. | `run-data/height-aware-test-live-rerun.log` |
+
+An earlier construction aggregate failed only because the new
+`payload_bytes` metric changed two test log parsers; both were corrected and
+the focused batch plus complete aggregate then passed. Other abandoned
+attempts collided with already running live tests on the shared ports, so
+their `WORLD_READY` timeouts provide no regression evidence. The prior
+intermittent Frontier scenario outcome and Midway victory timing are described
+in the [live construction baseline](live-construction-milestone.md); any
+aggregate failure will be classified against those records. The first full
+native aggregate stopped at graphical startup: the server was ready and the
+opening wave spawned, but the client did not reach its first actor snapshot
+before the test timeout. The focused graphical rerun and second full aggregate
+both passed with 37 and 39 client snapshots respectively. This was an
+intermittent client-startup failure; it is not a confirmed navigation
+regression.
+
+The first attempt at the new rail height-change probe did not start client A:
+OpenRCT2 reported `zstdDecompress` data corruption during its map download.
+The immediate rerun passed all 26 checks, so the failed attempt provides no
+navigation result and remains unclassified as an engine/network startup event.
