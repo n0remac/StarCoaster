@@ -128,6 +128,7 @@ type targetLink struct {
 	ProxyID string `json:"proxy_id"`
 	X       int    `json:"proxy_x"`
 	Y       int    `json:"proxy_y"`
+	Health  int    `json:"health"`
 }
 
 func (s *service) sendTargetLinks(p *peer) {
@@ -753,7 +754,13 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				state, reason, hash = "staged", "", s.parkPatch.mask.Hash
 			}
 		} else if s.targetPatch != nil && s.targetPatch.id == query.PatchID {
-			state, reason, hash = "scheduled", "native_targets_pending", s.targetPatch.hash
+			if time.Since(s.targetPatch.created) > 30*time.Second {
+				state, reason, hash = "unsynchronized", "target_reconciliation_expired", s.targetPatch.hash
+				s.targetPatch = nil
+				s.ready = false
+			} else {
+				state, reason, hash = "scheduled", "native_targets_pending", s.targetPatch.hash
+			}
 		} else if s.registry.AppliedPatches[query.PatchID] != "" {
 			state, reason, hash = "synchronized", "", s.navigationMask.Hash
 		}
@@ -1169,6 +1176,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		log.Printf("park patch synchronized id=%s revision=%d hash=%s frame=%d targets=%d unsupported=%d elapsed_ms=%d",
 			patch.id, s.registry.Revision, patch.hash, patch.frame, status.Targets,
 			status.UnsupportedTotal, time.Since(patch.created).Milliseconds())
+		s.pumpSpawns()
 	case "entity.retire":
 		var retired struct {
 			ID      string `json:"id"`
@@ -1188,7 +1196,8 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		_ = s.emit(s.park, "entity.remove", m.Session, m.Revision, map[string]string{"id": retired.ID})
 	case "combat.event":
 		var event world.CombatEvent
-		if m.Decode(&event) != nil || event.Type != "destruction" || m.Session != s.registry.Session || !s.ready {
+		if m.Decode(&event) != nil || event.Type != "destruction" || m.Session != s.registry.Session ||
+			(!s.ready && s.parkPatch == nil && s.targetPatch == nil) {
 			s.ack(p, m, false, "invalid_combat_event")
 			return
 		}
@@ -1231,11 +1240,17 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		s.targetLinks[payload.ID] = payload
 		s.ack(p, m, true, "")
 		s.sendTargetLink(s.controller, m.Session, m.Revision, payload)
-		if s.lastReady != nil && (!hadLink || previousLink != payload) {
+		if s.lastReady != nil && (!hadLink || previousLink.ProxyID != payload.ProxyID ||
+			previousLink.X != payload.X || previousLink.Y != payload.Y) {
 			_ = s.emit(s.park, "entity.target", m.Session, m.Revision, payload)
 		}
+		if !hadLink || previousLink.Health != payload.Health {
+			log.Printf("native target state id=%s proxy=%s hp=%d revision=%d", payload.ID,
+				payload.ProxyID, payload.Health, m.Revision)
+		}
 	case "combat.snapshot":
-		if m.Session == s.registry.Session && s.ready && len(m.Payload) <= 131072 {
+		if m.Session == s.registry.Session && (s.ready || s.parkPatch != nil || s.targetPatch != nil) &&
+			len(m.Payload) <= 131072 {
 			var snapshot struct {
 				Seq         uint64           `json:"seq"`
 				BWTick      int              `json:"bw_tick"`

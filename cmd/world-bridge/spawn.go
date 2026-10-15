@@ -219,7 +219,7 @@ func (s *service) parkSpawnMessage(p *peer, m world.Envelope) {
 		s.spawnStatus(status)
 		return
 	}
-	if !s.ready || s.outcome != "" || s.bw == nil || s.controller == nil {
+	if (!s.ready && s.parkPatch == nil) || s.outcome != "" || s.bw == nil || s.controller == nil {
 		s.rejectSpawn(p, m, request.RequestID, "spawn_unavailable")
 		return
 	}
@@ -256,7 +256,8 @@ func (s *service) parkSpawnMessage(p *peer, m world.Envelope) {
 }
 
 func (s *service) pumpSpawns() {
-	if s.spawns == nil || !s.ready || s.bw == nil || s.outcome != "" || (s.runtime != nil && s.runtime.Error != "") {
+	if s.spawns == nil || !s.ready || s.parkPatch != nil || s.targetPatch != nil ||
+		s.bw == nil || s.outcome != "" || (s.runtime != nil && s.runtime.Error != "") {
 		return
 	}
 	execute, ok := s.spawns.Next()

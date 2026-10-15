@@ -37,6 +37,7 @@
         const MAX_CHANGE_OPERATIONS = 4096, MAX_CHANGE_BYTES = 4194304;
         let constructionTick = 0, dirtySince = -1, publishedWorld = null, snapshotWorld = null;
         let detectedBatch = null, detectedSignature = "", combatRemovalKey = "", patchInFlight = null;
+        const queuedCombatEvents = [];
         let patchSerial = 0;
         function envelope(kind, payload, rev) {
             return { v: 1, kind: kind, session: session, op_id: "park:" + (++serial),
@@ -400,13 +401,17 @@
                     detectedSignature = "";
                     publishActiveTargets();
                     markConstruction();
+                    while (queuedCombatEvents.length) combatEvent(queuedCombatEvents.shift());
                     console.log("WORLD_PATCH_SYNC revision=" + revision);
                 } else if (message.payload.state === "failed" || message.payload.state === "unsynchronized") {
                     console.log("WORLD_PATCH_ERROR " + (message.payload.reason || message.payload.state));
                     queue.length = 0; inFlight = null; patchInFlight = null; snapshot();
                 }
             }
-            else if (message.kind === "combat.event") combatEvent(message);
+            else if (message.kind === "combat.event") {
+                if (patchInFlight || snapshotWorld) queuedCombatEvents.push(message);
+                else combatEvent(message);
+            }
             else if (message.kind === "combat.result" && message.payload.command_id) onCommandResult(message.payload);
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "combat.snapshot") {
