@@ -37,6 +37,7 @@ type CollisionVolume struct {
 	ClearanceZ        int    `json:"clearance_z"`
 	OccupiedQuadrants int    `json:"occupied_quadrants"`
 	Classification    string `json:"classification"`
+	Source            string `json:"source,omitempty"`
 }
 type Combat struct {
 	Targetable  bool    `json:"targetable"`
@@ -273,6 +274,9 @@ func (e Entity) Validate(width, height int) error {
 			(v.Classification != "physical" && v.Classification != "approximate") {
 			return errors.New("invalid collision volume")
 		}
+		if len(v.Source) > 128 {
+			return errors.New("collision source exceeds limit")
+		}
 		if v.Rect.X%32 != 0 || v.Rect.Y%32 != 0 || v.Rect.Width != 32 || v.Rect.Height != 32 {
 			if q != 15 {
 				return errors.New("quadrant mask requires a tile rectangle")
@@ -333,7 +337,10 @@ func cloneEntity(e Entity) Entity {
 		if a.OccupiedQuadrants != b.OccupiedQuadrants {
 			return a.OccupiedQuadrants < b.OccupiedQuadrants
 		}
-		return a.Classification < b.Classification
+		if a.Classification != b.Classification {
+			return a.Classification < b.Classification
+		}
+		return a.Source < b.Source
 	})
 	if e.Removal.Args != nil {
 		args := make(map[string]int, len(e.Removal.Args))

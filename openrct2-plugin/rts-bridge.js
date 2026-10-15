@@ -81,7 +81,7 @@
         function readPark() {
             const grouped = {}, terrain = [], rides = {};
             map.rides.forEach(function (ride) {
-                rides[ride.id] = { ride: ride, cells: [], height: null };
+                rides[ride.id] = { ride: ride, cells: [], volumes: [], height: null };
             });
             const largeObjects = typeof objectManager === "object" ? objectManager.getAllObjects("large_scenery") : [];
             const largeByIndex = {};
@@ -95,16 +95,21 @@
                 const tile = map.getTile(x, y), duplicates = {};
                 let ground = null;
                 const groundPaths = [];
+                for (let s = 0; s < tile.numElements; ++s) {
+                    const surface = tile.getElement(s);
+                    if (surface.type === "surface") {
+                        ground = { x: x, y: y, height: surface.baseZ === undefined
+                                ? surface.baseHeight * 8 : surface.baseZ,
+                            slope: Number.isInteger(surface.slope) ? surface.slope : 0,
+                            water: surface.waterHeight || 0, surface: surface.surfaceObject || 0,
+                            walkable: !surface.waterHeight };
+                        break;
+                    }
+                }
                 for (let n = 0; n < tile.numElements; ++n) {
                     const element = tile.getElement(n), kind = element.type;
-                    if (kind === "surface") {
-                        ground = { x: x, y: y, height: element.baseZ === undefined
-                                ? element.baseHeight * 8 : element.baseZ,
-                            slope: Number.isInteger(element.slope) ? element.slope : 0,
-                            water: element.waterHeight || 0, surface: element.surfaceObject || 0,
-                            walkable: !element.waterHeight };
-                        continue;
-                    }
+                    if (element.isGhost) continue;
+                    if (kind === "surface") continue;
                     if (kind === "footpath") groundPaths.push({
                         base_height: element.baseZ === undefined ? element.baseHeight * 8 : element.baseZ,
                         slope_direction: Number.isInteger(element.slopeDirection) ? element.slopeDirection : null
@@ -113,6 +118,28 @@
                         if (rides[element.ride]) {
                             rides[element.ride].cells.push({ x: x, y: y });
                             if (rides[element.ride].height === null) rides[element.ride].height = element.baseHeight * 8;
+                            if (kind === "track") {
+                                const trackType = Number.isInteger(element.trackType) ? element.trackType : -1;
+                                const sequence = Number.isInteger(element.sequence) ? element.sequence : 0;
+                                const station = trackType >= 1 && trackType <= 3;
+                                const simple = trackType === 0;
+                                const q = element.occupiedQuadrants & 15;
+                                const baseZ = element.baseZ === undefined ? element.baseHeight * 8 : element.baseZ;
+                                // Flat rail and station lower bounds are object-specific
+                                // approximations. Descriptor clearance is construction air,
+                                // never the collider for these supported pieces.
+                                rides[element.ride].volumes.push({
+                                    rect: { x: x * 32, y: y * 32, width: 32, height: 32 },
+                                    base_z: simple ? baseZ : station ? baseZ : Math.min(baseZ, ground ? ground.height : baseZ),
+                                    clearance_z: simple ? baseZ + 8 : station ? baseZ + 32
+                                        : Math.max(baseZ + 32, Number.isInteger(element.clearanceZ)
+                                            ? element.clearanceZ : Number.isInteger(element.clearanceHeight)
+                                                ? element.clearanceHeight * 8 : baseZ + 32),
+                                    occupied_quadrants: q || 15,
+                                    classification: "approximate",
+                                    source: "track:" + trackType + ":" + sequence + ":" + (element.direction || 0)
+                                });
+                            }
                         }
                         continue;
                     }
@@ -141,7 +168,7 @@
                             type: kind === "footpath" ? String(element.surfaceObject || object)
                                 : ((names[kind] && names[kind][object]) || String(object)),
                             x: anchorX, y: anchorY, z: anchorZ, direction: direction,
-                            cells: [], rects: [], removal: removal };
+                            cells: [], rects: [], volumes: [], removal: removal };
                     }
                     grouped[key].cells.push({ x: x, y: y });
                     // Match Paint.Wall.cpp's tile edges: 0 west, 1 south,
@@ -151,6 +178,13 @@
                         : direction === 1 ? { x: x * 32, y: y * 32 + 28, width: 32, height: 4 }
                         : direction === 2 ? { x: x * 32 + 28, y: y * 32, width: 4, height: 32 }
                         : { x: x * 32, y: y * 32, width: 32, height: 4 });
+                    if (kind === "wall") grouped[key].volumes.push({
+                        rect: grouped[key].rects[grouped[key].rects.length - 1],
+                        base_z: z,
+                        clearance_z: Number.isInteger(element.clearanceZ) ? element.clearanceZ
+                            : Number.isInteger(element.clearanceHeight) ? element.clearanceHeight * 8 : z + 32,
+                        occupied_quadrants: 15, classification: "physical", source: "wall:" + object + ":" + direction
+                    });
                 }
                 if (ground) {
                     if (groundPaths.length) ground.ground_paths = groundPaths;
@@ -165,7 +199,7 @@
                 grouped[key] = { key: key, kind: kind, type: ride.object ? ride.object.identifier : String(ride.type),
                     name: ride.name,
                     x: item.cells[0].x * 32, y: item.cells[0].y * 32, z: item.height || 0, direction: 0,
-                    cells: item.cells, rects: [], removal: { action: "ridedemolish", args: { ride: ride.id, modifyType: 0 } },
+                    cells: item.cells, rects: [], volumes: item.volumes, removal: { action: "ridedemolish", args: { ride: ride.id, modifyType: 0 } },
                     rideId: ride.id, rideType: ride.type };
             });
             return { grouped: grouped, terrain: terrain, rides: rides };
@@ -202,6 +236,16 @@
                     combat: { targetable: item.kind !== "path", health: 100 },
                     removal: item.removal, revision: revision };
                 if (item.name) entity.name = item.name;
+                if (item.kind === "wall" || (item.kind === "ride" && item.volumes && item.volumes.length)) {
+                    const volumes = item.volumes.slice().sort(function (a, b) {
+                        return a.rect.y - b.rect.y || a.rect.x - b.rect.x || a.base_z - b.base_z
+                            || a.clearance_z - b.clearance_z || a.occupied_quadrants - b.occupied_quadrants
+                            || a.source.localeCompare(b.source);
+                    });
+                    entity.collision = { blocks: true, mode: "height_aware", volumes: volumes.filter(function (v, i) {
+                        return !i || JSON.stringify(v) !== JSON.stringify(volumes[i - 1]);
+                    }) };
+                }
                 item.id = id; item.entity = entity;
                 item.activeTarget = !!(entities[id] && entities[id].activeTarget);
                 entities[id] = item; activeItems[key] = item; result.push(entity);

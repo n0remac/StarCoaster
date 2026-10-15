@@ -2,6 +2,53 @@ package world
 
 import "testing"
 
+func TestHeightAwareTrackClearanceAndQuadrants(t *testing.T) {
+	base := exampleEntity("openrct2:ride:17#1")
+	base.Collision = Collision{Blocks: true, Mode: "height_aware"}
+	base.Collision.Volumes = []CollisionVolume{{Rect: Rect{64, 96, 32, 32}, BaseZ: 144,
+		ClearanceZ: 152, OccupiedQuadrants: 15, Classification: "approximate"}}
+	terrain := []Terrain{{X: 2, Y: 3, Height: 112, Walkable: true}}
+	high := navFor(t, 8, 8, 12, 12, terrain, []Entity{base})
+	// Centering adds two build tiles in each dimension.
+	if high.BlockedWalk(17, 21) {
+		t.Fatal("track exactly 32 Z above flat land blocked passage")
+	}
+	base.Collision.Volumes[0].BaseZ = 143
+	low := navFor(t, 8, 8, 12, 12, terrain, []Entity{base})
+	if !low.BlockedWalk(17, 21) || high.Hash == low.Hash {
+		t.Fatal("low track did not block")
+	}
+	base.Collision.Volumes[0].OccupiedQuadrants = 4 // NE
+	quarter := navFor(t, 8, 8, 12, 12, terrain, []Entity{base})
+	if !quarter.BlockedWalk(18, 20) || quarter.BlockedWalk(17, 21) {
+		t.Fatal("rotated quarter occupancy projected onto the wrong walk cells")
+	}
+	base.Collision.Volumes = nil
+	empty := navFor(t, 8, 8, 12, 12, terrain, []Entity{base})
+	if empty.BlockedWalk(17, 21) {
+		t.Fatal("empty height-aware collision fell back to logical footprint")
+	}
+}
+
+func TestHeightAwareSlopedGroundAndOrder(t *testing.T) {
+	base := exampleEntity("openrct2:ride:17#1")
+	base.Collision = Collision{Blocks: true, Mode: "height_aware", Volumes: []CollisionVolume{
+		{Rect: Rect{64, 96, 32, 32}, BaseZ: 152, ClearanceZ: 168, OccupiedQuadrants: 15, Classification: "physical"},
+		{Rect: Rect{96, 96, 32, 32}, BaseZ: 180, ClearanceZ: 196, OccupiedQuadrants: 15, Classification: "physical"},
+	}}
+	terrain := []Terrain{{X: 2, Y: 3, Height: 112, Slope: 3, Walkable: true},
+		{X: 3, Y: 3, Height: 128, Walkable: true}}
+	a := navFor(t, 8, 8, 8, 8, terrain, []Entity{base})
+	if a.BlockedWalk(8, 13) || !a.BlockedWalk(11, 13) || a.BlockedWalk(13, 13) {
+		t.Fatal("local slope heights or overhead boundary are wrong")
+	}
+	base.Collision.Volumes[0], base.Collision.Volumes[1] = base.Collision.Volumes[1], base.Collision.Volumes[0]
+	b := navFor(t, 8, 8, 8, 8, terrain, []Entity{base})
+	if a.Hash != b.Hash {
+		t.Fatal("equivalent collision order changed mask")
+	}
+}
+
 func navFor(t *testing.T, width, height, bwWidth, bwHeight int, cells []Terrain, entities []Entity) NavigationMask {
 	t.Helper()
 	r := NewRegistry()

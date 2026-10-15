@@ -82,6 +82,85 @@ func (m NavigationMask) blockRect(r Rect) {
 	}
 }
 
+const groundUnitClearanceZ = 32
+
+// groundHeightRange encloses the supported surface inside one native walk
+// cell. Steep diagonal corners use the full tile range conservatively.
+func groundHeightRange(t Terrain, localX, localY int) (int, int, error) {
+	corners, err := t.CornerHeights()
+	if err != nil {
+		return 0, 0, err
+	}
+	if t.Slope&16 != 0 {
+		lo, hi := corners[0], corners[0]
+		for _, z := range corners[1:] {
+			if z < lo {
+				lo = z
+			}
+			if z > hi {
+				hi = z
+			}
+		}
+		return lo, hi, nil
+	}
+	lo, hi := 32768, -4096
+	for _, p := range [4]Point{{localX, localY}, {localX + 8, localY}, {localX, localY + 8}, {localX + 8, localY + 8}} {
+		// Bilinear interpolation encloses the supported planar corner heights.
+		n := corners[0]*(32-p.X)*(32-p.Y) + corners[1]*p.X*(32-p.Y) +
+			corners[2]*p.X*p.Y + corners[3]*(32-p.X)*p.Y
+		bottom, top := n/1024, (n+1023)/1024
+		if bottom < lo {
+			lo = bottom
+		}
+		if top > hi {
+			hi = top
+		}
+	}
+	return lo, hi, nil
+}
+
+func (m NavigationMask) blockVolume(v CollisionVolume, cells []Terrain, parkWidth, parkHeight int, transform Transform) error {
+	r := transform.rect(v.Rect)
+	for wy := r.Y / 8; wy <= (r.Y+r.Height-1)/8; wy++ {
+		for wx := r.X / 8; wx <= (r.X+r.Width-1)/8; wx++ {
+			if v.OccupiedQuadrants != 15 {
+				// A partial mask always describes one 32-pixel source tile.
+				localX, localY := wx*8-r.X, wy*8-r.Y
+				quadrant := 0
+				if localX < 16 {
+					if localY < 16 {
+						quadrant = 2
+					} else {
+						quadrant = 1
+					}
+				} else {
+					if localY < 16 {
+						quadrant = 4
+					} else {
+						quadrant = 8
+					}
+				}
+				if v.OccupiedQuadrants&quadrant == 0 {
+					continue
+				}
+			}
+			x, y := wx/4-transform.OffsetX, wy/4-transform.OffsetY
+			if x < 0 || y < 0 || x >= parkWidth || y >= parkHeight {
+				continue
+			}
+			localX, localY := (wx%4)*8, (wy%4)*8
+			lo, hi, err := groundHeightRange(cells[y*parkWidth+x], localX, localY)
+			if err != nil {
+				return err
+			}
+			if v.BaseZ < hi+groundUnitClearanceZ && v.ClearanceZ > lo {
+				m.set(wx, wy, true)
+			}
+		}
+	}
+	return nil
+}
+
 // DeriveNavigation is the only world-to-native collision derivation. Missing
 // cells in a partial export are blocked; an empty legacy export means flat
 // ground inside the park. Padding outside the centered park stays blocked.
@@ -156,8 +235,22 @@ func DeriveNavigation(r *Registry, transform Transform, bwWidth, bwHeight int) (
 		if !entity.Collision.Blocks {
 			continue
 		}
-		for _, rect := range transform.Entity(entity).Geometry.Rects {
-			m.blockRect(rect)
+		switch entity.Collision.Mode {
+		case "", "legacy":
+			for _, rect := range transform.Entity(entity).Geometry.Rects {
+				m.blockRect(rect)
+			}
+		case "height_aware", "conservative":
+			if entity.Collision.Mode == "conservative" && len(entity.Collision.Volumes) == 0 {
+				for _, rect := range transform.Entity(entity).Geometry.Rects {
+					m.blockRect(rect)
+				}
+			}
+			for _, volume := range entity.Collision.Volumes {
+				if err := m.blockVolume(volume, cells, r.Width, r.Height, transform); err != nil {
+					return NavigationMask{}, fmt.Errorf("collision %s: %w", id, err)
+				}
+			}
 		}
 	}
 	hash := fnv.New64a()

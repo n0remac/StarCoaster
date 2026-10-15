@@ -10,8 +10,10 @@ at(1, 0)[0].waterHeight = 128;
 let ride = { id: 17, name: 'Any Carousel', type: 33, classification: 'ride',
     object: { identifier: 'rct2.ride.mgr1' }, status: 'closed', isEmpty: true };
 let rejectNextRideDemolition = false;
-at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14 });
-at(1, 2).push({ type: 'track', ride: 17, baseHeight: 14 });
+at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
+    clearanceZ: 160, occupiedQuadrants: 15, trackType: 0, sequence: 0, direction: 0 });
+at(1, 2).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
+    clearanceZ: 160, occupiedQuadrants: 15, trackType: 0, sequence: 0, direction: 0 });
 at(4, 1).push({ type: 'small_scenery', object: 2, baseHeight: 14, quadrant: 0, direction: 0 });
 at(5, 1).push({ type: 'wall', object: 3, baseHeight: 14, direction: 1 });
 at(5, 2)[0].slope = 12;
@@ -19,6 +21,7 @@ at(5, 2).push({ type: 'footpath', object: 4, surfaceObject: 4,
     baseHeight: 14, baseZ: 112, slopeDirection: 0 });
 at(2, 3).push({ type: 'large_scenery', object: 1, sequence: 0, baseHeight: 14, direction: 0 });
 at(3, 3).push({ type: 'large_scenery', object: 1, sequence: 1, baseHeight: 14, direction: 0 });
+at(7, 7).push({ type: 'wall', object: 3, baseHeight: 14, direction: 0, isGhost: true });
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
 const shortcuts = new Map();
 let selectionTool;
@@ -84,6 +87,9 @@ const begin = sent.find(m => m.kind === 'world.snapshot.begin');
 assert.ok(begin, 'discovery begins without a scenario configuration');
 const all = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.entities || []);
 assert.equal(all.find(e => e.kind === 'ride').name, 'Any Carousel', 'ride name is exported for authored objectives');
+assert.equal(all.find(e => e.kind === 'ride').collision.volumes.length, 2,
+    'ride retains separate track segments below one combat identity');
+assert.equal(all.find(e => e.kind === 'ride').collision.volumes[0].base_z, 112);
 const ground = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.terrain || []);
 const terrainAt = (x, y) => ground.find(cell => cell.x === x && cell.y === y);
 assert.equal(terrainAt(0, 0).height, 112);
@@ -94,6 +100,8 @@ assert.equal(terrainAt(5, 2).ground_paths[0].base_height, 112);
 assert.equal(terrainAt(1, 0).water, 128);
 assert.equal(terrainAt(1, 0).walkable, false);
 assert.equal(all.length, 5);
+assert.ok(!all.some(e => e.geometry.cells.some(c => c.x === 7 && c.y === 7)),
+    'ghost construction does not enter committed geometry');
 assert.deepEqual([...new Set(all.map(e => e.kind))].sort(), ['large_scenery', 'path', 'ride', 'small_scenery', 'wall']);
 const large = all.find(e => e.kind === 'large_scenery');
 assert.equal(large.geometry.cells.length, 2, 'multi-tile object retains one identity');
@@ -382,6 +390,9 @@ const firstRideId = rebuilt.id;
 const changeCount = () => logs.filter(line => line.startsWith('WORLD_CHANGESET ')).length;
 ticks(); // Flush the earlier simulated removal action before checking repeat scans.
 const noChangeCount = changeCount();
+construction('wallplace', { x: 7 * 32, y: 7 * 32, z: 112 });
+ticks();
+assert.equal(changeCount(), noChangeCount, 'ghost preview does not produce a committed patch');
 ticks(1200);
 assert.equal(changeCount(), noChangeCount, 'repeat discovery does not change generations');
 ride.name = 'Renamed without geometry changes';
