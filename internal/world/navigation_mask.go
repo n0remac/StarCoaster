@@ -215,7 +215,7 @@ func (m NavigationMask) blockRaisedPaths(cells []Terrain, parkWidth, parkHeight 
 						}
 						if pathLo < groundHi+groundUnitClearanceZ && pathHi+8 > groundLo {
 							m.setCause((x+transform.OffsetX)*4+sx, (y+transform.OffsetY)*4+sy,
-								fmt.Sprintf("path:%d:%d:%d", x, y, layer.BaseHeight))
+                                fmt.Sprintf("path:%d:%d:%d:slab_approx", x, y, layer.BaseHeight))
 						}
 					}
 				}

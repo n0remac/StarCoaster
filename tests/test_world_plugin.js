@@ -102,6 +102,9 @@ assert.equal(Number(/largest_entity_bytes=(\d+)/.exec(geometryMetric)[1]), large
 assert.equal(all.find(e => e.kind === 'ride').collision.volumes.length, 2,
     'ride retains separate track segments below one combat identity');
 assert.equal(all.find(e => e.kind === 'ride').collision.volumes[0].base_z, 112);
+assert.ok(all.find(e => e.kind === 'ride').collision.volumes.every(volume =>
+    volume.source.endsWith(':unrepresented_supports')),
+    'straight rail diagnostics retain the missing-support reason');
 const ground = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => m.payload.terrain || []);
 const terrainAt = (x, y) => ground.find(cell => cell.x === x && cell.y === y);
 assert.equal(terrainAt(0, 0).height, 112);

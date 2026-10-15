@@ -161,6 +161,8 @@
                                     occupied_quadrants: q || 15,
                                     classification: "approximate",
                                     source: "track:" + trackType + ":" + sequence + ":" + (element.direction || 0)
+                                        + (simple ? ":unrepresented_supports" : station ? ":station_approx"
+                                            : ":unknown_track_shape")
                                 });
                             }
                         }
@@ -224,7 +226,7 @@
                             occupied_quadrants: (element.occupiedQuadrants & 15) || 15,
                             classification: "approximate",
                             source: kind + ":" + object + ":" + (kind === "large_scenery" ? element.sequence : quadrant)
-                                + (noSupports ? ":no_supports" : ":support_fallback")
+                                + (noSupports ? ":no_supports" : ":unknown_scenery_shape:support_fallback")
                         });
                     }
                 }

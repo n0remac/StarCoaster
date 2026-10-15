@@ -75,6 +75,26 @@ func TestNavigationTraceUsesAuthoritativeProjection(t *testing.T) {
 	}
 }
 
+func TestRaisedPathTraceRecordsSlabApproximation(t *testing.T) {
+	r := NewRegistry()
+	rule := Terrain{X: 2, Y: 3, Height: 112, Walkable: true, PathLayers: []TerrainPathLayer{{
+		BaseHeight: 136, ClearanceHeight: 168, OccupiedQuadrants: 15,
+	}}}
+	if err := r.Replace("path-trace", 1, 8, 8, nil, []Terrain{rule}); err != nil {
+		t.Fatal(err)
+	}
+	transform, _ := Fit(8, 8, 8, 8)
+	trace, err := DeriveNavigationTrace(r, transform, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, _ := trace.index(8, 12)
+	if !trace.BlockedWalk(8, 12) || len(trace.Causes[index]) == 0 ||
+		trace.Causes[index][0] != "path:2:3:136:slab_approx" {
+		t.Fatal("raised path obstruction lacks its approximation reason")
+	}
+}
+
 func navFor(t *testing.T, width, height, bwWidth, bwHeight int, cells []Terrain, entities []Entity) NavigationMask {
 	t.Helper()
 	r := NewRegistry()
