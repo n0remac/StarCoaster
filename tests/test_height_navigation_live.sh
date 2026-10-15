@@ -56,12 +56,14 @@ for name in client-a client-b; do
 done
 wait_for 'LAYERED_LIVE_COMPLETE' "$run_dir/client-a.log" 65
 # The probe's action callbacks report OpenRCT2 acceptance. Keep the session
-# alive until the bridge confirms both native participants at revision 3.
-wait_for 'park patch synchronized .*revision=3 ' "$run_dir/server.log" 90
+# alive until the bridge confirms the overhead and height-change revisions.
+wait_for 'park patch synchronized .*revision=4 ' "$run_dir/server.log" 90
 python3 scripts/render-layered-navigation-diagnostic.py \
   "$run_dir/navigation/confirmed-revision-1.json" --output "$run_dir/initial-ground-mask.svg"
 python3 scripts/render-layered-navigation-diagnostic.py \
   "$run_dir/navigation/candidate-revision-3.json" --output "$run_dir/after-overhead-edits.svg"
+python3 scripts/render-layered-navigation-diagnostic.py \
+  "$run_dir/navigation/candidate-revision-4.json" --output "$run_dir/after-height-change.svg"
 python3 - "$run_dir" <<'PY'
 import json
 import re
@@ -73,11 +75,12 @@ server = (directory / "server.log").read_text(errors="replace")
 driver = (directory / "client-a.log").read_text(errors="replace")
 source = json.loads((directory / "source-elements.json").read_text())
 trace = json.loads((directory / "navigation/confirmed-revision-1.json").read_text())
-bits = bytes.fromhex(trace["mask_hex"])
-def blocked(x, y, sx=2, sy=2):
-    ox = (trace["native_width"] - trace["park_width"]) // 2
-    oy = (trace["native_height"] - trace["park_height"]) // 2
-    index = ((y+oy)*4+sy)*trace["native_width"]*4 + (x+ox)*4+sx
+after = json.loads((directory / "navigation/candidate-revision-4.json").read_text())
+def blocked(x, y, sx=2, sy=2, state=trace):
+    ox = (state["native_width"] - state["park_width"]) // 2
+    oy = (state["native_height"] - state["park_height"]) // 2
+    index = ((y+oy)*4+sy)*state["native_width"]*4 + (x+ox)*4+sx
+    bits = bytes.fromhex(state["mask_hex"])
     return bool(bits[index//8] & (1 << (index%8)))
 def cause(x, y):
     ox = (trace["native_width"] - trace["park_width"]) // 2
@@ -85,7 +88,7 @@ def cause(x, y):
     index = ((y+oy)*4+2)*trace["native_width"]*4 + (x+ox)*4+2
     return trace["causes"].get(str(index), [])
 start = re.search(r"LAYERED_LIVE_START marine=(\d+),(\d+) zerg=(\d+),(\d+)", driver)
-end = re.search(r"LAYERED_LIVE_COMPLETE marine=(\d+),(\d+) zerg=(\d+),(\d+).*track=(true|false) path=(true|false)", driver)
+end = re.search(r"LAYERED_LIVE_COMPLETE marine=(\d+),(\d+) zerg=(\d+),(\d+).*track=(true|false) path=(true|false) height=(true|false)", driver)
 samples = [(int(elapsed), int(mx), int(my), int(zx), int(zy)) for elapsed, mx, my, zx, zy in re.findall(
     r"LAYERED_LIVE_POSITION elapsed=(\d+) marine=(\d+),(\d+) zerg=(\d+),(\d+)", driver)]
 initial = re.search(r"\[world\] navigation-mask hash=([0-9a-f]{16}).*?accepted=1", server)
@@ -107,6 +110,14 @@ checks = {
                           and e["water_z"] == 128 for e in source["elements"]),
     "elevated_wall_exported": any(e["type"] == "wall" and e["x"] == 45 and e["y"] == 52
                                 and e["base_z"] == 160 for e in source["elements"]),
+    "height_change_reopened_tile": all(not blocked(27,30,sx,sy,state=after)
+                                        for sx in range(4) for sy in range(4)),
+    "height_change_preserved_ride": any(e["id"] == "openrct2:ride:" + str(source["ride_id"]) + "#1"
+                                        for e in after["entities"]),
+    "height_change_retained_xy": any(v["rect"]["x"] == 27*32 and v["rect"]["y"] == 30*32
+                                     and v["base_z"] == 192 for e in after["entities"]
+                                     if e["id"] == "openrct2:ride:" + str(source["ride_id"]) + "#1"
+                                     for v in e["collision"]["volumes"]),
     "low_track_cause": any("track:0" in item for item in cause(27,30)),
     "station_cause": any("track:1" in item for item in cause(29,30)),
     "loop_cause": any("track:40" in item for item in cause(35,30)),
@@ -120,7 +131,9 @@ checks = {
     "zergling_moved": bool(start and end and (abs(int(end[3])-int(start[3]))
                                        + abs(int(end[4])-int(start[4]))) > 24),
     "real_overhead_actions": bool(end and end[5] == "true" and end[6] == "true"),
-    "both_revisions_synchronized": len(patches) >= 2 and len({p[1] for p in patches[:2]}) == 1,
+    "real_track_height_change": bool(end and end[7] == "true"),
+    "all_revisions_synchronized": len(patches) >= 3 and len({p[1] for p in patches[:2]}) == 1
+        and patches[2][1] != patches[1][1] and patches[2][1] == after["hash"],
     "unchanged_native_mask": "unchanged=1" in server,
 }
 result = {"checks": checks, "initial_hash": initial.group(1) if initial else None,

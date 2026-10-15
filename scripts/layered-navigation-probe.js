@@ -4,7 +4,8 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
     main: function () {
         if (network.mode !== "client") return;
         let started = 0, tick = 0, ordered = false, trackBuilt = false, pathBuilt = false, completed = false;
-        let trackAttempted = false, pathAttempted = false, waitingTicks = 0;
+        let trackAttempted = false, pathAttempted = false, heightAttempted = false;
+        let heightChanged = false, waitingTicks = 0;
         let marineStart = null, zergStart = null;
         function actor(units, id) { return units.find(function (unit) { return unit.id === id; }); }
         function ride() { return map.rides.find(function (item) { return item.name === "Layered Test Coaster"; }); }
@@ -27,6 +28,24 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
                 pathBuilt = !result.error;
                 console.log("LAYERED_LIVE_PATH accepted=" + pathBuilt
                     + " reason=" + (result.errorMessage || "ok"));
+            });
+        }
+        function elevateLowTrack() {
+            const item = ride();
+            if (!item) { console.log("LAYERED_LIVE_ERROR coaster_missing_for_height_change"); return; }
+            context.executeAction("trackremove", { x: 27 * 32, y: 30 * 32, z: 112,
+                direction: 0, trackType: 0, sequence: 0 }, function (removed) {
+                console.log("LAYERED_LIVE_LOW_TRACK_REMOVE accepted=" + !removed.error
+                    + " reason=" + (removed.errorMessage || "ok"));
+                if (removed.error) return;
+                context.executeAction("trackplace", { x: 27 * 32, y: 30 * 32, z: 192,
+                    direction: 0, ride: item.id, trackType: 0, rideType: item.type,
+                    brakeSpeed: 0, colour: 0, seatRotation: 0, trackPlaceFlags: 0,
+                    isFromTrackDesign: false }, function (placed) {
+                    heightChanged = !placed.error;
+                    console.log("LAYERED_LIVE_TRACK_HEIGHT accepted=" + heightChanged
+                        + " ride=" + item.id + " reason=" + (placed.errorMessage || "ok"));
+                });
             });
         }
         context.subscribe("interval.tick", function () {
@@ -68,12 +87,16 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
             }
             if (ordered && !trackAttempted && elapsed > 5000) { trackAttempted = true; placeTrack(); }
             if (trackBuilt && !pathAttempted && elapsed > 9000) { pathAttempted = true; placePath(); }
+            if (pathBuilt && !heightAttempted && elapsed > 16000) {
+                heightAttempted = true; elevateLowTrack();
+            }
             if (elapsed > 30000) {
                 completed = true;
                 console.log("LAYERED_LIVE_COMPLETE marine=" + marine.x + "," + marine.y
                     + " zerg=" + zerg.x + "," + zerg.y + " marine_start="
                     + marineStart.x + "," + marineStart.y + " zerg_start="
-                    + zergStart.x + "," + zergStart.y + " track=" + trackBuilt + " path=" + pathBuilt);
+                    + zergStart.x + "," + zergStart.y + " track=" + trackBuilt + " path=" + pathBuilt
+                    + " height=" + heightChanged);
             }
         });
     }
