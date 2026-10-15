@@ -1,5 +1,34 @@
 # Bridge protocol v1
 
+## Live park patches
+
+`world.patch` is one bounded authoritative construction batch from the
+OpenRCT2 server. Its envelope revision equals `result_revision`, which must be
+`base_revision + 1`. The payload carries a stable `patch_id`, complete entity
+additions and modifications, entity IDs to remove, terrain replacements, and
+exact operation counts. Total operations are limited to 4,096 and one wire
+envelope is limited to 1 MiB. A truncated or oversized envelope cannot stage
+a partial patch. The plugin falls back to a full snapshot when a batch exceeds
+the envelope bound. Retrying a patch uses the same ID and content.
+
+The bridge validates the whole patch against the confirmed registry, applies
+the scenario mapping to changed entities, and derives candidate navigation
+before it acknowledges transport receipt. `world.ack` means the patch was
+accepted for staging only. `world.patch.status` reports `staged`, `scheduled`,
+`synchronized`, `failed`, or `unsynchronized` with the patch ID and candidate
+navigation hash. Only `synchronized` advances the OpenRCT2 plugin's published
+baseline. The bridge keeps one staged patch per session; a conflicting patch
+is rejected. Duplicate committed IDs with identical content are acknowledged
+idempotently. Native application and final synchronization are separate from
+this receipt step. `world.patch.query` retrieves a pending or completed
+patch's status after a lost acknowledgement. An unresolved staged patch expires
+after 30 seconds and triggers snapshot reconciliation.
+
+Manual removals retire canonical IDs without setting a combat destruction
+flag. Combat demolition retains its distinct `combat.result` confirmation.
+If combat demolition interrupts an unresolved patch, the bridge requests an
+authoritative snapshot instead of accepting two independent revisions.
+
 ## Shared actor lifecycle
 
 `world.v1` carries reliable OpenBW actor lifecycle operations alongside disposable

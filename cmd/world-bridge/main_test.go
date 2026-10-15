@@ -14,6 +14,39 @@ func testService() *service {
 	return &service{registry: world.NewRegistry(), mapping: world.DefaultMapping(), pending: map[string]world.CombatEvent{}, proxies: map[string]string{}}
 }
 
+func TestParkPatchStagesWithoutAdvancingConfirmedWorld(t *testing.T) {
+	s := testService()
+	if err := s.registry.Replace("session-a", 1, 8, 8, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	transform, err := world.Fit(8, 8, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.transform, s.bwWidth, s.bwHeight = transform, 8, 8
+	wall := world.Entity{ID: "openrct2:wall:3:0:0:0:0#1", Source: "openrct2",
+		SourceID: "wall:3:0:0:0:0", Kind: "wall", Type: "wall", Position: world.Point{X: 0, Y: 0},
+		Geometry: world.Geometry{Cells: []world.Point{{X: 0, Y: 0}},
+			Rects: []world.Rect{{X: 0, Y: 0, Width: 4, Height: 32}}}, Revision: 2}
+	patch := world.Patch{ID: "park:patch:1", BaseRevision: 1, ResultRevision: 2,
+		Additions: []world.Entity{wall}, Counts: world.PatchCounts{Additions: 1}}
+	message := world.Message("world.patch", "session-a", "park:op:1", "openrct2", 2, patch)
+	s.parkMessage(nil, message)
+	if s.parkPatch == nil || s.parkPatch.patch.ID != patch.ID ||
+		s.registry.Revision != 1 || len(s.registry.Entities) != 0 || s.parkPatch.mask.Hash == "" {
+		t.Fatal("patch did not stage independently of confirmed registry")
+	}
+	s.parkMessage(nil, message)
+	if s.parkPatch == nil || s.registry.Revision != 1 {
+		t.Fatal("duplicate transport applied patch")
+	}
+	patch.Additions[0].Geometry.Rects[0].X = 255
+	s.parkMessage(nil, world.Message("world.patch", "session-a", "park:op:2", "openrct2", 2, patch))
+	if s.registry.Revision != 1 || len(s.registry.Entities) != 0 {
+		t.Fatal("conflicting patch changed world")
+	}
+}
+
 func TestActorLifecycleRoutingRejectsAmbiguousBindings(t *testing.T) {
 	s := testService()
 	if err := s.registry.Replace("session-a", 1, 8, 8, nil, nil); err != nil {

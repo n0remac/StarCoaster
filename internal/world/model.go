@@ -257,15 +257,16 @@ func (e Entity) Validate(width, height int) error {
 // Registry replaces its derived state atomically when the complete authoritative
 // snapshot has passed validation. A rebuilt object at the same tile uses a new ID.
 type Registry struct {
-	Session      string
-	Revision     uint64
-	Width        int
-	Height       int
-	Entities     map[string]Entity
-	Terrain      []Terrain
-	Destroyed    map[string]bool
-	RemovalState map[string]string
-	Seen         map[string]Ack
+	Session        string
+	Revision       uint64
+	Width          int
+	Height         int
+	Entities       map[string]Entity
+	Terrain        []Terrain
+	Destroyed      map[string]bool
+	RemovalState   map[string]string
+	Seen           map[string]Ack
+	AppliedPatches map[string]string
 }
 
 func cloneEntity(e Entity) Entity {
@@ -282,7 +283,7 @@ func cloneEntity(e Entity) Entity {
 }
 
 func NewRegistry() *Registry {
-	return &Registry{Entities: map[string]Entity{}, Destroyed: map[string]bool{}, RemovalState: map[string]string{}, Seen: map[string]Ack{}}
+	return &Registry{Entities: map[string]Entity{}, Destroyed: map[string]bool{}, RemovalState: map[string]string{}, Seen: map[string]Ack{}, AppliedPatches: map[string]string{}}
 }
 func (r *Registry) Replace(session string, revision uint64, width, height int, entities []Entity, terrain []Terrain) error {
 	if width < 1 || height < 1 || width > 1024 || height > 1024 || len(entities) > 200000 || len(terrain) > width*height {
@@ -313,7 +314,7 @@ func (r *Registry) Replace(session string, revision uint64, width, height int, e
 		seenCells[p] = true
 	}
 	r.Session, r.Revision, r.Width, r.Height = session, revision, width, height
-	r.Entities, r.Terrain, r.Destroyed, r.RemovalState, r.Seen = next, terrain, map[string]bool{}, map[string]string{}, map[string]Ack{}
+	r.Entities, r.Terrain, r.Destroyed, r.RemovalState, r.Seen, r.AppliedPatches = next, terrain, map[string]bool{}, map[string]string{}, map[string]Ack{}, map[string]string{}
 	return nil
 }
 func (r *Registry) IDs() []string {

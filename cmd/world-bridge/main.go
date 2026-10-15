@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -48,6 +49,7 @@ type service struct {
 	actors                    *world.ActorRegistry
 	mapping                   world.Mapping
 	stage                     *staging
+	parkPatch                 *parkPatchStage
 	next                      uint64
 	pending                   map[string]world.CombatEvent
 	pendingFrames             map[string]int
@@ -85,6 +87,14 @@ type service struct {
 	spawnJournalPath          string
 	maxLiveActors             int
 	lastScenarioStatus        string
+}
+
+type parkPatchStage struct {
+	patch     world.Patch
+	digest    string
+	candidate *world.Registry
+	mask      world.NavigationMask
+	created   time.Time
 }
 
 type worldCommand struct {
@@ -394,6 +404,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.stage = &staging{session: m.Session, revision: m.Revision, begin: b, seen: map[string]bool{}}
+		s.parkPatch = nil
 		s.ready = false
 		s.ack(p, m, true, "")
 	case "world.snapshot.chunk":
@@ -472,7 +483,88 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.sendNavigationMask(s.bw, 0)
 		_ = s.emit(s.controller, "world.hello", m.Session, m.Revision, map[string]any{"role": "controller"})
 		s.sendControllerNavigation(s.controller)
+	case "world.patch":
+		var patch world.Patch
+		if m.Decode(&patch) != nil || patch.ResultRevision != m.Revision {
+			s.ack(p, m, false, "invalid_patch")
+			return
+		}
+		if s.parkPatch != nil {
+			if time.Since(s.parkPatch.created) > 30*time.Second {
+				log.Printf("park patch expired id=%s", s.parkPatch.patch.ID)
+				_ = s.emit(p, "world.patch.status", m.Session, s.parkPatch.patch.ResultRevision,
+					map[string]any{"patch_id": s.parkPatch.patch.ID, "state": "failed", "reason": "staging_expired"})
+				s.parkPatch = nil
+			} else if s.parkPatch.patch.ID == patch.ID && s.parkPatch.digest == patch.Digest() {
+				s.ack(p, m, true, "")
+				_ = s.emit(p, "world.patch.status", m.Session, m.Revision,
+					map[string]any{"patch_id": patch.ID, "state": "staged", "navigation_hash": s.parkPatch.mask.Hash})
+				return
+			} else {
+				s.ack(p, m, false, "patch_in_progress")
+				return
+			}
+		}
+		if s.bwWidth == 0 || s.bwHeight == 0 {
+			s.ack(p, m, false, "native_dimensions_unavailable")
+			return
+		}
+		candidate, mask, err := s.registry.StagePatch(m.Session, patch, s.mapping,
+			s.transform, s.bwWidth, s.bwHeight)
+		if err != nil {
+			if errors.Is(err, world.ErrPatchDuplicate) {
+				s.ack(p, m, true, "")
+				_ = s.emit(p, "world.patch.status", m.Session, m.Revision,
+					map[string]any{"patch_id": patch.ID, "state": "synchronized",
+						"navigation_hash": s.navigationMask.Hash})
+				return
+			}
+			s.ack(p, m, false, err.Error())
+			return
+		}
+		s.parkPatch = &parkPatchStage{patch: patch, digest: patch.Digest(),
+			candidate: candidate, mask: mask, created: time.Now()}
+		s.ready = false
+		s.ack(p, m, true, "")
+		_ = s.emit(p, "world.patch.status", m.Session, m.Revision,
+			map[string]any{"patch_id": patch.ID, "state": "staged", "navigation_hash": mask.Hash})
+		log.Printf("park patch staged id=%s base=%d result=%d hash=%s", patch.ID,
+			patch.BaseRevision, patch.ResultRevision, mask.Hash)
+	case "world.patch.query":
+		var query struct {
+			PatchID string `json:"patch_id"`
+		}
+		if m.Decode(&query) != nil || query.PatchID == "" || m.Session != s.registry.Session {
+			s.ack(p, m, false, "invalid_patch_query")
+			return
+		}
+		s.ack(p, m, true, "")
+		state, reason, hash := "failed", "unknown_or_expired_patch", ""
+		if s.parkPatch != nil && s.parkPatch.patch.ID == query.PatchID {
+			if time.Since(s.parkPatch.created) > 30*time.Second {
+				s.parkPatch = nil
+				s.ready = false
+			} else {
+				state, reason, hash = "staged", "", s.parkPatch.mask.Hash
+			}
+		} else if s.registry.AppliedPatches[query.PatchID] != "" {
+			state, reason, hash = "synchronized", "", s.navigationMask.Hash
+		}
+		status := map[string]any{"patch_id": query.PatchID, "state": state, "reason": reason}
+		if hash != "" {
+			status["navigation_hash"] = hash
+		}
+		_ = s.emit(p, "world.patch.status", m.Session, m.Revision, status)
 	case "combat.result":
+		if s.parkPatch != nil {
+			s.ready = false
+			log.Printf("combat demolition interrupted staged park patch id=%s", s.parkPatch.patch.ID)
+			s.parkPatch = nil
+			s.ack(p, m, false, "patch_interrupted_by_combat")
+			_ = s.emit(p, "world.resync", s.registry.Session, s.registry.Revision,
+				map[string]string{"reason": "patch_interrupted_by_combat"})
+			return
+		}
 		var result world.CombatResult
 		if m.Decode(&result) != nil {
 			s.ack(p, m, false, "invalid_result")

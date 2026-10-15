@@ -19,6 +19,7 @@
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
         let revision = 1, serial = 0, socket = null, buffer = "", inFlight = null, lastCombatSeq = 0, retryTicks = 0;
+        let inFlightTicks = 0;
         const queue = [], generations = {}, activeKeys = {}, activeItems = {}, entities = {}, completed = {};
         const constructionActions = {
             ridecreate: true, ridedemolish: true, trackplace: true, trackremove: true,
@@ -35,7 +36,8 @@
         const CONSTRUCTION_DEBOUNCE_TICKS = 6, RECONCILE_TICKS = 1200;
         const MAX_CHANGE_OPERATIONS = 4096, MAX_CHANGE_BYTES = 4194304;
         let constructionTick = 0, dirtySince = -1, publishedWorld = null, snapshotWorld = null;
-        let detectedBatch = null, detectedSignature = "", combatRemovalKey = "";
+        let detectedBatch = null, detectedSignature = "", combatRemovalKey = "", patchInFlight = null;
+        let patchSerial = 0;
         function envelope(kind, payload, rev) {
             return { v: 1, kind: kind, session: session, op_id: "park:" + (++serial),
                 source: "openrct2", revision: rev || revision, payload: payload };
@@ -43,6 +45,7 @@
         function sendNext() {
             if (!socket || inFlight || !queue.length) return;
             inFlight = queue.shift();
+            inFlightTicks = 0;
             socket.write(JSON.stringify(inFlight) + "\n");
         }
         function send(kind, payload, rev) { queue.push(envelope(kind, payload, rev)); sendNext(); }
@@ -249,8 +252,28 @@
                         modifications: changes.modifications.map(function (e) { return e.id; }),
                         removals: changes.removals, terrain: changes.terrain.length }));
                 }
+                if (!patchInFlight && !snapshotWorld) publishPatch(detectedBatch);
             } else { detectedBatch = null; detectedSignature = ""; }
             dirtySince = -1;
+        }
+        function publishPatch(batch) {
+            const nextRevision = revision + 1;
+            const stamp = function (entity) {
+                const copy = Object.assign({}, entity); copy.revision = nextRevision; return copy;
+            };
+            const changes = batch.changes;
+            const payload = { patch_id: session + ":patch:" + (++patchSerial),
+                base_revision: revision, result_revision: nextRevision,
+                additions: changes.additions.map(stamp), modifications: changes.modifications.map(stamp),
+                removals: changes.removals, terrain: changes.terrain,
+                counts: { additions: changes.additions.length, modifications: changes.modifications.length,
+                    removals: changes.removals.length, terrain: changes.terrain.length } };
+            if (JSON.stringify(payload).length > 900000) {
+                console.log("WORLD_CHANGESET_OVERFLOW recovery=snapshot");
+                snapshot(); return;
+            }
+            patchInFlight = { id: payload.patch_id, base: revision, current: batch.current };
+            send("world.patch", payload, nextRevision);
         }
         context.subscribe("action.execute", function (event) {
             if (!event || !event.result || event.result.error || event.isClientOnly
@@ -359,7 +382,21 @@
                 }
                 inFlight = null; sendNext();
             } else if (message.kind === "world.resync") {
-                queue.length = 0; inFlight = null; snapshot();
+                queue.length = 0; inFlight = null; patchInFlight = null; snapshot();
+            }
+            else if (message.kind === "world.patch.status" && message.payload && patchInFlight
+                && message.payload.patch_id === patchInFlight.id) {
+                if (message.payload.state === "synchronized" && message.revision === patchInFlight.base + 1) {
+                    publishedWorld = patchInFlight.current;
+                    revision = message.revision;
+                    patchInFlight = null;
+                    detectedSignature = "";
+                    markConstruction();
+                    console.log("WORLD_PATCH_SYNC revision=" + revision);
+                } else if (message.payload.state === "failed" || message.payload.state === "unsynchronized") {
+                    console.log("WORLD_PATCH_ERROR " + (message.payload.reason || message.payload.state));
+                    queue.length = 0; inFlight = null; patchInFlight = null; snapshot();
+                }
             }
             else if (message.kind === "combat.event") combatEvent(message);
             else if (message.kind === "combat.result" && message.payload.command_id) onCommandResult(message.payload);
@@ -429,7 +466,8 @@
             connection.on("close", function () { if (socket === connection) socket = null; inFlight = null; queue.length = 0; });
             connection.connect(40010, "127.0.0.1", function () {
                 retryTicks = 0;
-                send("world.hello", { capabilities: ["snapshot", "entity.upsert", "entity.remove", "navigation.terrain.update"] });
+                patchInFlight = null;
+                send("world.hello", { capabilities: ["snapshot", "world.patch", "navigation.mask"] });
                 snapshot();
             });
         }
@@ -437,6 +475,12 @@
         context.subscribe("interval.tick", function () {
             constructionTick++;
             if (!socket && ++retryTicks >= 40) { retryTicks = 0; connect(); }
+            if (socket && inFlight && inFlight.kind === "world.patch" && ++inFlightTicks >= 120) {
+                inFlightTicks = 0;
+                socket.write(JSON.stringify(inFlight) + "\n");
+            }
+            if (socket && patchInFlight && !inFlight && constructionTick % 120 === 0)
+                send("world.patch.query", { patch_id: patchInFlight.id }, patchInFlight.base + 1);
             if (dirtySince >= 0 && constructionTick - dirtySince >= CONSTRUCTION_DEBOUNCE_TICKS
                 && !snapshotWorld) detectConstruction();
             else if (dirtySince < 0 && constructionTick % RECONCILE_TICKS === 0
