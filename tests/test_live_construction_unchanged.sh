@@ -62,7 +62,7 @@ directory = Path(sys.argv[1])
 server = (directory / 'server.log').read_text(errors='replace')
 client = (directory / 'client.log').read_text(errors='replace')
 patches = re.findall(r'park patch synchronized id=', server)
-metrics = re.findall(r'WORLD_PATCH_METRIC patch=([^ ]+) action_to_detection_ms=(-?\d+) detection_to_patch_ms=(\d+) operations=(\d+)', server)
+metrics = re.findall(r'WORLD_PATCH_METRIC patch=([^ ]+) action_to_detection_ms=(-?\d+) detection_to_patch_ms=(\d+)(?: payload_bytes=\d+)? operations=(\d+)', server)
 native = re.findall(r'\[world\] navigation-mask hash=([0-9a-f]{16}) frame=\d+ accepted=1[^\n]*unchanged=(\d)', server)
 control = re.findall(r'\[world-control\] navigation-mask hash=([0-9a-f]{16}) frame=\d+ accepted=1[^\n]*unchanged=(\d)', server)
 checks = {

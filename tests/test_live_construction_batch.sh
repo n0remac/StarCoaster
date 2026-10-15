@@ -60,7 +60,7 @@ client = (directory / 'client.log').read_text(errors='replace')
 actions = re.findall(r'LIVE_BATCH_ACTION index=(\d+) kind=(\w+) accepted=(\w+)', client)
 changes = re.findall(r'WORLD_CHANGESET (\{[^\n]+\})', server)
 patches = re.findall(r'park patch synchronized id=', server)
-metrics = re.findall(r'WORLD_PATCH_METRIC patch=([^ ]+) action_to_detection_ms=(-?\d+) detection_to_patch_ms=(\d+) operations=(\d+)', server)
+metrics = re.findall(r'WORLD_PATCH_METRIC patch=([^ ]+) action_to_detection_ms=(-?\d+) detection_to_patch_ms=(\d+)(?: payload_bytes=\d+)? operations=(\d+)', server)
 checks = {
     'six_ordinary_actions': len(actions) == 6 and all(state == 'true' for _, _, state in actions),
     'path_wall_scenery_discovered': any(
