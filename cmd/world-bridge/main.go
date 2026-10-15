@@ -148,9 +148,19 @@ func (s *service) sendControllerNavigation(p *peer) {
 }
 
 func (s *service) refreshNavigationMask() error {
-	mask, err := world.DeriveNavigation(s.registry, s.transform, s.bwWidth, s.bwHeight)
+	traceDir := os.Getenv("BRIDGE_NAV_DIAGNOSTICS_DIR")
+	var mask world.NavigationMask
+	var err error
+	if traceDir != "" {
+		mask, err = world.DeriveNavigationTrace(s.registry, s.transform, s.bwWidth, s.bwHeight)
+	} else {
+		mask, err = world.DeriveNavigation(s.registry, s.transform, s.bwWidth, s.bwHeight)
+	}
 	if err != nil {
 		return err
+	}
+	if traceDir != "" {
+		writeNavigationDiagnostic(traceDir, "confirmed", s.registry, mask)
 	}
 	if s.navigationRevision != s.registry.Revision || s.navigationMask.Hash != mask.Hash {
 		s.publisherNavigationReady = false
@@ -161,6 +171,34 @@ func (s *service) refreshNavigationMask() error {
 	s.navigationMask = mask
 	s.navigationRevision = s.registry.Revision
 	return nil
+}
+
+func writeNavigationDiagnostic(dir, state string, registry *world.Registry, mask world.NavigationMask) {
+	if dir == "" || registry == nil {
+		return
+	}
+	entities := make([]world.Entity, 0, len(registry.Entities))
+	for _, id := range registry.IDs() {
+		entities = append(entities, registry.Entities[id])
+	}
+	data := map[string]any{"state": state, "revision": registry.Revision,
+		"park_width": registry.Width, "park_height": registry.Height,
+		"native_width": mask.Width, "native_height": mask.Height,
+		"hash": mask.Hash, "mask_hex": hex.EncodeToString(mask.Bits),
+		"terrain": registry.Terrain, "entities": entities, "causes": mask.Causes}
+	encoded, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		log.Printf("navigation diagnostic encoding failed: %v", err)
+		return
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("navigation diagnostic directory failed: %v", err)
+		return
+	}
+	name := fmt.Sprintf("%s-revision-%d.json", state, registry.Revision)
+	if err := os.WriteFile(dir+"/"+name, encoded, 0644); err != nil {
+		log.Printf("navigation diagnostic write failed: %v", err)
+	}
 }
 
 func (s *service) sendNavigationMask(p *peer, applyFrame int) {
@@ -783,6 +821,14 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			}
 			s.ack(p, m, false, err.Error())
 			return
+		}
+		if traceDir := os.Getenv("BRIDGE_NAV_DIAGNOSTICS_DIR"); traceDir != "" {
+			traced, traceErr := world.DeriveNavigationTrace(candidate, s.transform, s.bwWidth, s.bwHeight)
+			if traceErr == nil && traced.Hash == mask.Hash {
+				writeNavigationDiagnostic(traceDir, "candidate", candidate, traced)
+			} else {
+				log.Printf("navigation diagnostic mismatch: %v", traceErr)
+			}
 		}
 		if s.navigationMask.Hash == "" {
 			confirmed, err := world.DeriveNavigation(s.registry, s.transform, s.bwWidth, s.bwHeight)

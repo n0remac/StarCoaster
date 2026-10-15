@@ -12,7 +12,8 @@ type NavigationMask struct {
 	Width, Height  int // OpenBW build tiles
 	Bits           []byte
 	Hash           string
-	DerivationTime time.Duration `json:"-"`
+	DerivationTime time.Duration    `json:"-"`
+	Causes         map[int][]string `json:"-"` // populated only by the test diagnostic variant
 }
 
 func (m NavigationMask) walkWidth() int { return m.Width * 4 }
@@ -48,6 +49,16 @@ func (m NavigationMask) set(x, y int, blocked bool) {
 	}
 }
 
+func (m NavigationMask) setCause(x, y int, cause string) {
+	m.set(x, y, true)
+	if m.Causes != nil {
+		index, ok := m.index(x, y)
+		if ok {
+			m.Causes[index] = append(m.Causes[index], cause)
+		}
+	}
+}
+
 func (m NavigationMask) fillTile(x, y int, blocked bool) {
 	for row := 0; row < 4; row++ {
 		for column := 0; column < 4; column++ {
@@ -61,7 +72,7 @@ func (m NavigationMask) blockEastEdge(x, y int) {
 	// Reserve the two full build tiles bordering a cliff.
 	for row := 0; row < 4; row++ {
 		for column := 0; column < 8; column++ {
-			m.set(x*4+column, y*4+row, true)
+			m.setCause(x*4+column, y*4+row, "cliff")
 		}
 	}
 }
@@ -69,15 +80,15 @@ func (m NavigationMask) blockEastEdge(x, y int) {
 func (m NavigationMask) blockSouthEdge(x, y int) {
 	for row := 0; row < 8; row++ {
 		for column := 0; column < 4; column++ {
-			m.set(x*4+column, y*4+row, true)
+			m.setCause(x*4+column, y*4+row, "cliff")
 		}
 	}
 }
 
-func (m NavigationMask) blockRect(r Rect) {
+func (m NavigationMask) blockRect(r Rect, source string) {
 	for y := r.Y / 8; y <= (r.Y+r.Height-1)/8; y++ {
 		for x := r.X / 8; x <= (r.X+r.Width-1)/8; x++ {
-			m.set(x, y, true)
+			m.setCause(x, y, source)
 		}
 	}
 }
@@ -119,7 +130,7 @@ func groundHeightRange(t Terrain, localX, localY int) (int, int, error) {
 	return lo, hi, nil
 }
 
-func (m NavigationMask) blockVolume(v CollisionVolume, cells []Terrain, parkWidth, parkHeight int, transform Transform) error {
+func (m NavigationMask) blockVolume(v CollisionVolume, cells []Terrain, parkWidth, parkHeight int, transform Transform, source string) error {
 	r := transform.rect(v.Rect)
 	for wy := r.Y / 8; wy <= (r.Y+r.Height-1)/8; wy++ {
 		for wx := r.X / 8; wx <= (r.X+r.Width-1)/8; wx++ {
@@ -141,7 +152,7 @@ func (m NavigationMask) blockVolume(v CollisionVolume, cells []Terrain, parkWidt
 				return err
 			}
 			if v.BaseZ < hi+groundUnitClearanceZ && v.ClearanceZ > lo {
-				m.set(wx, wy, true)
+				m.setCause(wx, wy, source)
 			}
 		}
 	}
@@ -203,7 +214,8 @@ func (m NavigationMask) blockRaisedPaths(cells []Terrain, parkWidth, parkHeight 
 							return err
 						}
 						if pathLo < groundHi+groundUnitClearanceZ && pathHi+8 > groundLo {
-							m.set((x+transform.OffsetX)*4+sx, (y+transform.OffsetY)*4+sy, true)
+							m.setCause((x+transform.OffsetX)*4+sx, (y+transform.OffsetY)*4+sy,
+								fmt.Sprintf("path:%d:%d:%d", x, y, layer.BaseHeight))
 						}
 					}
 				}
@@ -217,6 +229,16 @@ func (m NavigationMask) blockRaisedPaths(cells []Terrain, parkWidth, parkHeight 
 // cells in a partial export are blocked; an empty legacy export means flat
 // ground inside the park. Padding outside the centered park stays blocked.
 func DeriveNavigation(r *Registry, transform Transform, bwWidth, bwHeight int) (NavigationMask, error) {
+	return deriveNavigation(r, transform, bwWidth, bwHeight, false)
+}
+
+// DeriveNavigationTrace uses the same projection and records why each cell
+// was blocked. It is reserved for ignored test artifacts.
+func DeriveNavigationTrace(r *Registry, transform Transform, bwWidth, bwHeight int) (NavigationMask, error) {
+	return deriveNavigation(r, transform, bwWidth, bwHeight, true)
+}
+
+func deriveNavigation(r *Registry, transform Transform, bwWidth, bwHeight int, trace bool) (NavigationMask, error) {
 	started := time.Now()
 	if r == nil || r.Width < 1 || r.Height < 1 || bwWidth < r.Width || bwHeight < r.Height ||
 		bwWidth > 256 || bwHeight > 256 || transform.Numerator != 1 || transform.Denominator != 1 ||
@@ -225,6 +247,9 @@ func DeriveNavigation(r *Registry, transform Transform, bwWidth, bwHeight int) (
 	}
 	walkCells := bwWidth * 4 * bwHeight * 4
 	m := NavigationMask{Width: bwWidth, Height: bwHeight, Bits: make([]byte, (walkCells+7)/8)}
+	if trace {
+		m.Causes = make(map[int][]string)
+	}
 	for i := range m.Bits {
 		m.Bits[i] = 0xff
 	}
@@ -293,16 +318,17 @@ func DeriveNavigation(r *Registry, transform Transform, bwWidth, bwHeight int) (
 		switch entity.Collision.Mode {
 		case "", "legacy":
 			for _, rect := range transform.Entity(entity).Geometry.Rects {
-				m.blockRect(rect)
+				m.blockRect(rect, id+":legacy")
 			}
 		case "height_aware", "conservative":
 			if entity.Collision.Mode == "conservative" && len(entity.Collision.Volumes) == 0 {
 				for _, rect := range transform.Entity(entity).Geometry.Rects {
-					m.blockRect(rect)
+					m.blockRect(rect, id+":conservative")
 				}
 			}
 			for _, volume := range entity.Collision.Volumes {
-				if err := m.blockVolume(volume, cells, r.Width, r.Height, transform); err != nil {
+				if err := m.blockVolume(volume, cells, r.Width, r.Height, transform,
+					id+"/"+volume.Source); err != nil {
 					return NavigationMask{}, fmt.Errorf("collision %s: %w", id, err)
 				}
 			}

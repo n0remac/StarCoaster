@@ -49,6 +49,32 @@ func TestHeightAwareSlopedGroundAndOrder(t *testing.T) {
 	}
 }
 
+func TestNavigationTraceUsesAuthoritativeProjection(t *testing.T) {
+	r := NewRegistry()
+	e := exampleEntity("openrct2:ride:17#1")
+	e.Collision = Collision{Blocks: true, Mode: "height_aware", Volumes: []CollisionVolume{{
+		Rect: Rect{64, 96, 32, 32}, BaseZ: 112, ClearanceZ: 120,
+		OccupiedQuadrants: 15, Classification: "approximate", Source: "track:0:0:0"}}}
+	if err := r.Replace("trace", 1, 8, 8, []Entity{e},
+		[]Terrain{{X: 2, Y: 3, Height: 112, Walkable: true}}); err != nil {
+		t.Fatal(err)
+	}
+	transform, _ := Fit(8, 8, 8, 8)
+	normal, err := DeriveNavigation(r, transform, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	traced, err := DeriveNavigationTrace(r, transform, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, _ := traced.index(8, 12)
+	if traced.Hash != normal.Hash || len(traced.Causes[index]) != 1 ||
+		traced.Causes[index][0] != e.ID+"/track:0:0:0" {
+		t.Fatal("diagnostic cause diverged from navigation projection")
+	}
+}
+
 func navFor(t *testing.T, width, height, bwWidth, bwHeight int, cells []Terrain, entities []Entity) NavigationMask {
 	t.Helper()
 	r := NewRegistry()
