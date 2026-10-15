@@ -35,8 +35,9 @@ overhead edits, and a changed mask for the rail height edit.
 The inherited Frontier terrain supplies supported slopes, cliffs, and ground
 walls. The generator also adds an isolated water tile and elevated wall; the
 native mask check expects water to block and the raised wall to clear the
-ground. A construction ghost action is covered by the plugin regression, not
-this park's native movement route. The Marine route starts under elevated
+ground. The test driver previews a wall through a real OpenRCT2 ghost action
+and checks that no corresponding committed entity or native obstruction appears.
+The Marine route starts under elevated
 track; the Zergling starts beneath the raised path and then moves under native
 control. A further route matrix through each isolated feature would strengthen
 the evidence.

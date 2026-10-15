@@ -81,6 +81,11 @@ identical native hash `841939c51f4bc26d`; both participants reported
 same-X/Y height edit: the low rail's tile reopened, the ride ID stayed stable,
 and both native participants applied revision 4 at frame 665 with new hash
 `c882c2fb325024ad`. Its `after-height-change.svg` shows the reopened cells.
+The final run at `run-data/layered-nav-live-1792105312/` passed all 28 checks.
+A real OpenRCT2 ghost wall was visible in the source tile but absent from the
+authoritative entity snapshot and native mask. Marine and Zergling movement,
+both unchanged-mask overhead revisions, and the changed-mask height revision
+also passed.
 
 ## Measurements and limits
 
@@ -132,10 +137,12 @@ remain follow-up work.
 | Command | Result | Evidence |
 | --- | --- | --- |
 | `scripts/project.sh test` | Passed: Go, C++, Python, and plugin checks. | `run-data/height-aware-offline-complete.log` |
-| `tests/test_height_navigation_live.sh` | Passed 26/26 mask, source, native movement, height-change, and synchronization checks after the final payload optimization. | `run-data/layered-nav-live-1792103865/verification.json` |
+| `tests/test_height_navigation_live.sh` | Passed 28/28 mask, source, ghost, native movement, height-change, and synchronization checks. | `run-data/layered-nav-live-1792105312/verification.json` |
 | `scripts/project.sh test-live-construction` | Passed the complete sequential construction suite, including overlap, unchanged masks, target HP, restart, interruption, and death recovery. | `run-data/height-aware-test-live-construction-phase6.log` |
 | `scripts/project.sh test-live` | Passed on the second aggregate, including graphical startup, scenario runtime, and all nested construction cases. | `run-data/height-aware-test-live-rerun.log` |
 | `NAV_SCENARIO=midway-junction tests/test_frontier_native_navigation_live.sh` | Passed native detour, gate demolition, and reopened route checks. | `run-data/midway-junction-native-nav-1792103746/verification.json` |
+| `python3 tests/test_midway_scenario_live.py --mode defeat` | Passed two-client defeat outcome. | `run-data/midway-live-defeat-1792103917/` |
+| `python3 tests/test_midway_scenario_live.py --mode victory` | Ended in native defeat, matching the documented intermittent tactical outcome. | `run-data/midway-live-victory-1792104002/bridge-restart.log` |
 
 An earlier construction aggregate failed only because the new
 `payload_bytes` metric changed two test log parsers; both were corrected and
@@ -153,8 +160,8 @@ intermittent client-startup failure; it is not a confirmed navigation
 regression.
 One post-optimization focused attempt synchronized the geometry but its
 single Marine command did not receive an action callback. The probe now
-retries that idempotent request until acceptance; the final focused rerun
-passed all 26 checks. This was a test command delivery race, not a confirmed
+retries the request until acceptance; the later focused rerun passed all 28
+checks. This was a test command delivery race, not a confirmed
 mask regression.
 
 The first attempt at the new rail height-change probe did not start client A:
