@@ -87,6 +87,10 @@
             const largeObjects = typeof objectManager === "object" ? objectManager.getAllObjects("large_scenery") : [];
             const largeByIndex = {};
             largeObjects.forEach(function (object) { largeByIndex[object.index] = object; });
+            const smallByIndex = {};
+            if (typeof objectManager === "object") objectManager.getAllObjects("small_scenery").forEach(function (object) {
+                smallByIndex[object.index] = object;
+            });
             const names = {};
             if (typeof objectManager === "object") ["small_scenery", "wall", "large_scenery"].forEach(function (kind) {
                 names[kind] = {};
@@ -190,6 +194,25 @@
                             : Number.isInteger(element.clearanceHeight) ? element.clearanceHeight * 8 : z + 32,
                         occupied_quadrants: 15, classification: "physical", source: "wall:" + object + ":" + direction
                     });
+                    if (kind === "small_scenery" || kind === "large_scenery") {
+                        const definition = kind === "small_scenery" ? smallByIndex[object] : largeByIndex[object];
+                        const part = kind === "large_scenery" && definition && definition.tiles
+                            ? definition.tiles[element.sequence] : null;
+                        // SmallSceneryFlag::hasNoSupports is bit 20 in the pinned enum.
+                        const noSupports = kind === "small_scenery" ? !!(definition && (definition.flags & (1 << 20)))
+                            : !!(part && part.hasSupports === false);
+                        const clearanceZ = Number.isInteger(element.clearanceZ) ? element.clearanceZ
+                            : Number.isInteger(element.clearanceHeight) ? element.clearanceHeight * 8 : z + 32;
+                        grouped[key].volumes.push({
+                            rect: { x: x * 32, y: y * 32, width: 32, height: 32 },
+                            base_z: noSupports ? z : Math.min(z, ground ? ground.height : z),
+                            clearance_z: Math.max(z + 8, clearanceZ),
+                            occupied_quadrants: (element.occupiedQuadrants & 15) || 15,
+                            classification: "approximate",
+                            source: kind + ":" + object + ":" + (kind === "large_scenery" ? element.sequence : quadrant)
+                                + (noSupports ? ":no_supports" : ":support_fallback")
+                        });
+                    }
                 }
                 if (ground) {
                     if (pathLayers.length) ground.path_layers = pathLayers;
@@ -241,7 +264,7 @@
                     combat: { targetable: item.kind !== "path", health: 100 },
                     removal: item.removal, revision: revision };
                 if (item.name) entity.name = item.name;
-                if (item.kind === "wall" || (item.kind === "ride" && item.volumes && item.volumes.length)) {
+                if (item.kind !== "path" && item.volumes && item.volumes.length) {
                     const volumes = item.volumes.slice().sort(function (a, b) {
                         return a.rect.y - b.rect.y || a.rect.x - b.rect.x || a.base_z - b.base_z
                             || a.clearance_z - b.clearance_z || a.occupied_quadrants - b.occupied_quadrants
