@@ -55,6 +55,9 @@ for name in client-a client-b; do
   if [[ "$name" == client-a ]]; then client_a_pid=$!; else client_b_pid=$!; fi
 done
 wait_for 'LAYERED_LIVE_COMPLETE' "$run_dir/client-a.log" 65
+# The probe's action callbacks report OpenRCT2 acceptance. Keep the session
+# alive until the bridge confirms both native participants at revision 3.
+wait_for 'park patch synchronized .*revision=3 ' "$run_dir/server.log" 90
 python3 scripts/render-layered-navigation-diagnostic.py \
   "$run_dir/navigation/confirmed-revision-1.json" --output "$run_dir/initial-ground-mask.svg"
 python3 scripts/render-layered-navigation-diagnostic.py \
