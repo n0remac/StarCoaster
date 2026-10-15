@@ -67,6 +67,9 @@ Diagnostics distinguish `unknown_track_shape`, `unknown_scenery_shape`,
 data is rejected. Fixtures must cover exact Z boundaries, slope under an
 overhead slab, rotated quarter occupancy, layered paths, ghost omission,
 centered transforms, equivalent volume order, and same-X/Y Z edits.
+Exported volume `source` tags include `unrepresented_supports` on flat rails,
+`unknown_track_shape` on complex track, and `unknown_scenery_shape` on scenery
+support fallbacks. Raised-path obstruction causes carry `slab_approx`.
 
 Source references in the pinned checkout: `world/ConstructionClearance.cpp`
 (`MapCanConstructWithClearAt`, `landSlopeFitsUnderTrack`,
