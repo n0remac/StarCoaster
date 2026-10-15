@@ -3,7 +3,8 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
     type: "local", licence: "MIT", targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         if (network.mode !== "client") return;
-        let started = 0, tick = 0, ordered = false, trackBuilt = false, pathBuilt = false, completed = false;
+        let started = 0, tick = 0, ordered = false, lastOrderAttempt = 0;
+        let trackBuilt = false, pathBuilt = false, completed = false;
         let trackAttempted = false, pathAttempted = false, heightAttempted = false;
         let heightChanged = false, waitingTicks = 0;
         let marineStart = null, zergStart = null;
@@ -71,8 +72,8 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
             const elapsed = Date.now() - started;
             if (++tick % 8 === 0) console.log("LAYERED_LIVE_POSITION elapsed=" + elapsed
                 + " marine=" + marine.x + "," + marine.y + " zerg=" + zerg.x + "," + zerg.y);
-            if (!ordered && elapsed > 2000) {
-                ordered = true;
+            if (!ordered && elapsed > 2000 && Date.now() - lastOrderAttempt > 3000) {
+                lastOrderAttempt = Date.now();
                 const args = { session: state.session, request: 1,
                     unit_ids: ["openbw:1003"], verb: "move", x: 768, y: 1008 };
                 context.queryAction("rtsbridge.marineCommand", args, function (query) {
@@ -80,6 +81,7 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
                         + " reason=" + (query.errorMessage || "ok"));
                     if (query.error) return;
                     context.executeAction("rtsbridge.marineCommand", args, function (result) {
+                        if (!result.error) ordered = true;
                         console.log("LAYERED_LIVE_ORDER accepted=" + !result.error
                             + " reason=" + (result.errorMessage || "ok"));
                     });
