@@ -35,11 +35,20 @@ when a live binding becomes usable, refreshing the versioned multiplayer
 catalog. Controlled proxy replacement first emits `entity.retire`. Manual
 demolition retires its binding without a combat destruction event. Navigation
 remains active when a combat proxy is unsupported or cannot be placed.
+The final patch status also reports `unsupported_total` and
+`unsupported_reasons`. Target definitions and navigation use separate native
+acknowledgements; an accepted target request is not a usable proxy until its
+asynchronous association and health restoration finish.
 
 Manual removals retire canonical IDs without setting a combat destruction
-flag. Combat demolition retains its distinct `combat.result` confirmation.
-If combat demolition interrupts an unresolved patch, the bridge requests an
-authoritative snapshot instead of accepting two independent revisions.
+flag. A manually removed required objective records a distinct durable
+`objective_removed` defeat. Combat demolition retains its distinct
+`combat.result` confirmation, then stages a synthetic `combat:<event ID>`
+one-removal patch in the same ordered revision stream. The dead proxy retires
+at park confirmation; geometry commits only after both native participants
+apply the patch. OpenRCT2 queues later construction and command requests until
+that combat revision synchronizes. An interrupted transaction recovers from a
+new authoritative park snapshot rather than presenting receipt as completion.
 
 ## Shared actor lifecycle
 
@@ -154,7 +163,12 @@ same requested frame and hash on both sides lets the bridge commit the Go
 candidate and publish `world.patch.status: synchronized`. Late scheduling,
 occupied new collision cells, or native application failure leaves the world
 unsynchronized and triggers authoritative snapshot recovery. This path keeps
-the OpenBW match and actor identities alive.
+the OpenBW match and actor identities alive. `navigation.mask.cancel` clears
+an unresolved staged or scheduled mask by revision and hash on both native
+participants. A full snapshot mask supersedes older native staging during
+recovery, including after a Go-only restart. A native proxy destroyed while
+the bridge is disconnected is replayed after same-session reconciliation;
+the old zero-HP target is not recreated at full health.
 
 The publisher sends one UTF-8 JSON object per line over a TCP connection bound to `127.0.0.1`. Each line is a **full** snapshot, capped at 32768 bytes including the JSON but excluding the newline. A 32-unit packet with 32-byte IDs and signed decimal 32-bit coordinates fits under 8 KiB; the larger cap also accommodates combat targets and events. The [schema](units.snapshot.v1.schema.json) and [fixture](fixtures/one-unit.ndjson) define the original wire shape. Every receiver rejects an invalid array as a whole, including duplicate IDs.
 
