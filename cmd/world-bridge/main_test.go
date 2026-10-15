@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -24,6 +25,15 @@ func TestParkPatchStagesWithoutAdvancingConfirmedWorld(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.transform, s.bwWidth, s.bwHeight = transform, 8, 8
+	publisher, publisherSink := net.Pipe()
+	controller, controllerSink := net.Pipe()
+	defer publisher.Close()
+	defer publisherSink.Close()
+	defer controller.Close()
+	defer controllerSink.Close()
+	go io.Copy(io.Discard, publisherSink)
+	go io.Copy(io.Discard, controllerSink)
+	s.bw, s.controller, s.ready = &peer{Conn: publisher}, &peer{Conn: controller}, true
 	wall := world.Entity{ID: "openrct2:wall:3:0:0:0:0#1", Source: "openrct2",
 		SourceID: "wall:3:0:0:0:0", Kind: "wall", Type: "wall", Position: world.Point{X: 0, Y: 0},
 		Geometry: world.Geometry{Cells: []world.Point{{X: 0, Y: 0}},
@@ -44,6 +54,37 @@ func TestParkPatchStagesWithoutAdvancingConfirmedWorld(t *testing.T) {
 	s.parkMessage(nil, world.Message("world.patch", "session-a", "park:op:2", "openrct2", 2, patch))
 	if s.registry.Revision != 1 || len(s.registry.Entities) != 0 {
 		t.Fatal("conflicting patch changed world")
+	}
+	hash := s.parkPatch.mask.Hash
+	report := func(kind, participant string, frame, applyFrame int) {
+		message := world.Message(kind, "session-a", "native:"+participant+kind, "openbw", 2,
+			map[string]any{"hash": hash, "accepted": true, "error": "", "apply_frame": applyFrame})
+		message.BWTick = frame
+		if participant == "publisher" {
+			s.bwMessage(nil, message)
+		} else {
+			s.controllerMessage(nil, message)
+		}
+	}
+	report("navigation.mask.staged", "publisher", 100, 0)
+	if s.parkPatch.applyFrame != 0 {
+		t.Fatal("one staging acknowledgement scheduled both participants")
+	}
+	report("navigation.mask.staged", "controller", 101, 0)
+	frame := s.parkPatch.applyFrame
+	if frame <= 101 {
+		t.Fatal("scheduled frame did not account for observed native frames")
+	}
+	report("navigation.mask.scheduled", "publisher", 102, frame)
+	report("navigation.mask.scheduled", "controller", 103, frame)
+	report("navigation.mask.applied", "publisher", frame, frame)
+	if s.registry.Revision != 1 {
+		t.Fatal("one applied acknowledgement committed the patch")
+	}
+	report("navigation.mask.applied", "controller", frame, frame)
+	if s.registry.Revision != 2 || s.parkPatch != nil || !s.ready ||
+		s.navigationMask.Hash != hash {
+		t.Fatal("matching native application did not commit the patch")
 	}
 }
 

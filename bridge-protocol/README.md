@@ -131,6 +131,19 @@ Terrain `height`, `water`, and ground path `base_height` are OpenRCT2 world Z un
 
 `navigation.mask.begin/chunk/end` transfers the bridge's single packed 8-pixel blocked-cell mask to each OpenBW participant. Bits are ordered by row, least-significant bit first; chunks contain up to 6,000 bytes encoded as lowercase hex. The 16-character hash is FNV-1a 64-bit over the packed bytes. Both participants respond with `navigation.mask.applied` only after native VF4 and path regions accept the exact mask. `world.ready` requires matching applied hashes. A nonzero `apply_frame` schedules a synchronized update after confirmed demolition; the new full mask retains permanent terrain barriers.
 
+For live construction, `navigation.mask.begin` has `stage_only: true`. Each
+participant validates the complete candidate and reports `navigation.mask.staged`
+with its current simulation frame. When the hash is unchanged, the bridge sends
+`navigation.revision.stage` instead of mask bytes. The bridge chooses a future
+frame from both observed frames and elapsed staging time, then sends
+`navigation.mask.schedule` to each participant. Both report
+`navigation.mask.scheduled`; only a successful `navigation.mask.applied` at the
+same requested frame and hash on both sides lets the bridge commit the Go
+candidate and publish `world.patch.status: synchronized`. Late scheduling,
+occupied new collision cells, or native application failure leaves the world
+unsynchronized and triggers authoritative snapshot recovery. This path keeps
+the OpenBW match and actor identities alive.
+
 The publisher sends one UTF-8 JSON object per line over a TCP connection bound to `127.0.0.1`. Each line is a **full** snapshot, capped at 32768 bytes including the JSON but excluding the newline. A 32-unit packet with 32-byte IDs and signed decimal 32-bit coordinates fits under 8 KiB; the larger cap also accommodates combat targets and events. The [schema](units.snapshot.v1.schema.json) and [fixture](fixtures/one-unit.ndjson) define the original wire shape. Every receiver rejects an invalid array as a whole, including duplicate IDs.
 
 `x` and `y` are OpenBW map pixel coordinates. The OpenRCT2 adapter alone converts them to park world coordinates. `facing` is one unsigned byte for a full circle: 0 is east, increasing according to the BWAPI angle after normalization. The adapter must calibrate the axis handedness before choosing a sprite frame.

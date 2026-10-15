@@ -90,11 +90,17 @@ type service struct {
 }
 
 type parkPatchStage struct {
-	patch     world.Patch
-	digest    string
-	candidate *world.Registry
-	mask      world.NavigationMask
-	created   time.Time
+	patch                                   world.Patch
+	digest                                  string
+	candidate                               *world.Registry
+	mask                                    world.NavigationMask
+	created                                 time.Time
+	maskChanged                             bool
+	publisherStaged, controllerStaged       bool
+	publisherScheduled, controllerScheduled bool
+	publisherApplied, controllerApplied     bool
+	publisherFrame, controllerFrame         int
+	applyFrame                              int
 }
 
 type worldCommand struct {
@@ -156,29 +162,150 @@ func (s *service) sendNavigationMask(p *peer, applyFrame int) {
 			map[string]string{"reason": err.Error()})
 		return
 	}
+	s.sendMask(p, s.navigationMask, s.registry.Revision, applyFrame, false)
+}
+
+func (s *service) sendMask(p *peer, mask world.NavigationMask, revision uint64, applyFrame int, stageOnly bool) {
 	const bytesPerChunk = 6000
-	chunks := (len(s.navigationMask.Bits) + bytesPerChunk - 1) / bytesPerChunk
-	if err := s.emit(p, "navigation.mask.begin", s.registry.Session, s.registry.Revision,
+	chunks := (len(mask.Bits) + bytesPerChunk - 1) / bytesPerChunk
+	if err := s.emit(p, "navigation.mask.begin", s.registry.Session, revision,
 		map[string]any{"width": s.bwWidth, "height": s.bwHeight, "chunks": chunks,
-			"hash": s.navigationMask.Hash, "apply_frame": applyFrame}); err != nil {
+			"hash": mask.Hash, "apply_frame": applyFrame, "stage_only": stageOnly}); err != nil {
 		log.Printf("navigation begin: %v", err)
 		return
 	}
-	for index, start := 0, 0; start < len(s.navigationMask.Bits); index, start = index+1, start+bytesPerChunk {
+	for index, start := 0, 0; start < len(mask.Bits); index, start = index+1, start+bytesPerChunk {
 		end := start + bytesPerChunk
-		if end > len(s.navigationMask.Bits) {
-			end = len(s.navigationMask.Bits)
+		if end > len(mask.Bits) {
+			end = len(mask.Bits)
 		}
-		if err := s.emit(p, "navigation.mask.chunk", s.registry.Session, s.registry.Revision,
-			map[string]any{"index": index, "hex": hex.EncodeToString(s.navigationMask.Bits[start:end])}); err != nil {
+		if err := s.emit(p, "navigation.mask.chunk", s.registry.Session, revision,
+			map[string]any{"index": index, "hex": hex.EncodeToString(mask.Bits[start:end])}); err != nil {
 			log.Printf("navigation chunk: %v", err)
 			return
 		}
 	}
-	if err := s.emit(p, "navigation.mask.end", s.registry.Session, s.registry.Revision,
-		map[string]string{"hash": s.navigationMask.Hash}); err != nil {
+	if err := s.emit(p, "navigation.mask.end", s.registry.Session, revision,
+		map[string]string{"hash": mask.Hash}); err != nil {
 		log.Printf("navigation end: %v", err)
 	}
+}
+
+func (s *service) startNativePatch() {
+	patch := s.parkPatch
+	if patch == nil {
+		return
+	}
+	for _, participant := range []*peer{s.bw, s.controller} {
+		if patch.maskChanged {
+			s.sendMask(participant, patch.mask, patch.patch.ResultRevision, 0, true)
+		} else {
+			_ = s.emit(participant, "navigation.revision.stage", s.registry.Session,
+				patch.patch.ResultRevision, map[string]string{"hash": patch.mask.Hash})
+		}
+	}
+}
+
+func (s *service) failNativePatch(reason string) {
+	if s.parkPatch == nil {
+		return
+	}
+	patch := s.parkPatch
+	s.parkPatch = nil
+	s.ready = false
+	log.Printf("park patch unsynchronized id=%s revision=%d reason=%s", patch.patch.ID,
+		patch.patch.ResultRevision, reason)
+	_ = s.emit(s.park, "world.patch.status", s.registry.Session, patch.patch.ResultRevision,
+		map[string]any{"patch_id": patch.patch.ID, "state": "unsynchronized", "reason": reason,
+			"navigation_hash": patch.mask.Hash, "apply_frame": patch.applyFrame})
+}
+
+func (s *service) nativePatchReport(participant string, m world.Envelope) bool {
+	if m.Kind != "navigation.mask.staged" && m.Kind != "navigation.mask.scheduled" &&
+		m.Kind != "navigation.mask.applied" {
+		return false
+	}
+	patch := s.parkPatch
+	if patch == nil || m.Session != s.registry.Session || m.Revision != patch.patch.ResultRevision {
+		return m.Kind != "navigation.mask.applied"
+	}
+	var report struct {
+		Hash       string `json:"hash"`
+		Accepted   bool   `json:"accepted"`
+		Error      string `json:"error"`
+		ApplyFrame int    `json:"apply_frame"`
+	}
+	if m.Decode(&report) != nil || !report.Accepted || report.Hash != patch.mask.Hash {
+		s.failNativePatch(participant + ":" + report.Error)
+		return true
+	}
+	switch m.Kind {
+	case "navigation.mask.staged":
+		if participant == "publisher" {
+			patch.publisherStaged, patch.publisherFrame = true, m.BWTick
+		} else {
+			patch.controllerStaged, patch.controllerFrame = true, m.BWTick
+		}
+		if patch.publisherStaged && patch.controllerStaged && patch.applyFrame == 0 {
+			frame := patch.publisherFrame
+			if patch.controllerFrame > frame {
+				frame = patch.controllerFrame
+			}
+			lead := int(time.Since(patch.created).Milliseconds()/42)*2 + 32
+			if lead < 96 {
+				lead = 96
+			}
+			patch.applyFrame = frame + lead
+			for _, peer := range []*peer{s.bw, s.controller} {
+				_ = s.emit(peer, "navigation.mask.schedule", s.registry.Session,
+					patch.patch.ResultRevision, map[string]any{"hash": patch.mask.Hash,
+						"apply_frame": patch.applyFrame})
+			}
+			log.Printf("park patch scheduled id=%s hash=%s frame=%d lead=%d",
+				patch.patch.ID, patch.mask.Hash, patch.applyFrame, lead)
+		}
+	case "navigation.mask.scheduled":
+		if report.ApplyFrame != patch.applyFrame || patch.applyFrame == 0 {
+			s.failNativePatch("native_schedule_frame_mismatch")
+			return true
+		}
+		if participant == "publisher" {
+			patch.publisherScheduled = true
+		} else {
+			patch.controllerScheduled = true
+		}
+		if patch.publisherScheduled && patch.controllerScheduled {
+			_ = s.emit(s.park, "world.patch.status", s.registry.Session, patch.patch.ResultRevision,
+				map[string]any{"patch_id": patch.patch.ID, "state": "scheduled",
+					"navigation_hash": patch.mask.Hash, "apply_frame": patch.applyFrame})
+		}
+	case "navigation.mask.applied":
+		if !patch.publisherScheduled || !patch.controllerScheduled || m.BWTick != patch.applyFrame {
+			s.failNativePatch("native_application_frame_mismatch")
+			return true
+		}
+		if participant == "publisher" {
+			patch.publisherApplied = true
+		} else {
+			patch.controllerApplied = true
+		}
+		if patch.publisherApplied && patch.controllerApplied {
+			if err := s.registry.CommitPatch(patch.patch, patch.candidate); err != nil {
+				s.failNativePatch(err.Error())
+				return true
+			}
+			s.navigationMask, s.navigationRevision = patch.mask, patch.patch.ResultRevision
+			s.publisherNavigationReady, s.controllerNavigationReady, s.ready = true, true, true
+			s.parkPatch = nil
+			_ = s.emit(s.park, "world.patch.status", s.registry.Session, s.registry.Revision,
+				map[string]any{"patch_id": patch.patch.ID, "state": "synchronized",
+					"navigation_hash": patch.mask.Hash, "apply_frame": patch.applyFrame})
+			log.Printf("park patch synchronized id=%s revision=%d hash=%s frame=%d elapsed_ms=%d",
+				patch.patch.ID, s.registry.Revision, patch.mask.Hash, patch.applyFrame,
+				time.Since(patch.created).Milliseconds())
+		}
+	}
+	return true
 }
 
 func (s *service) sendTargetLink(p *peer, session string, revision uint64, link targetLink) {
@@ -345,6 +472,7 @@ func (s *service) consume(role string, p *peer) {
 	}
 	if role == "bw" && s.bw == p {
 		s.bw = nil
+		s.failNativePatch("publisher_disconnected")
 		s.ready = false
 		s.nativeOccupancyComplete = false
 		s.actorReconcileComplete = false
@@ -360,6 +488,7 @@ func (s *service) consume(role string, p *peer) {
 	}
 	if role == "controller" && s.controller == p {
 		s.controller = nil
+		s.failNativePatch("controller_disconnected")
 		if s.actors != nil {
 			s.actors.UnbindParticipant("controller")
 		}
@@ -505,6 +634,10 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				return
 			}
 		}
+		if !s.ready || s.bw == nil || s.controller == nil {
+			s.ack(p, m, false, "native_participant_unavailable")
+			return
+		}
 		if s.bwWidth == 0 || s.bwHeight == 0 {
 			s.ack(p, m, false, "native_dimensions_unavailable")
 			return
@@ -522,14 +655,25 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.ack(p, m, false, err.Error())
 			return
 		}
+		if s.navigationMask.Hash == "" {
+			confirmed, err := world.DeriveNavigation(s.registry, s.transform, s.bwWidth, s.bwHeight)
+			if err != nil {
+				s.ack(p, m, false, err.Error())
+				return
+			}
+			s.navigationMask = confirmed
+			s.navigationRevision = s.registry.Revision
+		}
 		s.parkPatch = &parkPatchStage{patch: patch, digest: patch.Digest(),
-			candidate: candidate, mask: mask, created: time.Now()}
+			candidate: candidate, mask: mask, created: time.Now(),
+			maskChanged: mask.Hash != s.navigationMask.Hash}
 		s.ready = false
 		s.ack(p, m, true, "")
 		_ = s.emit(p, "world.patch.status", m.Session, m.Revision,
 			map[string]any{"patch_id": patch.ID, "state": "staged", "navigation_hash": mask.Hash})
 		log.Printf("park patch staged id=%s base=%d result=%d hash=%s", patch.ID,
 			patch.BaseRevision, patch.ResultRevision, mask.Hash)
+		s.startNativePatch()
 	case "world.patch.query":
 		var query struct {
 			PatchID string `json:"patch_id"`
@@ -771,6 +915,9 @@ func (s *service) forwardSnapshot() {
 func (s *service) bwMessage(p *peer, m world.Envelope) {
 	if m.Source != "openbw" {
 		s.ack(p, m, false, "wrong_authority")
+		return
+	}
+	if s.nativePatchReport("publisher", m) {
 		return
 	}
 	switch m.Kind {
@@ -1052,6 +1199,9 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 func (s *service) controllerMessage(p *peer, m world.Envelope) {
 	if m.Source != "openbw" {
 		s.ack(p, m, false, "wrong_authority")
+		return
+	}
+	if s.nativePatchReport("controller", m) {
 		return
 	}
 	switch m.Kind {

@@ -147,6 +147,7 @@ private:
         socket_ = -1;
         incoming_.clear(); outgoing_.clear(); session_.clear(); pendingRemovals_.clear(); revision_ = 0;
         maskReceiver_.reset(); maskValid_ = false; pendingMask_.clear(); pendingMaskHash_.clear();
+        stagedMask_.clear(); stagedMaskHash_.clear();
     }
     void flush() {
         while (socket_ >= 0 && !outgoing_.empty()) {
@@ -157,10 +158,10 @@ private:
         }
     }
     void send(const std::string& kind, const std::string& session, uint64_t revision,
-              const json& payload) {
+              const json& payload, int frame = 0) {
         json message = {{"v", 1}, {"kind", kind}, {"session", session},
             {"op_id", "controller:" + std::to_string(++sequence_)}, {"source", "openbw"},
-            {"revision", revision}, {"payload", payload}};
+            {"revision", revision}, {"bw_tick", frame}, {"payload", payload}};
         outgoing_ += message.dump() + "\n";
         flush();
     }
@@ -177,6 +178,7 @@ private:
             navigation_.reset(game->mapWidth(), game->mapHeight());
             pendingRemovals_.clear();
             maskReceiver_.reset(); maskValid_ = false; pendingMask_.clear(); pendingMaskHash_.clear();
+            stagedMask_.clear(); stagedMaskHash_.clear();
             identities_.clear();
             publisherBindings_.clear();
             ambiguousActors_.clear();
@@ -195,6 +197,7 @@ private:
             maskHash_ = payload.value("hash", "");
             maskRevision_ = message.at("revision").get<uint64_t>();
             maskApplyFrame_ = payload.value("apply_frame", 0);
+            maskStageOnly_ = payload.value("stage_only", false);
             if (!maskValid_) maskReceiver_.reset();
             return;
         }
@@ -216,15 +219,61 @@ private:
                 && maskReceiver_.finish(blocked);
             maskValid_ = false;
             if (valid) {
-                pendingMask_ = std::move(blocked);
-                pendingMaskHash_ = maskHash_;
-                pendingMaskRevision_ = maskRevision_;
-                pendingMaskFrame_ = maskApplyFrame_;
+                if (maskStageOnly_) {
+                    const bool occupied = candidateOverlapsMobile(game, blocked);
+                    if (!occupied) {
+                        stagedMask_ = std::move(blocked);
+                        stagedMaskHash_ = maskHash_;
+                        stagedMaskRevision_ = maskRevision_;
+                        stagedMaskUnchanged_ = false;
+                    }
+                    send("navigation.mask.staged", session_, maskRevision_,
+                        {{"hash",maskHash_},{"accepted",!occupied},
+                         {"error",occupied ? "occupied_construction_geometry" : ""}},
+                        game->getFrameCount());
+                } else {
+                    pendingMask_ = std::move(blocked);
+                    pendingMaskHash_ = maskHash_;
+                    pendingMaskRevision_ = maskRevision_;
+                    pendingMaskFrame_ = maskApplyFrame_;
+                }
             } else {
                 maskReceiver_.reset();
                 send("navigation.mask.applied", session_, maskRevision_,
                     {{"hash",maskHash_},{"accepted",false},{"error","invalid_navigation_mask"}});
             }
+            return;
+        }
+        if (kind == "navigation.revision.stage") {
+            const auto& payload = message.at("payload");
+            const auto hash = payload.value("hash", "");
+            const bool accepted = message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() == revision_ + 1
+                && hash == appliedMaskHash_ && pendingMaskHash_.empty();
+            if (accepted) {
+                stagedMask_.clear(); stagedMaskHash_ = hash;
+                stagedMaskRevision_ = revision_ + 1; stagedMaskUnchanged_ = true;
+            }
+            send("navigation.mask.staged", session_, message.at("revision").get<uint64_t>(),
+                {{"hash",hash},{"accepted",accepted},
+                 {"error",accepted ? "" : "stale_or_unknown_navigation_hash"}}, game->getFrameCount());
+            return;
+        }
+        if (kind == "navigation.mask.schedule") {
+            const auto& payload = message.at("payload");
+            const auto hash = payload.value("hash", "");
+            const int frame = payload.value("apply_frame", 0);
+            const bool accepted = message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() == stagedMaskRevision_
+                && hash == stagedMaskHash_ && frame >= game->getFrameCount() + 24;
+            if (accepted) {
+                pendingMask_ = stagedMask_; pendingMaskHash_ = stagedMaskHash_;
+                pendingMaskRevision_ = stagedMaskRevision_; pendingMaskFrame_ = frame;
+                pendingMaskUnchanged_ = stagedMaskUnchanged_;
+            }
+            send("navigation.mask.scheduled", session_, message.at("revision").get<uint64_t>(),
+                {{"hash",hash},{"accepted",accepted},{"apply_frame",frame},
+                 {"error",accepted ? "" : "navigation_schedule_late_or_stale"}}, game->getFrameCount());
             return;
         }
         if (kind == "actor.spawn") {
@@ -416,16 +465,21 @@ private:
     }
     void applyScheduledNavigation(BWAPI::Game* game) {
         if (!pendingMaskHash_.empty() && game->getFrameCount() >= pendingMaskFrame_) {
-            const bool applied = game->setParkNavigation(pendingMask_)
-                && navigation_.installMask(pendingMask_);
-            navigation_.markNative(applied);
+            const bool onTime = pendingMaskFrame_ == 0 || game->getFrameCount() == pendingMaskFrame_;
+            const bool occupied = !pendingMaskUnchanged_ && candidateOverlapsMobile(game, pendingMask_);
+            const bool applied = onTime && !occupied && (pendingMaskUnchanged_
+                || (game->setParkNavigation(pendingMask_) && navigation_.installMask(pendingMask_)));
+            if (!pendingMaskUnchanged_) navigation_.markNative(applied);
             if (applied) revision_ = std::max(revision_, pendingMaskRevision_);
+            if (applied) appliedMaskHash_ = pendingMaskHash_;
             send("navigation.mask.applied", session_, pendingMaskRevision_,
                 {{"hash",pendingMaskHash_},{"accepted",applied},
-                 {"error",applied ? "" : "native_navigation_update_failed"}});
+                 {"error",applied ? "" : !onTime ? "navigation_update_late" : occupied
+                    ? "occupied_construction_geometry" : "native_navigation_update_failed"}},
+                game->getFrameCount());
             std::cerr << "[world-control] navigation-mask hash=" << pendingMaskHash_
                       << " frame=" << game->getFrameCount() << " accepted=" << applied << std::endl;
-            pendingMask_.clear(); pendingMaskHash_.clear();
+            pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear();
         }
         for (auto it = pendingRemovals_.begin(); it != pendingRemovals_.end();) {
             if (game->getFrameCount() < it->frame) { ++it; continue; }
@@ -439,6 +493,21 @@ private:
                     {"error", applied ? "" : "native_navigation_update_failed"}});
             it = pendingRemovals_.erase(it);
         }
+    }
+    bool candidateOverlapsMobile(BWAPI::Game* game, const std::vector<uint8_t>& candidate) const {
+        const auto current = navigation_.mask();
+        if (candidate.size() != current.size()) return true;
+        const int width = game->mapWidth() * 4;
+        for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists()) continue;
+            const auto type = unit->getType();
+            if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) continue;
+            const auto point = unit->getPosition();
+            if (point.x < 0 || point.y < 0) continue;
+            const size_t index = static_cast<size_t>(point.y / 8) * width + point.x / 8;
+            if (index < candidate.size() && candidate[index] && !current[index]) return true;
+        }
+        return false;
     }
     bool validCommandSerial(const std::string& commandID) const {
         const auto prefix = session_ + ":";
@@ -461,9 +530,10 @@ private:
     int lastObservedFrame_ = 0;
     starcoaster::NavigationAdapter navigation_;
     starcoaster::NavigationMaskReceiver maskReceiver_;
-    std::vector<uint8_t> pendingMask_;
-    std::string maskHash_, pendingMaskHash_;
-    uint64_t maskRevision_ = 0, pendingMaskRevision_ = 0;
+    std::vector<uint8_t> pendingMask_, stagedMask_;
+    std::string maskHash_, pendingMaskHash_, stagedMaskHash_, appliedMaskHash_;
+    uint64_t maskRevision_ = 0, pendingMaskRevision_ = 0, stagedMaskRevision_ = 0;
     int maskApplyFrame_ = 0, pendingMaskFrame_ = 0;
-    bool maskValid_ = false;
+    bool maskValid_ = false, maskStageOnly_ = false, stagedMaskUnchanged_ = false,
+        pendingMaskUnchanged_ = false;
 };
