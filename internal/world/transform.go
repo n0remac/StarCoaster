@@ -37,20 +37,24 @@ func (t Transform) Entity(e Entity) Entity {
 		e.Geometry.Cells[i].Y = t.TileY(e.Geometry.Cells[i].Y)
 	}
 	for i := range e.Geometry.Rects {
-		r := &e.Geometry.Rects[i]
-		endX, endY := t.X(r.X+r.Width), t.Y(r.Y+r.Height)
-		r.X = t.X(r.X)
-		r.Y = t.Y(r.Y)
-		r.Width = endX - r.X
-		r.Height = endY - r.Y
-		if r.Width < 1 {
-			r.Width = 1
-		}
-		if r.Height < 1 {
-			r.Height = 1
-		}
+		e.Geometry.Rects[i] = t.rect(e.Geometry.Rects[i])
+	}
+	for i := range e.Collision.Volumes {
+		e.Collision.Volumes[i].Rect = t.rect(e.Collision.Volumes[i].Rect)
 	}
 	return e
+}
+func (t Transform) rect(r Rect) Rect {
+	endX, endY := t.X(r.X+r.Width), t.Y(r.Y+r.Height)
+	r.X, r.Y = t.X(r.X), t.Y(r.Y)
+	r.Width, r.Height = endX-r.X, endY-r.Y
+	if r.Width < 1 {
+		r.Width = 1
+	}
+	if r.Height < 1 {
+		r.Height = 1
+	}
+	return r
 }
 func (t Transform) Terrain(cells []Terrain) []Terrain {
 	result := make([]Terrain, 0, len(cells))

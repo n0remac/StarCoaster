@@ -27,7 +27,16 @@ type Geometry struct {
 	Rects []Rect  `json:"rects,omitempty"`
 }
 type Collision struct {
-	Blocks bool `json:"blocks"`
+	Blocks  bool              `json:"blocks"`
+	Mode    string            `json:"mode,omitempty"`
+	Volumes []CollisionVolume `json:"volumes,omitempty"`
+}
+type CollisionVolume struct {
+	Rect              Rect   `json:"rect"`
+	BaseZ             int    `json:"base_z"`
+	ClearanceZ        int    `json:"clearance_z"`
+	OccupiedQuadrants int    `json:"occupied_quadrants"`
+	Classification    string `json:"classification"`
 }
 type Combat struct {
 	Targetable  bool    `json:"targetable"`
@@ -242,6 +251,34 @@ func (e Entity) Validate(width, height int) error {
 			return errors.New("rectangle outside world")
 		}
 	}
+	switch e.Collision.Mode {
+	case "", "legacy", "height_aware", "conservative":
+	default:
+		return errors.New("invalid collision mode")
+	}
+	if len(e.Collision.Volumes) > 16384 {
+		return errors.New("collision volumes exceed limit")
+	}
+	if (e.Collision.Mode == "" || e.Collision.Mode == "legacy") && len(e.Collision.Volumes) != 0 {
+		return errors.New("legacy collision cannot contain volumes")
+	}
+	if e.Collision.Mode == "conservative" && e.Collision.Blocks && len(e.Collision.Volumes) == 0 && len(e.Geometry.Rects) == 0 {
+		return errors.New("conservative collision needs geometry")
+	}
+	for _, v := range e.Collision.Volumes {
+		q := v.OccupiedQuadrants
+		if v.Rect.X < 0 || v.Rect.Y < 0 || v.Rect.Width <= 0 || v.Rect.Height <= 0 ||
+			v.Rect.X+v.Rect.Width > width*32 || v.Rect.Y+v.Rect.Height > height*32 ||
+			v.BaseZ < -4096 || v.ClearanceZ > 32768 || v.BaseZ >= v.ClearanceZ || q < 1 || q > 15 ||
+			(v.Classification != "physical" && v.Classification != "approximate") {
+			return errors.New("invalid collision volume")
+		}
+		if v.Rect.X%32 != 0 || v.Rect.Y%32 != 0 || v.Rect.Width != 32 || v.Rect.Height != 32 {
+			if q != 15 {
+				return errors.New("quadrant mask requires a tile rectangle")
+			}
+		}
+	}
 	if e.Combat.Health < 0 || e.Combat.Health > 100000 || e.Combat.Armor < 0 || e.Combat.Armor > 255 {
 		return errors.New("invalid combat values")
 	}
@@ -272,6 +309,32 @@ type Registry struct {
 func cloneEntity(e Entity) Entity {
 	e.Geometry.Cells = append([]Point(nil), e.Geometry.Cells...)
 	e.Geometry.Rects = append([]Rect(nil), e.Geometry.Rects...)
+	e.Collision.Volumes = append([]CollisionVolume(nil), e.Collision.Volumes...)
+	sort.Slice(e.Collision.Volumes, func(i, j int) bool {
+		a, b := e.Collision.Volumes[i], e.Collision.Volumes[j]
+		if a.Rect.Y != b.Rect.Y {
+			return a.Rect.Y < b.Rect.Y
+		}
+		if a.Rect.X != b.Rect.X {
+			return a.Rect.X < b.Rect.X
+		}
+		if a.BaseZ != b.BaseZ {
+			return a.BaseZ < b.BaseZ
+		}
+		if a.ClearanceZ != b.ClearanceZ {
+			return a.ClearanceZ < b.ClearanceZ
+		}
+		if a.Rect.Width != b.Rect.Width {
+			return a.Rect.Width < b.Rect.Width
+		}
+		if a.Rect.Height != b.Rect.Height {
+			return a.Rect.Height < b.Rect.Height
+		}
+		if a.OccupiedQuadrants != b.OccupiedQuadrants {
+			return a.OccupiedQuadrants < b.OccupiedQuadrants
+		}
+		return a.Classification < b.Classification
+	})
 	if e.Removal.Args != nil {
 		args := make(map[string]int, len(e.Removal.Args))
 		for k, v := range e.Removal.Args {

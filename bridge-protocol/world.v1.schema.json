@@ -63,13 +63,14 @@
         "source_id": { "type": "string" }, "kind": { "type": "string" }, "type": { "type": "string" },
         "owner": { "type": "integer" }, "position": { "$ref": "#/$defs/point" }, "rotation": { "type": "integer", "minimum": 0, "maximum": 255 }, "elevation": { "type": "integer" },
         "geometry": { "type": "object", "properties": { "cells": { "type": "array", "items": { "$ref": "#/$defs/point" } }, "rects": { "type": "array", "items": { "$ref": "#/$defs/rect" } } } },
-        "collision": { "type": "object", "required": ["blocks"], "properties": { "blocks": { "type": "boolean" } } },
+        "collision": { "type": "object", "required": ["blocks"], "properties": { "blocks": { "type": "boolean" }, "mode": { "enum": ["legacy", "height_aware", "conservative"] }, "volumes": { "type": "array", "maxItems": 16384, "items": { "$ref": "#/$defs/collisionVolume" } } },
         "destructible": { "type": "boolean" },
         "combat": { "type": "object", "required": ["targetable", "health"], "properties": { "targetable": { "type": "boolean" }, "health": { "type": "integer", "minimum": 0 }, "armor": { "type": "integer", "minimum": 0 }, "damage_scale": { "type": "number", "minimum": 0, "maximum": 100 } } },
         "removal": { "type": "object", "properties": { "action": { "type": "string" }, "args": { "type": "object", "additionalProperties": { "type": "integer" } }, "effect": { "type": "string" } } },
         "revision": { "type": "integer", "minimum": 1 }
       }
     },
+    "collisionVolume": { "type": "object", "required": ["rect", "base_z", "clearance_z", "occupied_quadrants", "classification"], "properties": { "rect": { "$ref": "#/$defs/rect" }, "base_z": { "type": "integer" }, "clearance_z": { "type": "integer" }, "occupied_quadrants": { "type": "integer", "minimum": 1, "maximum": 15 }, "classification": { "enum": ["physical", "approximate"] } }, "additionalProperties": false },
     "terrain": { "type": "object", "required": ["x", "y", "height", "water", "surface", "walkable"], "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "height": { "type": "integer" }, "slope": { "type": "integer", "minimum": 0, "maximum": 63 }, "water": { "type": "integer" }, "surface": { "type": "integer" }, "walkable": { "type": "boolean" }, "ground_paths": { "type": "array", "maxItems": 1, "items": { "type": "object", "required": ["base_height", "slope_direction"], "properties": { "base_height": { "type": "integer" }, "slope_direction": { "type": ["integer", "null"], "minimum": 0, "maximum": 3 } }, "additionalProperties": false } } }, "additionalProperties": false }
   }
 }
