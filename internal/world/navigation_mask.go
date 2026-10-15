@@ -126,20 +126,7 @@ func (m NavigationMask) blockVolume(v CollisionVolume, cells []Terrain, parkWidt
 			if v.OccupiedQuadrants != 15 {
 				// A partial mask always describes one 32-pixel source tile.
 				localX, localY := wx*8-r.X, wy*8-r.Y
-				quadrant := 0
-				if localX < 16 {
-					if localY < 16 {
-						quadrant = 2
-					} else {
-						quadrant = 1
-					}
-				} else {
-					if localY < 16 {
-						quadrant = 4
-					} else {
-						quadrant = 8
-					}
-				}
+				quadrant := walkQuadrant(localX, localY)
 				if v.OccupiedQuadrants&quadrant == 0 {
 					continue
 				}
@@ -155,6 +142,71 @@ func (m NavigationMask) blockVolume(v CollisionVolume, cells []Terrain, parkWidt
 			}
 			if v.BaseZ < hi+groundUnitClearanceZ && v.ClearanceZ > lo {
 				m.set(wx, wy, true)
+			}
+		}
+	}
+	return nil
+}
+
+func walkQuadrant(localX, localY int) int {
+	if localX < 16 {
+		if localY < 16 {
+			return 2
+		}
+		return 1
+	}
+	if localY < 16 {
+		return 4
+	}
+	return 8
+}
+
+func (m NavigationMask) blockRaisedPaths(cells []Terrain, parkWidth, parkHeight int, transform Transform) error {
+	for y := 0; y < parkHeight; y++ {
+		for x := 0; x < parkWidth; x++ {
+			cell := cells[y*parkWidth+x]
+			groundCorners, err := cell.CornerHeights()
+			if err != nil {
+				return err
+			}
+			for _, layer := range cell.PathLayers {
+				pathCorners, err := pathCornerHeights(layer.BaseHeight, layer.SlopeDirection)
+				if err != nil {
+					return err
+				}
+				elevated := false
+				for i, z := range pathCorners {
+					if z > groundCorners[i] {
+						elevated = true
+					}
+				}
+				if !elevated {
+					continue
+				} // ground and subsurface layers do not add routes or obstacles
+				pathSlope := 0
+				if layer.SlopeDirection != nil {
+					pathSlope = [4]int{12, 9, 3, 6}[*layer.SlopeDirection]
+				}
+				pathTerrain := Terrain{Height: layer.BaseHeight, Slope: pathSlope}
+				for sy := 0; sy < 4; sy++ {
+					for sx := 0; sx < 4; sx++ {
+						localX, localY := sx*8, sy*8
+						if layer.OccupiedQuadrants&walkQuadrant(localX, localY) == 0 {
+							continue
+						}
+						groundLo, groundHi, err := groundHeightRange(cell, localX, localY)
+						if err != nil {
+							return err
+						}
+						pathLo, pathHi, err := groundHeightRange(pathTerrain, localX, localY)
+						if err != nil {
+							return err
+						}
+						if pathLo < groundHi+groundUnitClearanceZ && pathHi+8 > groundLo {
+							m.set((x+transform.OffsetX)*4+sx, (y+transform.OffsetY)*4+sy, true)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -226,6 +278,9 @@ func DeriveNavigation(r *Registry, transform Transform, bwWidth, bwHeight int) (
 				}
 			}
 		}
+	}
+	if err := m.blockRaisedPaths(cells, r.Width, r.Height, transform); err != nil {
+		return NavigationMask{}, fmt.Errorf("path geometry: %w", err)
 	}
 	for _, id := range r.IDs() {
 		if r.Destroyed[id] {

@@ -122,6 +122,9 @@ func (r *Registry) StagePatch(session string, p Patch, mapping Mapping, transfor
 		}
 	}
 	terrain := append([]Terrain(nil), r.Terrain...)
+	for i := range terrain {
+		terrain[i] = cloneTerrain(terrain[i])
+	}
 	terrainIndex := make(map[Point]int, len(terrain))
 	for i, cell := range terrain {
 		terrainIndex[Point{cell.X, cell.Y}] = i
@@ -137,10 +140,10 @@ func (r *Registry) StagePatch(session string, p Patch, mapping Mapping, transfor
 		}
 		seenTerrain[point] = true
 		if index, exists := terrainIndex[point]; exists {
-			terrain[index] = cell
+			terrain[index] = cloneTerrain(cell)
 		} else {
 			terrainIndex[point] = len(terrain)
-			terrain = append(terrain, cell)
+			terrain = append(terrain, cloneTerrain(cell))
 		}
 	}
 	values := make([]Entity, 0, len(entities))

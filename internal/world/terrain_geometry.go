@@ -46,32 +46,76 @@ func (t Terrain) ValidateGeometry() error {
 	if err != nil {
 		return err
 	}
-	if t.Water < 0 || len(t.GroundPaths) > 1 {
-		return fmt.Errorf("water or overlapping ground paths")
+	if t.Water < 0 || len(t.GroundPaths) > 1 || len(t.PathLayers) > 16 {
+		return fmt.Errorf("water or path layer limit")
 	}
-	if len(t.GroundPaths) == 0 {
-		return nil
+	if len(t.GroundPaths) != 0 && len(t.PathLayers) != 0 {
+		return fmt.Errorf("conflicting legacy and layered paths")
 	}
-	path := t.GroundPaths[0]
+	for _, path := range t.GroundPaths {
+		pathCorners, err := pathCornerHeights(path.BaseHeight, path.SlopeDirection)
+		if err != nil {
+			return err
+		}
+		if ground != pathCorners {
+			return fmt.Errorf("path does not follow the single ground surface: ground=%v path=%v", ground, pathCorners)
+		}
+	}
+	for i, path := range t.PathLayers {
+		if path.OccupiedQuadrants < 1 || path.OccupiedQuadrants > 15 ||
+			path.ClearanceHeight <= path.BaseHeight || path.ClearanceHeight > 32768 {
+			return fmt.Errorf("invalid path layer geometry")
+		}
+		corners, err := pathCornerHeights(path.BaseHeight, path.SlopeDirection)
+		if err != nil {
+			return err
+		}
+		above, below := false, false
+		for j, z := range corners {
+			if z > ground[j] {
+				above = true
+			}
+			if z < ground[j] {
+				below = true
+			}
+		}
+		if above && below {
+			return fmt.Errorf("path crosses unsupported terrain surface")
+		}
+		for _, prior := range t.PathLayers[:i] {
+			if prior.BaseHeight == path.BaseHeight && sameSlopeDirection(prior.SlopeDirection, path.SlopeDirection) &&
+				prior.OccupiedQuadrants&path.OccupiedQuadrants != 0 {
+				return fmt.Errorf("duplicate path layer")
+			}
+		}
+	}
+	return nil
+}
+
+func sameSlopeDirection(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func pathCornerHeights(base int, slopeDirection *int) ([4]int, error) {
 	pathSlope := 0
-	if path.SlopeDirection != nil {
-		if *path.SlopeDirection < 0 || *path.SlopeDirection > 3 {
-			return fmt.Errorf("invalid path slope direction %d", *path.SlopeDirection)
+	if slopeDirection != nil {
+		if *slopeDirection < 0 || *slopeDirection > 3 {
+			return [4]int{}, fmt.Errorf("invalid path slope direction %d", *slopeDirection)
 		}
 		// Match OpenRCT2 kPathSlopeToLandSlope's elevation pattern for
 		// each path direction; path bits and surface slope bits use different
 		// encodings.
-		pathSlope = [4]int{12, 9, 3, 6}[*path.SlopeDirection]
+		pathSlope = [4]int{12, 9, 3, 6}[*slopeDirection]
 	}
-	pathTerrain := Terrain{Height: path.BaseHeight, Slope: pathSlope}
+	pathTerrain := Terrain{Height: base, Slope: pathSlope}
 	pathCorners, err := pathTerrain.CornerHeights()
 	if err != nil {
-		return fmt.Errorf("invalid path: %w", err)
+		return [4]int{}, fmt.Errorf("invalid path: %w", err)
 	}
-	if ground != pathCorners {
-		return fmt.Errorf("path does not follow the single ground surface: ground=%v path=%v", ground, pathCorners)
-	}
-	return nil
+	return pathCorners, nil
 }
 
 // TerrainEdgeConnected compares both native quarter heights on a shared edge.

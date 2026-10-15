@@ -63,6 +63,38 @@ func TestTerrainGroundPathsAndUnsupportedShapes(t *testing.T) {
 	}
 }
 
+func TestLayeredPathsPreserveGroundRouteAndRejectConflict(t *testing.T) {
+	ground := TerrainPathLayer{BaseHeight: 112, ClearanceHeight: 144, OccupiedQuadrants: 15}
+	high := TerrainPathLayer{BaseHeight: 144, ClearanceHeight: 176, OccupiedQuadrants: 15}
+	cell := Terrain{X: 0, Y: 0, Height: 112, Walkable: true, PathLayers: []TerrainPathLayer{ground, high}}
+	if err := cell.ValidateGeometry(); err != nil {
+		t.Fatal(err)
+	}
+	clear := navFor(t, 1, 1, 1, 1, []Terrain{cell}, nil)
+	if clear.BlockedWalk(1, 1) {
+		t.Fatal("high bridge blocked ground path")
+	}
+	cell.PathLayers[1].BaseHeight = 136
+	low := navFor(t, 1, 1, 1, 1, []Terrain{cell}, nil)
+	if !low.BlockedWalk(1, 1) || low.Hash == clear.Hash {
+		t.Fatal("low overhead slab did not block")
+	}
+	cell.PathLayers[1].BaseHeight = 96
+	sub := navFor(t, 1, 1, 1, 1, []Terrain{cell}, nil)
+	if sub.BlockedWalk(1, 1) {
+		t.Fatal("subsurface path became a ground obstruction")
+	}
+	cell.PathLayers = []TerrainPathLayer{ground, ground}
+	if cell.ValidateGeometry() == nil {
+		t.Fatal("duplicate path layer accepted")
+	}
+	cell.PathLayers = []TerrainPathLayer{ground}
+	cell.GroundPaths = []TerrainPath{{BaseHeight: 112}}
+	if cell.ValidateGeometry() == nil {
+		t.Fatal("legacy and layered paths combined")
+	}
+}
+
 func TestTerrainEdgesDistinguishSlopesAndCliffs(t *testing.T) {
 	low := Terrain{Height: 112, Walkable: true}
 	high := Terrain{Height: 128, Walkable: true}

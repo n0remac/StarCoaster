@@ -22,6 +22,10 @@ at(5, 2).push({ type: 'footpath', object: 4, surfaceObject: 4,
 at(2, 3).push({ type: 'large_scenery', object: 1, sequence: 0, baseHeight: 14, direction: 0 });
 at(3, 3).push({ type: 'large_scenery', object: 1, sequence: 1, baseHeight: 14, direction: 0 });
 at(7, 7).push({ type: 'wall', object: 3, baseHeight: 14, direction: 0, isGhost: true });
+at(6, 6).push({ type: 'footpath', object: 4, surfaceObject: 4,
+    baseHeight: 14, baseZ: 112, clearanceZ: 144, occupiedQuadrants: 15 });
+at(6, 6).push({ type: 'footpath', object: 4, surfaceObject: 4,
+    baseHeight: 18, baseZ: 144, clearanceZ: 176, occupiedQuadrants: 15 });
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
 const shortcuts = new Map();
 let selectionTool;
@@ -94,12 +98,14 @@ const ground = sent.filter(m => m.kind === 'world.snapshot.chunk').flatMap(m => 
 const terrainAt = (x, y) => ground.find(cell => cell.x === x && cell.y === y);
 assert.equal(terrainAt(0, 0).height, 112);
 assert.equal(terrainAt(0, 0).slope, 3, 'native surface slope is exported');
-assert.equal(terrainAt(5, 2).ground_paths[0].slope_direction, 0,
+assert.equal(terrainAt(5, 2).path_layers[0].slope_direction, 0,
     'native sloped path direction is exported');
-assert.equal(terrainAt(5, 2).ground_paths[0].base_height, 112);
+assert.equal(terrainAt(5, 2).path_layers[0].base_height, 112);
 assert.equal(terrainAt(1, 0).water, 128);
 assert.equal(terrainAt(1, 0).walkable, false);
-assert.equal(all.length, 5);
+assert.equal(all.length, 7);
+assert.deepEqual(terrainAt(6, 6).path_layers.map(layer => layer.base_height), [112, 144],
+    'snapshot preserves ground and elevated paths at one tile');
 assert.ok(!all.some(e => e.geometry.cells.some(c => c.x === 7 && c.y === 7)),
     'ghost construction does not enter committed geometry');
 assert.deepEqual([...new Set(all.map(e => e.kind))].sort(), ['large_scenery', 'path', 'ride', 'small_scenery', 'wall']);
@@ -211,7 +217,7 @@ const rideTarget = all.find(e => e.kind === 'ride');
 const wallTarget = all.find(e => e.kind === 'wall');
 const sceneryTarget = all.find(e => e.kind === 'small_scenery');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.ready', session: sid,
-    payload: { entities: 5, targets: 3, target_ids: [rideTarget.id, wallTarget.id, sceneryTarget.id], navigation: 'native' } }) + '\n');
+    payload: { entities: 7, targets: 3, target_ids: [rideTarget.id, wallTarget.id, sceneryTarget.id], navigation: 'native' } }) + '\n');
 const spawnAction = registered.get('rtsbridge.spawnMarine');
 const spawnArgs = { session: sid, request_id: sid + ':spawn:1:1', count: 5, x: 96, y: 96 };
 assert.equal(spawnAction.query({ player: 1, args: spawnArgs }).error, undefined,

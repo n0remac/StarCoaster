@@ -94,7 +94,7 @@
             for (let y = 0; y < map.size.y; ++y) for (let x = 0; x < map.size.x; ++x) {
                 const tile = map.getTile(x, y), duplicates = {};
                 let ground = null;
-                const groundPaths = [];
+                const pathLayers = [];
                 for (let s = 0; s < tile.numElements; ++s) {
                     const surface = tile.getElement(s);
                     if (surface.type === "surface") {
@@ -110,9 +110,13 @@
                     const element = tile.getElement(n), kind = element.type;
                     if (element.isGhost) continue;
                     if (kind === "surface") continue;
-                    if (kind === "footpath") groundPaths.push({
+                    if (kind === "footpath") pathLayers.push({
                         base_height: element.baseZ === undefined ? element.baseHeight * 8 : element.baseZ,
-                        slope_direction: Number.isInteger(element.slopeDirection) ? element.slopeDirection : null
+                        slope_direction: Number.isInteger(element.slopeDirection) ? element.slopeDirection : null,
+                        clearance_height: Number.isInteger(element.clearanceZ) ? element.clearanceZ
+                            : Number.isInteger(element.clearanceHeight) ? element.clearanceHeight * 8
+                                : (element.baseHeight * 8 + 32),
+                        occupied_quadrants: (element.occupiedQuadrants & 15) || 15
                     });
                     if (kind === "track" || (kind === "entrance" && rides[element.ride])) {
                         if (rides[element.ride]) {
@@ -187,7 +191,7 @@
                     });
                 }
                 if (ground) {
-                    if (groundPaths.length) ground.ground_paths = groundPaths;
+                    if (pathLayers.length) ground.path_layers = pathLayers;
                     terrain.push(ground);
                 }
             }
@@ -255,10 +259,11 @@
             Object.keys(read.rides).forEach(function (id) { now["ride:" + id] = true; });
             Object.keys(activeKeys).forEach(function (key) { if (!now[key]) { delete activeKeys[key]; delete activeItems[key]; } });
             terrain.forEach(function (cell) {
-                if (cell.ground_paths) cell.ground_paths.sort(function (a, b) {
+                if (cell.path_layers) cell.path_layers.sort(function (a, b) {
                     return a.base_height - b.base_height
                         || (a.slope_direction === null ? -1 : a.slope_direction)
-                        - (b.slope_direction === null ? -1 : b.slope_direction);
+                        - (b.slope_direction === null ? -1 : b.slope_direction)
+                        || a.occupied_quadrants - b.occupied_quadrants;
                 });
             });
             return { entities: result, terrain: terrain };

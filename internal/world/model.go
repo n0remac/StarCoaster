@@ -69,18 +69,25 @@ type Entity struct {
 	Revision     uint64    `json:"revision"`
 }
 type Terrain struct {
-	X           int           `json:"x"`
-	Y           int           `json:"y"`
-	Height      int           `json:"height"` // OpenRCT2 world Z units (8 per baseHeight step)
-	Slope       int           `json:"slope,omitempty"`
-	Water       int           `json:"water"`
-	Surface     int           `json:"surface"`
-	Walkable    bool          `json:"walkable"`
-	GroundPaths []TerrainPath `json:"ground_paths,omitempty"`
+	X           int                `json:"x"`
+	Y           int                `json:"y"`
+	Height      int                `json:"height"` // OpenRCT2 world Z units (8 per baseHeight step)
+	Slope       int                `json:"slope,omitempty"`
+	Water       int                `json:"water"`
+	Surface     int                `json:"surface"`
+	Walkable    bool               `json:"walkable"`
+	GroundPaths []TerrainPath      `json:"ground_paths,omitempty"`
+	PathLayers  []TerrainPathLayer `json:"path_layers,omitempty"`
 }
 type TerrainPath struct {
 	BaseHeight     int  `json:"base_height"`     // OpenRCT2 world Z units
 	SlopeDirection *int `json:"slope_direction"` // null means a flat path
+}
+type TerrainPathLayer struct {
+	BaseHeight        int  `json:"base_height"`
+	SlopeDirection    *int `json:"slope_direction"`
+	ClearanceHeight   int  `json:"clearance_height"`
+	OccupiedQuadrants int  `json:"occupied_quadrants"`
 }
 type SnapshotChunk struct {
 	Index    int       `json:"index"`
@@ -352,6 +359,24 @@ func cloneEntity(e Entity) Entity {
 	return e
 }
 
+func cloneTerrain(t Terrain) Terrain {
+	t.GroundPaths = append([]TerrainPath(nil), t.GroundPaths...)
+	for i := range t.GroundPaths {
+		if p := t.GroundPaths[i].SlopeDirection; p != nil {
+			value := *p
+			t.GroundPaths[i].SlopeDirection = &value
+		}
+	}
+	t.PathLayers = append([]TerrainPathLayer(nil), t.PathLayers...)
+	for i := range t.PathLayers {
+		if p := t.PathLayers[i].SlopeDirection; p != nil {
+			value := *p
+			t.PathLayers[i].SlopeDirection = &value
+		}
+	}
+	return t
+}
+
 func NewRegistry() *Registry {
 	return &Registry{Entities: map[string]Entity{}, Destroyed: map[string]bool{}, RemovalState: map[string]string{}, Seen: map[string]Ack{}, AppliedPatches: map[string]string{}}
 }
@@ -409,7 +434,11 @@ func (r *Registry) Replace(session string, revision uint64, width, height int, e
 		}
 	}
 	r.Session, r.Revision, r.Width, r.Height = session, revision, width, height
-	r.Entities, r.Terrain, r.Destroyed, r.RemovalState, r.Seen, r.AppliedPatches = next, terrain, destroyed, removals, seen, patches
+	copyTerrain := make([]Terrain, len(terrain))
+	for i, cell := range terrain {
+		copyTerrain[i] = cloneTerrain(cell)
+	}
+	r.Entities, r.Terrain, r.Destroyed, r.RemovalState, r.Seen, r.AppliedPatches = next, copyTerrain, destroyed, removals, seen, patches
 	return nil
 }
 func (r *Registry) IDs() []string {
@@ -468,13 +497,13 @@ func (r *Registry) Apply(m Envelope) Ack {
 		}
 		for i := range r.Terrain {
 			if r.Terrain[i].X == p.X && r.Terrain[i].Y == p.Y {
-				r.Terrain[i] = p
+				r.Terrain[i] = cloneTerrain(p)
 				a.Accepted = true
 				r.Revision = m.Revision
 				return a
 			}
 		}
-		r.Terrain = append(r.Terrain, p)
+		r.Terrain = append(r.Terrain, cloneTerrain(p))
 	default:
 		a.Error = "unsupported_operation"
 		return a
