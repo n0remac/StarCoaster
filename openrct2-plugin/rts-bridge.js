@@ -38,6 +38,7 @@
         const MAX_WIRE_PAYLOAD_BYTES = 900000;
         function serializedBytes(value) {
             const json = JSON.stringify(value);
+            if (!/[^\x00-\x7f]/.test(json)) return json.length;
             let bytes = 0;
             for (let i = 0; i < json.length; i++) {
                 const code = json.charCodeAt(i);
