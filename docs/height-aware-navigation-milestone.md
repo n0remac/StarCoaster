@@ -124,7 +124,7 @@ remain follow-up work.
 | Command | Result | Evidence |
 | --- | --- | --- |
 | `scripts/project.sh test` | Passed: Go, C++, Python, and plugin checks. | `run-data/height-aware-offline-final.log` |
-| `tests/test_height_navigation_live.sh` | Passed 26/26 mask, source, native movement, height-change, and synchronization checks. | `run-data/layered-nav-live-1792103663/verification.json` |
+| `tests/test_height_navigation_live.sh` | Passed 26/26 mask, source, native movement, height-change, and synchronization checks after the final payload optimization. | `run-data/layered-nav-live-1792103865/verification.json` |
 | `scripts/project.sh test-live-construction` | Passed the complete sequential construction suite, including overlap, unchanged masks, target HP, restart, interruption, and death recovery. | `run-data/height-aware-test-live-construction-phase6.log` |
 | `scripts/project.sh test-live` | Passed on the second aggregate, including graphical startup, scenario runtime, and all nested construction cases. | `run-data/height-aware-test-live-rerun.log` |
 | `NAV_SCENARIO=midway-junction tests/test_frontier_native_navigation_live.sh` | Passed native detour, gate demolition, and reopened route checks. | `run-data/midway-junction-native-nav-1792103746/verification.json` |
@@ -143,6 +143,11 @@ before the test timeout. The focused graphical rerun and second full aggregate
 both passed with 37 and 39 client snapshots respectively. This was an
 intermittent client-startup failure; it is not a confirmed navigation
 regression.
+One post-optimization focused attempt synchronized the geometry but its
+single Marine command did not receive an action callback. The probe now
+retries that idempotent request until acceptance; the final focused rerun
+passed all 26 checks. This was a test command delivery race, not a confirmed
+mask regression.
 
 The first attempt at the new rail height-change probe did not start client A:
 OpenRCT2 reported `zstdDecompress` data corruption during its map download.
