@@ -109,6 +109,9 @@ before = [int(x) for x in re.findall(
     r'native target state id=openrct2:ride:4#1 proxy=openbw:\d+ hp=(\d+) revision=2', server)]
 after = [int(x) for x in re.findall(
     r'native target state id=openrct2:ride:4#1 proxy=openbw:\d+ hp=(\d+) revision=2', restart)]
+confirmed = re.findall(r'park patch synchronized id=\S+ revision=(\d+) hash=([0-9a-f]{16})', server)
+resumed = re.search(r'park snapshot session=\S+ revision=(\d+) entities=', restart)
+resumed_mask = re.search(r'navigation initialized hash=([0-9a-f]{16})', restart)
 checks = {
     'ordinary_shop_actions': 'LIVE_TARGET_RIDECREATE accepted=true' in driver
         and bool(target),
@@ -120,6 +123,9 @@ checks = {
         and 0 < after[0] <= before[-1],
     'same_actor_reconciliation': 'actor reconcile living=' in restart
         and 'LIVE_TARGET_COMPLETE' in driver,
+    'height_aware_revision_and_mask_preserved': bool(confirmed and resumed and resumed_mask)
+        and confirmed[-1][0] == resumed.group(1)
+        and confirmed[-1][1] == resumed_mask.group(1),
     'post_restart_construction': 'LIVE_TARGET_POST_RESTART_WALL accepted=true' in driver
         and 'park patch synchronized' in restart,
     'second_client_current_catalog': 'LIVE_TARGET_OBSERVER_CATALOG' in observer,
