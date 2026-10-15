@@ -35,6 +35,7 @@
         };
         const CONSTRUCTION_DEBOUNCE_TICKS = 6, RECONCILE_TICKS = 1200;
         const MAX_CHANGE_OPERATIONS = 4096, MAX_CHANGE_BYTES = 4194304;
+        const MAX_WIRE_PAYLOAD_BYTES = 900000;
         let constructionTick = 0, dirtySince = -1, publishedWorld = null, snapshotWorld = null;
         let detectedBatch = null, detectedSignature = "", combatRemovalKey = "", patchInFlight = null;
         let combatSyncID = "";
@@ -305,6 +306,7 @@
         function markConstruction() { if (dirtySince < 0) dirtySince = constructionTick; }
         function detectConstruction() {
             if (!publishedWorld) return;
+            const discoveryStarted = Date.now();
             const current = discover(), changes = compareWorld(publishedWorld, current);
             const operations = changes.additions.length + changes.modifications.length
                 + changes.removals.length + changes.terrain.length;
@@ -325,6 +327,10 @@
                         additions: changes.additions.map(function (e) { return e.id; }),
                         modifications: changes.modifications.map(function (e) { return e.id; }),
                         removals: changes.removals, terrain: changes.terrain.length }));
+                    console.log("WORLD_GEOMETRY_METRIC discovery_ms=" + (Date.now() - discoveryStarted)
+                        + " volumes=" + current.entities.reduce(function (sum, entity) {
+                            return sum + ((entity.collision.volumes || []).length);
+                        }, 0));
                 }
                 if (!patchInFlight && !combatSyncID && !snapshotWorld) publishPatch(detectedBatch);
             } else { detectedBatch = null; detectedSignature = ""; }
@@ -342,14 +348,16 @@
                 removals: changes.removals, terrain: changes.terrain,
                 counts: { additions: changes.additions.length, modifications: changes.modifications.length,
                     removals: changes.removals.length, terrain: changes.terrain.length } };
-            if (JSON.stringify(payload).length > 900000) {
-                console.log("WORLD_CHANGESET_OVERFLOW recovery=snapshot");
+            const payloadBytes = JSON.stringify(payload).length;
+            if (payloadBytes > MAX_WIRE_PAYLOAD_BYTES) {
+                console.log("WORLD_CHANGESET_OVERFLOW bytes=" + payloadBytes + " recovery=snapshot");
                 snapshot(); return;
             }
             patchInFlight = { id: payload.patch_id, base: revision, current: batch.current };
             console.log("WORLD_PATCH_METRIC patch=" + payload.patch_id
                 + " action_to_detection_ms=" + (batch.actionAt ? batch.detectedAt - batch.actionAt : -1)
                 + " detection_to_patch_ms=" + (Date.now() - batch.detectedAt)
+                + " payload_bytes=" + payloadBytes
                 + " operations=" + (payload.counts.additions + payload.counts.modifications
                     + payload.counts.removals + payload.counts.terrain));
             firstConstructionAt = 0;
@@ -381,7 +389,19 @@
             });
         });
         function snapshot() {
+            const discoveryStarted = Date.now();
             const current = discover(), chunks = [];
+            let largestEntity = 0, largestEntityID = "", volumeCount = 0;
+            current.entities.forEach(function (entity) {
+                const bytes = JSON.stringify(entity).length;
+                if (bytes > largestEntity) { largestEntity = bytes; largestEntityID = entity.id; }
+                volumeCount += (entity.collision.volumes || []).length;
+            });
+            if (largestEntity > MAX_WIRE_PAYLOAD_BYTES) {
+                console.log("WORLD_ERROR entity_too_large id=" + largestEntityID + " bytes=" + largestEntity);
+                if (socket) socket.destroy({});
+                return;
+            }
             snapshotWorld = current;
             onEntities(current.entities, session);
             let entityChunk = [];
@@ -394,6 +414,18 @@
             if (entityChunk.length) chunks.push({ entities: entityChunk });
             for (let i = 0; i < current.terrain.length; i += 128)
                 chunks.push({ terrain: current.terrain.slice(i, i + 128) });
+            const maxChunk = chunks.reduce(function (size, chunk) {
+                return Math.max(size, JSON.stringify(chunk).length);
+            }, 0);
+            if (maxChunk > MAX_WIRE_PAYLOAD_BYTES) {
+                console.log("WORLD_ERROR snapshot_chunk_too_large bytes=" + maxChunk);
+                snapshotWorld = null;
+                if (socket) socket.destroy({});
+                return;
+            }
+            console.log("WORLD_GEOMETRY_METRIC discovery_ms=" + (Date.now() - discoveryStarted)
+                + " volumes=" + volumeCount + " largest_entity_bytes=" + largestEntity
+                + " max_snapshot_chunk_bytes=" + maxChunk);
             send("world.snapshot.begin", { width: map.size.x, height: map.size.y, chunks: chunks.length });
             chunks.forEach(function (chunk, index) { chunk.index = index; send("world.snapshot.chunk", chunk); });
             send("world.snapshot.end", { entities: current.entities.length, terrain: current.terrain.length });

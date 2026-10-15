@@ -70,9 +70,9 @@ observer = (directory / "client-b.log").read_text(errors="replace")
 patches = [(h, int(frame)) for h, frame in re.findall(
     r"park patch synchronized id=\S+ revision=\d+ hash=([0-9a-f]{16}) frame=(\d+)", server)]
 publisher = {(h, int(frame)) for h, frame in re.findall(
-    r"\[world\] navigation-mask hash=([0-9a-f]{16}) frame=(\d+) accepted=1", server)}
+    r"\[world\] navigation-mask hash=([0-9a-f]{16})[\s\S]{0,400}?frame=(\d+) accepted=1", server)}
 controller = {(h, int(frame)) for h, frame in re.findall(
-    r"\[world-control\] navigation-mask hash=([0-9a-f]{16}) frame=(\d+) accepted=1", server)}
+    r"\[world-control\] navigation-mask hash=([0-9a-f]{16})[\s\S]{0,400}?frame=(\d+) accepted=1", server)}
 positions = [(int(phase), int(x), int(y)) for phase, x, y in re.findall(
     r"LIVE_CONSTRUCTION_POSITION phase=(\d+) x=(\d+) y=(\d+)", driver)]
 

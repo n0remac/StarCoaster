@@ -573,19 +573,9 @@ private:
     }
     void reconcile(BWAPI::Game* game, const starcoaster::DesiredWorld& desired) {
         const bool newSession = !session_.empty() && session_ != desired.session;
-        if (!newSession && session_ == desired.session && !session_.empty()) {
-            starcoaster::NavigationAdapter candidate;
-            candidate.replace(desired);
-            if (candidateOverlapsMobile(game, candidate.mask())) {
-                ready_ = false;
-                send("world.ready", {{"reconciled",false},
-                    {"reason","occupied_construction_geometry"}}, desired.revision,
-                    game->getFrameCount());
-                std::cerr << "[world] reconciliation blocked by occupied construction geometry"
-                    << std::endl;
-                return;
-            }
-        }
+        // The snapshot contains logical combat footprints, which include
+        // overhead ride track. Only the bridge-derived mask may test actor
+        // overlap; its staged revision performs that check below.
         if (newSession) { nativeSpawns_.clear(); activeSpawn_.clear(); }
         const auto plan = starcoaster::planReconciliation(desired_, desired);
         for (auto it = targets_.begin(); it != targets_.end();) {
@@ -615,8 +605,10 @@ private:
         width_ = desired.width;
         height_ = desired.height;
         entities_.clear();
-        navigation_.replace(desired);
-        navigation_.markNative(game->setParkNavigation(navigation_.mask()));
+        if (newSession || navigation_.mask().empty()) {
+            navigation_.replace(desired);
+            navigation_.markNative(game->setParkNavigation(navigation_.mask()));
+        }
         for (const auto& [id, entity] : desired.entities) {
             entities_[id] = entity.raw;
         }

@@ -993,6 +993,13 @@ func (s *service) forwardSnapshot() {
 	entityChunk := world.SnapshotChunk{}
 	for _, id := range ids {
 		derived := s.transform.Entity(r.Entities[id])
+		entityJSON, _ := json.Marshal(derived)
+		if len(entityJSON) > 900000 {
+			log.Printf("OpenBW snapshot rejected: entity_too_large id=%s bytes=%d", id, len(entityJSON))
+			_ = s.emit(s.park, "world.error", r.Session, rev,
+				map[string]string{"reason": "entity_too_large", "entity_id": id})
+			return
+		}
 		next := append(entityChunk.Entities, derived)
 		encoded, _ := json.Marshal(next)
 		if len(entityChunk.Entities) > 0 && (len(next) > 32 || len(encoded) > 48000) {

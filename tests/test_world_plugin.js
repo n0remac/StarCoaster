@@ -404,6 +404,12 @@ assert.equal(changeCount(), noChangeCount, 'repeat discovery does not change gen
 ride.name = 'Renamed without geometry changes';
 ticks(1200);
 assert.equal(changeCount(), noChangeCount, 'display name does not produce a geometry delta');
+const raisedTrack = at(1, 1).find(element => element.type === 'track');
+raisedTrack.baseHeight = 18; raisedTrack.baseZ = 144;
+construction('trackplace', { ride: 17, x: 32, y: 32, z: 144 });
+ticks();
+assert.ok(lastChange().modifications.includes(firstRideId),
+    'height-only track edit modifies the same ride identity');
 at(2, 1).push({ type: 'track', ride: 17, baseHeight: 14 });
 construction('trackplace', { ride: 17, x: 64, y: 32, z: 112 });
 ticks();

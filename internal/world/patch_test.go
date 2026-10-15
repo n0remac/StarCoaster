@@ -63,6 +63,45 @@ func TestStagePatchAtomicCommitAndRetry(t *testing.T) {
 	}
 }
 
+func TestHeightOnlyPatchPreservesIdentityAndUnchangedMask(t *testing.T) {
+	r, transform, ride, _ := patchFixture(t)
+	ride.Collision = Collision{Blocks: true, Mode: "height_aware", Volumes: []CollisionVolume{{
+		Rect: Rect{64, 96, 32, 32}, BaseZ: 160, ClearanceZ: 176,
+		OccupiedQuadrants: 15, Classification: "approximate"}}}
+	if err := r.Replace("park-session", 1, 8, 8, []Entity{ride}, nil); err != nil {
+		t.Fatal(err)
+	}
+	before, err := DeriveNavigation(r, transform, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modified := cloneEntity(ride)
+	modified.Revision = 2
+	modified.Collision.Volumes[0].BaseZ = 176
+	modified.Collision.Volumes[0].ClearanceZ = 192
+	patch := Patch{ID: "height:1", BaseRevision: 1, ResultRevision: 2,
+		Modifications: []Entity{modified}, Counts: PatchCounts{Modifications: 1}}
+	candidate, overhead, err := r.StagePatch("park-session", patch, DefaultMapping(), transform, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Hash != overhead.Hash || candidate.Entities[ride.ID].Combat.Health != 400 ||
+		candidate.Entities[ride.ID].ID != ride.ID {
+		t.Fatal("overhead edit changed navigation or combat identity")
+	}
+	modified.Collision.Volumes[0].BaseZ = 0
+	modified.Collision.Volumes[0].ClearanceZ = 32
+	patch.Modifications[0] = modified
+	patch.ID = "height:2"
+	_, low, err := r.StagePatch("park-session", patch, DefaultMapping(), transform, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if low.Hash == before.Hash || !low.BlockedWalk(8, 12) {
+		t.Fatal("lowered track did not close route")
+	}
+}
+
 func TestStagePatchRejectsIncompleteConflictingAndInvalidChanges(t *testing.T) {
 	r, transform, ride, wall := patchFixture(t)
 	good := Patch{ID: "patch:2", BaseRevision: 1, ResultRevision: 2,
