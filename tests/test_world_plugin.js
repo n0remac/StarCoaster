@@ -369,4 +369,75 @@ assert.equal(sent.filter(m => m.kind === 'combat.result').at(-1).payload.state, 
     'a replacement at the same tile cannot inherit an older combat death');
 assert.equal(actions.filter(a => a.name === 'smallsceneryremove').length, 0);
 assert.ok(logs.some(line => line.startsWith('WORLD_REMOVAL')));
+function construction(action, args, result = { error: 0 }) {
+    subscriptions.get('action.execute')({ action, args, result, isClientOnly: false });
+}
+function ticks(count = 6) {
+    for (let index = 0; index < count; index++) subscriptions.get('interval.tick')();
+}
+function lastChange() {
+    return JSON.parse(logs.filter(line => line.startsWith('WORLD_CHANGESET ')).at(-1).slice(16));
+}
+const firstRideId = rebuilt.id;
+const changeCount = () => logs.filter(line => line.startsWith('WORLD_CHANGESET ')).length;
+ticks(); // Flush the earlier simulated removal action before checking repeat scans.
+const noChangeCount = changeCount();
+ticks(1200);
+assert.equal(changeCount(), noChangeCount, 'repeat discovery does not change generations');
+ride.name = 'Renamed without geometry changes';
+ticks(1200);
+assert.equal(changeCount(), noChangeCount, 'display name does not produce a geometry delta');
+at(2, 1).push({ type: 'track', ride: 17, baseHeight: 14 });
+construction('trackplace', { ride: 17, x: 64, y: 32, z: 112 });
+ticks();
+assert.ok(lastChange().modifications.includes(firstRideId), 'track placement modifies the existing ride');
+assert.ok(!lastChange().additions.some(id => id.startsWith('openrct2:ride:17#')),
+    'track placement preserves ride generation');
+at(2, 1).pop();
+construction('trackremove', { x: 64, y: 32, z: 112 });
+ticks();
+assert.ok(!lastChange().removals.includes(firstRideId), 'track removal preserves the ride generation');
+at(3, 1).push({ type: 'track', ride: 17, baseHeight: 14 });
+construction('trackplace', { ride: 17, x: 96, y: 32, z: 112 });
+ticks();
+assert.ok(lastChange().modifications.includes(firstRideId), 'subsequent track edit retains the ride ID');
+at(6, 3).push({ type: 'wall', object: 3, baseHeight: 14, direction: 0 });
+at(7, 3).push({ type: 'footpath', object: 4, surfaceObject: 4,
+    baseHeight: 14, baseZ: 112 });
+construction('wallplace', { x: 192, y: 96, z: 112 });
+construction('footpathplace', { x: 224, y: 96, z: 112 });
+ticks();
+assert.equal(lastChange().additions.filter(id => id.includes('wall:') || id.includes('footpath:')).length,
+    2, 'independent changes share a batch');
+assert.ok(lastChange().base_revision >= 2);
+at(6, 3).pop();
+construction('wallremove', { x: 192, y: 96, z: 112 });
+ticks();
+assert.ok(lastChange().additions.some(id => id.includes('footpath:'))
+    && !lastChange().additions.some(id => id.includes('wall:')),
+    'an edit reverted before publishing is coalesced');
+at(0, 1)[0].waterHeight = 128;
+construction('waterraise', { x: 0, y: 32 });
+ticks();
+assert.ok(lastChange().terrain >= 1, 'terrain replacement appears in the batch');
+const beforeRecreate = firstRideId;
+ride = null;
+for (const elements of tiles.values()) for (let index = elements.length - 1; index >= 0; index--)
+    if (elements[index].type === 'track') elements.splice(index, 1);
+construction('ridedemolish', { ride: 17, modifyType: 0 });
+ride = { id: 17, name: 'Recreated Carousel', type: 33, classification: 'ride',
+    object: { identifier: 'rct2.ride.mgr1' }, status: 'closed', isEmpty: true };
+at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14 });
+construction('ridecreate', {}, { error: 0, ride: 17 });
+ticks();
+assert.ok(lastChange().removals.includes(beforeRecreate), 'demolished ride is removed');
+assert.ok(lastChange().additions.some(id => id.startsWith('openrct2:ride:17#') && id !== beforeRecreate),
+    'recreated ride receives a new generation');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.resync', session: sid, payload: {} }) + '\n');
+at(6, 4).push({ type: 'wall', object: 3, baseHeight: 14, direction: 0 });
+construction('wallplace', { x: 192, y: 128, z: 112 });
+drain();
+ticks();
+assert.ok(lastChange().additions.some(id => id.includes('wall:3:192:128:112')),
+    'an edit during snapshot transmission is retained for the next batch');
 console.log('world plugin discovery and lifecycle validation passed');

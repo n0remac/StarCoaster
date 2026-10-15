@@ -20,6 +20,22 @@
         }).join("");
         let revision = 1, serial = 0, socket = null, buffer = "", inFlight = null, lastCombatSeq = 0, retryTicks = 0;
         const queue = [], generations = {}, activeKeys = {}, activeItems = {}, entities = {}, completed = {};
+        const constructionActions = {
+            ridecreate: true, ridedemolish: true, trackplace: true, trackremove: true,
+            trackdesign: true, mazeplacetrack: true, mazesettrack: true,
+            rideentranceexitplace: true, rideentranceexitremove: true,
+            smallsceneryplace: true, smallsceneryremove: true,
+            largesceneryplace: true, largesceneryremove: true,
+            wallplace: true, wallremove: true, footpathplace: true,
+            footpathlayoutplace: true, footpathremove: true,
+            landraise: true, landlower: true, landsetheight: true, landsmooth: true,
+            waterraise: true, waterlower: true, watersetheight: true,
+            surfacesetstyle: true, tilemodify: true, clearscenery: true
+        };
+        const CONSTRUCTION_DEBOUNCE_TICKS = 6, RECONCILE_TICKS = 1200;
+        const MAX_CHANGE_OPERATIONS = 4096, MAX_CHANGE_BYTES = 4194304;
+        let constructionTick = 0, dirtySince = -1, publishedWorld = null, snapshotWorld = null;
+        let detectedBatch = null, detectedSignature = "", combatRemovalKey = "";
         function envelope(kind, payload, rev) {
             return { v: 1, kind: kind, session: session, op_id: "park:" + (++serial),
                 source: "openrct2", revision: rev || revision, payload: payload };
@@ -42,7 +58,7 @@
             if (direction === 3) return { x: -offset.y, y: offset.x };
             return { x: offset.x, y: offset.y };
         }
-        function discover() {
+        function readPark() {
             const grouped = {}, terrain = [], rides = {};
             map.rides.forEach(function (ride) {
                 rides[ride.id] = { ride: ride, cells: [], height: null };
@@ -132,16 +148,10 @@
                     cells: item.cells, rects: [], removal: { action: "ridedemolish", args: { ride: ride.id, modifyType: 0 } },
                     rideId: ride.id, rideType: ride.type };
             });
-            ["guest", "staff"].forEach(function (kind) {
-                if (typeof map.getAllEntities !== "function") return;
-                map.getAllEntities(kind).forEach(function (actor) {
-                    if (!Number.isInteger(actor.x) || !Number.isInteger(actor.y) || actor.x < 0 || actor.y < 0
-                        || actor.x >= map.size.x * 32 || actor.y >= map.size.y * 32) return;
-                    const key = kind + ":" + actor.id;
-                    grouped[key] = { key: key, kind: kind, type: kind, x: actor.x, y: actor.y,
-                        z: actor.z || 0, direction: 0, cells: [], rects: [], removal: { action: "" } };
-                });
-            });
+            return { grouped: grouped, terrain: terrain, rides: rides };
+        }
+        function discover() {
+            const read = readPark(), grouped = read.grouped, terrain = read.terrain;
             const now = {}, result = [];
             Object.keys(grouped).sort().forEach(function (key) {
                 const item = grouped[key]; now[key] = true;
@@ -164,31 +174,100 @@
                 const entity = { id: id, source: "openrct2", source_id: key, kind: item.kind,
                     type: item.type, owner: 0, position: { x: Math.max(0, minX), y: Math.max(0, minY) },
                     rotation: item.direction || 0, elevation: item.z,
-                    geometry: { cells: cells, rects: item.kind === "wall" ? item.rects : rects },
-                    collision: { blocks: item.kind !== "path" && item.kind !== "guest" && item.kind !== "staff" },
-                    destructible: item.kind !== "guest" && item.kind !== "staff",
-                    combat: { targetable: item.kind !== "path" && item.kind !== "guest" && item.kind !== "staff", health: 100 },
+                    geometry: { cells: sortedCells, rects: item.kind === "wall" ? item.rects.slice().sort(function (a, b) {
+                        return a.y - b.y || a.x - b.x || a.width - b.width || a.height - b.height;
+                    }) : rects },
+                    collision: { blocks: item.kind !== "path" },
+                    destructible: true,
+                    combat: { targetable: item.kind !== "path", health: 100 },
                     removal: item.removal, revision: revision };
                 if (item.name) entity.name = item.name;
                 item.id = id; item.entity = entity;
                 item.activeTarget = !!(entities[id] && entities[id].activeTarget);
                 entities[id] = item; activeItems[key] = item; result.push(entity);
             });
+            // A ride with no remaining track still owns its native ride ID.
+            // Its next track edit must retain the same logical generation.
+            Object.keys(read.rides).forEach(function (id) { now["ride:" + id] = true; });
             Object.keys(activeKeys).forEach(function (key) { if (!now[key]) { delete activeKeys[key]; delete activeItems[key]; } });
+            terrain.forEach(function (cell) {
+                if (cell.ground_paths) cell.ground_paths.sort(function (a, b) {
+                    return a.base_height - b.base_height
+                        || (a.slope_direction === null ? -1 : a.slope_direction)
+                        - (b.slope_direction === null ? -1 : b.slope_direction);
+                });
+            });
             return { entities: result, terrain: terrain };
         }
-        context.subscribe("action.execute", function (event) {
-            if (!event || !event.result || event.result.error || !event.args) return;
-            const action = event.action, args = event.args;
-            if (["ridedemolish", "ridecreate", "trackplace", "trackremove"].includes(action)) {
-                if (Number.isInteger(args.ride)) activeKeys["ride:" + args.ride] = false;
+        function comparableEntity(entity) {
+            return JSON.stringify({ id: entity.id, source_id: entity.source_id, kind: entity.kind,
+                type: entity.type, owner: entity.owner, position: entity.position,
+                rotation: entity.rotation, elevation: entity.elevation, geometry: entity.geometry,
+                collision: entity.collision, destructible: entity.destructible,
+                targetable: entity.combat.targetable, armor: entity.combat.armor || 0,
+                damage_scale: entity.combat.damage_scale || 0, removal: entity.removal });
+        }
+        function compareWorld(previous, current) {
+            const old = {}, next = {}, additions = [], modifications = [], removals = [], changedTerrain = [];
+            previous.entities.forEach(function (entity) { old[entity.id] = entity; });
+            current.entities.forEach(function (entity) {
+                next[entity.id] = entity;
+                if (!old[entity.id]) additions.push(entity);
+                else if (comparableEntity(old[entity.id]) !== comparableEntity(entity)) modifications.push(entity);
+            });
+            Object.keys(old).sort().forEach(function (id) {
+                if (!next[id] && id !== combatRemovalKey) removals.push(id);
+            });
+            const oldTerrain = {};
+            previous.terrain.forEach(function (cell) { oldTerrain[cell.x + ":" + cell.y] = JSON.stringify(cell); });
+            current.terrain.forEach(function (cell) {
+                if (oldTerrain[cell.x + ":" + cell.y] !== JSON.stringify(cell)) changedTerrain.push(cell);
+            });
+            return { additions: additions, modifications: modifications,
+                removals: removals, terrain: changedTerrain };
+        }
+        function markConstruction() { if (dirtySince < 0) dirtySince = constructionTick; }
+        function detectConstruction() {
+            if (!publishedWorld) return;
+            const current = discover(), changes = compareWorld(publishedWorld, current);
+            const operations = changes.additions.length + changes.modifications.length
+                + changes.removals.length + changes.terrain.length;
+            if (operations > MAX_CHANGE_OPERATIONS || JSON.stringify(changes).length > MAX_CHANGE_BYTES) {
+                console.log("WORLD_CHANGESET_OVERFLOW operations=" + operations + " recovery=snapshot");
+                detectedBatch = null; detectedSignature = ""; dirtySince = -1;
+                snapshot();
                 return;
             }
+            if (changes.additions.length || changes.modifications.length || changes.removals.length
+                || changes.terrain.length) {
+                detectedBatch = { base_revision: revision, changes: changes, current: current };
+                const signature = JSON.stringify({ base_revision: revision, changes: changes });
+                if (signature !== detectedSignature) {
+                    detectedSignature = signature;
+                    console.log("WORLD_CHANGESET " + JSON.stringify({ base_revision: revision,
+                        additions: changes.additions.map(function (e) { return e.id; }),
+                        modifications: changes.modifications.map(function (e) { return e.id; }),
+                        removals: changes.removals, terrain: changes.terrain.length }));
+                }
+            } else { detectedBatch = null; detectedSignature = ""; }
+            dirtySince = -1;
+        }
+        context.subscribe("action.execute", function (event) {
+            if (!event || !event.result || event.result.error || event.isClientOnly
+                || !constructionActions[event.action]) return;
+            const action = event.action, args = event.args || {};
+            if (action === "ridedemolish" && args.modifyType === 0 && Number.isInteger(args.ride)) {
+                activeKeys["ride:" + args.ride] = false;
+            }
+            if (action === "ridecreate" && Number.isInteger(event.result.ride)) {
+                activeKeys["ride:" + event.result.ride] = false;
+            }
+            markConstruction();
             const kind = action === "smallsceneryplace" || action === "smallsceneryremove" ? "small_scenery"
                 : action === "largesceneryplace" || action === "largesceneryremove" ? "large_scenery"
                 : action === "wallplace" || action === "wallremove" ? "wall"
                 : action === "footpathplace" || action === "footpathremove" ? "path" : "";
-            if (!kind || !Number.isInteger(args.x) || !Number.isInteger(args.y)) return;
+            if (!action.endsWith("remove") || !kind || !Number.isInteger(args.x) || !Number.isInteger(args.y)) return;
             const tileX = Math.floor(args.x / 32), tileY = Math.floor(args.y / 32);
             Object.keys(activeItems).forEach(function (key) {
                 const item = activeItems[key];
@@ -199,6 +278,7 @@
         });
         function snapshot() {
             const current = discover(), chunks = [];
+            snapshotWorld = current;
             onEntities(current.entities, session);
             let entityChunk = [];
             current.entities.forEach(function (entity) {
@@ -228,10 +308,19 @@
                 return;
             }
             completed[event.id] = true;
+            combatRemovalKey = tracked.id;
             context.executeAction(tracked.removal.action, tracked.removal.args, function (result) {
                 const remaining = discover().entities.some(function (e) { return e.id === tracked.id; });
                 const confirmed = !result.error && !remaining;
-                if (confirmed) revision++;
+                if (confirmed) {
+                    revision++;
+                    activeKeys[tracked.key] = false;
+                    if (publishedWorld) publishedWorld = {
+                        entities: publishedWorld.entities.filter(function (entity) { return entity.id !== tracked.id; }),
+                        terrain: publishedWorld.terrain
+                    };
+                }
+                combatRemovalKey = "";
                 send("combat.result", { event_id: event.id, entity_id: tracked.id,
                     state: confirmed ? "removal_confirmed" : "removal_failed",
                     reason: confirmed ? "" : (result.errorMessage || "object_still_present") }, revision);
@@ -262,6 +351,11 @@
                         inFlight = null; sendNext(); return;
                     }
                     console.log("WORLD_ERROR " + message.payload.error); socket.destroy({}); return;
+                }
+                if (inFlight.kind === "world.snapshot.end" && snapshotWorld) {
+                    publishedWorld = snapshotWorld;
+                    snapshotWorld = null;
+                    if (dirtySince >= 0) markConstruction();
                 }
                 inFlight = null; sendNext();
             } else if (message.kind === "world.resync") {
@@ -340,7 +434,14 @@
             });
         }
         connect();
-        context.subscribe("interval.tick", function () { if (!socket && ++retryTicks >= 40) { retryTicks = 0; connect(); } });
+        context.subscribe("interval.tick", function () {
+            constructionTick++;
+            if (!socket && ++retryTicks >= 40) { retryTicks = 0; connect(); }
+            if (dirtySince >= 0 && constructionTick - dirtySince >= CONSTRUCTION_DEBOUNCE_TICKS
+                && !snapshotWorld) detectConstruction();
+            else if (dirtySince < 0 && constructionTick % RECONCILE_TICKS === 0
+                && !snapshotWorld) detectConstruction();
+        });
     }
 
     function validAction(args) {
