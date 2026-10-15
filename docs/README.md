@@ -4,7 +4,8 @@ The [project README](../README.md) is the supported gameplay workflow.
 Use the [bootstrap guide](bootstrap.md) for dependencies and local game data,
 [world bridge guide](world-bridge.md) for runtime authority and protocol,
 [world geometry milestone](world-geometry-milestone.md) for terrain and 256×256
-limits, and [artifact viewer guide](test-viewer.md) for recordings.
+limits, [height aware navigation verification](height-aware-navigation-milestone.md)
+for layered ground movement, and [artifact viewer guide](test-viewer.md) for recordings.
 
 [Park design](park-design-v0.2.md), [unit spawn verification](archive/unit-spawn-verification.md),
 [shared actor verification](archive/shared-actor-verification.md), and the
