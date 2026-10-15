@@ -127,6 +127,7 @@ remain follow-up work.
 | `tests/test_height_navigation_live.sh` | Passed 26/26 mask, source, native movement, height-change, and synchronization checks. | `run-data/layered-nav-live-1792103663/verification.json` |
 | `scripts/project.sh test-live-construction` | Passed the complete sequential construction suite, including overlap, unchanged masks, target HP, restart, interruption, and death recovery. | `run-data/height-aware-test-live-construction-phase6.log` |
 | `scripts/project.sh test-live` | Passed on the second aggregate, including graphical startup, scenario runtime, and all nested construction cases. | `run-data/height-aware-test-live-rerun.log` |
+| `NAV_SCENARIO=midway-junction tests/test_frontier_native_navigation_live.sh` | Passed native detour, gate demolition, and reopened route checks. | `run-data/midway-junction-native-nav-1792103746/verification.json` |
 
 An earlier construction aggregate failed only because the new
 `payload_bytes` metric changed two test log parsers; both were corrected and
