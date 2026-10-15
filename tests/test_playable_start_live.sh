@@ -62,6 +62,9 @@ wait_for() {
 }
 wait_for 'WORLD_READY.*navigation=native' "$run_dir/session.log" "$ready_limit"
 wait_for 'scenario spawn request=.*opening-zerg-wave state=ready' "$run_dir/session.log" 60
+# The graphical client may still be loading or generating its multiplayer key
+# after the native world is ready. Give that startup its own timeout.
+wait_for '\[Passthrough RTS Bridge\] Started' "$run_dir/client.log" 90
 wait_for 'RTS Bridge apply tick=.*openbw:3005' "$run_dir/client.log" 60
 ffmpeg -loglevel error -y -f x11grab -video_size 1280x800 -i "$DISPLAY" \
   -frames:v 1 "$run_dir/screen.png"
