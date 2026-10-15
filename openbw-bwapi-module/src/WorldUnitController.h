@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -184,6 +185,23 @@ private:
             ambiguousActors_.clear();
             return;
         }
+        if (kind == "navigation.mask.cancel") {
+            const auto& payload = message.at("payload");
+            const auto revision = message.at("revision").get<uint64_t>();
+            const auto hash = payload.value("hash", "");
+            if (message.value("session", "") == session_) {
+                if (stagedMaskRevision_ == revision && stagedMaskHash_ == hash) {
+                    stagedMask_.clear(); stagedMaskHash_.clear();
+                }
+                if (pendingMaskRevision_ == revision && pendingMaskHash_ == hash) {
+                    pendingMask_.clear(); pendingMaskHash_.clear();
+                }
+                if (maskRevision_ == revision && maskHash_ == hash) {
+                    maskValid_ = false; maskReceiver_.reset();
+                }
+            }
+            return;
+        }
         if (kind == "navigation.mask.begin") {
             const auto& payload = message.at("payload");
             maskValid_ = message.value("session", "") == session_
@@ -198,6 +216,10 @@ private:
             maskRevision_ = message.at("revision").get<uint64_t>();
             maskApplyFrame_ = payload.value("apply_frame", 0);
             maskStageOnly_ = payload.value("stage_only", false);
+            if (maskValid_ && !maskStageOnly_) {
+                stagedMask_.clear(); stagedMaskHash_.clear();
+                pendingMask_.clear(); pendingMaskHash_.clear();
+            }
             if (!maskValid_) maskReceiver_.reset();
             return;
         }
@@ -465,8 +487,10 @@ private:
     }
     void applyScheduledNavigation(BWAPI::Game* game) {
         if (!pendingMaskHash_.empty() && game->getFrameCount() >= pendingMaskFrame_) {
+            const auto rebuildStarted = std::chrono::steady_clock::now();
             const bool onTime = pendingMaskFrame_ == 0 || game->getFrameCount() == pendingMaskFrame_;
-            const bool occupied = !pendingMaskUnchanged_ && candidateOverlapsMobile(game, pendingMask_);
+            const bool occupied = !pendingMaskUnchanged_ && pendingMaskFrame_ != 0
+                && candidateOverlapsMobile(game, pendingMask_);
             const bool applied = onTime && !occupied && (pendingMaskUnchanged_
                 || (game->setParkNavigation(pendingMask_) && navigation_.installMask(pendingMask_)));
             if (!pendingMaskUnchanged_) navigation_.markNative(applied);
@@ -478,7 +502,10 @@ private:
                     ? "occupied_construction_geometry" : "native_navigation_update_failed"}},
                 game->getFrameCount());
             std::cerr << "[world-control] navigation-mask hash=" << pendingMaskHash_
-                      << " frame=" << game->getFrameCount() << " accepted=" << applied << std::endl;
+                      << " frame=" << game->getFrameCount() << " accepted=" << applied
+                      << " rebuild_us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now() - rebuildStarted).count()
+                      << " unchanged=" << pendingMaskUnchanged_ << std::endl;
             pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear();
         }
         for (auto it = pendingRemovals_.begin(); it != pendingRemovals_.end();) {

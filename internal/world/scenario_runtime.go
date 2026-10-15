@@ -16,6 +16,7 @@ type ScenarioRuntime struct {
 	DefinitionHash     string        `json:"definition_hash"`
 	ObjectiveEntityID  string        `json:"objective_entity_id,omitempty"`
 	ObjectiveDestroyed bool          `json:"objective_destroyed,omitempty"`
+	ObjectiveRemoved   bool          `json:"objective_removed,omitempty"`
 	StartFrame         int           `json:"start_frame"`
 	Started            bool          `json:"started"`
 	LastFrame          int           `json:"last_frame"`

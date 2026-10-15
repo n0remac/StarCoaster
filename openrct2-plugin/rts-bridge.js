@@ -37,8 +37,11 @@
         const MAX_CHANGE_OPERATIONS = 4096, MAX_CHANGE_BYTES = 4194304;
         let constructionTick = 0, dirtySince = -1, publishedWorld = null, snapshotWorld = null;
         let detectedBatch = null, detectedSignature = "", combatRemovalKey = "", patchInFlight = null;
+        let combatSyncID = "";
         const queuedCombatEvents = [];
+        const pendingCommands = [];
         let patchSerial = 0;
+        let firstConstructionAt = 0;
         function envelope(kind, payload, rev) {
             return { v: 1, kind: kind, session: session, op_id: "park:" + (++serial),
                 source: "openrct2", revision: rev || revision, payload: payload };
@@ -50,7 +53,20 @@
             socket.write(JSON.stringify(inFlight) + "\n");
         }
         function send(kind, payload, rev) { queue.push(envelope(kind, payload, rev)); sendNext(); }
-        onCommandSender(function (payload) { send("combat.command", payload); });
+        function flushCommands() {
+            if (!socket || patchInFlight || combatSyncID || snapshotWorld) return;
+            while (pendingCommands.length) send("combat.command", pendingCommands.shift());
+        }
+        onCommandSender(function (payload) {
+            if (!socket || patchInFlight || combatSyncID || snapshotWorld) {
+                if (pendingCommands.length >= 128) {
+                    onCommandResult({ command_id: payload.command_id, player_id: payload.player_id,
+                        request_id: payload.request_id, accepted: false, reason: "update_command_queue_full" });
+                    return;
+                }
+                pendingCommands.push(payload);
+            } else send("combat.command", payload);
+        });
         const knownSpawns = {};
         onSpawnSender(function (payload) {
             knownSpawns[payload.request_id] = true;
@@ -251,7 +267,8 @@
             }
             if (changes.additions.length || changes.modifications.length || changes.removals.length
                 || changes.terrain.length) {
-                detectedBatch = { base_revision: revision, changes: changes, current: current };
+                detectedBatch = { base_revision: revision, changes: changes, current: current,
+                    detectedAt: Date.now(), actionAt: firstConstructionAt };
                 const signature = JSON.stringify({ base_revision: revision, changes: changes });
                 if (signature !== detectedSignature) {
                     detectedSignature = signature;
@@ -260,7 +277,7 @@
                         modifications: changes.modifications.map(function (e) { return e.id; }),
                         removals: changes.removals, terrain: changes.terrain.length }));
                 }
-                if (!patchInFlight && !snapshotWorld) publishPatch(detectedBatch);
+                if (!patchInFlight && !combatSyncID && !snapshotWorld) publishPatch(detectedBatch);
             } else { detectedBatch = null; detectedSignature = ""; }
             dirtySince = -1;
         }
@@ -281,12 +298,19 @@
                 snapshot(); return;
             }
             patchInFlight = { id: payload.patch_id, base: revision, current: batch.current };
+            console.log("WORLD_PATCH_METRIC patch=" + payload.patch_id
+                + " action_to_detection_ms=" + (batch.actionAt ? batch.detectedAt - batch.actionAt : -1)
+                + " detection_to_patch_ms=" + (Date.now() - batch.detectedAt)
+                + " operations=" + (payload.counts.additions + payload.counts.modifications
+                    + payload.counts.removals + payload.counts.terrain));
+            firstConstructionAt = 0;
             send("world.patch", payload, nextRevision);
         }
         context.subscribe("action.execute", function (event) {
             if (!event || !event.result || event.result.error || event.isClientOnly
                 || !constructionActions[event.action]) return;
             const action = event.action, args = event.args || {};
+            if (!firstConstructionAt) firstConstructionAt = Date.now();
             if (action === "ridedemolish" && args.modifyType === 0 && Number.isInteger(args.ride)) {
                 activeKeys["ride:" + args.ride] = false;
             }
@@ -345,6 +369,7 @@
                 const confirmed = !result.error && !remaining;
                 if (confirmed) {
                     revision++;
+                    combatSyncID = "combat:" + event.id;
                     activeKeys[tracked.key] = false;
                     if (publishedWorld) publishedWorld = {
                         entities: publishedWorld.entities.filter(function (entity) { return entity.id !== tracked.id; }),
@@ -390,7 +415,20 @@
                 }
                 inFlight = null; sendNext();
             } else if (message.kind === "world.resync") {
-                queue.length = 0; inFlight = null; patchInFlight = null; snapshot();
+                queue.length = 0; inFlight = null; patchInFlight = null; combatSyncID = ""; snapshot();
+            }
+            else if (message.kind === "world.patch.status" && message.payload && combatSyncID
+                && message.payload.patch_id === combatSyncID) {
+                if (message.payload.state === "synchronized" && message.revision === revision) {
+                    console.log("WORLD_COMBAT_PATCH_SYNC revision=" + revision + " id=" + combatSyncID);
+                    combatSyncID = "";
+                    markConstruction();
+                    while (queuedCombatEvents.length && !combatSyncID) combatEvent(queuedCombatEvents.shift());
+                    flushCommands();
+                } else if (message.payload.state === "failed" || message.payload.state === "unsynchronized") {
+                    console.log("WORLD_COMBAT_PATCH_ERROR " + (message.payload.reason || message.payload.state));
+                    queue.length = 0; inFlight = null; combatSyncID = ""; snapshot();
+                }
             }
             else if (message.kind === "world.patch.status" && message.payload && patchInFlight
                 && message.payload.patch_id === patchInFlight.id) {
@@ -401,15 +439,19 @@
                     detectedSignature = "";
                     publishActiveTargets();
                     markConstruction();
-                    while (queuedCombatEvents.length) combatEvent(queuedCombatEvents.shift());
+                    while (queuedCombatEvents.length && !combatSyncID) combatEvent(queuedCombatEvents.shift());
+                    flushCommands();
                     console.log("WORLD_PATCH_SYNC revision=" + revision);
+                    if (message.payload.unsupported_total)
+                        console.log("WORLD_TARGET_UNSUPPORTED total=" + message.payload.unsupported_total
+                            + " reasons=" + JSON.stringify(message.payload.unsupported_reasons || {}));
                 } else if (message.payload.state === "failed" || message.payload.state === "unsynchronized") {
                     console.log("WORLD_PATCH_ERROR " + (message.payload.reason || message.payload.state));
                     queue.length = 0; inFlight = null; patchInFlight = null; snapshot();
                 }
             }
             else if (message.kind === "combat.event") {
-                if (patchInFlight || snapshotWorld) queuedCombatEvents.push(message);
+                if (patchInFlight || combatSyncID || snapshotWorld) queuedCombatEvents.push(message);
                 else combatEvent(message);
             }
             else if (message.kind === "combat.result" && message.payload.command_id) onCommandResult(message.payload);
@@ -443,6 +485,7 @@
                 Object.keys(knownSpawns).forEach(function (requestId) {
                     send("unit.spawn.query", { request_id: requestId });
                 });
+                flushCommands();
             }
             else if (message.kind === "world.outcome" && message.payload
                 && ["victory", "defeat"].includes(message.payload.state))
@@ -479,11 +522,25 @@
                     onLine(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
                 }
             });
-            connection.on("error", function (error) { console.log("WORLD_SOCKET_ERROR " + error); if (socket === connection) socket = null; connection.destroy({}); });
-            connection.on("close", function () { if (socket === connection) socket = null; inFlight = null; queue.length = 0; });
+            connection.on("error", function (error) {
+                console.log("WORLD_SOCKET_ERROR " + error);
+                if (socket === connection) {
+                    socket = null; inFlight = null; queue.length = 0;
+                }
+                connection.destroy({});
+            });
+            connection.on("close", function () {
+                if (socket === connection) {
+                    socket = null; inFlight = null; queue.length = 0;
+                }
+            });
             connection.connect(40010, "127.0.0.1", function () {
                 retryTicks = 0;
+                inFlight = null;
+                queue.length = 0;
                 patchInFlight = null;
+                combatSyncID = "";
+                queuedCombatEvents.length = 0;
                 send("world.hello", { capabilities: ["snapshot", "world.patch", "navigation.mask"] });
                 snapshot();
             });
@@ -498,6 +555,8 @@
             }
             if (socket && patchInFlight && !inFlight && constructionTick % 120 === 0)
                 send("world.patch.query", { patch_id: patchInFlight.id }, patchInFlight.base + 1);
+            if (socket && combatSyncID && !inFlight && constructionTick % 120 === 0)
+                send("world.patch.query", { patch_id: combatSyncID }, revision);
             if (dirtySince >= 0 && constructionTick - dirtySince >= CONSTRUCTION_DEBOUNCE_TICKS
                 && !snapshotWorld) detectConstruction();
             else if (dirtySince < 0 && constructionTick % RECONCILE_TICKS === 0

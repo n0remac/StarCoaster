@@ -19,7 +19,10 @@ def main(directory):
     before = [point for phase,units in rows if phase == 1 for point in units.values()]
     after = [point for phase,units in rows if phase == 4 for point in units.values()]
     crossings = []
-    hashes = re.findall(r"navigation initialized hash=([0-9a-f]{16})", server)
+    initial = re.findall(r"navigation initialized hash=([0-9a-f]{16})", server)
+    applied = re.findall(r"combat demolition synchronized id=" + re.escape(GATE)
+                         + r" revision=\d+ hash=([0-9a-f]{16}) frame=(\d+)", server)
+    hashes = initial + [item[0] for item in applied]
     for uid in {uid for phase,units in rows if phase == 4 for uid in units}:
         points = [units[uid] for phase,units in rows if phase == 4 and uid in units]
         for (ax,ay),(bx,by) in zip(points,points[1:]):
@@ -28,12 +31,10 @@ def main(directory):
     checks = {
         "pre_demolition_detour": bool(before) and any(y > 1150 for x,y in before if x < 864),
         "gate_demolition_confirmed": f"WORLD_REMOVAL id={GATE} state=confirmed" in server,
-        "native_navigation_updated": len(set(hashes)) >= 2 and all(
+        "native_navigation_updated": len(set(hashes)) >= 2 and bool(applied) and all(
             marker in server for marker in (
-                f"[world-control] navigation-mask hash={hashes[-1]}",
-                f"[world] navigation-mask hash={hashes[-1]}",
-                f"controller navigation hash={hashes[-1]}",
-                f"publisher navigation hash={hashes[-1]}")),
+                f"[world-control] navigation-mask hash={applied[-1][0]} frame={applied[-1][1]} accepted=1",
+                f"[world] navigation-mask hash={applied[-1][0]} frame={applied[-1][1]} accepted=1")),
         "post_demolition_direct_crossing": any(920 <= y <= 1080 for y in crossings),
         "normal_orders_accepted": "MIDWAY_NAV_ORDER phase=1 verb=move accepted=true" in client
             and "MIDWAY_NAV_ORDER phase=2 verb=attack accepted=true" in client,

@@ -92,6 +92,7 @@ type service struct {
 
 type parkPatchStage struct {
 	patch                                   world.Patch
+	combatResult                            *world.CombatResult
 	digest                                  string
 	candidate                               *world.Registry
 	mask                                    world.NavigationMask
@@ -105,10 +106,12 @@ type parkPatchStage struct {
 }
 
 type targetPatchStage struct {
-	id      string
-	hash    string
-	frame   int
-	created time.Time
+	id               string
+	hash             string
+	frame            int
+	created          time.Time
+	targetStarted    time.Time
+	objectiveRemoved bool
 }
 
 type worldCommand struct {
@@ -220,6 +223,7 @@ func (s *service) failNativePatch(reason string) {
 		return
 	}
 	patch := s.parkPatch
+	s.cancelNativePatch(patch)
 	s.parkPatch = nil
 	s.ready = false
 	log.Printf("park patch unsynchronized id=%s revision=%d reason=%s", patch.patch.ID,
@@ -227,6 +231,16 @@ func (s *service) failNativePatch(reason string) {
 	_ = s.emit(s.park, "world.patch.status", s.registry.Session, patch.patch.ResultRevision,
 		map[string]any{"patch_id": patch.patch.ID, "state": "unsynchronized", "reason": reason,
 			"navigation_hash": patch.mask.Hash, "apply_frame": patch.applyFrame})
+}
+
+func (s *service) cancelNativePatch(patch *parkPatchStage) {
+	if patch == nil {
+		return
+	}
+	for _, participant := range []*peer{s.bw, s.controller} {
+		_ = s.emit(participant, "navigation.mask.cancel", s.registry.Session,
+			patch.patch.ResultRevision, map[string]string{"hash": patch.mask.Hash})
+	}
 }
 
 func (s *service) nativePatchReport(participant string, m world.Envelope) bool {
@@ -306,6 +320,36 @@ func (s *service) nativePatchReport(participant string, m world.Envelope) bool {
 			s.navigationMask, s.navigationRevision = patch.mask, patch.patch.ResultRevision
 			s.publisherNavigationReady, s.controllerNavigationReady, s.ready = true, true, true
 			s.parkPatch = nil
+			if patch.combatResult != nil {
+				result := *patch.combatResult
+				s.registry.Destroyed[result.EntityID] = true
+				s.registry.RemovalState[result.EntityID] = result.State
+				if s.runtime != nil && result.EntityID == s.objectiveID {
+					s.runtime.ObjectiveDestroyed = true
+					if !s.saveScenarioRuntime() {
+						s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+						return true
+					}
+				}
+				delete(s.targetLinks, result.EntityID)
+				delete(s.proxies, result.EntityID)
+				delete(s.pending, result.EventID)
+				delete(s.pendingFrames, result.EventID)
+				_ = s.emit(s.controller, "entity.remove", s.registry.Session, s.registry.Revision,
+					map[string]string{"id": result.EntityID})
+				_ = s.emit(s.park, "entity.remove", s.registry.Session, s.registry.Revision,
+					map[string]string{"id": result.EntityID})
+				_ = s.emit(s.park, "world.patch.status", s.registry.Session, s.registry.Revision,
+					map[string]any{"patch_id": patch.patch.ID, "state": "synchronized",
+						"navigation_hash": patch.mask.Hash, "apply_frame": patch.applyFrame})
+				log.Printf("combat demolition synchronized id=%s revision=%d hash=%s frame=%d",
+					result.EntityID, s.registry.Revision, patch.mask.Hash, patch.applyFrame)
+				if result.EntityID == s.objectiveID {
+					s.announceOutcome(s.lastMarines, s.lastZerglings)
+				}
+				s.pumpSpawns()
+				return true
+			}
 			if err := s.syncPatchTargets(patch.patch); err != nil {
 				s.ready = false
 				_ = s.emit(s.park, "world.patch.status", s.registry.Session, s.registry.Revision,
@@ -314,8 +358,15 @@ func (s *service) nativePatchReport(participant string, m world.Envelope) bool {
 				log.Printf("park patch target reconciliation failed id=%s: %v", patch.patch.ID, err)
 				return true
 			}
-			s.targetPatch = &targetPatchStage{patch.patch.ID, patch.mask.Hash,
-				patch.applyFrame, patch.created}
+			objectiveRemoved := false
+			for _, id := range patch.patch.Removals {
+				if id == s.objectiveID {
+					objectiveRemoved = true
+				}
+			}
+			s.targetPatch = &targetPatchStage{id: patch.patch.ID, hash: patch.mask.Hash,
+				frame: patch.applyFrame, created: patch.created, targetStarted: time.Now(),
+				objectiveRemoved: objectiveRemoved}
 			log.Printf("park patch navigation applied id=%s revision=%d hash=%s frame=%d",
 				patch.patch.ID, s.registry.Revision, patch.mask.Hash, patch.applyFrame)
 		}
@@ -347,9 +398,16 @@ func (s *service) syncPatchTargets(patch world.Patch) error {
 	for _, entity := range patch.Modifications {
 		modifications = append(modifications, s.transform.Entity(s.registry.Entities[entity.ID]))
 	}
-	return s.emit(s.bw, "world.patch.targets", s.registry.Session, s.registry.Revision,
-		map[string]any{"patch_id": patch.ID, "additions": additions,
-			"modifications": modifications, "removals": patch.Removals})
+	payload := map[string]any{"patch_id": patch.ID, "additions": additions,
+		"modifications": modifications, "removals": patch.Removals}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if len(encoded) > 900000 {
+		return fmt.Errorf("target_patch_transport_limit: %d bytes", len(encoded))
+	}
+	return s.emit(s.bw, "world.patch.targets", s.registry.Session, s.registry.Revision, payload)
 }
 
 func (s *service) sendTargetLink(p *peer, session string, revision uint64, link targetLink) {
@@ -405,7 +463,7 @@ func (s *service) publishReady() {
 				}
 			}
 		}
-		destroyed := s.runtime != nil && s.runtime.ObjectiveDestroyed && s.runtime.Outcome == "defeat"
+		destroyed := s.runtime != nil && (s.runtime.ObjectiveDestroyed || s.runtime.ObjectiveRemoved) && s.runtime.Outcome == "defeat"
 		if err := s.scenario.CheckReadyWithRuntimeState(s.registry, s.proxies, ready,
 			runtimeMarines, runtimeZerglings, destroyed); err != nil {
 			s.ready = false
@@ -438,7 +496,8 @@ func (s *service) announceOutcome(marines, zerglings int) {
 	if s.scenario == nil || s.outcome != "" || s.objectiveID == "" || !s.ready {
 		return
 	}
-	state := s.scenario.Outcome(s.registry.Destroyed[s.objectiveID], marines, zerglings)
+	removed := s.runtime != nil && s.runtime.ObjectiveRemoved
+	state := s.scenario.Outcome(s.registry.Destroyed[s.objectiveID] || removed, marines, zerglings)
 	if s.runtime != nil && state == "victory" {
 		if !s.runtime.AllWavesCleared() || s.spawns == nil || s.spawns.PendingCount() != 0 {
 			state = ""
@@ -455,9 +514,12 @@ func (s *service) announceOutcome(marines, zerglings int) {
 			return
 		}
 	}
-	_ = s.emit(s.park, "world.outcome", s.registry.Session, s.registry.Revision,
-		map[string]any{"scenario_id": s.scenario.ID, "state": state,
-			"objective_id": s.objectiveID, "marines": marines, "zerglings": zerglings})
+	outcome := map[string]any{"scenario_id": s.scenario.ID, "state": state,
+		"objective_id": s.objectiveID, "marines": marines, "zerglings": zerglings}
+	if removed {
+		outcome["reason"] = "objective_removed_manually"
+	}
+	_ = s.emit(s.park, "world.outcome", s.registry.Session, s.registry.Revision, outcome)
 	log.Printf("scenario %s outcome=%s marines=%d zerglings=%d", s.scenario.ID, state, marines, zerglings)
 	s.publishScenarioStatus(true)
 }
@@ -576,6 +638,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.ack(p, m, false, "invalid_snapshot_begin")
 			return
 		}
+		s.cancelNativePatch(s.parkPatch)
 		s.stage = &staging{session: m.Session, revision: m.Revision, begin: b, seen: map[string]bool{}}
 		s.parkPatch = nil
 		s.targetPatch = nil
@@ -683,6 +746,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		if s.parkPatch != nil {
 			if time.Since(s.parkPatch.created) > 30*time.Second {
 				log.Printf("park patch expired id=%s", s.parkPatch.patch.ID)
+				s.cancelNativePatch(s.parkPatch)
 				_ = s.emit(p, "world.patch.status", m.Session, s.parkPatch.patch.ResultRevision,
 					map[string]any{"patch_id": s.parkPatch.patch.ID, "state": "failed", "reason": "staging_expired"})
 				s.parkPatch = nil
@@ -704,8 +768,11 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.ack(p, m, false, "native_dimensions_unavailable")
 			return
 		}
+		validationStarted := time.Now()
 		candidate, mask, err := s.registry.StagePatch(m.Session, patch, s.mapping,
 			s.transform, s.bwWidth, s.bwHeight)
+		log.Printf("park patch validated id=%s elapsed_ms=%d navigation_us=%d accepted=%t", patch.ID,
+			time.Since(validationStarted).Milliseconds(), mask.DerivationTime.Microseconds(), err == nil)
 		if err != nil {
 			if errors.Is(err, world.ErrPatchDuplicate) {
 				s.ack(p, m, true, "")
@@ -748,6 +815,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		state, reason, hash := "failed", "unknown_or_expired_patch", ""
 		if s.parkPatch != nil && s.parkPatch.patch.ID == query.PatchID {
 			if time.Since(s.parkPatch.created) > 30*time.Second {
+				s.cancelNativePatch(s.parkPatch)
 				s.parkPatch = nil
 				s.ready = false
 			} else {
@@ -770,13 +838,11 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		}
 		_ = s.emit(p, "world.patch.status", m.Session, m.Revision, status)
 	case "combat.result":
-		if s.parkPatch != nil {
+		if s.parkPatch != nil || s.targetPatch != nil {
 			s.ready = false
-			log.Printf("combat demolition interrupted staged park patch id=%s", s.parkPatch.patch.ID)
-			s.parkPatch = nil
-			s.ack(p, m, false, "patch_interrupted_by_combat")
+			s.ack(p, m, false, "patch_in_progress")
 			_ = s.emit(p, "world.resync", s.registry.Session, s.registry.Revision,
-				map[string]string{"reason": "patch_interrupted_by_combat"})
+				map[string]string{"reason": "patch_in_progress"})
 			return
 		}
 		var result world.CombatResult
@@ -802,36 +868,37 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				s.ack(p, m, false, "out_of_order_revision")
 				return
 			}
-			s.registry.Destroyed[result.EntityID] = true
-			if s.runtime != nil && result.EntityID == s.objectiveID {
-				s.runtime.ObjectiveDestroyed = true
-				if !s.saveScenarioRuntime() {
-					s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
-					return
-				}
+			patch := world.Patch{ID: "combat:" + result.EventID, BaseRevision: s.registry.Revision,
+				ResultRevision: m.Revision, Removals: []string{result.EntityID},
+				Counts: world.PatchCounts{Removals: 1}}
+			candidate, mask, err := s.registry.StagePatch(m.Session, patch, s.mapping,
+				s.transform, s.bwWidth, s.bwHeight)
+			if err != nil {
+				s.ack(p, m, false, err.Error())
+				return
 			}
-			s.registry.Revision = m.Revision
-			delete(s.targetLinks, result.EntityID)
-			_ = s.emit(s.controller, "entity.remove", m.Session, m.Revision, map[string]string{"id": result.EntityID})
-			_ = s.emit(s.park, "entity.remove", m.Session, m.Revision, map[string]string{"id": result.EntityID})
+			candidate.Destroyed[result.EntityID] = true
+			candidate.RemovalState[result.EntityID] = result.State
+			s.parkPatch = &parkPatchStage{patch: patch, digest: patch.Digest(),
+				candidate: candidate, mask: mask, created: time.Now(),
+				maskChanged: mask.Hash != s.navigationMask.Hash, combatResult: &result}
+			s.ready = false
+			s.ack(p, m, true, "")
+			_ = s.emit(p, "world.patch.status", m.Session, m.Revision,
+				map[string]any{"patch_id": patch.ID, "state": "staged", "navigation_hash": mask.Hash})
+			// Retire the dead proxy immediately so it cannot keep occupying the
+			// demolished footprint while navigation waits for its common frame.
+			// The base revision keeps native navigation staging ordered.
+			_ = s.emit(s.bw, "combat.result", m.Session, s.registry.Revision, result)
+			s.startNativePatch()
+			return
 		}
 		s.registry.RemovalState[result.EntityID] = result.State
 		delete(s.pending, result.EventID)
 		s.ack(p, m, true, "")
 		_ = s.emit(s.bw, "combat.result", m.Session, s.registry.Revision, result)
-		if result.State == "removal_confirmed" {
-			// Both OpenBW players must rebuild paths on the same simulation frame.
-			// A local update on only one frame diverges their unit positions.
-			applyFrame := s.pendingFrames[result.EventID] + 96
-			s.sendNavigationMask(s.bw, applyFrame)
-			s.sendNavigationMask(s.controller, applyFrame)
-			if result.EntityID == s.objectiveID {
-				s.announceOutcome(s.lastMarines, s.lastZerglings)
-			}
-		} else {
-			s.ready = false
-			_ = s.emit(s.park, "world.resync", m.Session, s.registry.Revision, map[string]string{"reason": "removal_failed"})
-		}
+		s.ready = false
+		_ = s.emit(s.park, "world.resync", m.Session, s.registry.Revision, map[string]string{"reason": "removal_failed"})
 		delete(s.pendingFrames, result.EventID)
 	case "entity.upsert", "entity.remove", "entity.transform", "entity.state", "navigation.terrain.update":
 		// The envelope and model are versioned for future live updates. Applying
@@ -947,7 +1014,7 @@ func (s *service) forwardSnapshot() {
 	}
 	begin := world.SnapshotBegin{Width: derivedWidth, Height: derivedHeight, Chunks: len(chunks)}
 	if s.scenario != nil {
-		if s.runtime != nil && s.runtime.ObjectiveDestroyed {
+		if s.runtime != nil && (s.runtime.ObjectiveDestroyed || s.runtime.ObjectiveRemoved) {
 			s.objectiveID = s.runtime.ObjectiveEntityID
 		} else {
 			id, err := s.scenario.ObjectiveEntityID(r, s.scenario.InitialAI.Objective)
@@ -1157,9 +1224,11 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		s.publishReady()
 	case "world.targets.status":
 		var status struct {
-			PatchID          string `json:"patch_id"`
-			Targets          int    `json:"targets"`
-			UnsupportedTotal int    `json:"unsupported_total"`
+			PatchID            string         `json:"patch_id"`
+			Targets            int            `json:"targets"`
+			UnsupportedTotal   int            `json:"unsupported_total"`
+			Unsupported        []string       `json:"unsupported"`
+			UnsupportedReasons map[string]int `json:"unsupported_reasons"`
 		}
 		if m.Decode(&status) != nil || s.targetPatch == nil ||
 			status.PatchID != s.targetPatch.id || m.Session != s.registry.Session ||
@@ -1170,12 +1239,30 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		patch := s.targetPatch
 		s.targetPatch = nil
 		s.ack(p, m, true, "")
+		if patch.objectiveRemoved && s.runtime != nil {
+			s.runtime.ObjectiveRemoved = true
+			if !s.saveScenarioRuntime() {
+				s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+				return
+			}
+			log.Printf("scenario objective removed manually id=%s revision=%d", s.objectiveID, s.registry.Revision)
+		}
+		if patch.objectiveRemoved {
+			s.announceOutcome(s.lastMarines, s.lastZerglings)
+		}
 		_ = s.emit(s.park, "world.patch.status", s.registry.Session, s.registry.Revision,
 			map[string]any{"patch_id": patch.id, "state": "synchronized",
-				"navigation_hash": patch.hash, "apply_frame": patch.frame})
-		log.Printf("park patch synchronized id=%s revision=%d hash=%s frame=%d targets=%d unsupported=%d elapsed_ms=%d",
+				"navigation_hash": patch.hash, "apply_frame": patch.frame,
+				"unsupported_total":   status.UnsupportedTotal,
+				"unsupported_reasons": status.UnsupportedReasons})
+		log.Printf("park patch synchronized id=%s revision=%d hash=%s frame=%d targets=%d unsupported=%d elapsed_ms=%d target_ms=%d",
 			patch.id, s.registry.Revision, patch.hash, patch.frame, status.Targets,
-			status.UnsupportedTotal, time.Since(patch.created).Milliseconds())
+			status.UnsupportedTotal, time.Since(patch.created).Milliseconds(),
+			time.Since(patch.targetStarted).Milliseconds())
+		if status.UnsupportedTotal > 0 {
+			log.Printf("park patch native target unsupported id=%s reasons=%v objects=%v",
+				patch.id, status.UnsupportedReasons, status.Unsupported)
+		}
 		s.pumpSpawns()
 	case "entity.retire":
 		var retired struct {
@@ -1191,13 +1278,14 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 		delete(s.proxies, retired.ID)
 		delete(s.targetLinks, retired.ID)
+		log.Printf("native target retired id=%s proxy=%s reason=%s revision=%d", retired.ID,
+			retired.ProxyID, retired.Reason, m.Revision)
 		s.ack(p, m, true, "")
 		_ = s.emit(s.controller, "entity.remove", m.Session, m.Revision, map[string]string{"id": retired.ID})
 		_ = s.emit(s.park, "entity.remove", m.Session, m.Revision, map[string]string{"id": retired.ID})
 	case "combat.event":
 		var event world.CombatEvent
-		if m.Decode(&event) != nil || event.Type != "destruction" || m.Session != s.registry.Session ||
-			(!s.ready && s.parkPatch == nil && s.targetPatch == nil) {
+		if m.Decode(&event) != nil || event.Type != "destruction" || m.Session != s.registry.Session {
 			s.ack(p, m, false, "invalid_combat_event")
 			return
 		}

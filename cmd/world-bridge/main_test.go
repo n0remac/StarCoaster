@@ -414,10 +414,42 @@ func TestSnapshotOrderingAndCombatConfirmation(t *testing.T) {
 	s.parkMessage(nil, world.Message("world.snapshot.end", sid, "park:resync-end", "openrct2", 1, world.SnapshotEnd{Entities: 1}))
 	s.proxies[e.ID] = "openbw:8"
 	s.ready = true
+	transform, err := world.Fit(8, 8, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.transform, s.bwWidth, s.bwHeight = transform, 8, 8
+	s.navigationMask, err = world.DeriveNavigation(s.registry, transform, 8, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
 	event.ID = "death:2"
 	event.ProxyID = "openbw:8"
+	s.ready = false // Reconnected publisher may report the old zero-HP target before readiness.
 	s.bwMessage(nil, world.Message("combat.event", sid, "bw:2", "openbw", 1, event))
+	if s.pending[event.ID].ID == "" {
+		t.Fatal("replayed native destruction was lost during reconciliation")
+	}
 	s.parkMessage(nil, world.Message("combat.result", sid, "park:7", "openrct2", 2, world.CombatResult{EventID: event.ID, EntityID: e.ID, State: "removal_confirmed"}))
+	if s.registry.Destroyed[e.ID] || s.registry.Revision != 1 || s.parkPatch == nil {
+		t.Fatal("confirmed park removal committed before native application")
+	}
+	hash := s.parkPatch.mask.Hash
+	for _, participant := range []string{"publisher", "controller"} {
+		s.nativePatchReport(participant, world.Message("navigation.mask.staged", sid, participant+":stage", "openbw", 2,
+			map[string]any{"hash": hash, "accepted": true}))
+	}
+	frame := s.parkPatch.applyFrame
+	for _, participant := range []string{"publisher", "controller"} {
+		s.nativePatchReport(participant, world.Message("navigation.mask.scheduled", sid, participant+":schedule", "openbw", 2,
+			map[string]any{"hash": hash, "accepted": true, "apply_frame": frame}))
+	}
+	for _, participant := range []string{"publisher", "controller"} {
+		applied := world.Message("navigation.mask.applied", sid, participant+":applied", "openbw", 2,
+			map[string]any{"hash": hash, "accepted": true})
+		applied.BWTick = frame
+		s.nativePatchReport(participant, applied)
+	}
 	if !s.registry.Destroyed[e.ID] || s.registry.Revision != 2 || s.registry.RemovalState[e.ID] != "removal_confirmed" {
 		t.Fatal("confirmed removal not recorded")
 	}

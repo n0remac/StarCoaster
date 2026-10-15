@@ -3,14 +3,16 @@ package world
 import (
 	"fmt"
 	"hash/fnv"
+	"time"
 )
 
 // NavigationMask is a packed 8-pixel OpenBW walk grid. Bit one is blocked.
 // OpenBW remains responsible for pathfinding and unit collision on this grid.
 type NavigationMask struct {
-	Width, Height int // OpenBW build tiles
-	Bits          []byte
-	Hash          string
+	Width, Height  int // OpenBW build tiles
+	Bits           []byte
+	Hash           string
+	DerivationTime time.Duration `json:"-"`
 }
 
 func (m NavigationMask) walkWidth() int { return m.Width * 4 }
@@ -84,6 +86,7 @@ func (m NavigationMask) blockRect(r Rect) {
 // cells in a partial export are blocked; an empty legacy export means flat
 // ground inside the park. Padding outside the centered park stays blocked.
 func DeriveNavigation(r *Registry, transform Transform, bwWidth, bwHeight int) (NavigationMask, error) {
+	started := time.Now()
 	if r == nil || r.Width < 1 || r.Height < 1 || bwWidth < r.Width || bwHeight < r.Height ||
 		bwWidth > 256 || bwHeight > 256 || transform.Numerator != 1 || transform.Denominator != 1 ||
 		transform.OffsetX != (bwWidth-r.Width)/2 || transform.OffsetY != (bwHeight-r.Height)/2 {
@@ -160,5 +163,6 @@ func DeriveNavigation(r *Registry, transform Transform, bwWidth, bwHeight int) (
 	hash := fnv.New64a()
 	_, _ = hash.Write(m.Bits)
 	m.Hash = fmt.Sprintf("%016x", hash.Sum64())
+	m.DerivationTime = time.Since(started)
 	return m, nil
 }

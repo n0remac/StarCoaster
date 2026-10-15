@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <cerrno>
@@ -30,7 +31,8 @@
 class WorldAdapter {
     using json = nlohmann::json;
     struct Target { std::string id; BWAPI::Unit unit = nullptr; int proxyID = -1; int lastHP = 0;
-        bool reported = false; std::string lifecycle = "active"; int x = 0, y = 0; };
+        bool reported = false; std::string lifecycle = "active"; int x = 0, y = 0;
+        int desiredHP = 0, healthFrame = 0; };
     struct PendingTarget { std::string id; int x = 0; int y = 0; int health = 0;
         bool requested = false; int requestedFrame = 0; std::set<int> beforeIDs; };
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
@@ -159,11 +161,25 @@ public:
                 }
             }
         }
+        std::vector<std::string> failedHealthTargets;
         for (auto& [id,target] : targets_) {
             const int hp = target.unit && target.unit->exists() ? target.unit->getHitPoints() : 0;
+            if (target.lifecycle == "pending_health") {
+                if (hp == target.desiredHP) {
+                    target.lifecycle = "active";
+                    target.lastHP = hp;
+                    send("entity.state",{{"id",id},{"proxy_id","openbw:"+std::to_string(target.proxyID)},
+                        {"proxy_x",target.x},{"proxy_y",target.y},{"health",hp}},revision_,frame);
+                } else if (frame - target.healthFrame >= 12) {
+                    reportUnsupported(id, "proxy_health_update_failed");
+                    failedHealthTargets.push_back(id);
+                }
+                continue;
+            }
             if (hp != target.lastHP) { target.lastHP=hp; send("entity.state",{{"id",id},{"proxy_id","openbw:"+std::to_string(target.proxyID)},
                 {"proxy_x",target.x},{"proxy_y",target.y},{"health",hp}},revision_,frame); }
-            if (hp==0 && !target.reported && target.lifecycle=="active") {
+            if (hp==0 && !target.reported && (target.lifecycle=="active"
+                || target.lifecycle=="destroyed_in_openbw")) {
                 target.reported=true;
                 target.lifecycle="destroyed_in_openbw";
                 send("combat.event",{{"id",session_+":"+std::to_string(frame)+":destruction:"+std::to_string(++event_)},
@@ -172,6 +188,8 @@ public:
                 std::cerr << "[world] target destroyed id=" << id << " frame=" << frame << std::endl;
             }
         }
+        for (const auto& id : failedHealthTargets)
+            retireTarget(game, id, "proxy_health_update_failed");
         if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI") && assault_.active(frame)) assaultAI(game);
         for (auto unit:game->getAllUnits()) {
             if (unit && unit->exists() && (unit->getType()==BWAPI::UnitTypes::Zerg_Zergling
@@ -190,7 +208,7 @@ private:
             {"map_width",game->mapWidth()},{"map_height",game->mapHeight()}},1,0);
         std::cerr << "[world] connected to bridge service" << std::endl;
     }
-    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); maskReceiver_.reset(); maskValid_=false; pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; ready_=false; }
+    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); maskReceiver_.reset(); maskValid_=false; pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; for (auto& [id, target] : targets_) if (target.lifecycle=="destroyed_in_openbw") target.reported=false; ready_=false; }
     void flush() {
         while (socket_>=0 && !outgoing_.empty()) {
             const ssize_t n=::send(socket_,outgoing_.data(),outgoing_.size(),MSG_NOSIGNAL);
@@ -214,6 +232,22 @@ private:
         const std::string kind=message.value("kind","");
         const auto& payload=message.at("payload");
         if (kind=="world.ack") return;
+        if (kind=="navigation.mask.cancel") {
+            const auto revision = message.at("revision").get<uint64_t>();
+            const auto hash = payload.value("hash", "");
+            if (message.value("session", "") == session_) {
+                if (stagedMaskRevision_ == revision && stagedMaskHash_ == hash) {
+                    stagedMask_.clear(); stagedMaskHash_.clear();
+                }
+                if (pendingMaskRevision_ == revision && pendingMaskHash_ == hash) {
+                    pendingMask_.clear(); pendingMaskHash_.clear();
+                }
+                if (maskRevision_ == revision && maskHash_ == hash) {
+                    maskValid_ = false; maskReceiver_.reset();
+                }
+            }
+            ack(message,true); return;
+        }
         if (kind=="navigation.mask.begin") {
             const bool valid = message.value("session", "") == session_
                 && message.at("revision").get<uint64_t>() >= revision_
@@ -228,6 +262,10 @@ private:
             maskRevision_ = message.at("revision").get<uint64_t>();
             maskApplyFrame_ = payload.value("apply_frame", 0);
             maskStageOnly_ = payload.value("stage_only", false);
+            if (valid && !maskStageOnly_) {
+                stagedMask_.clear(); stagedMaskHash_.clear();
+                pendingMask_.clear(); pendingMaskHash_.clear();
+            }
             if (!valid) maskReceiver_.reset();
             return;
         }
@@ -486,8 +524,10 @@ private:
     }
     void applyScheduledNavigation(BWAPI::Game* game) {
         if (!pendingMaskHash_.empty() && game->getFrameCount() >= pendingMaskFrame_) {
+            const auto rebuildStarted = std::chrono::steady_clock::now();
             const bool onTime = pendingMaskFrame_ == 0 || game->getFrameCount() == pendingMaskFrame_;
-            const bool occupied = !pendingMaskUnchanged_ && candidateOverlapsMobile(game, pendingMask_);
+            const bool occupied = !pendingMaskUnchanged_ && pendingMaskFrame_ != 0
+                && candidateOverlapsMobile(game, pendingMask_);
             const bool applied = onTime && !occupied && (pendingMaskUnchanged_
                 || (game->setParkNavigation(pendingMask_) && navigation_.installMask(pendingMask_)));
             if (!pendingMaskUnchanged_) navigation_.markNative(applied);
@@ -498,7 +538,10 @@ private:
                     ? "occupied_construction_geometry" : "native_navigation_update_failed"}},
                 pendingMaskRevision_, game->getFrameCount());
             std::cerr << "[world] navigation-mask hash=" << pendingMaskHash_
-                      << " frame=" << game->getFrameCount() << " accepted=" << applied << std::endl;
+                      << " frame=" << game->getFrameCount() << " accepted=" << applied
+                      << " rebuild_us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now() - rebuildStarted).count()
+                      << " unchanged=" << pendingMaskUnchanged_ << std::endl;
             pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear();
         }
         for (auto it = pendingRemovals_.begin(); it != pendingRemovals_.end();) {
@@ -530,13 +573,35 @@ private:
     }
     void reconcile(BWAPI::Game* game, const starcoaster::DesiredWorld& desired) {
         const bool newSession = !session_.empty() && session_ != desired.session;
+        if (!newSession && session_ == desired.session && !session_.empty()) {
+            starcoaster::NavigationAdapter candidate;
+            candidate.replace(desired);
+            if (candidateOverlapsMobile(game, candidate.mask())) {
+                ready_ = false;
+                send("world.ready", {{"reconciled",false},
+                    {"reason","occupied_construction_geometry"}}, desired.revision,
+                    game->getFrameCount());
+                std::cerr << "[world] reconciliation blocked by occupied construction geometry"
+                    << std::endl;
+                return;
+            }
+        }
         if (newSession) { nativeSpawns_.clear(); activeSpawn_.clear(); }
         const auto plan = starcoaster::planReconciliation(desired_, desired);
         for (auto it = targets_.begin(); it != targets_.end();) {
+            if (!newSession && desired.entities.count(it->first)
+                && it->second.lifecycle == "active"
+                && (!it->second.unit || !it->second.unit->exists()
+                    || it->second.unit->getHitPoints() <= 0)) {
+                it->second.lifecycle = "destroyed_in_openbw";
+                it->second.reported = false;
+                it->second.lastHP = 0;
+            }
             if (newSession || !desired.entities.count(it->first)
                 || it->second.lifecycle == "proxy_retired"
                 || it->second.lifecycle == "park_removal_failed"
-                || (it->second.unit && !it->second.unit->exists())) {
+                || (it->second.unit && !it->second.unit->exists()
+                    && it->second.lifecycle != "destroyed_in_openbw")) {
                 if (it->second.unit && it->second.unit->exists()) game->removeUnit(it->second.unit);
                 usedUnits_.erase(it->second.proxyID);
                 it = targets_.erase(it);
@@ -611,13 +676,18 @@ private:
         const auto type = kind == "terran_marine" ? BWAPI::UnitTypes::Terran_Marine
             : BWAPI::UnitTypes::Zerg_Zergling;
         int& ownerID = kind == "terran_marine" ? marineOwnerID_ : zergOwnerID_;
-        for (auto unit : game->getAllUnits()) {
-            if (!unit || !unit->exists() || unit->getType() != type || !unit->getPlayer()) continue;
-            const int observed = unit->getPlayer()->getID();
-            if (ownerID >= 0 && observed != ownerID) {
-                spawnError_ = "ambiguous_native_owner"; return false;
+        // Resolve the native owner once from the starting roster. Later units
+        // of the same type may belong to another player; they do not change
+        // the authority of an already accepted spawn request stream.
+        if (ownerID < 0) {
+            for (auto unit : game->getAllUnits()) {
+                if (!unit || !unit->exists() || unit->getType() != type || !unit->getPlayer()) continue;
+                const int observed = unit->getPlayer()->getID();
+                if (ownerID >= 0 && observed != ownerID) {
+                    spawnError_ = "ambiguous_native_owner"; return false;
+                }
+                ownerID = observed;
             }
-            ownerID = observed;
         }
         BWAPI::Player owner = nullptr;
         for (auto player : game->getPlayers())
@@ -787,12 +857,29 @@ private:
             if (!enemy) { reportUnsupported(id, "no_enemy_player"); continue; }
             auto current = targets_.find(id);
             if (current != targets_.end()) {
+                if (current->second.lifecycle == "destroyed_in_openbw") {
+                    send("entity.state", {{"id", id},
+                        {"proxy_id", "openbw:"+std::to_string(current->second.proxyID)},
+                        {"proxy_x", current->second.x}, {"proxy_y", current->second.y},
+                        {"health", 0}}, revision_, game->getFrameCount());
+                    continue;
+                }
                 if (current->second.lifecycle == "park_removal_failed") {
                     reportUnsupported(id, "removal_failed_reconcile_required"); continue;
                 }
+                if (current->second.lifecycle == "pending_health") continue;
                 if (current->second.unit && current->second.unit->exists()) {
                     const auto position = current->second.unit->getPosition();
-                    if (navigation_.blocked(position.x, position.y, 12)) {
+                    bool nearFootprint = false;
+                    for (const auto& rect : entity.at("geometry").value("rects", json::array())) {
+                        const int x = rect.at("x"), y = rect.at("y");
+                        const int right = x + rect.at("width").get<int>();
+                        const int bottom = y + rect.at("height").get<int>();
+                        const int dx = std::max({x - position.x, 0, position.x - right});
+                        const int dy = std::max({y - position.y, 0, position.y - bottom});
+                        if (dx + dy <= 48) { nearFootprint = true; break; }
+                    }
+                    if (navigation_.blocked(position.x, position.y, 12) || !nearFootprint) {
                         preservedHP_[id] = current->second.unit->getHitPoints();
                         retireTarget(game, id, "controlled_replacement");
                     } else {
@@ -888,6 +975,9 @@ private:
             } else { ++outstanding; ++index; }
         }
         if (!pending_.empty()) return;
+        if (std::any_of(targets_.begin(), targets_.end(), [](const auto& item) {
+            return item.second.lifecycle == "pending_health";
+        })) return;
         if (liveTargetsResolving_) {
             liveTargetsResolving_ = false;
             send("world.targets.status", {{"patch_id",liveTargetPatchID_},{"targets",targets_.size()},
@@ -919,12 +1009,15 @@ private:
     void associateTarget(BWAPI::Game* game, const PendingTarget& pending, BWAPI::Unit unit) {
         if (pending.id.empty() || !entities_.count(pending.id)) game->removeUnit(unit);
         else {
-            if (pending.health > 0 && pending.health <= 100000) unit->setHitPoints(pending.health);
+            const int desiredHP = std::clamp(pending.health, 1, unit->getType().maxHitPoints());
+            if (unit->getHitPoints() != desiredHP) unit->setHitPoints(desiredHP);
+            const bool healthReady = unit->getHitPoints() == desiredHP;
             usedUnits_.insert(unit->getID());
             targets_[pending.id] = {pending.id, unit, unit->getID(), unit->getHitPoints(), false, "active",
-                unit->getPosition().x, unit->getPosition().y};
+                unit->getPosition().x, unit->getPosition().y, desiredHP, game->getFrameCount()};
+            if (!healthReady) targets_[pending.id].lifecycle = "pending_health";
             preservedHP_.erase(pending.id);
-            send("entity.state", {{"id", pending.id},
+            if (healthReady) send("entity.state", {{"id", pending.id},
                 {"proxy_id", "openbw:" + std::to_string(unit->getID())},
                 {"proxy_x", unit->getPosition().x},
                 {"proxy_y", unit->getPosition().y},

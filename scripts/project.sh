@@ -56,10 +56,28 @@ case "$command" in
         tests/test_unit_spawn_zerg_live.sh
         tests/test_playable_start_live.sh
         python3 tests/test_scenario_runtime_live.py
+        scripts/project.sh test-live-construction
+        ;;
+    test-live-construction)
+        tests/test_live_construction_navigation.sh
+        tests/test_live_construction_batch.sh
+        tests/test_live_construction_targets.sh
+        tests/test_live_construction_modification.sh
+        tests/test_live_construction_manual.sh
+        tests/test_live_construction_concurrent.sh
+        tests/test_live_construction_capacity.sh
+        tests/test_live_construction_overlap.sh
+        tests/test_live_construction_terrain.sh
+        tests/test_live_construction_scenery_path.sh
+        tests/test_live_construction_unchanged.sh
+        tests/test_live_construction_recovery.sh
+        tests/test_live_construction_interrupted.sh
+        tests/test_live_construction_death_recovery.sh
+        tests/test_live_objective_manual.sh
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {start|build|park|play|record|test|test-live|validate-scenario} [options]
+Usage: scripts/project.sh {start|build|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
 
 start [--scenario ID] [--headless|--client]  Fetch, build, stage, and play (Frontier default).
 play ID [--plan]                        Play an existing build; --plan only resolves paths.
@@ -67,6 +85,7 @@ park [ID]                               Force-generate a park (Frontier default)
 record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
 validate-scenario ID                    Validate scenario configuration.
 build, test, test-live                   Build and run offline or licensed live tests.
+test-live-construction                  Run licensed live construction regressions.
 
 Set RCT2_DATA_DIR and STARCRAFT_DATA_DIR for native commands.
 Use `start --help` and `record --help` for additional options.

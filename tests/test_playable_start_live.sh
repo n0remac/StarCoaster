@@ -26,12 +26,15 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 export DISPLAY=":$display_num"
-for attempt in $(seq 1 50); do
+for attempt in $(seq 1 100); do
   if [[ -S "/tmp/.X11-unix/X$display_num" ]]; then break; fi
   kill -0 "$display_pid" 2>/dev/null || { cat "$run_dir/display.log" >&2; exit 1; }
   sleep 0.1
 done
 test -S "/tmp/.X11-unix/X$display_num"
+# Xvfb can publish its socket before the screen is ready for OpenRCT2's
+# graphical client on slower hosts.
+sleep 2
 launcher=(scripts/project.sh play frontier-outpost)
 ready_limit=75
 if [[ "${PLAYABLE_FULL_START:-0}" == 1 ]]; then

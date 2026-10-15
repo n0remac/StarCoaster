@@ -4,6 +4,9 @@ registerPlugin({ name: "Live Construction Probe", version: "1.0.0", authors: ["S
     main: function () {
         if (network.mode !== "client") return;
         let phase = 0, started = 0, phaseStarted = 0, tick = 0, request = 0;
+        let bothClientsAt = 0;
+        const waitForSecondClient = typeof STARCOASTER_VISUAL_TWO_CLIENTS !== "undefined"
+            && STARCOASTER_VISUAL_TWO_CLIENTS;
         const x = 20 * 32, y = 31 * 32, marine = "openbw:1003";
         function wallObject() {
             const match = objectManager.getAllObjects("wall").filter(function (entry) {
@@ -76,10 +79,13 @@ registerPlugin({ name: "Live Construction Probe", version: "1.0.0", authors: ["S
                 }).sort().join(","));
             }
             const now = Date.now();
+            if (waitForSecondClient && !bothClientsAt && (network.players || []).length >= 3)
+                bothClientsAt = now;
             if (++tick % 4 === 0) console.log("LIVE_CONSTRUCTION_POSITION phase=" + phase
                 + " x=" + unit.x + " y=" + unit.y + " hp=" + unit.hp
                 + " wall=" + wallPresent());
-            if (phase === 0 && now - started > 5000) {
+            if (phase === 0 && now - started > 5000
+                && (!waitForSecondClient || (bothClientsAt && now - bothClientsAt > 3000))) {
                 phase = 1; phaseStarted = now; build();
             } else if (phase === 1 && now - phaseStarted > 9000) {
                 phase = 2; phaseStarted = now; order(snapshot.session, 736);

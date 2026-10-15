@@ -112,6 +112,36 @@ func TestBridgeTerminalDemolitionSurvivesJournalRecovery(t *testing.T) {
 	}
 }
 
+func TestManualObjectiveRemovalKeepsDistinctDurableDefeat(t *testing.T) {
+	s, _ := spawnService(t)
+	scenario := &world.Scenario{Version: 2, ID: "manual-objective", ParkSize: [2]int{64, 64},
+		Objectives: []world.ScenarioObjective{{ID: "protect", Required: true}}}
+	scenario.InitialAI.Objective = "protect"
+	scenario.Defeat.ObjectiveDestroyed = "protect"
+	s.scenario = scenario
+	s.objectiveID = "openrct2:ride:100#1"
+	if err := s.initScenarioRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	s.runtime.ObjectiveEntityID = s.objectiveID
+	s.runtime.ObjectiveRemoved = true
+	s.announceOutcome(6, 0)
+	if s.outcome != "defeat" || s.registry.Destroyed[s.objectiveID] || s.runtime.ObjectiveDestroyed {
+		t.Fatal("manual objective removal was confused with combat destruction")
+	}
+	recovered := &service{registry: world.NewRegistry(), scenario: scenario, spawnJournalPath: s.spawnJournalPath}
+	if err := recovered.registry.Replace("session-a", 2, 64, 64, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.initScenarioRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	if recovered.runtime.Outcome != "defeat" || !recovered.runtime.ObjectiveRemoved ||
+		recovered.runtime.ObjectiveDestroyed {
+		t.Fatal("manual objective outcome was not recovered distinctly")
+	}
+}
+
 func TestBridgeRestoredWaveRequiresReconciliationAndCompleteSnapshotForDeath(t *testing.T) {
 	s, _ := spawnService(t)
 	s.bw = nil

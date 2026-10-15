@@ -77,6 +77,8 @@ def parse_args(argv=None):
     parser.add_argument("--cycle-rotations", action="store_true", help="save screenshots from all four park views")
     parser.add_argument("--ridge-probe", action="store_true", help="run the test-only cliff, slope and combat driver on client A")
     parser.add_argument("--ridge-assault", action="store_true", help="test native Zergling approach from below the saved ridge")
+    parser.add_argument("--live-construction", action="store_true",
+                        help="capture ordinary two-client wall construction and native rerouting")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
     args = parser.parse_args(argv)
     if not 15 <= args.duration <= 300:
@@ -87,8 +89,11 @@ def parse_args(argv=None):
         parser.error("--world-256 cannot be combined with a ridge probe")
     if args.world_256 and args.scenario is not None:
         parser.error("--scenario cannot be combined with --world-256")
+    if args.live_construction and args.video_layout == "single":
+        parser.error("--live-construction requires two clients")
     scenario_id = args.scenario or "frontier-outpost"
-    if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault or args.cycle_rotations):
+    if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault
+                                             or args.cycle_rotations or args.live_construction):
         parser.error("Frontier visual probes require --scenario frontier-outpost")
     if not args.world_256:
         try:
@@ -127,8 +132,14 @@ def main():
                               "video": None if args.no_video else video_config.__dict__,
                               "graphics": args.graphics, "frame_ms": args.frame_ms,
                               "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault,
+                              "live_construction": args.live_construction,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
+    if args.live_construction:
+        server_plugins = out / "server-data/plugin"
+        server_plugins.mkdir(parents=True, exist_ok=True)
+        (server_plugins / "live-construction-permissions.js").write_text(
+            (ROOT / "scripts/live-construction-permissions.js").read_text())
     overrides = {"RCT2_DATA_DIR": str(rct2), "STARCRAFT_DATA_DIR": str(starcraft),
                  "BRIDGE_LAUNCH_CLIENT": "0", "BRIDGE_SERVER_DATA_DIR": str(out / "server-data"),
                  "BRIDGE_CLIENT_DATA_DIR": str(out / "session-client-data"),
@@ -223,6 +234,12 @@ def main():
             if args.ridge_probe and name == "client-a":
                 (data_dir / "plugin/frontier-ridge-probe.js").write_text(
                     (ROOT / "scripts/frontier-ridge-probe.js").read_text())
+            if args.live_construction:
+                probe = "live-construction-probe.js" if name == "client-a" else "live-construction-observer.js"
+                source = (ROOT / "scripts" / probe).read_text()
+                if name == "client-a":
+                    source = "var STARCOASTER_VISUAL_TWO_CLIENTS = true;\n" + source
+                (data_dir / "plugin" / probe).write_text(source)
             if args.world_256 and name == "client-a":
                 (data_dir / "plugin/world-256-scale-probe.js").write_text(
                     (ROOT / "scripts/world-256-scale-probe.js").read_text())
@@ -245,10 +262,15 @@ def main():
                     transfer_failed = "Decompression error!" in (out / f"{name}.log").read_text(errors="replace")
                     if process.poll() is None:
                         os.killpg(process.pid, signal.SIGTERM)
-                    process.wait(timeout=5)
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
                     logs[-1].close()
-                    (out / f"{name}.log").rename(out / f"{name}-transfer-failed-{attempt + 1}.log")
-                    if not transfer_failed or attempt == 2:
+                    suffix = "transfer-failed" if transfer_failed else "startup-failed"
+                    (out / f"{name}.log").rename(out / f"{name}-{suffix}-{attempt + 1}.log")
+                    if attempt == 2:
                         raise
                 else:
                     clients[name] = process
@@ -333,6 +355,25 @@ def main():
         subprocess.run(["python3", str(ROOT / "scripts" / verifier), str(out)],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         detailed = json.loads((out / "verification.json").read_text())
+        if args.live_construction:
+            driver = client_logs[0]
+            observer = client_logs[1] if len(client_logs) > 1 else ""
+            patches = re.findall(r"park patch synchronized id=\S+ revision=\d+ hash=([0-9a-f]{16}) frame=(\d+)", snapshot)
+            publisher = set(re.findall(r"\[world\] navigation-mask hash=([0-9a-f]{16}) frame=(\d+) accepted=1", snapshot))
+            controller = set(re.findall(r"\[world-control\] navigation-mask hash=([0-9a-f]{16}) frame=(\d+) accepted=1", snapshot))
+            construction = {
+                "ordinary_wall_actions": "LIVE_CONSTRUCTION_BUILD accepted=true" in driver
+                    and "LIVE_CONSTRUCTION_REMOVE accepted=true" in driver,
+                "two_confirmed_revisions": len(patches) >= 2,
+                "both_native_participants": len(patches) >= 2 and
+                    all(item in publisher and item in controller for item in patches[:2]),
+                "second_client_saw_wall": "LIVE_OBSERVER_WALL present=true" in observer
+                    and observer.count("LIVE_OBSERVER_WALL present=false") >= 2,
+                "active_actor_movement": "LIVE_CONSTRUCTION_COMPLETE" in driver,
+            }
+            detailed["live_construction"] = construction
+            detailed["capture_complete"] = detailed["capture_complete"] and all(construction.values())
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
         if args.ridge_probe:
             with (out / "ridge-check.log").open("w") as check_log:
                 subprocess.run(["python3", str(ROOT / "scripts/verify-frontier-ridge.py"), str(out)],

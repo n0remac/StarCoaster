@@ -176,14 +176,24 @@ def main():
         # The saved Frontier ridge probe separately verifies a Marine's native
         # downhill route. Here the Zergling is actively attacking this Marine,
         # so a second route order would race against combat damage.
-        # A 256x256 park has over 65,000 blocked tile overlays in this update.
-        # Native VF4 variants must be shared; one clone per tile exceeds 0x8000.
+        # Keep the occupied cells open while applying a near-full blocked mask.
+        # Live reconciliation must reject geometry placed on existing actors.
+        # Native VF4 variants must still be shared at this scale.
+        occupied_tiles = set()
+        for unit in packet["payload"]["units"]:
+            if not unit.get("alive"):
+                continue
+            cx, cy = unit["x"] // 32, unit["y"] // 32
+            for yy in range(max(0, cy - 6), min(256, cy + 7)):
+                for xx in range(max(0, cx - 6), min(256, cx + 7)):
+                    occupied_tiles.add((xx, yy))
         started = time.monotonic()
         chunks = 256 * 256 // 128
         publisher.send("world.snapshot.begin", "probe:large:begin",
                        {"width": 256, "height": 256, "chunks": chunks}, 2)
         for index in range(chunks):
-            cells = [{"x": i % 256, "y": i // 256, "walkable": False}
+            cells = [{"x": i % 256, "y": i // 256,
+                      "walkable": (i % 256, i // 256) in occupied_tiles}
                      for i in range(index * 128, (index + 1) * 128)]
             publisher.send("world.snapshot.chunk", f"probe:large:{index}",
                            {"index": index, "entities": [], "terrain": cells}, 2)
@@ -196,7 +206,7 @@ def main():
             raise AssertionError(f"large collision mask failed: {large_ready['payload']}")
         report = {"native_map": [256, 256], "marine_start": expected_start,
                   "marine_arrived": [arrived_marine["x"], arrived_marine["y"]],
-                  "destination": target, "blocked_tiles": 256 * 256,
+                  "destination": target, "blocked_tiles": 256 * 256 - len(occupied_tiles),
                   "large_mask_seconds": elapsed, "navigation": "native",
                   "route_mask_hash": route_hash, "zergling_route": zerg_route}
         (RUN / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
