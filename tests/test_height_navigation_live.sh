@@ -5,6 +5,8 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
+exec {layered_live_lock_fd}> "$project_dir/run-data/.layered-navigation-live.lock"
+flock "$layered_live_lock_fd"
 python3 scripts/create-layered-navigation-park.py
 park_file="$project_dir/run-data/layered-navigation/layered-navigation.park"
 map_file="$project_dir/run-data/frontier-playable/map/frontier-outpost.scm"
@@ -88,7 +90,7 @@ def cause(x, y):
     index = ((y+oy)*4+2)*trace["native_width"]*4 + (x+ox)*4+2
     return trace["causes"].get(str(index), [])
 start = re.search(r"LAYERED_LIVE_START marine=(\d+),(\d+) zerg=(\d+),(\d+)", driver)
-end = re.search(r"LAYERED_LIVE_COMPLETE marine=(\d+),(\d+) zerg=(\d+),(\d+).*track=(true|false) path=(true|false) height=(true|false)", driver)
+end = re.search(r"LAYERED_LIVE_COMPLETE marine=(\d+),(\d+) zerg=(\d+),(\d+).*track=(true|false) path=(true|false) height=(true|false) ghost=(true|false)", driver)
 samples = [(int(elapsed), int(mx), int(my), int(zx), int(zy)) for elapsed, mx, my, zx, zy in re.findall(
     r"LAYERED_LIVE_POSITION elapsed=(\d+) marine=(\d+),(\d+) zerg=(\d+),(\d+)", driver)]
 initial = re.search(r"\[world\] navigation-mask hash=([0-9a-f]{16}).*?accepted=1", server)
@@ -132,6 +134,11 @@ checks = {
                                        + abs(int(end[4])-int(start[4]))) > 24),
     "real_overhead_actions": bool(end and end[5] == "true" and end[6] == "true"),
     "real_track_height_change": bool(end and end[7] == "true"),
+    "real_ghost_preview": bool(end and end[8] == "true"
+        and "LAYERED_LIVE_GHOST accepted=true ghost=true" in driver),
+    "ghost_absent_from_authoritative_world": not any(
+        any(c["x"] == 50 and c["y"] == 55 for c in e.get("geometry", {}).get("cells", []))
+        for e in after["entities"]),
     "all_revisions_synchronized": len(patches) >= 3 and len({p[1] for p in patches[:2]}) == 1
         and patches[2][1] != patches[1][1] and patches[2][1] == after["hash"],
     "unchanged_native_mask": "unchanged=1" in server,

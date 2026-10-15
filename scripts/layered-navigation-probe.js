@@ -4,8 +4,8 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
     main: function () {
         if (network.mode !== "client") return;
         let started = 0, tick = 0, ordered = false, lastOrderAttempt = 0;
-        let trackBuilt = false, pathBuilt = false, completed = false;
-        let trackAttempted = false, pathAttempted = false, heightAttempted = false;
+        let trackBuilt = false, pathBuilt = false, ghostBuilt = false, completed = false;
+        let trackAttempted = false, pathAttempted = false, ghostAttempted = false, heightAttempted = false;
         let heightChanged = false, waitingTicks = 0;
         let marineStart = null, zergStart = null;
         function actor(units, id) { return units.find(function (unit) { return unit.id === id; }); }
@@ -29,6 +29,21 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
                 pathBuilt = !result.error;
                 console.log("LAYERED_LIVE_PATH accepted=" + pathBuilt
                     + " reason=" + (result.errorMessage || "ok"));
+            });
+        }
+        function previewWall() {
+            context.executeAction("wallplace", { x: 50 * 32, y: 55 * 32, z: 112,
+                object: 9, edge: 1, primaryColour: 0, secondaryColour: 0,
+                tertiaryColour: 0, flags: 1 << 6 }, function (result) {
+                const tile = map.getTile(50, 55);
+                let foundGhost = false;
+                for (let i = 0; i < tile.numElements; i++) {
+                    const element = tile.getElement(i);
+                    if (element.type === "wall" && element.isGhost) foundGhost = true;
+                }
+                ghostBuilt = !result.error && foundGhost;
+                console.log("LAYERED_LIVE_GHOST accepted=" + !result.error
+                    + " ghost=" + foundGhost + " reason=" + (result.errorMessage || "ok"));
             });
         }
         function elevateLowTrack() {
@@ -88,6 +103,9 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
                 });
             }
             if (ordered && !trackAttempted && elapsed > 5000) { trackAttempted = true; placeTrack(); }
+            if (trackBuilt && !ghostAttempted && elapsed > 7000) {
+                ghostAttempted = true; previewWall();
+            }
             if (trackBuilt && !pathAttempted && elapsed > 9000) { pathAttempted = true; placePath(); }
             if (pathBuilt && !heightAttempted && elapsed > 16000) {
                 heightAttempted = true; elevateLowTrack();
@@ -98,7 +116,7 @@ registerPlugin({ name: "Layered Navigation Probe", version: "1.0.0", authors: ["
                     + " zerg=" + zerg.x + "," + zerg.y + " marine_start="
                     + marineStart.x + "," + marineStart.y + " zerg_start="
                     + zergStart.x + "," + zergStart.y + " track=" + trackBuilt + " path=" + pathBuilt
-                    + " height=" + heightChanged);
+                    + " height=" + heightChanged + " ghost=" + ghostBuilt);
             }
         });
     }
