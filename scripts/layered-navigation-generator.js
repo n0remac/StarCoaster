@@ -70,14 +70,25 @@ registerPlugin({ name: "Layered Navigation Generator", version: "1.0.0", authors
                 element.type = "footpath"; element.baseHeight = 17; element.clearanceHeight = 21;
                 element.object = 4; element.slopeDirection = null;
                 source.push({ fixture: "low_overhead_path", x: 46, y: 57, base_z: 136 });
+                // Isolated water and raised wall exercise the source exporter and
+                // the final native mask without changing the actor routes.
+                map.getTile(44, 55).getElement(0).waterHeight = 128;
+                source.push({ fixture: "water", x: 44, y: 55, water_z: 128 });
+                const wallTile = map.getTile(45, 52);
+                wallTile.insertElement(wallTile.numElements);
+                const wall = wallTile.getElement(wallTile.numElements - 1);
+                wall.type = "wall"; wall.object = 9; wall.baseHeight = 20;
+                wall.clearanceHeight = 24; wall.direction = 1;
+                source.push({ fixture: "raised_wall", x: 45, y: 52, base_z: 160 });
                 const diagnostics = [];
-                [[16,31],[27,30],[29,30],[35,30],[46,57],[47,57]].forEach(function (point) {
+                [[16,31],[27,30],[29,30],[35,30],[44,55],[45,52],[46,57],[47,57]].forEach(function (point) {
                     const item = map.getTile(point[0], point[1]);
                     for (let n = 0; n < item.numElements; n++) {
                         const e = item.getElement(n);
                         diagnostics.push({ x: point[0], y: point[1], type: e.type,
                             base_z: e.baseZ, clearance_z: e.clearanceZ,
                             occupied_quadrants: e.occupiedQuadrants,
+                            water_z: e.type === "surface" ? e.waterHeight : null,
                             ghost: e.isGhost, track_type: e.type === "track" ? e.trackType : null,
                             sequence: e.type === "track" ? e.sequence : null,
                             slope: e.type === "surface" ? e.slope : null,

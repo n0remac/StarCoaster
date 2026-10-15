@@ -15,6 +15,8 @@ at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
 at(1, 2).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
     clearanceZ: 160, occupiedQuadrants: 15, trackType: 0, sequence: 0, direction: 0 });
 at(4, 1).push({ type: 'small_scenery', object: 2, baseHeight: 14, quadrant: 0, direction: 0 });
+at(6, 4).push({ type: 'small_scenery', object: 5, baseHeight: 20,
+    baseZ: 160, clearanceZ: 184, occupiedQuadrants: 15, quadrant: 0, direction: 0 });
 at(5, 1).push({ type: 'wall', object: 3, baseHeight: 14, direction: 1 });
 at(5, 2)[0].slope = 12;
 at(5, 2).push({ type: 'footpath', object: 4, surfaceObject: 4,
@@ -39,7 +41,9 @@ const sandbox = {
     objectManager: { getAllObjects(kind) {
         if (kind === 'large_scenery') return [{ index: 1, identifier: 'rct2.scenery_large.test',
             tiles: [{ offset: { x: 0, y: 0, z: 0 } }, { offset: { x: 32, y: 0, z: 0 } }] }];
-        if (kind === 'small_scenery') return [{ index: 2, identifier: 'rct2.scenery_small.tree' }];
+        if (kind === 'small_scenery') return [
+            { index: 2, identifier: 'rct2.scenery_small.tree' },
+            { index: 5, identifier: 'rct2.scenery_small.no_supports', flags: 1 << 20 }];
         if (kind === 'wall') return [{ index: 3, identifier: 'rct2.scenery_wall.wall' }];
         return [];
     } },
@@ -103,7 +107,10 @@ assert.equal(terrainAt(5, 2).path_layers[0].slope_direction, 0,
 assert.equal(terrainAt(5, 2).path_layers[0].base_height, 112);
 assert.equal(terrainAt(1, 0).water, 128);
 assert.equal(terrainAt(1, 0).walkable, false);
-assert.equal(all.length, 7);
+assert.equal(all.length, 8);
+const overheadScenery = all.find(e => e.type === 'rct2.scenery_small.no_supports');
+assert.equal(overheadScenery.collision.volumes[0].base_z, 160,
+    'scenery with no supports has an overhead physical lower bound');
 assert.deepEqual(terrainAt(6, 6).path_layers.map(layer => layer.base_height), [112, 144],
     'snapshot preserves ground and elevated paths at one tile');
 assert.ok(!all.some(e => e.geometry.cells.some(c => c.x === 7 && c.y === 7)),
@@ -217,7 +224,7 @@ const rideTarget = all.find(e => e.kind === 'ride');
 const wallTarget = all.find(e => e.kind === 'wall');
 const sceneryTarget = all.find(e => e.kind === 'small_scenery');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.ready', session: sid,
-    payload: { entities: 7, targets: 3, target_ids: [rideTarget.id, wallTarget.id, sceneryTarget.id], navigation: 'native' } }) + '\n');
+    payload: { entities: 8, targets: 3, target_ids: [rideTarget.id, wallTarget.id, sceneryTarget.id], navigation: 'native' } }) + '\n');
 const spawnAction = registered.get('rtsbridge.spawnMarine');
 const spawnArgs = { session: sid, request_id: sid + ':spawn:1:1', count: 5, x: 96, y: 96 };
 assert.equal(spawnAction.query({ player: 1, args: spawnArgs }).error, undefined,

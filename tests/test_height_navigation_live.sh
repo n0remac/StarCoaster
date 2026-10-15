@@ -101,6 +101,12 @@ checks = {
     "loop_blocked": blocked(35,30),
     "low_path_blocked": blocked(46,57),
     "layered_path_clear": not any(blocked(47,57,sx,sy) for sx in range(4) for sy in range(4)),
+    "water_blocked": blocked(44,55),
+    "elevated_wall_clear": not any(blocked(45,52,sx,sy) for sx in range(4) for sy in range(4)),
+    "water_exported": any(e["type"] == "surface" and e["x"] == 44 and e["y"] == 55
+                          and e["water_z"] == 128 for e in source["elements"]),
+    "elevated_wall_exported": any(e["type"] == "wall" and e["x"] == 45 and e["y"] == 52
+                                and e["base_z"] == 160 for e in source["elements"]),
     "low_track_cause": any("track:0" in item for item in cause(27,30)),
     "station_cause": any("track:1" in item for item in cause(29,30)),
     "loop_cause": any("track:40" in item for item in cause(35,30)),
