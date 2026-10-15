@@ -24,6 +24,18 @@ this receipt step. `world.patch.query` retrieves a pending or completed
 patch's status after a lost acknowledgement. An unresolved staged patch expires
 after 30 seconds and triggers snapshot reconciliation.
 
+After both native navigation applications, the bridge sends
+`world.patch.targets` to the publisher with mapped additions, modifications,
+and removals at the committed revision. OpenBW accepts the target definitions,
+then resolves asynchronous proxy creation and sends `world.targets.status`
+with the patch ID, target count, and unsupported reasons. The bridge publishes
+`world.patch.status: synchronized` only after that report. `entity.state`
+supplies a native binding; the bridge sends `entity.target` to the park server
+when a live binding becomes usable, refreshing the versioned multiplayer
+catalog. Controlled proxy replacement first emits `entity.retire`. Manual
+demolition retires its binding without a combat destruction event. Navigation
+remains active when a combat proxy is unsupported or cannot be placed.
+
 Manual removals retire canonical IDs without setting a combat destruction
 flag. Combat demolition retains its distinct `combat.result` confirmation.
 If combat demolition interrupts an unresolved patch, the bridge requests an

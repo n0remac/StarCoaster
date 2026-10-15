@@ -202,6 +202,13 @@
             });
             return { entities: result, terrain: terrain };
         }
+        function publishActiveTargets() {
+            onTargets(session, Object.keys(entities).filter(function (id) {
+                return entities[id].activeTarget === true;
+            }).sort().map(function (id) {
+                return { id: id, rects: entities[id].entity.geometry.rects };
+            }));
+        }
         function comparableEntity(entity) {
             return JSON.stringify({ id: entity.id, source_id: entity.source_id, kind: entity.kind,
                 type: entity.type, owner: entity.owner, position: entity.position,
@@ -391,6 +398,7 @@
                     revision = message.revision;
                     patchInFlight = null;
                     detectedSignature = "";
+                    publishActiveTargets();
                     markConstruction();
                     console.log("WORLD_PATCH_SYNC revision=" + revision);
                 } else if (message.payload.state === "failed" || message.payload.state === "unsynchronized") {
@@ -444,11 +452,15 @@
                 });
             else if (message.kind === "entity.remove") {
                 const removed = message.payload && message.payload.id;
-                if (typeof removed === "string") onTargets(session,
-                    Object.keys(entities).filter(function (id) {
-                        return id !== removed && entities[id].activeTarget === true;
-                    }).map(function (id) { return { id: id, rects: entities[id].entity.geometry.rects }; }));
                 if (entities[removed]) entities[removed].activeTarget = false;
+                if (typeof removed === "string") publishActiveTargets();
+            }
+            else if (message.kind === "entity.target") {
+                const target = message.payload || {};
+                if (entities[target.id] && typeof target.proxy_id === "string") {
+                    entities[target.id].activeTarget = true;
+                    publishActiveTargets();
+                }
             }
             else if (message.kind === "world.error")
                 console.log("WORLD_NOT_READY " + message.payload.reason);

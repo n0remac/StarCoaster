@@ -103,7 +103,7 @@ public:
         }
         flush();
         applyScheduledNavigation(game);
-        if (initializing_) resolveTargets(game);
+        if (initializing_ || liveTargetsResolving_) resolveTargets(game);
         if (!ready_) return;
         const int frame = game->getFrameCount();
         publishRuntimeEvents(frame);
@@ -299,6 +299,69 @@ private:
             send("navigation.mask.scheduled", {{"hash",hash},{"accepted",accepted},
                 {"apply_frame",frame},{"error",accepted ? "" : "navigation_schedule_late_or_stale"}},
                 message.at("revision").get<uint64_t>(), game->getFrameCount());
+            return;
+        }
+        if (kind=="world.patch.targets") {
+            if (message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != revision_
+                || !payload.is_object()) { ack(message,false,"stale_target_patch"); return; }
+            try {
+                auto next = desired_.entities;
+                std::set<std::string> touched;
+                const auto removals = payload.at("removals");
+                const auto additions = payload.at("additions");
+                const auto modifications = payload.at("modifications");
+                if (!removals.is_array() || !additions.is_array() || !modifications.is_array()
+                    || removals.size()+additions.size()+modifications.size()>4096)
+                    throw std::invalid_argument("invalid_target_patch_shape");
+                if (liveTargetsResolving_) throw std::invalid_argument("target_patch_in_progress");
+                for (const auto& value : removals) {
+                    const auto id = value.get<std::string>();
+                    if (!touched.insert(id).second || !next.erase(id))
+                        throw std::invalid_argument("invalid_target_removal");
+                }
+                for (const auto& value : additions) {
+                    auto entity = starcoaster::parseEntity(value, game->mapWidth(), game->mapHeight());
+                    if (!touched.insert(entity.id).second || next.count(entity.id))
+                        throw std::invalid_argument("invalid_target_addition");
+                    next.emplace(entity.id, std::move(entity));
+                }
+                for (const auto& value : modifications) {
+                    auto entity = starcoaster::parseEntity(value, game->mapWidth(), game->mapHeight());
+                    if (!touched.insert(entity.id).second || !next.count(entity.id))
+                        throw std::invalid_argument("invalid_target_modification");
+                    next[entity.id] = std::move(entity);
+                }
+                for (const auto& value : removals) retireTarget(game, value.get<std::string>(), "manual_removed");
+                for (const auto& value : modifications) {
+                    const auto id = value.at("id").get<std::string>();
+                    const auto& entity = next.at(id);
+                    if (!entity.destructible || !entity.targetable)
+                        retireTarget(game, id, "targetability_removed");
+                    else for (auto& pending : pending_) if (pending.id == id) pending.id.clear();
+                }
+                desired_.entities = std::move(next);
+                desired_.revision = revision_;
+                for (const auto& id : touched) {
+                    auto found = desired_.entities.find(id);
+                    if (found == desired_.entities.end()) entities_.erase(id);
+                    else entities_[id] = found->second.raw;
+                }
+                unsupported_ = json::array(); unsupportedTotal_ = 0;
+                unsupportedReasons_ = json::object();
+                std::set<std::string> changed;
+                for (const auto& value : additions) changed.insert(value.at("id").get<std::string>());
+                for (const auto& value : modifications) changed.insert(value.at("id").get<std::string>());
+                requestTargets(game, &changed);
+                liveTargetsResolving_ = true;
+                liveTargetPatchID_ = payload.at("patch_id").get<std::string>();
+                ack(message,true);
+                std::cerr << "[world] live targets accepted additions=" << additions.size()
+                    << " modifications=" << modifications.size() << " removals=" << removals.size()
+                    << " revision=" << revision_ << std::endl;
+            } catch (const std::exception& exception) {
+                ack(message,false,exception.what());
+            }
             return;
         }
         if (kind=="world.snapshot.begin") {
@@ -686,7 +749,21 @@ private:
                 publishedActors_.insert(actor.unit->getID());
             }
     }
-    void requestTargets(BWAPI::Game* game) {
+    void retireTarget(BWAPI::Game* game, const std::string& id, const std::string& reason) {
+        for (auto& pending : pending_) if (pending.id == id) pending.id.clear();
+        auto current = targets_.find(id);
+        if (current == targets_.end()) return;
+        auto unit = current->second.unit;
+        const int proxyID = current->second.proxyID;
+        current->second.lifecycle = reason;
+        targets_.erase(current);
+        usedUnits_.erase(proxyID);
+        if (reason == "controlled_replacement")
+            send("entity.retire", {{"id",id},{"proxy_id","openbw:"+std::to_string(proxyID)},
+                {"reason",reason}}, revision_, game->getFrameCount());
+        if (unit && unit->exists()) game->removeUnit(unit);
+    }
+    void requestTargets(BWAPI::Game* game, const std::set<std::string>* only = nullptr) {
         auto self = game->self();
         auto enemy = targetOwner(game);
         if (self && enemy && !self->isEnemy(enemy)) game->setAlliance(enemy, false, false);
@@ -701,6 +778,7 @@ private:
                 && (entities_.at(b).value("kind", "") != "ride");
         });
         for (const auto& id : ids) {
+            if (only && !only->count(id)) continue;
             const auto& entity = entities_.at(id);
             if (!entity.value("destructible", false)) continue;
             if (!entity.at("combat").value("targetable", false)) {
@@ -713,6 +791,11 @@ private:
                     reportUnsupported(id, "removal_failed_reconcile_required"); continue;
                 }
                 if (current->second.unit && current->second.unit->exists()) {
+                    const auto position = current->second.unit->getPosition();
+                    if (navigation_.blocked(position.x, position.y, 12)) {
+                        preservedHP_[id] = current->second.unit->getHitPoints();
+                        retireTarget(game, id, "controlled_replacement");
+                    } else {
                     const int maximum = entity.at("combat").value("health", 40);
                     if (maximum > 0 && current->second.unit->getHitPoints() > maximum)
                         current->second.unit->setHitPoints(maximum);
@@ -723,6 +806,7 @@ private:
                         {"health", current->second.unit->getHitPoints()}},
                         revision_, game->getFrameCount());
                     continue;
+                    }
                 }
             }
             if (std::any_of(pending_.begin(), pending_.end(),
@@ -746,7 +830,9 @@ private:
             if (!findProxyPosition(game, x, y)) {
                 reportUnsupported(id, "no_valid_proxy_position"); continue;
             }
-            pending_.push_back({id, x, y, entity.at("combat").value("health", 40)});
+            const int health = preservedHP_.count(id) ? preservedHP_.at(id)
+                : entity.at("combat").value("health", 40);
+            pending_.push_back({id, x, y, health});
         }
         std::cerr << "[world] requested targets=" << pending_.size()
                   << " unsupported=" << unsupportedTotal_ << std::endl;
@@ -802,6 +888,16 @@ private:
             } else { ++outstanding; ++index; }
         }
         if (!pending_.empty()) return;
+        if (liveTargetsResolving_) {
+            liveTargetsResolving_ = false;
+            send("world.targets.status", {{"patch_id",liveTargetPatchID_},{"targets",targets_.size()},
+                {"unsupported",unsupported_},{"unsupported_total",unsupportedTotal_},
+                {"unsupported_reasons",unsupportedReasons_}}, revision_, game->getFrameCount());
+            liveTargetPatchID_.clear();
+            std::cerr << "[world] live targets resolved revision=" << revision_
+                << " targets=" << targets_.size() << " unsupported=" << unsupportedTotal_ << std::endl;
+            return;
+        }
         initializing_ = false;
         ready_ = unsupportedReasons_.value("removal_failed_reconcile_required", 0) == 0;
         int marines = 0, zerglings = 0;
@@ -827,6 +923,7 @@ private:
             usedUnits_.insert(unit->getID());
             targets_[pending.id] = {pending.id, unit, unit->getID(), unit->getHitPoints(), false, "active",
                 unit->getPosition().x, unit->getPosition().y};
+            preservedHP_.erase(pending.id);
             send("entity.state", {{"id", pending.id},
                 {"proxy_id", "openbw:" + std::to_string(unit->getID())},
                 {"proxy_x", unit->getPosition().x},
@@ -973,6 +1070,9 @@ private:
     bool testSpawnDisconnectInjected_ = false;
     WorldAssaultController assault_;
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
+    std::map<std::string,int> preservedHP_;
+    bool liveTargetsResolving_=false;
+    std::string liveTargetPatchID_;
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();
     std::map<int,int> attackFrames_;
     std::map<int,std::pair<json,int>> lastActors_;

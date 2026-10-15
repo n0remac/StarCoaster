@@ -29,6 +29,39 @@ func TestSnapshotAtomicAndIdentity(t *testing.T) {
 		t.Fatal("rebuilt object reused old identity")
 	}
 }
+
+func TestSameSessionSnapshotPreservesHistoryWithoutResurrection(t *testing.T) {
+	r := NewRegistry()
+	continuing := exampleEntity("openrct2:ride:17#1")
+	if err := r.Replace("session-a", 3, 8, 8, []Entity{continuing}, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.Destroyed["openrct2:ride:8#1"] = true
+	r.RemovalState["openrct2:ride:8#1"] = "removal_confirmed"
+	r.AppliedPatches["patch-1"] = "digest"
+	r.Seen["op-1"] = Ack{Accepted: true}
+	if err := r.Replace("session-a", 3, 8, 8, []Entity{continuing}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Destroyed["openrct2:ride:8#1"] || r.RemovalState["openrct2:ride:8#1"] != "removal_confirmed" ||
+		r.AppliedPatches["patch-1"] != "digest" || !r.Seen["op-1"].Accepted {
+		t.Fatal("same-session reconciliation cleared history")
+	}
+	resurrected := exampleEntity("openrct2:ride:8#1")
+	resurrected.SourceID = "ride:8"
+	if err := r.Replace("session-a", 4, 8, 8, []Entity{continuing, resurrected}, nil); err == nil {
+		t.Fatal("destroyed identity resurrected")
+	}
+	if r.Revision != 3 || len(r.Entities) != 1 {
+		t.Fatal("failed reconciliation mutated registry")
+	}
+	if err := r.Replace("session-b", 1, 8, 8, []Entity{resurrected}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Destroyed) != 0 || len(r.AppliedPatches) != 0 || len(r.Seen) != 0 {
+		t.Fatal("new session inherited prior history")
+	}
+}
 func TestRevisionAndDuplicateOperations(t *testing.T) {
 	r := NewRegistry()
 	e := exampleEntity("openrct2:ride:17#1")

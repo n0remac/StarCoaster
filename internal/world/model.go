@@ -313,8 +313,33 @@ func (r *Registry) Replace(session string, revision uint64, width, height int, e
 		}
 		seenCells[p] = true
 	}
+	sameSession := r.Session != "" && r.Session == session
+	if sameSession {
+		for id, destroyed := range r.Destroyed {
+			if destroyed && next[id].ID != "" {
+				return fmt.Errorf("destroyed_entity_reappeared %s", id)
+			}
+		}
+	}
+	destroyed, removals, seen, patches := map[string]bool{}, map[string]string{}, map[string]Ack{}, map[string]string{}
+	if sameSession {
+		for id, value := range r.Destroyed {
+			destroyed[id] = value
+		}
+		for id, value := range r.RemovalState {
+			removals[id] = value
+		}
+		if revision >= r.Revision {
+			for id, value := range r.Seen {
+				seen[id] = value
+			}
+			for id, value := range r.AppliedPatches {
+				patches[id] = value
+			}
+		}
+	}
 	r.Session, r.Revision, r.Width, r.Height = session, revision, width, height
-	r.Entities, r.Terrain, r.Destroyed, r.RemovalState, r.Seen, r.AppliedPatches = next, terrain, map[string]bool{}, map[string]string{}, map[string]Ack{}, map[string]string{}
+	r.Entities, r.Terrain, r.Destroyed, r.RemovalState, r.Seen, r.AppliedPatches = next, terrain, destroyed, removals, seen, patches
 	return nil
 }
 func (r *Registry) IDs() []string {
