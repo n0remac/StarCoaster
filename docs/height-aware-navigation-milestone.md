@@ -109,11 +109,18 @@ maxima in that run were 3,138 and 29,807 bytes.
 
 Exact UTF-8 payload sizing initially raised one layered-park discovery from
 373 to 1,293 ms. An ASCII fast path reduced two subsequent discoveries to
-628 and 635 ms while retaining the Unicode byte-count test. In the final
+628 and 635 ms while retaining the Unicode byte-count test. In a
 `run-data/layered-nav-live-1792103865/` run, construction discoveries took
 137–172 ms; patch payloads were 3,599, 876, and 3,599 bytes. The three
 navigation derivations took 5.187, 3.664, and 4.151 ms. Revision 4 rebuilt
 native masks in 23.104 and 23.598 ms and synchronized in 4,364 ms.
+The final ghost-preview run measured 621 ms initial discovery, 295 volumes,
+3,138 bytes for its largest entity, and 29,807 bytes for its largest snapshot
+chunk. Construction discoveries took 140–149 ms. Its three patch payloads were
+3,599, 876, and 3,599 bytes; navigation derivations took 3.680, 4.362, and
+3.855 ms. The changed revision rebuilt native masks in 23.184 and 23.470 ms
+and synchronized in 4,320 ms. Both overhead revisions used the unchanged-mask
+path.
 
 Initial `source` tags classify those volumes as 217 wall edges, 48 scenery
 support fallbacks, 2 scenery elements flagged without supports, 25 complex
