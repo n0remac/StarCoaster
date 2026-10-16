@@ -14,6 +14,7 @@
     const SPAWN_STATUS_ACTION = "rtsbridge.spawnStatus";
     const WAVE_ACTION = "rtsbridge.requestWave";
     const WAVE_STATUS_ACTION = "rtsbridge.waveStatus";
+    const BARRACKS_OBJECT = "starcoaster.scenery_large.terran_barracks";
 
     function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor,
                                onSpawnSender, onSpawnStatus, onWaveSender, onWaveStatus) {
@@ -23,6 +24,8 @@
         let revision = 1, serial = 0, socket = null, buffer = "", inFlight = null, lastCombatSeq = 0, retryTicks = 0;
         let inFlightTicks = 0;
         const queue = [], generations = {}, activeKeys = {}, activeItems = {}, entities = {}, completed = {};
+        const parkStorage = typeof context.getParkStorage === "function" ? context.getParkStorage() : null;
+        const savedBarracksGenerations = parkStorage ? (parkStorage.get("barracksGenerations", {}) || {}) : {};
         const constructionActions = {
             ridecreate: true, ridedemolish: true, trackplace: true, trackremove: true,
             trackdesign: true, mazeplacetrack: true, mazesettrack: true,
@@ -234,9 +237,12 @@
                             : kind === "large_scenery" ? { action: "largesceneryremove", args: { x: anchorX, y: anchorY, z: anchorZ, direction: direction, tileIndex: 0 } }
                             : kind === "wall" ? { action: "wallremove", args: { x: x * 32, y: y * 32, z: z, direction: direction } }
                             : { action: "footpathremove", args: { x: x * 32, y: y * 32, z: z } };
-                        grouped[key] = { key: key, kind: kind === "footpath" ? "path" : kind,
-                            type: kind === "footpath" ? String(element.surfaceObject || object)
-                                : ((names[kind] && names[kind][object]) || String(object)),
+                        const identifier = (names[kind] && names[kind][object]) || String(object);
+                        const barracks = kind === "large_scenery" && identifier === BARRACKS_OBJECT;
+                        grouped[key] = { key: key, kind: barracks ? "structure" : kind === "footpath" ? "path" : kind,
+                            type: barracks ? "terran_barracks" : kind === "footpath" ? String(element.surfaceObject || object)
+                                : identifier,
+                            name: barracks ? "Terran Barracks" : "",
                             x: anchorX, y: anchorY, z: anchorZ, direction: direction,
                             cells: [], rects: [], volumes: [], removal: removal };
                     }
@@ -298,7 +304,15 @@
             const now = {}, result = [];
             Object.keys(grouped).sort().forEach(function (key) {
                 const item = grouped[key]; now[key] = true;
-                if (!activeKeys[key]) generations[key] = (generations[key] || 0) + 1;
+                if (!activeKeys[key]) {
+                    generations[key] = item.kind === "structure"
+                        ? Math.max((generations[key] || 0) + 1, savedBarracksGenerations[key] || 1)
+                        : (generations[key] || 0) + 1;
+                    if (item.kind === "structure" && parkStorage) {
+                        savedBarracksGenerations[key] = generations[key];
+                        parkStorage.set("barracksGenerations", savedBarracksGenerations);
+                    }
+                }
                 activeKeys[key] = true;
                 const cells = item.cells.filter(function (cell, index, all) {
                     return all.findIndex(function (other) { return other.x === cell.x && other.y === cell.y; }) === index;
@@ -315,7 +329,8 @@
                 });
                 const id = "openrct2:" + key + "#" + generations[key];
                 const entity = { id: id, source: "openrct2", source_id: key, kind: item.kind,
-                    type: item.type, owner: 0, position: { x: Math.max(0, minX), y: Math.max(0, minY) },
+                    type: item.type, owner: item.kind === "structure" ? 1 : 0,
+                    position: { x: Math.max(0, minX), y: Math.max(0, minY) },
                     rotation: item.direction || 0, elevation: item.z,
                     geometry: { cells: sortedCells, rects: item.kind === "wall" ? item.rects.slice().sort(function (a, b) {
                         return a.y - b.y || a.x - b.x || a.width - b.width || a.height - b.height;
@@ -342,7 +357,13 @@
             // A ride with no remaining track still owns its native ride ID.
             // Its next track edit must retain the same logical generation.
             Object.keys(read.rides).forEach(function (id) { now["ride:" + id] = true; });
-            Object.keys(activeKeys).forEach(function (key) { if (!now[key]) { delete activeKeys[key]; delete activeItems[key]; } });
+            Object.keys(activeKeys).forEach(function (key) { if (!now[key]) {
+                if (activeItems[key] && activeItems[key].kind === "structure" && parkStorage) {
+                    savedBarracksGenerations[key] = (generations[key] || 1) + 1;
+                    parkStorage.set("barracksGenerations", savedBarracksGenerations);
+                }
+                delete activeKeys[key]; delete activeItems[key];
+            } });
             terrain.forEach(function (cell) {
                 if (cell.path_layers) cell.path_layers.sort(function (a, b) {
                     return a.base_height - b.base_height
@@ -357,7 +378,8 @@
             onTargets(session, Object.keys(entities).filter(function (id) {
                 return entities[id].activeTarget === true;
             }).sort().map(function (id) {
-                return { id: id, rects: entities[id].entity.geometry.rects };
+                return { id: id, rects: entities[id].entity.geometry.rects,
+                    health: entities[id].health === undefined ? entities[id].entity.combat.health : entities[id].health };
             }));
         }
         function comparableEntity(entity) {
@@ -467,7 +489,8 @@
             const tileX = Math.floor(args.x / 32), tileY = Math.floor(args.y / 32);
             Object.keys(activeItems).forEach(function (key) {
                 const item = activeItems[key];
-                if (item.kind === kind && (item.cells.some(function (cell) { return cell.x === tileX && cell.y === tileY; })
+                if ((item.kind === kind || (kind === "large_scenery" && item.kind === "structure"))
+                    && (item.cells.some(function (cell) { return cell.x === tileX && cell.y === tileY; })
                     || (item.removal.args && item.removal.args.x === args.x && item.removal.args.y === args.y)))
                     activeKeys[key] = false;
             });
@@ -639,7 +662,8 @@
                 lastCombatSeq = 0;
                 const targets = (message.payload.target_ids || []).map(function (id) {
                     const item = entities[id];
-                    return item ? { id: id, rects: item.entity.geometry.rects } : null;
+                    return item ? { id: id, rects: item.entity.geometry.rects,
+                        health: item.health === undefined ? item.entity.combat.health : item.health } : null;
                 }).filter(function (item) { return item !== null; });
                 Object.keys(entities).forEach(function (id) { entities[id].activeTarget = false; });
                 targets.forEach(function (item) { entities[item.id].activeTarget = true; });
@@ -673,6 +697,7 @@
                 const target = message.payload || {};
                 if (entities[target.id] && typeof target.proxy_id === "string") {
                     entities[target.id].activeTarget = true;
+                    if (Number.isInteger(target.health)) entities[target.id].health = target.health;
                     publishActiveTargets();
                 }
             }
@@ -760,6 +785,13 @@
             || typeof rtsBridge.invalidateAnimation !== "function"
             || typeof rtsBridge.actorScreenPosition !== "function") {
             throw new Error("RTS Bridge needs the matching native OpenRCT2 build and asset pack");
+        }
+
+        let barracksObject = null;
+        if (typeof objectManager === "object") {
+            barracksObject = objectManager.getAllObjects("large_scenery").find(function (entry) {
+                return entry.identifier === BARRACKS_OBJECT;
+            }) || (typeof objectManager.load === "function" ? objectManager.load(BARRACKS_OBJECT) : null);
         }
 
         let controlSession = "";
@@ -948,6 +980,8 @@
                     || !args.targets.every(function (item) {
                         return item && typeof item.id === "string" && item.id.length <= 256
                             && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(item.id)
+                            && (item.health === undefined || (Number.isInteger(item.health)
+                                && item.health >= 0 && item.health <= 1000000))
                             && Array.isArray(item.rects) && item.rects.length > 0 && item.rects.length <= 8192
                             && item.rects.every(function (rect) {
                                 return Number.isInteger(rect.x) && Number.isInteger(rect.y)
@@ -990,7 +1024,8 @@
                         chunks: args.chunks, next: 0, targets: {} };
                 }
                 args.targets.forEach(function (item) {
-                    pendingTargetCatalog.targets[item.id] = { geometry: { rects: item.rects } };
+                    pendingTargetCatalog.targets[item.id] = { geometry: { rects: item.rects },
+                        health: item.health === undefined ? 100 : item.health };
                 });
                 pendingTargetCatalog.next++;
                 if (pendingTargetCatalog.next === pendingTargetCatalog.chunks) {
@@ -1258,7 +1293,131 @@
             let spawnCount = 5;
             let nextSpawnRequest = 0;
             let nextWaveRequest = 0;
+            let constructionWindow = null;
+            let barracksInfoWindow = null;
+            let barracksInfoID = "";
+            let barracksPreview = null;
+            let barracksPreviewStatus = "Select Barracks to place";
+            let barracksQuery = 0;
             const controlGroups = {};
+            function footprintAt(point) {
+                if (!point) return null;
+                const x = Math.floor(point.x / 32), y = Math.floor(point.y / 32);
+                if (x < 1 || y < 1 || x + 4 >= map.size.x || y + 3 >= map.size.y) return null;
+                return { x: x, y: y, tiles: Array.from({ length: 12 }, function (_, index) {
+                    return { x: x + index % 4, y: y + Math.floor(index / 4) };
+                }) };
+            }
+            function footprintReason(footprint) {
+                if (!footprint) return "Outside the park";
+                let height = null;
+                for (const tile of footprint.tiles) {
+                    const elements = map.getTile(tile.x, tile.y);
+                    let surface = null;
+                    for (let index = 0; index < elements.numElements; index++) {
+                        const element = elements.getElement(index);
+                        if (element.isGhost) continue;
+                        if (element.type === "surface") surface = element;
+                        else return "Ground is obstructed";
+                    }
+                    if (!surface || surface.waterHeight || surface.slope) return "Requires dry, flat ground";
+                    const z = Number.isInteger(surface.baseZ) ? surface.baseZ : surface.baseHeight * 8;
+                    if (height !== null && height !== z) return "Requires level ground";
+                    height = z;
+                }
+                if (Object.keys(controlUnits).some(function (id) {
+                    const unit = controlUnits[id];
+                    return unit.hp > 0 && unit.x >= footprint.x * 32 && unit.y >= footprint.y * 32
+                        && unit.x < (footprint.x + 4) * 32 && unit.y < (footprint.y + 3) * 32;
+                })) return "A unit occupies this site";
+                return "";
+            }
+            function barracksArgs(footprint) {
+                const tile = map.getTile(footprint.x, footprint.y);
+                let surface = null;
+                for (let index = 0; index < tile.numElements; index++) {
+                    if (tile.getElement(index).type === "surface") { surface = tile.getElement(index); break; }
+                }
+                return { x: footprint.x * 32, y: footprint.y * 32,
+                    z: Number.isInteger(surface.baseZ) ? surface.baseZ : surface.baseHeight * 8,
+                    direction: 0, object: barracksObject.index,
+                    primaryColour: 0, secondaryColour: 0, tertiaryColour: 0 };
+            }
+            function updateConstructionStatus() {
+                if (!constructionWindow) return;
+                const widget = constructionWindow.findWidget("barracks-status");
+                if (widget) widget.text = barracksPreviewStatus;
+            }
+            function previewBarracks(event) {
+                const footprint = footprintAt(pointFrom(event));
+                barracksPreview = footprint;
+                barracksPreviewStatus = footprintReason(footprint) || "Checking park clearance...";
+                const query = ++barracksQuery;
+                updateConstructionStatus();
+                refreshSelection();
+                if (!footprint || barracksPreviewStatus !== "Checking park clearance...") return;
+                context.queryAction("largesceneryplace", barracksArgs(footprint), function (result) {
+                    if (query !== barracksQuery || !barracksPreview) return;
+                    barracksPreviewStatus = result.error ? result.errorMessage || "Blocked" : "Valid site - click to build";
+                    updateConstructionStatus();
+                });
+            }
+            function activateBarracksTool() {
+                if (!barracksObject || typeof context.queryAction !== "function") {
+                    ui.showError("Terran Barracks", "Barracks object is unavailable");
+                    return;
+                }
+                ui.activateTool({ id: "starcoaster.place-barracks", cursor: "cross_hair",
+                    filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
+                    onMove: previewBarracks,
+                    onDown: function (event) {
+                        const footprint = footprintAt(pointFrom(event));
+                        const reason = footprintReason(footprint);
+                        if (reason) { barracksPreviewStatus = reason; updateConstructionStatus(); return; }
+                        const args = barracksArgs(footprint);
+                        context.queryAction("largesceneryplace", args, function (query) {
+                            if (query.error) {
+                                barracksPreviewStatus = query.errorMessage || "Blocked";
+                                updateConstructionStatus(); return;
+                            }
+                            if (footprintReason(footprint)) return;
+                            context.executeAction("largesceneryplace", args, function (result) {
+                                if (result.error) {
+                                    barracksPreviewStatus = result.errorMessage || "Construction failed";
+                                    updateConstructionStatus();
+                                } else {
+                                    barracksPreviewStatus = "Barracks constructed";
+                                    updateConstructionStatus();
+                                    if (ui.tool && ui.tool.id === "starcoaster.place-barracks") ui.tool.cancel();
+                                }
+                            });
+                        });
+                    },
+                    onFinish: function () {
+                        barracksPreview = null;
+                        barracksQuery++;
+                        refreshSelection();
+                    } });
+            }
+            function openConstructionWindow() {
+                if (constructionWindow) return;
+                constructionWindow = ui.openWindow({ classification: "starcoaster-construction",
+                    width: 238, height: 134, title: "StarCraft Construction",
+                    onClose: function () {
+                        constructionWindow = null;
+                        if (ui.tool && ui.tool.id === "starcoaster.place-barracks") ui.tool.cancel();
+                    }, widgets: [
+                        { type: "label", x: 8, y: 19, width: 220, height: 14, text: "Terran" },
+                        { type: "button", x: 8, y: 35, width: 220, height: 26,
+                            text: "Barracks  |  4 x 3 tiles", onClick: activateBarracksTool },
+                        { type: "label", x: 8, y: 68, width: 220, height: 14,
+                            text: "Zerg and Protoss buildings coming later" },
+                        { type: "label", name: "barracks-status", x: 8, y: 93, width: 220, height: 28,
+                            text: barracksPreviewStatus }
+                    ] });
+            }
+            if (typeof ui.registerMenuItem === "function")
+                ui.registerMenuItem("StarCraft Construction", openConstructionWindow);
             const squadWindow = ui.openWindow({ classification: "starcoaster-squad",
                 width: 248, height: 211, title: "Frontier Outpost", widgets: [
                     { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
@@ -1326,12 +1485,14 @@
                     });
                 });
 
-                    const tiles = spawnMode && spawnPreview ? [spawnPreview] : selected.map(function (id) {
+                    const tiles = ui.tool && ui.tool.id === "starcoaster.place-barracks" && barracksPreview
+                        ? barracksPreview.tiles.map(function (tile) { return { x: tile.x * 32, y: tile.y * 32 }; })
+                        : spawnMode && spawnPreview ? [spawnPreview] : selected.map(function (id) {
                         const unit = controlUnits[id];
                         return { x: Math.floor(unit.x / 32) * 32, y: Math.floor(unit.y / 32) * 32 };
                     });
                     const key = JSON.stringify(tiles);
-                    if (ui.tool && !spawnMode) highlightedTiles = "";
+                    if (ui.tool && !spawnMode && ui.tool.id !== "starcoaster.place-barracks") highlightedTiles = "";
                     else if (key !== highlightedTiles) {
                         ui.tileSelection.tiles = tiles;
                         highlightedTiles = key;
@@ -1530,12 +1691,62 @@
                 dragStart = null; dragEnd = null;
                 ui.tileSelection.range = null;
             }
+            function barracksAt(event) {
+                if (!barracksObject || !event || !event.mapCoords || event.alt) return null;
+                const point = event.mapCoords;
+                const x = Math.floor(point.x / 32), y = Math.floor(point.y / 32);
+                if (x < 0 || y < 0 || x >= map.size.x || y >= map.size.y) return null;
+                const tile = map.getTile(x, y);
+                for (let index = 0; index < tile.numElements; index++) {
+                    const element = tile.getElement(index);
+                    if (element.type === "large_scenery" && !element.isGhost
+                        && element.object === barracksObject.index) return point;
+                }
+                return null;
+            }
+            function barracksTargetAt(point) {
+                const prefix = "openrct2:large_scenery:" + barracksObject.index + ":";
+                return Object.keys(worldTargetIds).filter(function (id) {
+                    return id.startsWith(prefix) && worldTargetIds[id].geometry.rects.some(function (rect) {
+                        return point.x >= rect.x && point.x < rect.x + rect.width
+                            && point.y >= rect.y && point.y < rect.y + rect.height;
+                    });
+                })[0] || "";
+            }
+            function openBarracksInfo(point) {
+                barracksInfoID = barracksTargetAt(point);
+                if (barracksInfoWindow) ui.closeWindows("starcoaster-barracks-info");
+                barracksInfoWindow = ui.openWindow({ classification: "starcoaster-barracks-info",
+                    width: 244, height: 148, title: "Terran Barracks",
+                    onClose: function () { barracksInfoWindow = null; },
+                    onUpdate: function () {
+                        if (!barracksInfoWindow) return;
+                        if (!barracksInfoID) barracksInfoID = barracksTargetAt(point);
+                        const target = worldTargetIds[barracksInfoID];
+                        const identity = barracksInfoWindow.findWidget("building-identity");
+                        const health = barracksInfoWindow.findWidget("building-health");
+                        const status = barracksInfoWindow.findWidget("building-status");
+                        if (identity) identity.text = barracksInfoID || "Awaiting world identity";
+                        if (health) health.text = target ? "Health: " + target.health : "Health: awaiting native state";
+                        if (status) status.text = target ? "Construction: complete" : "Construction: synchronizing";
+                    }, widgets: [
+                        { type: "label", x: 8, y: 19, width: 228, height: 14, text: "Owner: Terran (player 1)" },
+                        { type: "label", name: "building-identity", x: 8, y: 37, width: 228,
+                            height: 14, text: barracksInfoID || "Awaiting world identity" },
+                        { type: "label", name: "building-health", x: 8, y: 55, width: 228,
+                            height: 14, text: "Health: awaiting native state" },
+                        { type: "label", name: "building-status", x: 8, y: 73, width: 228,
+                            height: 14, text: "Construction: synchronizing" },
+                        { type: "button", x: 8, y: 99, width: 228, height: 22,
+                            text: "Production (coming later)", isDisabled: true }
+                    ] });
+            }
             if (typeof ui.registerViewportInteraction !== "function")
                 throw new Error("RTS Bridge needs the native shared viewport input build");
             const marineSelection = { id: "starcoaster.select-marine",
                 filter: ["terrain", "water", "footpath", "ride", "wall", "scenery", "large_scenery"],
                 onHover: function (event) {
-                    return !event.alt && !!unitAtScreen(event.screenCoords, true);
+                    return !event.alt && (!!unitAtScreen(event.screenCoords, true) || !!barracksAt(event));
                 },
                 onDown: function (event) {
                     clearDrag();
@@ -1562,7 +1773,12 @@
                         return true;
                     }
                     const id = unitAtScreen(end, true);
-                    if (!id) return false;
+                    if (!id) {
+                        const building = barracksAt(event);
+                        if (!building) return false;
+                        openBarracksInfo(building);
+                        return true;
+                    }
                     chooseAt(id, event.shift);
                     return true;
                 },

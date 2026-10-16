@@ -1,0 +1,167 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+
+const tiles = new Map();
+function tile(x, y) {
+    const key = `${x},${y}`;
+    if (!tiles.has(key)) tiles.set(key, [{ type: 'surface', baseHeight: 14, baseZ: 112,
+        slope: 0, waterHeight: 0 }]);
+    const elements = tiles.get(key);
+    return { numElements: elements.length, getElement(index) { return elements[index]; }, elements };
+}
+const windows = new Map(), actions = new Map(), menu = new Map();
+let tool = null, passive = null, placements = 0;
+const ui = {
+    tileSelection: { tiles: [], range: null },
+    get tool() { return tool; },
+    openWindow(desc) {
+        const window = { desc, findWidget(name) { return desc.widgets.find(widget => widget.name === name); } };
+        windows.set(desc.classification, window);
+        return window;
+    },
+    closeWindows(name) { windows.delete(name); },
+    registerMenuItem(name, callback) { menu.set(name, callback); },
+    registerShortcut() {},
+    registerViewportInteraction(handler) { passive = handler; },
+    activateTool(next) {
+        if (tool) tool.cancel();
+        tool = next;
+        next.cancel = function () { tool = null; if (next.onFinish) next.onFinish(); };
+    },
+    showError(_title, message) { throw Error(message); },
+};
+const barracks = { index: 7, identifier: 'starcoaster.scenery_large.terran_barracks',
+    tiles: Array.from({ length: 12 }, (_, i) => ({ offset: { x: i % 4 * 32,
+        y: Math.floor(i / 4) * 32, z: 0 } })) };
+const context = {
+    registerAction(name, query, execute) { actions.set(name, { query, execute }); },
+    subscribe() {},
+    queryAction(name, args, callback) {
+        assert.equal(name, 'largesceneryplace');
+        let blocked = false;
+        for (let y = args.y / 32; y < args.y / 32 + 3; y++)
+            for (let x = args.x / 32; x < args.x / 32 + 4; x++)
+                if (tile(x, y).numElements > 1) blocked = true;
+        callback(blocked ? { error: 1, errorMessage: 'Blocked by park object' } : {});
+    },
+    executeAction(name, args, callback) {
+        assert.equal(name, 'largesceneryplace');
+        placements++;
+        for (let y = args.y / 32; y < args.y / 32 + 3; y++)
+            for (let x = args.x / 32; x < args.x / 32 + 4; x++)
+                tile(x, y).elements.push({ type: 'large_scenery', object: 7, baseHeight: 14,
+                    baseZ: 112, sequence: (y - args.y / 32) * 4 + x - args.x / 32 });
+        callback({});
+    },
+};
+const sandbox = {
+    map: { size: { x: 16, y: 16 }, rides: [], getTile: tile },
+    objectManager: { getAllObjects(kind) { return kind === 'large_scenery' ? [barracks] : []; } },
+    network: { mode: 'client', currentPlayer: { id: 1 }, players: [{ id: 1 }] },
+    rtsBridge: { version: 4, assetVersion: 3, applySnapshot() {},
+        invalidateAnimation() {}, actorScreenPosition() { return null; }, cursorWorld() { return null; } },
+    ui, context, console: { log() {} }, registerPlugin(plugin) { plugin.main(); },
+};
+vm.runInNewContext(fs.readFileSync('openrct2-plugin/rts-bridge.js', 'utf8'), sandbox);
+assert.equal(menu.has('StarCraft Construction'), true);
+menu.get('StarCraft Construction')();
+const construction = windows.get('starcoaster-construction');
+assert.ok(construction);
+construction.desc.widgets.find(widget => widget.text && widget.text.startsWith('Barracks')).onClick();
+assert.equal(tool.id, 'starcoaster.place-barracks');
+const event = { mapCoords: { x: 64, y: 64 }, screenCoords: { x: 300, y: 300 } };
+tool.onMove(event);
+assert.equal(ui.tileSelection.tiles.length, 12);
+assert.match(construction.findWidget('barracks-status').text, /Valid site/);
+tool.onDown(event);
+assert.equal(placements, 1);
+assert.equal(tool, null);
+assert.equal(tile(5, 4).numElements, 2);
+
+// Barracks inspection consumes its own passive hit without selecting a Marine.
+passive.onDown(event);
+assert.equal(passive.onUp(event), true);
+const info = windows.get('starcoaster-barracks-info');
+assert.ok(info);
+const targetID = 'openrct2:large_scenery:7:64:64:112:0#1';
+const catalog = { session: 'a'.repeat(32), version: 1, index: 0, chunks: 1,
+    targets: [{ id: targetID, rects: [{ x: 64, y: 64, width: 128, height: 96 }], health: 76 }] };
+const action = actions.get('rtsbridge.targetCatalog');
+assert.equal(action.query({ player: 1, args: catalog }).error, undefined);
+action.execute({ player: 1, args: catalog });
+info.desc.onUpdate();
+assert.equal(info.findWidget('building-health').text, 'Health: 76');
+assert.equal(info.findWidget('building-identity').text, targetID);
+const damaged = { ...catalog, version: 2, targets: [{ ...catalog.targets[0], health: 43 }] };
+assert.equal(action.query({ player: 1, args: damaged }).error, undefined);
+action.execute({ player: 1, args: damaged });
+info.desc.onUpdate();
+assert.equal(info.findWidget('building-health').text, 'Health: 43');
+
+// Existing paths and occupied units both reject placement before native action.
+tile(9, 2).elements.push({ type: 'footpath', baseHeight: 14 });
+construction.desc.widgets.find(widget => widget.text && widget.text.startsWith('Barracks')).onClick();
+const blocked = { mapCoords: { x: 256, y: 64 }, screenCoords: { x: 400, y: 300 } };
+tool.onMove(blocked);
+assert.match(construction.findWidget('barracks-status').text, /obstructed/);
+tool.onDown(blocked);
+assert.equal(placements, 1);
+tile(9, 2).elements.pop();
+const unit = { id: 'openbw:100', kind: 'terran_marine', owner: 1, hp: 40, max_hp: 40,
+    x: 9 * 32, y: 2 * 32, facing: 0, motion: 'idle', attack_frames: 0 };
+actions.get('rtsbridge.applySnapshot').execute({ player: 1,
+    args: { session: 'a'.repeat(32), seq: 1, units: [unit] } });
+tool.onMove(blocked);
+assert.match(construction.findWidget('barracks-status').text, /unit occupies/);
+tool.onDown(blocked);
+assert.equal(placements, 1);
+assert.equal(passive.onHover({ ...event, alt: true }), false);
+
+// Park storage keeps the structure ID stable when the plugin restarts on a saved park.
+let savedGenerations = {};
+function discoverAfterLoad() {
+    const placed = new Map();
+    for (let y = 2; y < 5; y++) for (let x = 2; x < 6; x++) {
+        placed.set(`${x},${y}`, [{ type: 'surface', baseHeight: 14, baseZ: 112 },
+            { type: 'large_scenery', object: 7, baseHeight: 14, direction: 0,
+                sequence: (y - 2) * 4 + x - 2 }]);
+    }
+    const sent = [], responses = [];
+    let socket;
+    const game = {
+        map: { size: { x: 16, y: 16 }, rides: [], getTile(x, y) {
+            const elements = placed.get(`${x},${y}`) || [{ type: 'surface', baseHeight: 14, baseZ: 112 }];
+            return { numElements: elements.length, getElement(index) { return elements[index]; } };
+        } },
+        objectManager: { getAllObjects(kind) { return kind === 'large_scenery' ? [barracks] : []; } },
+        network: { mode: 'server', currentPlayer: { id: 1 }, players: [{ id: 1 }], createSocket() {
+            socket = { handlers: {}, on(kind, callback) { this.handlers[kind] = callback; },
+                connect(_port, _host, callback) { callback(); }, destroy() {},
+                write(line) {
+                    const message = JSON.parse(line); sent.push(message);
+                    responses.push(JSON.stringify({ v: 1, kind: 'world.ack', session: message.session,
+                        payload: { op_id: message.op_id, accepted: true } }) + '\n');
+                } };
+            return socket;
+        } },
+        rtsBridge: { version: 4, assetVersion: 3, applySnapshot() {},
+            invalidateAnimation() {}, actorScreenPosition() {} },
+        context: { getParkStorage() { return { get() { return savedGenerations; },
+            set(_key, value) { savedGenerations = structuredClone(value); } }; },
+            registerAction() {}, subscribe() {}, executeAction() {} },
+        console: { log() {} }, registerPlugin(plugin) { plugin.main(); },
+    };
+    vm.runInNewContext(fs.readFileSync('openrct2-plugin/rts-bridge.js', 'utf8'), game);
+    while (responses.length) socket.handlers.data(responses.shift());
+    return sent.filter(message => message.kind === 'world.snapshot.chunk')
+        .flatMap(message => message.payload.entities || [])
+        .find(entity => entity.type === 'terran_barracks');
+}
+const firstLoad = discoverAfterLoad();
+assert.ok(firstLoad);
+assert.equal(firstLoad.kind, 'structure');
+assert.equal(firstLoad.owner, 1);
+assert.equal(firstLoad.geometry.cells.length, 12);
+assert.equal(discoverAfterLoad().id, firstLoad.id);
+console.log('Barracks menu, footprint, placement, inspection, and obstruction validation passed');
