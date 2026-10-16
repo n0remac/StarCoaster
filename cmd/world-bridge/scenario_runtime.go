@@ -176,6 +176,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 			if s.spawns.PendingCount() >= 64 || s.lastMarines+s.lastZerglings+s.spawns.PendingCount()+1 > s.actorLimit() {
 				break
 			}
+			r.Waves[wi].FailureReason = ""
 			request = r.Intent(wi, ui, position)
 			if !s.saveScenarioRuntime() {
 				s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))

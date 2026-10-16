@@ -12,9 +12,11 @@
     const CLIENT_READY_ACTION = "rtsbridge.clientReady";
     const SPAWN_ACTION = "rtsbridge.spawnMarine";
     const SPAWN_STATUS_ACTION = "rtsbridge.spawnStatus";
+    const WAVE_ACTION = "rtsbridge.requestWave";
+    const WAVE_STATUS_ACTION = "rtsbridge.waveStatus";
 
     function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor,
-                               onSpawnSender, onSpawnStatus) {
+                               onSpawnSender, onSpawnStatus, onWaveSender, onWaveStatus) {
         const session = Array.from({ length: 4 }, function () {
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
@@ -88,6 +90,7 @@
             knownSpawns[payload.request_id] = true;
             send("unit.spawn.request", payload);
         });
+        onWaveSender(function (payload) { send("scenario.wave.request", payload); });
         function rotate(offset, direction) {
             if (direction === 1) return { x: offset.y, y: -offset.x };
             if (direction === 2) return { x: -offset.x, y: -offset.y };
@@ -612,6 +615,7 @@
             }
             else if (message.kind === "combat.result" && message.payload.command_id) onCommandResult(message.payload);
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
+            else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
             else if (message.kind === "combat.snapshot") {
                 const state = message.payload;
                 if (!state || !Number.isSafeInteger(state.seq) || state.seq <= lastCombatSeq
@@ -766,6 +770,8 @@
         let commandSerial = 0;
         let worldCommandSender = null;
         let worldSpawnSender = null;
+        let worldWaveSender = null;
+        let waveFeedback = "";
         let spawnFeedback = "";
         const spawnStatuses = {};
         let worldTargetIds = {};
@@ -1011,8 +1017,15 @@
                     || !/^[a-zA-Z0-9_.:/#-]{1,128}$/.test(args.scenario_id || "")
                     || typeof args.display_name !== "string" || args.display_name.length > 128
                     || typeof args.objective !== "string" || args.objective.length > 256
-                    || !Number.isInteger(args.wave_ordinal) || args.wave_ordinal < 0 || args.wave_ordinal > 64
+                    || (args.mode !== undefined && !["", "park_defense"].includes(args.mode))
+                    || !Number.isInteger(args.wave_ordinal) || args.wave_ordinal < 0 || args.wave_ordinal > 1000000000
                     || !Number.isInteger(args.wave_total) || args.wave_total < 0 || args.wave_total > 64
+                    || (args.mode === "park_defense" && (
+                        !Number.isInteger(args.total_triggered) || args.total_triggered < 0 || args.total_triggered > 1000000000
+                        || !Number.isInteger(args.next_wave_seconds) || args.next_wave_seconds < 0 || args.next_wave_seconds > 1000000000
+                        || !Number.isInteger(args.active_zerglings) || args.active_zerglings < 0 || args.active_zerglings > 256
+                        || !Number.isInteger(args.manual_cooldown_seconds) || args.manual_cooldown_seconds < 0 || args.manual_cooldown_seconds > 1000000000
+                        || typeof args.manual_eligible !== "boolean"))
                     || !["", "pending", "triggered", "spawning", "active", "cleared", "failed"].includes(args.wave_state)
                     || !["", "victory", "defeat"].includes(args.outcome)
                     || typeof args.error !== "string" || args.error.length > 256)
@@ -1024,6 +1037,52 @@
                 console.log("WORLD_SCENARIO_STATUS scenario=" + missionStatus.scenario_id
                     + " wave=" + missionStatus.wave_ordinal + "/" + missionStatus.wave_total
                     + " state=" + missionStatus.wave_state + " outcome=" + missionStatus.outcome);
+                return {};
+            });
+            context.registerAction(WAVE_ACTION, function (event) {
+                const args = event.args || {};
+                if (!Array.isArray(network.players) || !network.players.some(function (player) {
+                    return player.id === event.player;
+                })) return { error: 1, errorMessage: "Player is not connected" };
+                if (network.mode === "server") {
+                    const connected = network.players.map(function (player) { return player.id; });
+                    if (!connected.includes(commanderPlayer)) commanderPlayer = -1;
+                    if (commanderPlayer < 0) {
+                        const clients = connected.filter(function (id) { return id !== network.currentPlayer.id; })
+                            .sort(function (a, b) { return a - b; });
+                        commanderPlayer = clients.length ? clients[0] : network.currentPlayer.id;
+                    }
+                    if (event.player !== commanderPlayer)
+                        return { error: 1, errorMessage: "Only the Terran commander may spawn a wave" };
+                    if (!worldWaveSender)
+                        return { error: 1, errorMessage: "Wave bridge disconnected" };
+                }
+                if (args.session !== controlSession || !missionStatus
+                    || missionStatus.session !== controlSession || missionStatus.mode !== "park_defense"
+                    || !Number.isSafeInteger(args.request) || args.request < 1
+                    || typeof args.request_id !== "string"
+                    || args.request_id !== args.session + ":wave:" + event.player + ":" + args.request)
+                    return { error: 1, errorMessage: "Invalid wave request" };
+                return {};
+            }, function (event) {
+                if (network.mode !== "server") return {};
+                worldWaveSender({ request_id: event.args.request_id, player_id: event.player,
+                    commander_id: commanderPlayer });
+                return {};
+            });
+            context.registerAction(WAVE_STATUS_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may report wave requests" };
+                return args.session === controlSession
+                    && typeof args.request_id === "string" && args.request_id.length <= 128
+                    && typeof args.accepted === "boolean" && typeof args.wave_id === "string"
+                    && args.wave_id.length <= 64 && ["queued", "rejected"].includes(args.state)
+                    && typeof args.reason === "string" && args.reason.length <= 128
+                    ? {} : { error: 1, errorMessage: "Invalid wave status" };
+            }, function (event) {
+                const args = event.args;
+                waveFeedback = args.accepted ? "Wave " + args.wave_id + " queued" : "Wave rejected: " + args.reason;
                 return {};
             });
             context.registerAction(COMMAND_ACTION, function (event) {
@@ -1187,9 +1246,10 @@
             let spawnPreview = null;
             let spawnCount = 5;
             let nextSpawnRequest = 0;
+            let nextWaveRequest = 0;
             const controlGroups = {};
             const squadWindow = ui.openWindow({ classification: "starcoaster-squad",
-                width: 248, height: 164, title: "Frontier Outpost", widgets: [
+                width: 248, height: 211, title: "Frontier Outpost", widgets: [
                     { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
                         text: "Waiting for battlefield" },
                     { type: "label", x: 8, y: 38, width: 232, height: 14,
@@ -1208,8 +1268,30 @@
                     { type: "label", name: "spawn-status", x: 88, y: 121, width: 152, height: 14,
                         text: "Call in reinforcements" },
                     { type: "label", name: "spawn-detail", x: 8, y: 144, width: 232, height: 14,
-                        text: "Click Spawn Marine, then a clear tile" }
+                        text: "Click Spawn Marine, then a clear tile" },
+                    { type: "button", name: "spawn-wave", x: 8, y: 164, width: 84, height: 20,
+                        text: "Spawn Wave", onClick: function () { requestWave(); } },
+                    { type: "label", name: "wave-countdown", x: 100, y: 167, width: 140, height: 14,
+                        text: "Waiting for wave status" },
+                    { type: "label", name: "wave-feedback", x: 8, y: 188, width: 232, height: 14,
+                        text: "" }
                 ] });
+            function requestWave() {
+                if (!controlSession || !missionStatus || missionStatus.mode !== "park_defense") {
+                    ui.showError("Spawn Wave", "Continuous park defense is not active");
+                    return;
+                }
+                const request = ++nextWaveRequest;
+                const requestId = controlSession + ":wave:" + network.currentPlayer.id + ":" + request;
+                waveFeedback = "Requesting an extra wave";
+                context.executeAction(WAVE_ACTION, { session: controlSession, request: request,
+                    request_id: requestId }, function (result) {
+                    if (result.error) {
+                        waveFeedback = result.errorMessage;
+                        ui.showError("Spawn Wave", result.errorMessage);
+                    }
+                });
+            }
             function pointFrom(event) { return event.mapCoords || rtsBridge.cursorWorld(); }
             function refreshSelection() {
                 if (selectionSession !== controlSession) {
@@ -1217,6 +1299,7 @@
                     Object.keys(controlGroups).forEach(function (number) { delete controlGroups[number]; });
                     commandFeedback = "";
                     spawnFeedback = "";
+                    waveFeedback = "";
                 }
                 selected = selected.filter(function (id) {
                     const unit = controlUnits[id];
@@ -1247,7 +1330,10 @@
                         + " selected" + (selected.length === 1 ? " | HP " + controlUnits[selected[0]].hp : "");
                     const objective = squadWindow.findWidget("objective");
                     if (objective) objective.text = missionStatus && missionStatus.session === controlSession
-                        ? (missionStatus.error ? "Wave error: " + missionStatus.error
+                        ? (missionStatus.mode === "park_defense"
+                            ? "Park defense | " + missionStatus.total_triggered + " waves | "
+                                + missionStatus.active_zerglings + " Zerglings"
+                            : missionStatus.error ? "Wave error: " + missionStatus.error
                             : missionStatus.outcome === "victory" ? "Victory: " + missionStatus.objective
                             : missionStatus.outcome === "defeat" ? "Defeat: " + missionStatus.objective
                             : missionStatus.objective + (missionStatus.wave_total
@@ -1258,6 +1344,17 @@
                     const status = squadWindow.findWidget("spawn-status");
                     if (status) status.text = spawnMode ? "Place " + spawnCount + " Marine" + (spawnCount === 1 ? "" : "s")
                         : spawnFeedback || "Call in reinforcements";
+                    const countdown = squadWindow.findWidget("wave-countdown");
+                    if (countdown) countdown.text = missionStatus && missionStatus.mode === "park_defense"
+                        ? "Next: " + missionStatus.next_wave_seconds + "s"
+                        : "No recurring waves";
+                    const waveStatus = squadWindow.findWidget("wave-feedback");
+                    if (waveStatus) waveStatus.text = waveFeedback || (missionStatus && missionStatus.mode === "park_defense"
+                        ? missionStatus.error ? "Wave blocked: " + missionStatus.error
+                            : missionStatus.manual_cooldown_seconds > 0
+                                ? "Manual wave in " + missionStatus.manual_cooldown_seconds + "s"
+                                : "Ready for an extra wave"
+                        : "");
                 }
                 if (outcomeState && shownOutcome !== controlSession + ":" + outcomeState) {
                     shownOutcome = controlSession + ":" + outcomeState;
@@ -1450,6 +1547,10 @@
                     state: status.state, reason: status.reason || "", units: status.units || [] };
                 context.executeAction(SPAWN_STATUS_ACTION, payload, function (result) {
                     if (result.error) console.log("WORLD_SPAWN_STATUS_ERROR " + result.errorMessage);
+                });
+            }, function (sender) { worldWaveSender = sender; }, function (status) {
+                context.executeAction(WAVE_STATUS_ACTION, status, function (result) {
+                    if (result.error) console.log("WORLD_WAVE_STATUS_ERROR " + result.errorMessage);
                 });
             });
             return;

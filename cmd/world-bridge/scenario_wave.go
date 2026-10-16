@@ -17,6 +17,7 @@ type scenarioWaveRequest struct {
 }
 
 type scenarioWaveResponse struct {
+	Session   string `json:"session"`
 	RequestID string `json:"request_id"`
 	Accepted  bool   `json:"accepted"`
 	WaveID    string `json:"wave_id"`
@@ -29,7 +30,8 @@ func (s *service) respondWave(p *peer, m world.Envelope, requestID, waveID, stat
 	// The envelope was delivered; application acceptance is reported separately.
 	s.ack(p, m, true, "")
 	_ = s.emit(p, "scenario.wave.status", s.registry.Session, s.registry.Revision,
-		scenarioWaveResponse{RequestID: requestID, Accepted: accepted, WaveID: waveID, State: state, Reason: reason})
+		scenarioWaveResponse{Session: s.registry.Session, RequestID: requestID,
+			Accepted: accepted, WaveID: waveID, State: state, Reason: reason})
 }
 
 func (s *service) parkWaveRequest(p *peer, m world.Envelope) {

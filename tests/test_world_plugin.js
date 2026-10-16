@@ -343,6 +343,29 @@ assert.ok(actions.filter(action => action.name === 'rtsbridge.scenarioStatus'
     && action.args.scenario_id === 'example-defense').length >= 2,
     'late client receives the current authoritative mission status');
 assert.match(command.query({ player: 2, args: squadArgs }).errorMessage, /commander/);
+const waveAction = registered.get('rtsbridge.requestWave');
+const parkStatus = { session: sid, scenario_id: 'mt-zergling', display_name: 'Mt. Zergling',
+    mode: 'park_defense', objective: 'Manage and defend the park', wave_ordinal: 0, wave_total: 0,
+    wave_state: 'pending', outcome: '', error: '', total_triggered: 0, next_wave_seconds: 120,
+    active_zerglings: 0, manual_cooldown_seconds: 0, manual_eligible: true };
+assert.equal(missionAction.query({ player: 1, args: parkStatus }).error, undefined);
+missionAction.execute({ player: 1, args: parkStatus });
+const waveArgs = { session: sid, request: 1, request_id: `${sid}:wave:1:1` };
+assert.equal(waveAction.query({ player: 1, args: waveArgs }).error, undefined);
+assert.match(waveAction.query({ player: 2, args: { ...waveArgs, request_id: `${sid}:wave:2:1` } }).errorMessage,
+    /commander/, 'only the authorized commander can request an extra wave');
+assert.ok(waveAction.query({ player: 1, args: { ...waveArgs, session: 'stale' } }).error,
+    'stale wave request is rejected');
+const waveButton = squadWidgets.find(widget => widget.name === 'spawn-wave');
+assert.equal(waveButton.text, 'Spawn Wave');
+waveButton.onClick();
+drain();
+assert.ok(sent.some(message => message.kind === 'scenario.wave.request'
+    && message.payload.request_id === waveArgs.request_id), 'button routes a wave through the server bridge');
+const waveStatus = registered.get('rtsbridge.waveStatus');
+assert.ok(waveStatus.query({ player: 2, args: { session: sid, request_id: waveArgs.request_id,
+    accepted: true, wave_id: 'manual-0001', state: 'queued', reason: '' } }).error,
+    'client cannot forge wave feedback');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
     payload: { scenario_id: 'frontier-outpost', state: 'victory', objective_id: 'openrct2:ride:17#1' } }) + '\n');
 assert.equal(actions.filter(a => a.name === 'rtsbridge.worldOutcome').length, 1,
