@@ -8,7 +8,7 @@ import sys
 
 
 SNAPSHOT = re.compile(r"RTS Bridge apply tick=\d+ seq=(\d+) session=([0-9a-f]{32}) center_z=\d+ units=([^\x1b\r\n]+)")
-STATUS = re.compile(r"WORLD_SCENARIO_STATUS scenario=([a-z0-9-]+) wave=\d+/\d+ state=\w+ outcome=(victory|defeat)?")
+STATUS = re.compile(r"WORLD_SCENARIO_STATUS scenario=([a-z0-9-]+) wave=\d+/\d+ state=\w* outcome=(victory|defeat)?")
 
 
 def snapshots(log):

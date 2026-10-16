@@ -42,6 +42,12 @@ class ScenarioRecordTest(unittest.TestCase):
         self.assertEqual(args.plan["scenario_id"], "example-defense")
         args, _ = record.parse_args(["--world-256", "--no-video"])
         self.assertIsNone(args.plan)
+        baseline, _ = record.parse_args(["--navigation-baseline", "--no-video"])
+        self.assertEqual(baseline.plan["scenario_id"], "frontier-outpost")
+        for incompatible in (("--scenario", "example-defense"), ("--world-256",),
+                             ("--live-construction",), ("--video-layout", "single")):
+            with self.subTest(incompatible=incompatible), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                record.parse_args(["--navigation-baseline", *incompatible, "--no-video"])
 
     def test_session_selection_and_journal_isolation(self):
         plan = record.resolve("example-defense")
@@ -62,6 +68,39 @@ class ScenarioRecordTest(unittest.TestCase):
             self.assertNotEqual(env["BRIDGE_SPAWN_JOURNAL"], plan["spawn_journal"])
             self.assertEqual(env["BRIDGE_LAUNCH_CLIENT"], "0")
 
+    def test_navigation_baseline_requires_native_route_and_both_participants(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            for letter in "ab":
+                for second in (2, 6, 10, 14):
+                    (out / f"client-{letter}-t{second}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+            scenes = ("under_rail", "wall_north", "around_end", "wall_south", "return")
+            driver = ("NAV_BASELINE_TRIGGER time=1\n"
+                      "NAV_BASELINE_WALL time=1 accepted=true reason=ok\n"
+                      "NAV_BASELINE_CAMERA time=1 rotation=0\n" +
+                      "".join(f"NAV_BASELINE_ORDER time={i} scene={scene} actor=openbw:1000 accepted=true\n"
+                              f"NAV_BASELINE_CROSSED time={i+1} scene={scene} actor=openbw:1000 x=528 y=1008\n"
+                              for i, scene in enumerate(scenes, 2)) +
+                      "NAV_BASELINE_COMPLETE time=20 actor=openbw:1000'\n")
+            server = ("park patch synchronized id=a revision=2 hash=0123456789abcdef frame=100\n"
+                      "[world] navigation-mask hash=0123456789abcdef frame=100 accepted=1\n"
+                      "[world-control] navigation-mask hash=0123456789abcdef frame=100 accepted=1\n")
+            verified = record.verify_navigation_baseline(out, [driver,
+                "NAV_BASELINE_CAMERA time=1 rotation=1\n"], server, {"capture_complete": True})
+            self.assertTrue(verified["capture_complete"])
+            self.assertEqual(verified["navigation_baseline"]["runtime_actor_ids"], ["openbw:1000"])
+            (out / "video-metadata.json").write_text(json.dumps({
+                "capture_start_utc": "1970-01-01T00:00:00.010+00:00",
+                "capture_end_utc": "1970-01-01T00:00:00.020+00:00"}))
+            early = record.verify_navigation_baseline(out, [driver,
+                "NAV_BASELINE_CAMERA time=1 rotation=1\n"], server, {"capture_complete": True})
+            self.assertFalse(early["navigation_baseline"]["checks"]["started_during_recording"])
+            (out / "video-metadata.json").unlink()
+            (out / "client-b-t6.png").unlink()
+            incomplete = record.verify_navigation_baseline(out, [driver,
+                "NAV_BASELINE_CAMERA time=1 rotation=1\n"], server, {"capture_complete": True})
+            self.assertFalse(incomplete["capture_complete"])
+
     def test_generic_one_and_two_clients_and_frontier_compatibility(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
@@ -77,6 +116,9 @@ class ScenarioRecordTest(unittest.TestCase):
                     (out / f"client-{letter}-{point}.png").write_bytes(png)
             self.assertTrue(generic.verify(out)["capture_complete"])
             self.assertEqual(generic.verify(out)["shared_snapshot_sequences"], 12)
+            (out / "client-a.log").write_text(
+                "WORLD_SCENARIO_STATUS scenario=example-defense wave=0/0 state= outcome=\n" + snapshot)
+            self.assertTrue(generic.verify(out)["capture_complete"])
             (out / "client-b.log").unlink()
             for point in ("initial", "final"):
                 (out / f"client-b-{point}.png").unlink()

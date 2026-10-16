@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "scenario_id": "navigation-occlusion-baseline",
+  "display_name": "Navigation Occlusion Baseline",
+  "park_file": "run-data/layered-navigation/layered-navigation.park",
+  "park_size": [64, 64],
+  "teams": { "marines": "terran", "zerglings": "zerg" },
+  "starting_units": {
+    "marines": [[16, 31]],
+    "zerglings": [[48, 57]]
+  },
+  "objectives": [{ "id": "defend-carousel", "entity_kind": "ride", "entity_type": "rct2.ride.mgr1", "required": true }],
+  "initial_ai": { "strategy": "objective_assault", "objective": "defend-carousel", "delay_frames": 600 },
+  "victory": { "all_zerglings_eliminated": true, "objective_intact": "defend-carousel" },
+  "defeat": { "objective_destroyed": "defend-carousel", "all_marines_eliminated": true }
+}

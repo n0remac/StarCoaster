@@ -2,6 +2,7 @@
 """Capture a packaged scenario with one or two graphical clients."""
 
 import argparse
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -60,6 +61,63 @@ def prepare_packaged_session(plan, out, env):
     return [str(ROOT / "scripts/run-world-session.sh"), plan["park"]], native_map
 
 
+def verify_navigation_baseline(out, client_logs, server_log, detailed):
+    """Check the smoke route separately from its still-manual visual judgment."""
+    driver = client_logs[0]
+    expected = ["under_rail", "wall_north", "around_end", "wall_south", "return"]
+    crossed = re.findall(
+        r"NAV_BASELINE_CROSSED time=(\d+) scene=(\w+) actor=(\S+) x=(\d+) y=(\d+)", driver)
+    orders = re.findall(
+        r"NAV_BASELINE_ORDER time=(\d+) scene=(\w+) actor=(\S+) accepted=(true|false)", driver)
+    complete = re.search(r"NAV_BASELINE_COMPLETE time=\d+ actor=([^\s'\x1b]+)", driver)
+    trigger = re.search(r"NAV_BASELINE_TRIGGER time=(\d+)", driver)
+    metadata_path = out / "video-metadata.json"
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text())
+        video_start_ms = int(datetime.fromisoformat(
+            metadata["capture_start_utc"]).timestamp() * 1000)
+        video_end_ms = int(datetime.fromisoformat(
+            metadata["capture_end_utc"]).timestamp() * 1000)
+        trigger_in_video = bool(trigger) and video_start_ms <= int(trigger.group(1)) <= video_end_ms
+    else:
+        trigger_in_video = bool(trigger)
+    patch = re.search(
+        r"park patch synchronized id=\S+ revision=(\d+) hash=([0-9a-f]{16}) frame=(\d+)", server_log)
+    matched_native = bool(patch) and all(
+        f"[{role}] navigation-mask hash={patch.group(2)} frame={patch.group(3)} accepted=1" in server_log
+        for role in ("world", "world-control"))
+    actor_ids = {row[2] for row in crossed + orders}
+    checks = {
+        "ordinary_wall_accepted": bool(re.search(r"NAV_BASELINE_WALL time=\d+ accepted=true", driver)),
+        "started_during_recording": trigger_in_video,
+        "native_waypoint_commands": [row[1] for row in orders] == expected
+            and all(row[3] == "true" for row in orders),
+        "native_waypoint_crossings": [row[1] for row in crossed] == expected,
+        "same_runtime_actor": len(actor_ids) == 1 and bool(complete)
+            and complete.group(1) in actor_ids,
+        "confirmed_native_revision": matched_native,
+        "two_camera_rotations": bool(re.search(r"NAV_BASELINE_CAMERA time=\d+ rotation=0", client_logs[0]))
+            and bool(re.search(r"NAV_BASELINE_CAMERA time=\d+ rotation=1", client_logs[1])),
+        "before_during_after_screenshots": all(
+            (out / f"client-{letter}-t{second}.png").is_file()
+            for letter in "ab" for second in (2, 6, 10, 14)),
+    }
+    detailed["navigation_baseline"] = {
+        "checks": checks, "runtime_actor_ids": sorted(actor_ids),
+        "orders": orders, "crossings": crossed,
+        "navigation_revision": int(patch.group(1)) if patch else None,
+        "navigation_hash": patch.group(2) if patch else None,
+    }
+    detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
+    (out / "visual-verification.json").write_text(json.dumps({
+        "wall_occlusion": {"status": "untested", "reason": "requires inspected overlap frames"},
+        "elevated_straight": {"status": "navigation-only", "reason": "native crossing requires visual review"},
+        "camera_rotations": [0, 1],
+    }, indent=2) + "\n")
+    (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
+    return detailed
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", help="scenario package ID (default: frontier-outpost)")
@@ -80,6 +138,8 @@ def parse_args(argv=None):
     parser.add_argument("--live-construction", action="store_true",
                         help="capture ordinary two-client wall construction and native rerouting")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
+    parser.add_argument("--navigation-baseline", action="store_true",
+                        help="capture a close graphical audit of the layered park's wall and elevated rail")
     args = parser.parse_args(argv)
     if not 15 <= args.duration <= 300:
         parser.error("duration must be 15–300 seconds")
@@ -89,6 +149,12 @@ def parse_args(argv=None):
         parser.error("--world-256 cannot be combined with a ridge probe")
     if args.world_256 and args.scenario is not None:
         parser.error("--scenario cannot be combined with --world-256")
+    if args.navigation_baseline and (args.scenario is not None or args.world_256
+                                     or args.ridge_probe or args.ridge_assault or args.cycle_rotations
+                                     or args.live_construction):
+        parser.error("--navigation-baseline cannot be combined with another scenario or probe")
+    if args.navigation_baseline and args.video_layout == "single":
+        parser.error("--navigation-baseline requires two clients")
     if args.live_construction and args.video_layout == "single":
         parser.error("--live-construction requires two clients")
     scenario_id = args.scenario or "frontier-outpost"
@@ -119,13 +185,20 @@ def main():
     starcraft = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
     if not rct2.is_dir() or not starcraft.is_dir():
         parser.error("RCT2_DATA_DIR and STARCRAFT_DATA_DIR must point to installed game data")
-    scenario_id = "world-256-scale" if args.world_256 else args.plan["scenario_id"]
-    scenario_name = "World 256 Scale Fixture" if args.world_256 else json.loads(Path(args.plan["scenario"]).read_text())["display_name"]
+    scenario_id = "world-256-scale" if args.world_256 else (
+        "navigation-occlusion-baseline" if args.navigation_baseline else args.plan["scenario_id"])
+    scenario_name = "World 256 Scale Fixture" if args.world_256 else (
+        "Navigation Occlusion Baseline" if args.navigation_baseline else
+        json.loads(Path(args.plan["scenario"]).read_text())["display_name"])
     run = ArtifactRun("live-capture", scenario_name,
                       config={"scenario": scenario_id, "display_name": scenario_name,
-                              "source_scenario": None if args.world_256 else args.plan["scenario"],
+                              "source_scenario": None if args.world_256 else str(
+                                  ROOT / "tests/fixtures/navigation-occlusion-baseline.json")
+                                  if args.navigation_baseline else args.plan["scenario"],
                               "source_mapping": None if args.world_256 else args.plan["mapping"],
-                              "park": None if args.world_256 else args.plan["park"],
+                              "park": None if args.world_256 else str(
+                                  ROOT / "run-data/layered-navigation/layered-navigation.park")
+                                  if args.navigation_baseline else args.plan["park"],
                               "duration": args.duration,
                               "launcher": "scripts/run-world-session.sh",
                               "input": "X11 mouse and keyboard",
@@ -133,9 +206,10 @@ def main():
                               "graphics": args.graphics, "frame_ms": args.frame_ms,
                               "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault,
                               "live_construction": args.live_construction,
+                              "navigation_baseline": args.navigation_baseline,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
-    if args.live_construction:
+    if args.live_construction or args.navigation_baseline:
         server_plugins = out / "server-data/plugin"
         server_plugins.mkdir(parents=True, exist_ok=True)
         (server_plugins / "live-construction-permissions.js").write_text(
@@ -174,7 +248,7 @@ def main():
     startup_seconds = None
     ready_memory = None
     try:
-        if not args.world_256 and not args.ridge_assault:
+        if not args.world_256 and not args.ridge_assault and not args.navigation_baseline:
             packaged_command, native_map = prepare_packaged_session(args.plan, out, env)
             run.manifest["capture_config"]["native_map"] = str(native_map)
         for name, display in displays:
@@ -193,6 +267,20 @@ def main():
             env["BRIDGE_MAP_FILE"] = str(test_map)
             env.pop("BRIDGE_SCENARIO_CONFIG", None)
             session_command = [str(ROOT / "scripts/run-world-session.sh"), str(fixture)]
+        elif args.navigation_baseline:
+            subprocess.run(["python3", str(ROOT / "scripts/create-layered-navigation-park.py")],
+                           cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
+            test_scenario = ROOT / "tests/fixtures/navigation-occlusion-baseline.json"
+            test_map = out / "navigation-occlusion-baseline.scm"
+            subprocess.run(["python3", str(ROOT / "scripts/create-world-base-map.py"),
+                            "--scenario", str(test_scenario), "--output", str(test_map)],
+                           cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+            env.update(BRIDGE_MAP_FILE=str(test_map), BRIDGE_SCENARIO_CONFIG=str(test_scenario),
+                       BRIDGE_RULES_CONFIG=str(ROOT / "scenarios/frontier-outpost/mapping.json"),
+                       BRIDGE_DISABLE_ASSAULT_AI="1")
+            session_command = [str(ROOT / "scripts/run-world-session.sh"),
+                               str(ROOT / "run-data/layered-navigation/layered-navigation.park")]
+            run.manifest["capture_config"].update(native_map=str(test_map), park=session_command[-1])
         elif args.ridge_assault:
             scenario = json.loads((ROOT / "scenarios/frontier-outpost/scenario.json").read_text())
             scenario["starting_units"]["zerglings"] = [
@@ -234,12 +322,21 @@ def main():
             if args.ridge_probe and name == "client-a":
                 (data_dir / "plugin/frontier-ridge-probe.js").write_text(
                     (ROOT / "scripts/frontier-ridge-probe.js").read_text())
+            if args.navigation_baseline and name == "client-a":
+                (data_dir / "plugin/navigation-baseline-probe.js").write_text(
+                    (ROOT / "scripts/navigation-baseline-probe.js").read_text())
             if args.live_construction:
                 probe = "live-construction-probe.js" if name == "client-a" else "live-construction-observer.js"
                 source = (ROOT / "scripts" / probe).read_text()
                 if name == "client-a":
                     source = "var STARCOASTER_VISUAL_TWO_CLIENTS = true;\n" + source
                 (data_dir / "plugin" / probe).write_text(source)
+            if args.navigation_baseline:
+                camera = (ROOT / "scripts/navigation-baseline-camera.js").read_text()
+                camera = camera.replace("var baselineRotation = 0;",
+                                        "var baselineRotation = 0;" if name == "client-a" else
+                                        "var baselineRotation = 1;")
+                (data_dir / "plugin/navigation-baseline-camera.js").write_text(camera)
             if args.world_256 and name == "client-a":
                 (data_dir / "plugin/world-256-scale-probe.js").write_text(
                     (ROOT / "scripts/world-256-scale-probe.js").read_text())
@@ -290,7 +387,15 @@ def main():
         if recorder:
             recorder.start()
             recording = True
+        if args.navigation_baseline:
+            subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+y"],
+                           env=env | {"DISPLAY": ":91"}, check=True)
+            wait_for(out / "client-a.log", "NAV_BASELINE_TRIGGER time=", clients["client-a"], 12)
+            if recorder:
+                recorder.event("navigation_baseline_trigger", client="client-a")
         seen_rotations = {name: set() for name, _ in displays}
+        baseline_samples = {2, 4, 6, 8, 10, 12, 14, 18, 22, 26} if args.navigation_baseline else set()
+        captured_baseline_samples = set()
         rotation_offsets = {name: len(re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
                               (out / f"{name}.log").read_text(errors="replace")))
                             for name, _ in displays}
@@ -298,6 +403,18 @@ def main():
         while time.monotonic() < until:
             if recorder:
                 recorder.check_alive()
+            if args.navigation_baseline and recorder:
+                elapsed = time.monotonic() - recorder.start_monotonic
+                for point in sorted(baseline_samples - captured_baseline_samples):
+                    if elapsed < point:
+                        break
+                    for name, display in displays:
+                        filename = f"{name}-t{point}.png"
+                        subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                       env=env | {"DISPLAY": display}, check=True)
+                        recorder.event("navigation_baseline_screenshot", client=name,
+                                       second=point, filename=filename)
+                    captured_baseline_samples.add(point)
             if args.cycle_rotations:
                 for name, display in displays:
                     rotations = re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
@@ -348,13 +465,16 @@ def main():
                   "input_method": "graphical X11 interface"}
         (out / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
         (out / "scenario-config.json").write_text((ROOT / "scenarios/world-256-scale-map.json"
-            if args.world_256 else Path(args.plan["scenario"])).read_text())
+            if args.world_256 else ROOT / "tests/fixtures/navigation-occlusion-baseline.json"
+            if args.navigation_baseline else Path(args.plan["scenario"])).read_text())
         verifier = ("verify-world-256-capture.py" if args.world_256 else
                     "verify-frontier-capture.py" if scenario_id == "frontier-outpost" else
                     "verify-scenario-capture.py")
         subprocess.run(["python3", str(ROOT / "scripts" / verifier), str(out)],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         detailed = json.loads((out / "verification.json").read_text())
+        if args.navigation_baseline:
+            verify_navigation_baseline(out, client_logs, snapshot, detailed)
         if args.live_construction:
             driver = client_logs[0]
             observer = client_logs[1] if len(client_logs) > 1 else ""
