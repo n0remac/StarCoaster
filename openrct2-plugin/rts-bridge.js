@@ -60,7 +60,7 @@
         }
         let constructionTick = 0, dirtySince = -1, publishedWorld = null, snapshotWorld = null;
         let detectedBatch = null, detectedSignature = "", combatRemovalKey = "", patchInFlight = null;
-        let combatSyncID = "", recoveringRejectedBarracks = false;
+        let combatSyncID = "", recoveringRejectedBarracks = false, retryRejectedBarracks = null;
         const queuedCombatEvents = [];
         const pendingCommands = [];
         let patchSerial = 0;
@@ -592,23 +592,25 @@
                     return;
                 }
                 const entity = additions.shift();
-                const item = activeItems[entity.source_id];
-                const present = discover().entities.some(function (current) { return current.id === entity.id; });
+                const present = discover().entities.some(function (current) {
+                    return current.source_id === entity.source_id && current.kind === "structure";
+                });
                 if (!present) { removeNext(); return; }
-                if (!item || item.id !== entity.id || !item.removal) {
-                    console.log("WORLD_BARRACKS_ROLLBACK_ERROR id=" + entity.id + " reason=identity_changed");
-                    recoveringRejectedBarracks = false;
-                    snapshot();
+                const item = activeItems[entity.source_id];
+                if (!item || item.kind !== "structure" || !item.removal) {
+                    additions.unshift(entity);
+                    retryRejectedBarracks = removeNext;
                     return;
                 }
                 context.executeAction(item.removal.action, item.removal.args, function (result) {
-                    const remains = discover().entities.some(function (current) { return current.id === entity.id; });
+                    const remains = discover().entities.some(function (current) {
+                        return current.source_id === entity.source_id && current.kind === "structure";
+                    });
                     if (result.error || remains) {
                         console.log("WORLD_BARRACKS_ROLLBACK_ERROR id=" + entity.id
                             + " reason=" + (result.errorMessage || "object_still_present"));
-                        recoveringRejectedBarracks = false;
-                        // Keep the bridge paused rather than publishing scenery that
-                        // native navigation has already rejected.
+                        additions.unshift(entity);
+                        retryRejectedBarracks = removeNext;
                         return;
                     }
                     console.log("WORLD_BARRACKS_ROLLBACK id=" + entity.id);
@@ -791,12 +793,17 @@
                 combatSyncID = "";
                 queuedCombatEvents.length = 0;
                 send("world.hello", { capabilities: ["snapshot", "world.patch", "navigation.mask"] });
-                snapshot();
+                if (!recoveringRejectedBarracks) snapshot();
             });
         }
         connect();
         context.subscribe("interval.tick", function () {
             constructionTick++;
+            if (retryRejectedBarracks && constructionTick % 120 === 0) {
+                const retry = retryRejectedBarracks;
+                retryRejectedBarracks = null;
+                retry();
+            }
             if (!socket && ++retryTicks >= 40) { retryTicks = 0; connect(); }
             if (socket && inFlight && inFlight.kind === "world.patch" && ++inFlightTicks >= 120) {
                 inFlightTicks = 0;
@@ -806,6 +813,7 @@
                 send("world.patch.query", { patch_id: patchInFlight.id }, patchInFlight.base + 1);
             if (socket && combatSyncID && !inFlight && constructionTick % 120 === 0)
                 send("world.patch.query", { patch_id: combatSyncID }, revision);
+            if (recoveringRejectedBarracks) return;
             if (dirtySince >= 0 && constructionTick - dirtySince >= CONSTRUCTION_DEBOUNCE_TICKS
                 && !snapshotWorld) detectConstruction();
             else if (dirtySince < 0 && constructionTick % RECONCILE_TICKS === 0

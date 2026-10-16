@@ -4,7 +4,7 @@ const vm = require('node:vm');
 
 const cells = new Map(), sent = [], replies = [], subscriptions = {}, actions = new Map();
 const logs = [];
-let storage = {}, socket;
+let storage = {}, socket, removeFailures = 1;
 function tile(x, y) {
     const key = `${x}:${y}`;
     if (!cells.has(key)) cells.set(key, [{ type: 'surface', baseHeight: 14, baseZ: 112,
@@ -52,6 +52,7 @@ const game = {
         executeAction(name, _args, callback) {
             if (name !== 'largesceneryremove') { callback({}); return; }
             assert.equal(name, 'largesceneryremove');
+            if (removeFailures-- > 0) { callback({ error: 1, errorMessage: 'retry' }); return; }
             for (let y = 2; y < 5; y++) for (let x = 2; x < 6; x++)
                 cells.set(`${x}:${y}`, [tile(x, y).getElement(0)]);
             subscriptions['action.execute']({ action: name, args: { x: 64, y: 64 }, result: {} });
@@ -75,6 +76,10 @@ assert.equal(firstPatch.payload.additions[0].owner, 3);
 const firstID = firstPatch.payload.additions[0].id;
 deliver('world.patch.status', { patch_id: firstPatch.payload.patch_id,
     state: 'unsynchronized', reason: 'controller:occupied_construction_geometry' }, 2);
+assert.equal(tile(3, 3).numElements, 2, 'failed removal stays pending');
+assert.equal(sent.filter(message => message.kind === 'world.snapshot.begin').length, 1,
+    'a rejected Barracks is not published as a new snapshot');
+for (let i = 0; i < 120; i++) subscriptions['interval.tick']();
 drain();
 assert.equal(tile(3, 3).numElements, 1, 'rejected park object is removed');
 assert.ok(logs.some(line => line.includes('WORLD_BARRACKS_ROLLBACK_COMPLETE')));

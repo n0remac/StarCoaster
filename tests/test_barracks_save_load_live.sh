@@ -55,6 +55,13 @@ BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/mt-zergl
   timeout 100s scripts/run-world-session.sh "$saved" > "$run_dir/reload.log" 2>&1 &
 session_pid=$!
 wait_for 'WORLD_READY.*targets=3' "$run_dir/reload.log" 80
+rm "$run_dir/client/plugin/live-barracks-build-probe.js"
+cp scripts/live-barracks-rebuild-probe.js "$run_dir/client/plugin/"
+build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
+  --rct2-data-path="$RCT2_DATA_DIR" --openrct2-data-path="$openrct2_data" \
+  --user-data-path="$run_dir/client" > "$run_dir/rebuild-client.log" 2>&1 &
+client_pid=$!
+wait_for 'WORLD_PATCH_SYNC revision=3' "$run_dir/reload.log" 40
 python3 - "$run_dir" <<'PY'
 import json
 import re
@@ -65,6 +72,7 @@ directory = Path(sys.argv[1])
 build = (directory / 'build.log').read_text(errors='replace')
 reload = (directory / 'reload.log').read_text(errors='replace')
 client = (directory / 'client.log').read_text(errors='replace')
+rebuild_client = (directory / 'rebuild-client.log').read_text(errors='replace')
 pattern = r'native target state id=(openrct2:large_scenery:\d+:3200:3328:1216:0#\d+) .* hp=(\d+)'
 before = re.findall(pattern, build)
 after = re.findall(pattern, reload)
@@ -74,9 +82,13 @@ checks = {
     'placement': 'BARRACKS_BUILD_PROBE_RESULT accepted=true' in client,
     'confirmed_before_save': 'WORLD_PATCH_SYNC revision=2' in build,
     'real_park_saved': (directory / 'server/save/barracks-recovery.park').stat().st_size > 0,
-    'identity_and_health_preserved': bool(before and after) and before[-1] == after[-1],
+    'identity_and_health_preserved': bool(before and after) and before[-1] == after[0],
     'native_mask_preserved': bool(hashes[0] and hashes[1]) and hashes[0][-1] == hashes[1][-1],
     'two_native_participants_ready': 'WORLD_READY entities=4255 targets=3' in reload,
+    'demolition_and_rebuild': 'BARRACKS_REBUILD_REMOVE accepted=true' in rebuild_client
+        and 'BARRACKS_REBUILD_BUILD accepted=true' in rebuild_client
+        and 'WORLD_PATCH_SYNC revision=3' in reload,
+    'new_generation': bool(after) and any(id.endswith('#2') for id, _hp in after),
 }
 result = {'checks': checks, 'before': before, 'after': after, 'hashes': hashes}
 (directory / 'verification.json').write_text(json.dumps(result, indent=2) + '\n')
