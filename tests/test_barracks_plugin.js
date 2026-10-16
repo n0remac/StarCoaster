@@ -11,12 +11,15 @@ function tile(x, y) {
     return { numElements: elements.length, getElement(index) { return elements[index]; }, elements };
 }
 const windows = new Map(), actions = new Map(), menu = new Map();
-let tool = null, passive = null, placements = 0;
+let tool = null, passive = null, placements = 0, closedWindows = 0, frontedWindows = 0;
 const ui = {
     tileSelection: { tiles: [], range: null },
     get tool() { return tool; },
     openWindow(desc) {
-        const window = { desc, findWidget(name) { return desc.widgets.find(widget => widget.name === name); } };
+        const window = { desc, findWidget(name) { return desc.widgets.find(widget => widget.name === name); },
+            close() { closedWindows++; windows.delete(desc.classification);
+                if (desc.onClose) desc.onClose(); },
+            bringToFront() { frontedWindows++; } };
         windows.set(desc.classification, window);
         return window;
     },
@@ -39,11 +42,12 @@ const context = {
     subscribe() {},
     queryAction(name, args, callback) {
         assert.equal(name, 'largesceneryplace');
-        let blocked = false;
+        let blocked = '';
         for (let y = args.y / 32; y < args.y / 32 + 3; y++)
             for (let x = args.x / 32; x < args.x / 32 + 4; x++)
-                if (tile(x, y).numElements > 1) blocked = true;
-        callback(blocked ? { error: 1, errorMessage: 'Blocked by park object' } : {});
+                if (tile(x, y).numElements > 1) blocked = 'Blocked by park object';
+                else if (tile(x, y).getElement(0).unowned) blocked = 'Land not owned';
+        callback(blocked ? { error: 1, errorMessage: blocked } : {});
     },
     executeAction(name, args, callback) {
         assert.equal(name, 'largesceneryplace');
@@ -68,11 +72,19 @@ assert.equal(menu.has('StarCraft Construction'), true);
 menu.get('StarCraft Construction')();
 const construction = windows.get('starcoaster-construction');
 assert.ok(construction);
+menu.get('StarCraft Construction')();
+assert.equal(frontedWindows, 1);
 construction.desc.widgets.find(widget => widget.text && widget.text.startsWith('Barracks')).onClick();
 assert.equal(tool.id, 'starcoaster.place-barracks');
 const event = { mapCoords: { x: 64, y: 64 }, screenCoords: { x: 300, y: 300 } };
 tool.onMove(event);
 assert.equal(ui.tileSelection.tiles.length, 12);
+assert.match(construction.findWidget('barracks-status').text, /Waiting for native units/);
+tool.onDown(event);
+assert.equal(placements, 0);
+actions.get('rtsbridge.applySnapshot').execute({ player: 1,
+    args: { session: 'a'.repeat(32), seq: 1, units: [] } });
+tool.onMove(event);
 assert.match(construction.findWidget('barracks-status').text, /Valid site/);
 tool.onDown(event);
 assert.equal(placements, 1);
@@ -98,6 +110,10 @@ assert.equal(action.query({ player: 1, args: damaged }).error, undefined);
 action.execute({ player: 1, args: damaged });
 info.desc.onUpdate();
 assert.equal(info.findWidget('building-health').text, 'Health: 43');
+passive.onDown(event);
+assert.equal(passive.onUp(event), true);
+assert.equal(closedWindows, 1, 'opening an existing Barracks closes its earlier info window');
+assert.notEqual(windows.get('starcoaster-barracks-info'), info);
 
 // Existing paths and occupied units both reject placement before native action.
 tile(9, 2).elements.push({ type: 'footpath', baseHeight: 14 });
@@ -108,16 +124,28 @@ assert.match(construction.findWidget('barracks-status').text, /obstructed/);
 tool.onDown(blocked);
 assert.equal(placements, 1);
 tile(9, 2).elements.pop();
+tile(9, 2).elements[0].unowned = true;
+tool.onMove(blocked);
+assert.match(construction.findWidget('barracks-status').text, /Land not owned/);
+tool.onDown(blocked);
+assert.equal(placements, 1);
+tile(9, 2).elements[0].unowned = false;
+tile(9, 2).elements[0].slope = 1;
+tool.onMove(blocked);
+assert.match(construction.findWidget('barracks-status').text, /dry, flat ground/);
+tool.onDown(blocked);
+assert.equal(placements, 1);
+tile(9, 2).elements[0].slope = 0;
 const unit = { id: 'openbw:100', kind: 'terran_marine', owner: 1, hp: 40, max_hp: 40,
     x: 9 * 32, y: 2 * 32, facing: 0, motion: 'idle', attack_frames: 0 };
 actions.get('rtsbridge.applySnapshot').execute({ player: 1,
-    args: { session: 'a'.repeat(32), seq: 1, units: [unit] } });
+    args: { session: 'a'.repeat(32), seq: 2, units: [unit] } });
 tool.onMove(blocked);
 assert.match(construction.findWidget('barracks-status').text, /unit occupies/);
 tool.onDown(blocked);
 assert.equal(placements, 1);
 actions.get('rtsbridge.applySnapshot').execute({ player: 1,
-    args: { session: 'a'.repeat(32), seq: 2, units: [{ ...unit, id: 'openbw:3001', x: 8 * 32 - 8 }] } });
+    args: { session: 'a'.repeat(32), seq: 3, units: [{ ...unit, id: 'openbw:3001', x: 8 * 32 - 8 }] } });
 tool.onMove(blocked);
 assert.match(construction.findWidget('barracks-status').text, /unit occupies/,
     'unbound native actors overlapping the edge still occupy construction sites');

@@ -1313,6 +1313,7 @@
             }
             function footprintReason(footprint) {
                 if (!footprint) return "Outside the park";
+                if (!controlSession) return "Waiting for native units";
                 let height = null;
                 for (const tile of footprint.tiles) {
                     const elements = map.getTile(tile.x, tile.y);
@@ -1406,7 +1407,7 @@
                     } });
             }
             function openConstructionWindow() {
-                if (constructionWindow) return;
+                if (constructionWindow) { constructionWindow.bringToFront(); return; }
                 constructionWindow = ui.openWindow({ classification: "starcoaster-construction",
                     width: 238, height: 134, title: "StarCraft Construction",
                     onClose: function () {
@@ -1721,7 +1722,7 @@
             }
             function openBarracksInfo(point) {
                 barracksInfoID = barracksTargetAt(point);
-                if (barracksInfoWindow) ui.closeWindows("starcoaster-barracks-info");
+                if (barracksInfoWindow) barracksInfoWindow.close();
                 barracksInfoWindow = ui.openWindow({ classification: "starcoaster-barracks-info",
                     width: 244, height: 148, title: "Terran Barracks",
                     onClose: function () { barracksInfoWindow = null; },
