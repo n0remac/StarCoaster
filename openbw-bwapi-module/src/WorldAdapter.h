@@ -411,7 +411,8 @@ private:
             ready_=false;
             pendingMask_.clear(); pendingMaskHash_.clear();
             stagedMask_.clear(); stagedMaskHash_.clear();
-            assault_.configure(payload.value("objective_id", ""), message.at("session").get<std::string>());
+            assault_.configure(payload.value("objective_id", ""), message.at("session").get<std::string>(),
+                payload.value("scenario_mode", "") == "park_defense");
             ack(message,true); return;
         }
         if (kind=="world.start") {
@@ -681,6 +682,10 @@ private:
                 ownerID = observed;
             }
         }
+        // Continuous defense starts with no Zerglings. The publisher owns the
+        // Zerg player slot even before its first native unit is created.
+        if (ownerID < 0 && kind == "zerg_zergling" && game->self())
+            ownerID = game->self()->getID();
         BWAPI::Player owner = nullptr;
         for (auto player : game->getPlayers())
             if (player && player->getID() == ownerID) owner = player;

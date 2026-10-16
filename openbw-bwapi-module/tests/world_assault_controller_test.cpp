@@ -18,4 +18,9 @@ int main() {
     assert(!controller.active(500));
     controller.configure(""); // A new generic session retires the old encounter.
     assert(!controller.active(1000));
+    controller.configure("", "park-session", true);
+    assert(controller.start(1000, 0));
+    assert(controller.active(1000));
+    controller.configure("", "park-session", true); // same-session snapshot preserves policy
+    assert(controller.active(1000));
 }

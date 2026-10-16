@@ -12,22 +12,23 @@
 // combat remain authoritative; the generic world adapter owns no target IDs.
 class WorldAssaultController {
 public:
-    void configure(std::string objectiveID, std::string session = "") {
-        if (session == session_ && objectiveID == objectiveID_) return;
+    void configure(std::string objectiveID, std::string session = "", bool parkDefense = false) {
+        if (session == session_ && objectiveID == objectiveID_ && parkDefense == parkDefense_) return;
         session_ = std::move(session);
         objectiveID_ = std::move(objectiveID);
+        parkDefense_ = parkDefense;
         started_ = false;
         notBeforeFrame_ = 0;
     }
     bool start(int frame, int delayFrames) {
-        if (objectiveID_.empty()) return false;
+        if (objectiveID_.empty() && !parkDefense_) return false;
         if (started_) return true;
         started_ = true;
         notBeforeFrame_ = frame + std::max(0, std::min(600, delayFrames));
         return true;
     }
     bool active(int frame) const {
-        return !objectiveID_.empty() && started_ && frame >= notBeforeFrame_;
+        return (!objectiveID_.empty() || parkDefense_) && started_ && frame >= notBeforeFrame_;
     }
     const std::string& objectiveID() const { return objectiveID_; }
 
@@ -37,11 +38,12 @@ public:
         for (auto unit : game->getAllUnits()) {
             if (!unit || !unit->exists() || unit->getPlayer() != game->self()
                 || unit->getType() != BWAPI::UnitTypes::Zerg_Zergling) continue;
-            BWAPI::Unit target = objective && objective->exists() ? objective : nullptr;
+            BWAPI::Unit target = !parkDefense_ && objective && objective->exists() ? objective : nullptr;
             if (!target) {
                 int best = INT_MAX;
                 for (auto candidate : alternatives) {
                     if (!candidate || !candidate->exists() || candidate->getPlayer() == game->self()) continue;
+                    if (parkDefense_ && !unit->hasPath(candidate->getPosition())) continue;
                     const auto a = unit->getPosition(), b = candidate->getPosition();
                     const int distance = std::abs(a.x - b.x) + std::abs(a.y - b.y);
                     if (distance < best) { best = distance; target = candidate; }
@@ -54,6 +56,7 @@ public:
 private:
     std::string objectiveID_;
     std::string session_;
+    bool parkDefense_ = false;
     int notBeforeFrame_ = 0;
     bool started_ = false;
 };

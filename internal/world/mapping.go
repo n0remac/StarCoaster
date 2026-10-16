@@ -5,6 +5,7 @@ import "strings"
 type Rule struct {
 	Kind         string   `json:"kind"`
 	Type         string   `json:"type,omitempty"`
+	WithinTiles  *[4]int  `json:"within_tiles,omitempty"`
 	Destructible *bool    `json:"destructible,omitempty"`
 	Targetable   *bool    `json:"targetable,omitempty"`
 	Blocks       *bool    `json:"blocks,omitempty"`
@@ -43,6 +44,22 @@ func (m Mapping) Apply(e Entity) Entity {
 	for _, r := range m.Rules {
 		if r.Kind != e.Kind || (r.Type != "" && !strings.EqualFold(r.Type, e.Type)) {
 			continue
+		}
+		if r.WithinTiles != nil {
+			bounds := *r.WithinTiles
+			if len(e.Geometry.Cells) == 0 || bounds[0] > bounds[2] || bounds[1] > bounds[3] {
+				continue
+			}
+			inside := true
+			for _, cell := range e.Geometry.Cells {
+				if cell.X < bounds[0] || cell.X > bounds[2] || cell.Y < bounds[1] || cell.Y > bounds[3] {
+					inside = false
+					break
+				}
+			}
+			if !inside {
+				continue
+			}
 		}
 		if r.Destructible != nil {
 			e.Destructible = *r.Destructible

@@ -1,6 +1,8 @@
 {
   "rules": [
-    { "kind": "small_scenery", "destructible": false, "targetable": false, "blocks": true },
-    { "kind": "large_scenery", "destructible": true, "targetable": true, "blocks": true, "health": 160 }
+    { "kind": "small_scenery", "destructible": false, "targetable": false, "blocks": false },
+    { "kind": "large_scenery", "destructible": false, "targetable": false, "blocks": true },
+    { "kind": "large_scenery", "within_tiles": [71, 73, 141, 144],
+      "destructible": true, "targetable": true, "blocks": true, "health": 160 }
   ]
 }
