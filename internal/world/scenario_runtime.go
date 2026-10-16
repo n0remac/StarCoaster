@@ -139,7 +139,7 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 			return false
 		}
 		for _, wave := range r.Waves {
-			if wave.State == "triggered" || wave.State == "spawning" {
+			if wave.Origin == "periodic" && (wave.State == "triggered" || wave.State == "spawning") {
 				// Keep one scheduled intent while capacity or construction is blocked.
 				return false
 			}
@@ -289,6 +289,13 @@ func (r *ScenarioRuntime) PruneParkDefenseHistory(s *Scenario) []string {
 // NextPlanned returns one unit that needs initial placement or a confirmed
 // placement retry. A pending native request is never replaced speculatively.
 func (r *ScenarioRuntime) NextPlanned() (int, int, bool) {
+	return r.NextPlannedExcept(nil)
+}
+
+// NextPlannedExcept lets one dispatch pass defer unavailable zones while
+// trying other durable wave instances. Every deferred unit is retried on the
+// next complete native frame.
+func (r *ScenarioRuntime) NextPlannedExcept(excluded map[[2]int]bool) (int, int, bool) {
 	if r.Outcome != "" || r.Error != "" {
 		return 0, 0, false
 	}
@@ -298,7 +305,7 @@ func (r *ScenarioRuntime) NextPlanned() (int, int, bool) {
 			continue
 		}
 		for ui := range wave.Units {
-			if wave.Units[ui].State == "planned" {
+			if wave.Units[ui].State == "planned" && !excluded[[2]int{wi, ui}] {
 				return wi, ui, true
 			}
 		}

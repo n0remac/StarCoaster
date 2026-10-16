@@ -144,3 +144,32 @@ func TestParkDefenseHistoryRemainsBounded(t *testing.T) {
 		t.Fatal("pruning reset durable sequence")
 	}
 }
+
+func TestBlockedManualPlacementDoesNotStopScheduledWave(t *testing.T) {
+	s := parkDefenseScenario(t)
+	r := NewScenarioRuntime(s, "session")
+	if err := r.AcceptFrame(100, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	r.Trigger(s)
+	if _, err := r.RequestManual(s, "manual-1", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	r.Waves[0].State = "spawning"
+	if err := r.AcceptFrame(2980, 2, true); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Trigger(s) || len(r.Waves) != 2 || r.Waves[1].ID != "periodic-0002" {
+		t.Fatalf("manual placement blocked automatic deadline: %+v", r.Waves)
+	}
+	if wi, ui, ok := r.NextPlannedExcept(map[[2]int]bool{{0, 0}: true}); !ok || wi != 0 || ui != 1 {
+		t.Fatalf("did not skip deferred placement: %d %d %v", wi, ui, ok)
+	}
+	blocked := map[[2]int]bool{}
+	for index := range r.Waves[0].Units {
+		blocked[[2]int{0, index}] = true
+	}
+	if wi, _, ok := r.NextPlannedExcept(blocked); !ok || wi != 1 {
+		t.Fatalf("automatic wave could not dispatch around blocked manual zone: %d %v", wi, ok)
+	}
+}

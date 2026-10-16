@@ -154,7 +154,10 @@ func (s *service) scenarioZoneCandidate(zone world.SpawnZone, extra []world.Poin
 			continue
 		}
 		for _, unit := range status.Units {
-			if unit.State != "failed" && unit.State != "rejected" {
+			// Ready actors are represented by the complete native occupancy.
+			// Keeping their original queue tiles reserved after they move or die
+			// can permanently exhaust a recurring perimeter zone.
+			if unit.State != "ready" && unit.State != "failed" && unit.State != "rejected" {
 				offset := offsets[unit.Index]
 				reserved = append(reserved, world.Point{X: request.X + offset.X, Y: request.Y + offset.Y})
 			}

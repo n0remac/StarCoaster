@@ -121,6 +121,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 	if s.parkPatch != nil || s.targetPatch != nil {
 		return
 	}
+	blocked := map[[2]int]bool{}
 	for {
 		// Crash gap: a durable intent may exist without its queue entry. Submit
 		// the exact same request ID and coordinates before making a new plan.
@@ -145,7 +146,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 			}
 		}
 		if !found {
-			wi, ui, ok := r.NextPlanned()
+			wi, ui, ok := r.NextPlannedExcept(blocked)
 			if !ok {
 				break
 			}
@@ -163,7 +164,8 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 			if !ok {
 				if s.scenario.Mode == "park_defense" {
 					r.Waves[wi].FailureReason = "no_eligible_spawn_zone_tile"
-					break
+					blocked[[2]int{wi, ui}] = true
+					continue
 				}
 				unit.State = "failed"
 				r.Waves[wi].FailureReason = "no_eligible_spawn_zone_tile"

@@ -179,6 +179,32 @@ func TestScenarioZoneReservesManualMarineRequests(t *testing.T) {
 	}
 }
 
+func TestScenarioZoneReleasesReadyActorOriginalTile(t *testing.T) {
+	s, _ := spawnService(t)
+	s.nativeOccupancyComplete = true
+	s.navigationMask = world.NavigationMask{Width: 128, Height: 128, Bits: make([]byte, 128*4*128*4/8)}
+	position := world.Point{X: 43*32 + 16, Y: 56*32 + 16}
+	zone := world.SpawnZone{Tiles: [][2]int{{43, 56}}}
+	request := world.SpawnRequest{RequestID: "settled-zergling", UnitType: "zerg_zergling",
+		Count: 1, X: position.X, Y: position.Y, Formation: "compact", PlayerID: 0}
+	if _, err := s.spawns.Submit("session-a", request); err != nil {
+		t.Fatal(err)
+	}
+	execute, _ := s.spawns.Next()
+	if err := s.spawns.Issue(execute); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.spawns.Created(request.RequestID, 0, "openbw:3001", position.X, position.Y); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.spawns.Ready(request.RequestID, 0, "openbw:3001"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := s.scenarioZoneCandidate(zone, nil); !ok || got != position {
+		t.Fatalf("settled actor permanently reserved spawn tile: %v %v", got, ok)
+	}
+}
+
 func TestDisconnectedClientCanQueryCompletedSpawnStatus(t *testing.T) {
 	s, _ := spawnService(t)
 	s.park = nil
