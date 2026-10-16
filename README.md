@@ -55,6 +55,14 @@ Manual Marine reinforcements work in all three scenarios. The launcher installs 
 bridge plugin for both the server and graphical client so native units appear
 in the player view.
 
+Click or drag to select Marines while using the normal OpenRCT2 cursor to open
+rides, shops, guests, staff, and vehicles. Hold Alt when clicking a park object
+beneath a Marine. Right-click gives a squad order when Marines are selected;
+Alt-right-click uses OpenRCT2's usual context interaction. Construction and
+reinforcement placement tools retain their clicks. The Select button or
+Ctrl+Shift+U cancels the active tool and returns to ordinary park interaction
+with unit selection available.
+
 ## Test and record
 
 ```sh
