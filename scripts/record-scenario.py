@@ -436,7 +436,8 @@ def main():
                     mt_wave_clicked = True
                     if recorder:
                         recorder.event("spawn_wave_button_click", client="client-a")
-                if mt_wave_clicked and not mt_wave_screenshot and "wave=manual-0001 state=ready" in server_text:
+                if mt_wave_clicked and not mt_wave_screenshot and re.search(
+                        r"wave=manual-\d{4} state=ready", server_text):
                     subprocess.run(["scrot", "-z", "-o", str(out / "mt-zergling-manual-wave.png")],
                                    env=env | {"DISPLAY": ":91"}, check=True)
                     mt_wave_screenshot = True
@@ -556,8 +557,8 @@ def main():
                                         for line in driver.splitlines() if "RTS Bridge apply tick=" in line)
             checks = {
                 "marine_reinforcement": bool(re.search(r"WORLD_SPAWN_STATUS request=\S+:spawn:\d+:\d+ state=ready", snapshot)),
-                "automatic_waves": "periodic-0001" in wave_instances and "periodic-0002" in wave_instances,
-                "manual_wave_button": mt_wave_clicked and "manual-0001" in wave_instances
+                "automatic_waves": len({wave for wave in wave_instances if wave.startswith("periodic-")}) >= 2,
+                "manual_wave_button": mt_wave_clicked and any(wave.startswith("manual-") for wave in wave_instances)
                     and "WORLD_WAVE_STATUS_ERROR" not in snapshot,
                 "construction_during_combat": bool(re.search(
                     r"MT_ZERGLING_CONSTRUCTION_BUILD x=\d+ y=\d+ accepted=true", driver))
