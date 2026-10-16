@@ -34,6 +34,7 @@ class WorldAdapter {
         bool reported = false; std::string lifecycle = "active"; int x = 0, y = 0;
         int desiredHP = 0, healthFrame = 0; };
     struct PendingTarget { std::string id; int x = 0; int y = 0; int health = 0;
+        bool barracks = false; int ownerID = -1;
         bool requested = false; int requestedFrame = 0; std::set<int> beforeIDs; };
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
     struct NativeSpawn {
@@ -729,7 +730,8 @@ private:
         if (spawn.state != "issued") return;
         std::map<int, std::vector<int>> candidatesByFrame;
         for (const auto& [native, creation] : pendingCreations_) {
-            if (!creation.unit || !creation.unit->exists() || creation.frame < spawn.issueFrame
+            if (!creation.unit || !creation.unit->exists() || !creation.unit->isCompleted()
+                || creation.frame < spawn.issueFrame
                 || !creation.unit->getPlayer() || creation.unit->getPlayer()->getID() != spawn.ownerID) continue;
             const auto type = creation.unit->getType();
             if ((spawn.unitType == "terran_marine" && type != BWAPI::UnitTypes::Terran_Marine)
@@ -757,6 +759,9 @@ private:
             const auto creation = it->second;
             if (!creation.unit || !creation.unit->exists()) { it = pendingCreations_.erase(it); continue; }
             if (actorRegistry_.known(creation.unit)) { it = pendingCreations_.erase(it); continue; }
+            // OpenBW creates a training unit when the queue starts. It is not
+            // a selectable actor until the native production timer completes.
+            if (!creation.unit->isCompleted()) { ++it; continue; }
             const int canonical = 3000 + runtimeSerial_ + 1;
             if (!actorRegistry_.registerRuntime(creation.unit, canonical,
                     static_cast<uint64_t>(runtimeSerial_ + 1), creation.frame)) { ++it; continue; }
@@ -847,11 +852,13 @@ private:
         for (const auto& id : ids) {
             if (only && !only->count(id)) continue;
             const auto& entity = entities_.at(id);
+            const bool barracks = entity.value("kind", "") == "structure"
+                && entity.value("type", "") == "terran_barracks";
             if (!entity.value("destructible", false)) continue;
             if (!entity.at("combat").value("targetable", false)) {
                 reportUnsupported(id, "not_targetable"); continue;
             }
-            if (!enemy) { reportUnsupported(id, "no_enemy_player"); continue; }
+            if (!enemy && !barracks) { reportUnsupported(id, "no_enemy_player"); continue; }
             auto current = targets_.find(id);
             if (current != targets_.end()) {
                 if (current->second.lifecycle == "destroyed_in_openbw") {
@@ -876,7 +883,8 @@ private:
                         const int dy = std::max({y - position.y, 0, position.y - bottom});
                         if (dx + dy <= 48) { nearFootprint = true; break; }
                     }
-                    if (navigation_.blocked(position.x, position.y, 12) || !nearFootprint) {
+                    if ((!barracks && navigation_.blocked(position.x, position.y, 12))
+                        || !nearFootprint) {
                         preservedHP_[id] = current->second.unit->getHitPoints();
                         retireTarget(game, id, "controlled_replacement");
                     } else {
@@ -911,12 +919,13 @@ private:
             if (targets_.size() + pending_.size() >= static_cast<size_t>(targetLimit())) {
                 reportUnsupported(id, "configured_target_capacity"); continue;
             }
-            if (!findProxyPosition(game, x, y)) {
+            if (!barracks && !findProxyPosition(game, x, y)) {
                 reportUnsupported(id, "no_valid_proxy_position"); continue;
             }
             const int health = preservedHP_.count(id) ? preservedHP_.at(id)
                 : entity.at("combat").value("health", 40);
-            pending_.push_back({id, x, y, health});
+            pending_.push_back({id, x, y, health, barracks,
+                barracks ? entity.value("owner", -1) : -1});
         }
         std::cerr << "[world] requested targets=" << pending_.size()
                   << " unsupported=" << unsupportedTotal_ << std::endl;
@@ -931,8 +940,12 @@ private:
             if (!pending.requested) { ++index; continue; }
             BWAPI::Unit found = nullptr;
             for (auto unit : game->getAllUnits()) {
-                if (!unit || !unit->exists() || unit->getPlayer() != enemy
-                    || unit->getType() != BWAPI::UnitTypes::Terran_Civilian
+                if (!unit || !unit->exists() || !unit->getPlayer()
+                    || (pending.barracks
+                        ? unit->getPlayer()->getID() != pending.ownerID
+                            || unit->getType() != BWAPI::UnitTypes::Terran_Barracks
+                        : unit->getPlayer() != enemy
+                            || unit->getType() != BWAPI::UnitTypes::Terran_Civilian)
                     || pending.beforeIDs.count(unit->getID()) || usedUnits_.count(unit->getID())) continue;
                 const auto position = unit->getPosition();
                 if (std::abs(position.x - pending.x) <= 16 && std::abs(position.y - pending.y) <= 16) {
@@ -943,7 +956,8 @@ private:
                 associateTarget(game, pending, found);
                 pending_.erase(pending_.begin() + index);
             } else if (game->getFrameCount() - pending.requestedFrame >= 12) {
-                if (!pending.id.empty()) reportUnsupported(pending.id, "proxy_not_created");
+                if (!pending.id.empty()) reportUnsupported(pending.id,
+                    pending.barracks ? "native_barracks_not_created" : "proxy_not_created");
                 pending_.erase(pending_.begin() + index);
             } else ++index;
         }
@@ -960,11 +974,48 @@ private:
                         && std::abs(other.y - pending.y) <= 48;
                 });
             if (nearbyRequest) { ++index; continue; }
+            BWAPI::Player owner = enemy;
+            if (pending.barracks) {
+                owner = nullptr;
+                for (auto player : game->getPlayers())
+                    if (player && player->getID() == pending.ownerID
+                        && player->getRace() == BWAPI::Races::Terran) owner = player;
+                if (!owner) {
+                    reportUnsupported(pending.id, "native_barracks_owner_unavailable");
+                    pending_.erase(pending_.begin() + index);
+                    continue;
+                }
+                BWAPI::Unit existing = nullptr;
+                int matches = 0;
+                for (auto unit : game->getAllUnits()) {
+                    if (!unit || !unit->exists() || unit->getPlayer() != owner
+                        || unit->getType() != BWAPI::UnitTypes::Terran_Barracks
+                        || usedUnits_.count(unit->getID())) continue;
+                    const auto position = unit->getPosition();
+                    if (std::abs(position.x - pending.x) <= 16
+                        && std::abs(position.y - pending.y) <= 16) {
+                        existing = unit; ++matches;
+                    }
+                }
+                if (matches > 1) {
+                    reportUnsupported(pending.id, "ambiguous_native_barracks");
+                    pending_.erase(pending_.begin() + index);
+                    continue;
+                }
+                if (existing) {
+                    pending.health = existing->getHitPoints();
+                    associateTarget(game, pending, existing);
+                    pending_.erase(pending_.begin() + index);
+                    continue;
+                }
+            }
             pending.beforeIDs = before;
             pending.requested = true;
             pending.requestedFrame = game->getFrameCount();
-            auto immediate = enemy
-                ? game->createUnit(enemy, BWAPI::UnitTypes::Terran_Civilian, {pending.x, pending.y})
+            auto immediate = owner
+                ? game->createUnit(owner, pending.barracks
+                    ? BWAPI::UnitTypes::Terran_Barracks : BWAPI::UnitTypes::Terran_Civilian,
+                    {pending.x, pending.y})
                 : nullptr;
             if (immediate) {
                 associateTarget(game, pending, immediate);
@@ -1019,7 +1070,9 @@ private:
                 {"proxy_x", unit->getPosition().x},
                 {"proxy_y", unit->getPosition().y},
                 {"health", unit->getHitPoints()}}, revision_, game->getFrameCount());
-            std::cerr << "[world] target id=" << pending.id << " proxy=" << unit->getID() << std::endl;
+            std::cerr << "[world] target id=" << pending.id << " proxy=" << unit->getID()
+                      << " type=" << unit->getType().getName()
+                      << " hp=" << unit->getHitPoints() << std::endl;
         }
     }
     bool findProxyPosition(BWAPI::Game* game, int& x, int& y) const {

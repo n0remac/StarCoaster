@@ -83,6 +83,9 @@ checks = {
     'confirmed_before_save': 'WORLD_PATCH_SYNC revision=2' in build,
     'real_park_saved': (directory / 'server/save/barracks-recovery.park').stat().st_size > 0,
     'identity_and_health_preserved': bool(before and after) and before[-1] == after[0],
+    'real_native_barracks': bool(before and after) and before[-1][1] == after[0][1] == '1000'
+        and build.count('type=Terran_Barracks hp=1000') >= 1
+        and reload.count('type=Terran_Barracks hp=1000') >= 2,
     'native_mask_preserved': bool(hashes[0] and hashes[1]) and hashes[0][-1] == hashes[1][-1],
     'two_native_participants_ready': 'WORLD_READY entities=4255 targets=3' in reload,
     'demolition_and_rebuild': 'BARRACKS_REBUILD_REMOVE accepted=true' in rebuild_client

@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -77,9 +78,120 @@ public:
         for (const auto& [id, binding] : publisherBindings_) pendingActors.push_back(id);
         for (const auto& id : pendingActors) tryBind(id);
         applyScheduledNavigation(game);
+        probeNativeBarracks(game);
         flush();
     }
 private:
+    void probeNativeBarracks(BWAPI::Game* game) {
+        const char* requested = std::getenv("BRIDGE_TEST_NATIVE_BARRACKS_POSITION");
+        if (!requested || !*requested || appliedMaskHash_.empty() || !game->self()) return;
+        if (!barracksProbeIssued_) {
+            char tail = 0;
+            if (std::sscanf(requested, "%d,%d%c", &barracksProbeX_, &barracksProbeY_, &tail) != 2)
+                return;
+            const auto buildable = [&](int x, int y) {
+                return game->canBuildHere({(x - 64) / 32, (y - 48) / 32},
+                    BWAPI::UnitTypes::Terran_Barracks, nullptr, true);
+            };
+            const bool requestedBuildable = buildable(barracksProbeX_, barracksProbeY_);
+            if (!requestedBuildable && !std::getenv("BRIDGE_TEST_NATIVE_BARRACKS_EXACT")) {
+                bool found = false;
+                for (int y = 4; y < game->mapHeight() - 4 && !found; y += 2)
+                    for (int x = 4; x < game->mapWidth() - 4 && !found; x += 2) {
+                        const int px = x * 32 + 64, py = y * 32 + 48;
+                        if (buildable(px, py)) {
+                            barracksProbeX_ = px; barracksProbeY_ = py; found = true;
+                        }
+                    }
+            }
+            barracksProbeIssued_ = true;
+            barracksProbeFrame_ = game->getFrameCount();
+            game->createUnit(game->self(), BWAPI::UnitTypes::Terran_Barracks,
+                {barracksProbeX_, barracksProbeY_});
+            std::cerr << "[world-control] barracks-probe issued x=" << barracksProbeX_
+                      << " y=" << barracksProbeY_ << " frame=" << barracksProbeFrame_
+                      << " requested_buildable=" << requestedBuildable
+                      << " selected_buildable=" << buildable(barracksProbeX_, barracksProbeY_)
+                      << " walkable=" << game->isWalkable(barracksProbeX_ / 8, barracksProbeY_ / 8)
+                      << std::endl;
+        }
+        if (barracksProbeUnit_ && barracksProbeUnit_->exists()) {
+            const auto owner = game->self();
+            if (!barracksProbeSupplyIssued_) {
+                barracksProbeSupplyIssued_ = true;
+                owner->setMinerals(500);
+                for (int y = 4; y < game->mapHeight() - 3; y += 2)
+                    for (int x = 4; x < game->mapWidth() - 3; x += 2)
+                        if (game->canBuildHere({x, y}, BWAPI::UnitTypes::Terran_Supply_Depot,
+                                nullptr, true)) {
+                            game->createUnit(owner, BWAPI::UnitTypes::Terran_Supply_Depot,
+                                {x * 32 + 48, y * 32 + 32});
+                            std::cerr << "[world-control] barracks-probe supply_issued x=" << x
+                                      << " y=" << y << std::endl;
+                            y = game->mapHeight();
+                            break;
+                        }
+            }
+            if (!barracksProbeTrainIssued_ && owner->minerals() >= 50
+                && owner->supplyTotal() > owner->supplyUsed()) {
+                barracksProbeTrainIssued_ = true;
+                int count = 0;
+                for (auto unit : game->getAllUnits())
+                    if (unit && unit->exists() && unit->getPlayer() == owner
+                        && unit->getType() == BWAPI::UnitTypes::Terran_Marine
+                        && unit->isCompleted()) ++count;
+                barracksProbeInitialMarines_ = count;
+                const bool accepted = barracksProbeUnit_->train(BWAPI::UnitTypes::Terran_Marine);
+                std::cerr << "[world-control] barracks-probe train_issued accepted=" << accepted
+                          << " minerals=" << owner->minerals() << " supply="
+                          << owner->supplyUsed() << "/" << owner->supplyTotal() << std::endl;
+            }
+            if (barracksProbeTrainIssued_ && !barracksProbeQueueSeen_
+                && !barracksProbeUnit_->getTrainingQueue().empty()) {
+                barracksProbeQueueSeen_ = true;
+                std::cerr << "[world-control] barracks-probe queue_active remaining="
+                          << barracksProbeUnit_->getRemainingTrainTime() << std::endl;
+            }
+            if (barracksProbeTrainIssued_ && !barracksProbeMarineSeen_) {
+                int count = 0;
+                for (auto unit : game->getAllUnits())
+                    if (unit && unit->exists() && unit->getPlayer() == owner
+                        && unit->getType() == BWAPI::UnitTypes::Terran_Marine
+                        && unit->isCompleted()) ++count;
+                if (count > barracksProbeInitialMarines_) {
+                    barracksProbeMarineSeen_ = true;
+                    std::cerr << "[world-control] barracks-probe marine_completed count=" << count
+                              << " frame=" << game->getFrameCount() << std::endl;
+                }
+            }
+        }
+        if (barracksProbeReported_) return;
+        for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists() || unit->getPlayer() != game->self()
+                || unit->getType() != BWAPI::UnitTypes::Terran_Barracks) continue;
+            const auto position = unit->getPosition();
+            if (std::abs(position.x - barracksProbeX_) > 16
+                || std::abs(position.y - barracksProbeY_) > 16) continue;
+            barracksProbeReported_ = true;
+            barracksProbeUnit_ = unit;
+            auto owner = game->self();
+            std::cerr << "[world-control] barracks-probe created id=" << unit->getID()
+                      << " frame=" << game->getFrameCount() << " hp=" << unit->getHitPoints()
+                      << " completed=" << unit->isCompleted() << " minerals=" << owner->minerals()
+                      << " supply=" << owner->supplyUsed() << "/" << owner->supplyTotal()
+                      << " can_train=" << unit->canTrain(BWAPI::UnitTypes::Terran_Marine)
+                      << std::endl;
+            owner->setMinerals(500);
+            std::cerr << "[world-control] barracks-probe train="
+                      << unit->train(BWAPI::UnitTypes::Terran_Marine)
+                      << " queue=" << unit->getTrainingQueue().size() << std::endl;
+            return;
+        }
+        if (game->getFrameCount() - barracksProbeFrame_ >= 36) {
+            barracksProbeReported_ = true;
+            std::cerr << "[world-control] barracks-probe no_native_building" << std::endl;
+        }
+    }
     struct TargetLink { std::string proxyID; int x = 0, y = 0; };
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
     struct CreationCandidate { BWAPI::Unit unit = nullptr; int frame = 0; };
@@ -97,6 +209,7 @@ private:
         int matches = 0;
         for (const auto& [native, candidate] : creationCandidates_) {
             if (candidate.frame != frame || !candidate.unit || !candidate.unit->exists()
+                || !candidate.unit->isCompleted()
                 || !candidate.unit->getPlayer()
                 || candidate.unit->getPlayer()->getID() != identity.value("owner", -1)) continue;
             const auto kind = candidate.unit->getType() == BWAPI::UnitTypes::Terran_Marine
@@ -421,24 +534,18 @@ private:
             else {
                 const auto link = targetLinks_.find(targetID);
                 if (link != targetLinks_.end()) {
-                    bool ambiguousLink = false;
-                    for (const auto& other : targetLinks_)
-                        if (other.first != targetID &&
-                            std::abs(other.second.x - link->second.x) <= 32 &&
-                            std::abs(other.second.y - link->second.y) <= 32)
-                            ambiguousLink = true;
-                    int matches = 0;
                     for (auto candidate : game->getAllUnits()) {
                         if (!candidate || !candidate->exists()
-                            || candidate->getType() != BWAPI::UnitTypes::Terran_Civilian
-                            || candidate->getPlayer() == game->self()) continue;
+                            || !candidate->getPlayer()
+                            || candidate->getPlayer() == game->self()
+                            || "openbw:" + std::to_string(candidate->getID())
+                                != link->second.proxyID) continue;
                         const auto position = candidate->getPosition();
                         if (std::abs(position.x - link->second.x) <= 16
                             && std::abs(position.y - link->second.y) <= 16) {
-                            target = candidate; ++matches;
+                            target = candidate; break;
                         }
                     }
-                    if (matches != 1 || ambiguousLink) target = nullptr;
                 }
             }
             if (!target || !target->exists() || target->getPlayer() == game->self()) {
@@ -558,6 +665,12 @@ private:
     std::map<std::string, json> identities_, publisherBindings_;
     std::set<std::string> ambiguousActors_;
     int lastObservedFrame_ = 0;
+    int barracksProbeX_ = 0, barracksProbeY_ = 0, barracksProbeFrame_ = 0;
+    bool barracksProbeIssued_ = false, barracksProbeReported_ = false;
+    BWAPI::Unit barracksProbeUnit_ = nullptr;
+    bool barracksProbeSupplyIssued_ = false, barracksProbeTrainIssued_ = false;
+    bool barracksProbeQueueSeen_ = false, barracksProbeMarineSeen_ = false;
+    int barracksProbeInitialMarines_ = 0;
     starcoaster::NavigationAdapter navigation_;
     starcoaster::NavigationMaskReceiver maskReceiver_;
     std::vector<uint8_t> pendingMask_, stagedMask_;

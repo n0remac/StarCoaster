@@ -1,0 +1,49 @@
+--- a/bwgame.h
++++ b/bwgame.h
+@@ -2512,7 +2512,7 @@
+ 		return false;
+ 	}
+ 
+-	bool can_place_building(const unit_t* u, int owner, const unit_type_t* unit_type, xy pos, bool check_undetected_units, bool check_invisible_tiles) const {
++	bool can_place_building(const unit_t* u, int owner, const unit_type_t* unit_type, xy pos, bool check_undetected_units, bool check_invisible_tiles, bool ignore_explored = false) const {
+ 		xy_t<size_t> tile_pos;
+ 		tile_pos.x = (pos.x - unit_type->placement_size.x / 2) / 32u;
+ 		tile_pos.y = (pos.y - unit_type->placement_size.y / 2) / 32u;
+@@ -2536,7 +2536,7 @@
+ 			for (size_t y = tile_pos.y; y != tile_pos.y + tile_size.y; ++y) {
+ 				for (size_t x = tile_pos.x; x != tile_pos.x + tile_size.x; ++x) {
+ 					auto& tile = st.tiles[y * game_st.map_tile_width + x];
+-					if (tile.explored & visibility_mask) return false;
++					if (!ignore_explored && (tile.explored & visibility_mask)) return false;
+ 					if (!any_visible && (tile.visible & visibility_mask) == 0) any_visible = true;
+ 				}
+ 			}
+@@ -2554,7 +2554,7 @@
+ 			for (size_t y = tile_pos.y; y != tile_pos.y + tile_size.y; ++y) {
+ 				for (size_t x = tile_pos.x; x != tile_pos.x + tile_size.x; ++x) {
+ 					auto& tile = st.tiles[y * game_st.map_tile_width + x];
+-					if (tile.explored & visibility_mask) return false;
++					if (!ignore_explored && (tile.explored & visibility_mask)) return false;
+ 					if (check_invisible_tiles || is_nydus_exit || ~tile.visible & visibility_mask) {
+ 						if (~tile.flags & tile_t::flag_has_creep) return false;
+ 					}
+@@ -2569,7 +2569,7 @@
+ 			for (size_t y = tile_pos.y; y != tile_pos.y + tile_size.y; ++y) {
+ 				for (size_t x = tile_pos.x; x != tile_pos.x + tile_size.x; ++x) {
+ 					auto& tile = st.tiles[y * game_st.map_tile_width + x];
+-					if (tile.explored & visibility_mask) return false;
++					if (!ignore_explored && (tile.explored & visibility_mask)) return false;
+ 					if (tile.visible & visibility_mask || (tile.flags & flags_mask) == 0 || (check_unk4 && tile.flags & tile_t::flag_unk4)) {
+ 						if (is_resource_depot) {
+ 							rect bb{xy(32 * ((int)x - 3), 32 * ((int)y - 3)), xy(32 * ((int)x + 4), 32 * ((int)y + 4))};
+@@ -18915,7 +18915,9 @@
+ 		if (ut_building(unit_type)) {
+ 			xy top_left = restrict_pos_to_map_bounds(pos - unit_type->placement_size / 2);
+ 			pos = top_left / 32 * 32 + unit_type->placement_size / 2;
+-			if (!can_place_building(nullptr, owner, unit_type, pos, true, false)) {
++			// Editor placement is authoritative even outside the owner's fog.
++			// Ordinary worker orders still use the exploration check above.
++			if (!can_place_building(nullptr, owner, unit_type, pos, true, false, true)) {
+ 				// todo: show error?
+ 				return nullptr;
+ 			}

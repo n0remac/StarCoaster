@@ -38,6 +38,7 @@ def main() -> int:
     for name, patch, upgrade in (
         ("bwapi", "0001-player-slot.patch", None),
         ("openbw", "0002-native-navigation-openbw.patch", "0004-native-navigation-upgrade-openbw.patch"),
+        ("openbw", "0005-editor-building-fog-openbw.patch", None),
         ("bwapi", "0003-native-navigation-bwapi.patch", None),
     ):
         result = ensure_patch(ROOT / "upstream" / name, patches / patch,

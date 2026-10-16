@@ -152,7 +152,7 @@ assert.match(construction.findWidget('barracks-status').text, /unit occupies/,
 assert.equal(passive.onHover({ ...event, alt: true }), false);
 
 // Park storage keeps the structure ID stable when the plugin restarts on a saved park.
-let savedGenerations = {};
+let savedStorage = {};
 function discoverAfterLoad() {
     const placed = new Map();
     for (let y = 2; y < 5; y++) for (let x = 2; x < 6; x++) {
@@ -180,8 +180,8 @@ function discoverAfterLoad() {
         } },
         rtsBridge: { version: 4, assetVersion: 3, applySnapshot() {},
             invalidateAnimation() {}, actorScreenPosition() {} },
-        context: { getParkStorage() { return { get() { return savedGenerations; },
-            set(_key, value) { savedGenerations = structuredClone(value); } }; },
+        context: { getParkStorage() { return { get(key, fallback) { return savedStorage[key] || fallback; },
+            set(key, value) { savedStorage[key] = structuredClone(value); } }; },
             registerAction() {}, subscribe() {}, executeAction() {} },
         console: { log() {} }, registerPlugin(plugin) { plugin.main(); },
     };

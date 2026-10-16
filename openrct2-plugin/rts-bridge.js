@@ -28,6 +28,15 @@
         const parkStorage = typeof context.getParkStorage === "function" ? context.getParkStorage() : null;
         const savedBarracksGenerations = parkStorage ? (parkStorage.get("barracksGenerations", {}) || {}) : {};
         const savedBarracksHealth = parkStorage ? (parkStorage.get("barracksHealth", {}) || {}) : {};
+        if (parkStorage && parkStorage.get("barracksHealthMode", "proxy") !== "native") {
+            Object.keys(savedBarracksHealth).forEach(function (id) {
+                const hp = savedBarracksHealth[id];
+                if (Number.isInteger(hp) && hp > 0)
+                    savedBarracksHealth[id] = Math.min(1000, hp * 25);
+            });
+            parkStorage.set("barracksHealth", savedBarracksHealth);
+            parkStorage.set("barracksHealthMode", "native");
+        }
         const constructionActions = {
             ridecreate: true, ridedemolish: true, trackplace: true, trackremove: true,
             trackdesign: true, mazeplacetrack: true, mazesettrack: true,
@@ -340,7 +349,7 @@
                     collision: { blocks: item.kind !== "path" },
                     destructible: true,
                     combat: { targetable: item.kind !== "path",
-                        health: item.kind === "structure" ? savedBarracksHealth[id] || 40 : 100 },
+                        health: item.kind === "structure" ? savedBarracksHealth[id] || 1000 : 100 },
                     removal: item.removal, revision: revision };
                 if (item.name) entity.name = item.name;
                 if (item.kind !== "path" && item.volumes && item.volumes.length) {
