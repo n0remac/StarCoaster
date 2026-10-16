@@ -833,6 +833,8 @@ private:
         current->second.lifecycle = reason;
         targets_.erase(current);
         usedUnits_.erase(proxyID);
+        std::cerr << "[world] target retired id=" << id << " native=" << proxyID
+                  << " reason=" << reason << std::endl;
         if (reason == "controlled_replacement")
             send("entity.retire", {{"id",id},{"proxy_id","openbw:"+std::to_string(proxyID)},
                 {"reason",reason}}, revision_, game->getFrameCount());
