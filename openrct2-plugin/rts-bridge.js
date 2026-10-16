@@ -796,6 +796,7 @@
 
         let controlSession = "";
         let controlUnits = {};
+        let occupancyUnits = {};
         let actorLifecycleSession = "";
         let activeActorGenerations = {};
         let removedActorGenerations = {};
@@ -913,6 +914,8 @@
             controlSession = event.args.session;
             controlUnits = {};
             visible.forEach(function (unit) { controlUnits[unit.id] = unit; });
+            occupancyUnits = {};
+            event.args.units.forEach(function (unit) { occupancyUnits[unit.id] = unit; });
             const marine = event.args.units.filter(function (unit) { return unit.kind === "terran_marine"; })[0];
             if (marine) terranOwner = marine.owner;
             return {};
@@ -1325,10 +1328,13 @@
                     if (height !== null && height !== z) return "Requires level ground";
                     height = z;
                 }
-                if (Object.keys(controlUnits).some(function (id) {
-                    const unit = controlUnits[id];
-                    return unit.hp > 0 && unit.x >= footprint.x * 32 && unit.y >= footprint.y * 32
-                        && unit.x < (footprint.x + 4) * 32 && unit.y < (footprint.y + 3) * 32;
+                if (Object.keys(occupancyUnits).some(function (id) {
+                    const unit = occupancyUnits[id];
+                    const margin = 16;
+                    return unit.hp > 0 && unit.x + margin > footprint.x * 32
+                        && unit.y + margin > footprint.y * 32
+                        && unit.x - margin < (footprint.x + 4) * 32
+                        && unit.y - margin < (footprint.y + 3) * 32;
                 })) return "A unit occupies this site";
                 return "";
             }

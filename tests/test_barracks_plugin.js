@@ -116,6 +116,11 @@ tool.onMove(blocked);
 assert.match(construction.findWidget('barracks-status').text, /unit occupies/);
 tool.onDown(blocked);
 assert.equal(placements, 1);
+actions.get('rtsbridge.applySnapshot').execute({ player: 1,
+    args: { session: 'a'.repeat(32), seq: 2, units: [{ ...unit, id: 'openbw:3001', x: 8 * 32 - 8 }] } });
+tool.onMove(blocked);
+assert.match(construction.findWidget('barracks-status').text, /unit occupies/,
+    'unbound native actors overlapping the edge still occupy construction sites');
 assert.equal(passive.onHover({ ...event, alt: true }), false);
 
 // Park storage keeps the structure ID stable when the plugin restarts on a saved park.
