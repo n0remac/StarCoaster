@@ -33,7 +33,7 @@ class ScenarioPackageTest(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_bytes(b"PARKoriginal park contents")
             (package / "scenario.json").write_text(json.dumps({"scenario_id": "imported",
-                "park_file": "run-data/imported/save/imported.park"}))
+                "park_file": "run-data/imported/save/imported.park", "park_size": [64, 64]}))
             (package / "mapping.json").write_text("{}")
             metadata = package / "package.json"
             metadata.write_text(json.dumps({"generator": "existing-park",
@@ -41,13 +41,22 @@ class ScenarioPackageTest(unittest.TestCase):
             plan = scenario_package.resolve("imported")
             self.assertIsNone(plan["fixture"])
             self.assertIsNone(plan["navigation"])
-            scenario_package.ensure_park(plan)
+            with mock.patch.object(scenario_package, "inspect_existing_park", return_value=(64, 64)) as inspect:
+                scenario_package.ensure_park(plan)
+                inspect.assert_called_once_with(source)
             staged = Path(plan["park"])
             self.assertEqual(staged.read_bytes(), source.read_bytes())
             staged.write_bytes(b"PARKsession changes")
             self.assertEqual(source.read_bytes(), b"PARKoriginal park contents")
-            scenario_package.ensure_park(plan, force=True)
+            with mock.patch.object(scenario_package, "inspect_existing_park", return_value=(64, 64)):
+                scenario_package.ensure_park(plan, force=True)
             self.assertEqual(staged.read_bytes(), source.read_bytes())
+            with mock.patch.object(scenario_package, "inspect_existing_park", return_value=(257, 64)):
+                with self.assertRaisesRegex(RuntimeError, "exceeds 256x256"):
+                    scenario_package.ensure_park(plan, force=True)
+            with mock.patch.object(scenario_package, "inspect_existing_park", return_value=(65, 64)):
+                with self.assertRaisesRegex(RuntimeError, "differs from scenario"):
+                    scenario_package.ensure_park(plan, force=True)
             source.unlink()
             with self.assertRaisesRegex(ValueError, "missing existing park"):
                 scenario_package.resolve("imported")

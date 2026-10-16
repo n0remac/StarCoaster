@@ -5,7 +5,10 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import subprocess
+import tempfile
+import time
 from park_layout import load as load_layout
 
 
@@ -113,6 +116,12 @@ def ensure_park(plan: dict, force: bool = False) -> None:
         if signature != b"PARK":
             raise RuntimeError(f"invalid OpenRCT2 park source: {source}")
         if force or not park.is_file() or source.stat().st_mtime_ns > park.stat().st_mtime_ns:
+            actual = inspect_existing_park(source)
+            expected = json.loads(Path(plan["scenario"]).read_text()).get("park_size")
+            if actual[0] > 256 or actual[1] > 256:
+                raise RuntimeError(f"existing park exceeds 256x256 native map: {actual[0]}x{actual[1]}")
+            if list(actual) != expected:
+                raise RuntimeError(f"existing park size {actual[0]}x{actual[1]} differs from scenario {expected}")
             park.parent.mkdir(parents=True, exist_ok=True)
             temporary = park.with_suffix(".park.tmp")
             shutil.copy2(source, temporary)
@@ -127,6 +136,55 @@ def ensure_park(plan: dict, force: bool = False) -> None:
         subprocess.run(plan["generator"], cwd=ROOT, check=True)
     if any(not path.is_file() for path in (park, fixture, navigation)):
         raise RuntimeError(f"park generator did not produce the complete {plan['scenario_id']} package")
+
+
+def inspect_existing_park(source: Path) -> tuple[int, int]:
+    """Ask OpenRCT2 for the real map size; never infer it from park bytes."""
+    executable = ROOT / "build/openrct2/openrct2-cli"
+    data = ROOT / "build/openrct2-stage/usr/local/share/openrct2"
+    rct2 = Path(os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2")))
+    if not executable.is_file() or not (data / "g2.dat").is_file() or not rct2.is_dir():
+        raise RuntimeError("OpenRCT2 build and licensed RCT2 data are required to inspect an existing park")
+    with tempfile.TemporaryDirectory(prefix="starcoaster-park-inspect-") as directory:
+        user = Path(directory)
+        (user / "plugin").mkdir()
+        (user / "config.ini").write_text("[network]\nadvertise = false\n")
+        (user / "plugin/inspect.js").write_text(
+            'registerPlugin({name:"Park Size Inspector",version:"1.0",authors:["StarCoaster"],'
+            'type:"local",licence:"MIT",targetApiVersion:124,minApiVersion:124,main:function(){'
+            'var done=false;context.subscribe("interval.tick",function(){if(done)return;done=true;'
+            'console.log("STARCOASTER_PARK_SIZE "+JSON.stringify([map.size.x,map.size.y]));});}});')
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        log = user / "openrct2.log"
+        command = [str(executable), "host", str(source), "--headless", "--address=127.0.0.1",
+                   f"--port={port}", f"--rct2-data-path={rct2}",
+                   f"--openrct2-data-path={data}", f"--user-data-path={user}"]
+        with log.open("w") as stream:
+            process = subprocess.Popen(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT)
+            try:
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    output = log.read_text(errors="replace")
+                    marker = "STARCOASTER_PARK_SIZE "
+                    if marker in output:
+                        result, _ = json.JSONDecoder().raw_decode(output.split(marker)[-1])
+                        if (not isinstance(result, list) or len(result) != 2 or
+                                any(type(value) is not int or value < 1 for value in result)):
+                            raise RuntimeError("OpenRCT2 reported an invalid park size")
+                        return result[0], result[1]
+                    if process.poll() is not None:
+                        raise RuntimeError(f"OpenRCT2 could not load existing park: {output[-1000:]}")
+                    time.sleep(.1)
+                raise RuntimeError("OpenRCT2 park inspection timed out")
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
 
 
 def build_native_map(plan: dict, output_override=None) -> Path:

@@ -1,0 +1,6 @@
+{
+  "rules": [
+    { "kind": "small_scenery", "destructible": false, "targetable": false, "blocks": true },
+    { "kind": "large_scenery", "destructible": true, "targetable": true, "blocks": true, "health": 160 }
+  ]
+}
