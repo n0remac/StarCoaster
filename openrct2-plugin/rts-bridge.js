@@ -772,6 +772,7 @@
         let worldSpawnSender = null;
         let worldWaveSender = null;
         let waveFeedback = "";
+        let waveFeedbackUntil = 0;
         let spawnFeedback = "";
         const spawnStatuses = {};
         let worldTargetIds = {};
@@ -1083,6 +1084,7 @@
             }, function (event) {
                 const args = event.args;
                 waveFeedback = args.accepted ? "Wave " + args.wave_id + " queued" : "Wave rejected: " + args.reason;
+                waveFeedbackUntil = Date.now() + 5000;
                 return {};
             });
             context.registerAction(COMMAND_ACTION, function (event) {
@@ -1284,10 +1286,12 @@
                 const request = ++nextWaveRequest;
                 const requestId = controlSession + ":wave:" + network.currentPlayer.id + ":" + request;
                 waveFeedback = "Requesting an extra wave";
+                waveFeedbackUntil = Date.now() + 5000;
                 context.executeAction(WAVE_ACTION, { session: controlSession, request: request,
                     request_id: requestId }, function (result) {
                     if (result.error) {
                         waveFeedback = result.errorMessage;
+                        waveFeedbackUntil = Date.now() + 5000;
                         ui.showError("Spawn Wave", result.errorMessage);
                     }
                 });
@@ -1300,6 +1304,7 @@
                     commandFeedback = "";
                     spawnFeedback = "";
                     waveFeedback = "";
+                    waveFeedbackUntil = 0;
                 }
                 selected = selected.filter(function (id) {
                     const unit = controlUnits[id];
@@ -1323,6 +1328,7 @@
                     }
 
                 if (squadWindow) {
+                    if (waveFeedback && Date.now() >= waveFeedbackUntil) waveFeedback = "";
                     if (missionStatus && missionStatus.session === controlSession)
                         squadWindow.title = missionStatus.display_name;
                     const info = squadWindow.findWidget("selection");
