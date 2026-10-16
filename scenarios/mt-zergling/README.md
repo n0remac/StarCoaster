@@ -7,7 +7,11 @@ launcher stages a separate save under `run-data/mt-zergling/save/`.
 OpenRCT2 reports a 202×202 map, an in-progress scenario with a 1,000 guests
 by year 4 objective, and no starting rides. The player builds rides while
 managing the park. Five Marines start on the owned mountain plateau, and
-recurring attacks rotate through north, south, east, and west owned tiles.
+recurring attacks start near the north, south, east, and west map edges.
+Each edge has a broad group of candidate tiles. An attack tries its rotating
+edge first and uses another edge if occupied. Temporarily blocked attacks
+remain queued and resume when a safe tile and native actor capacity are
+available.
 The authored save contains many decorative trees. Small scenery is excluded
 from native combat and collision. The two large trees inside the authored
 owned plateau, plus new rides, remain combat targets. Large trees outside the
@@ -24,6 +28,9 @@ The original save has no starting rides or guests; use the usual OpenRCT2
 construction and park controls to develop it. OpenRCT2 pause and speed
 controls do not synchronize the OpenBW simulation clock, so wave timing is
 measured on complete native frames rather than the in-game date.
+The first joined player is the park operator and receives OpenRCT2 construction
+and park management permissions. If that player leaves, the next connected
+player becomes the operator.
 
 The source file is user authored and must stay out of Git. Use
 `scripts/project.sh validate-scenario mt-zergling`,
@@ -31,6 +38,10 @@ The source file is user authored and must stay out of Git. Use
 `scripts/project.sh play mt-zergling` after placing the source.
 For a two-client graphical verification with a real six-minute video, run
 `scripts/project.sh record --scenario mt-zergling --duration 360 --mt-zergling-playthrough`.
+For a focused headless check of park opening, ride construction, and all four
+native edge routes, run `python3 tests/test_mt_zergling_gameplay_live.py`.
+That test shortens the wave timer in an isolated ignored runtime copy; the
+packaged scenario keeps the normal 2,880-frame interval.
 The test-only capture option uses ordinary OpenRCT2 actions to place one wall
 while Zerglings are alive and clicks Spawn Wave in the Marine window. It saves
 the video, screenshots, logs, and verification data under ignored
