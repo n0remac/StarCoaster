@@ -54,9 +54,21 @@ def ensure_bridge(checkout: Path) -> str:
     return result
 
 
+def ensure_starcraft_toolbar(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0005-starcraft-construction-toolbar.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected toolbar changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
-        print("OpenRCT2 native bridge patch " + ensure_bridge(ROOT / "upstream/openrct2"))
+        checkout = ROOT / "upstream/openrct2"
+        print("OpenRCT2 native bridge patch " + ensure_bridge(checkout))
+        print("StarCraft toolbar patch " + ensure_starcraft_toolbar(checkout))
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)

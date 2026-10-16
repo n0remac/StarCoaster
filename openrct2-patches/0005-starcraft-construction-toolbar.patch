@@ -1,0 +1,76 @@
+diff --git a/src/openrct2-ui/windows/TopToolbar.cpp b/src/openrct2-ui/windows/TopToolbar.cpp
+--- a/src/openrct2-ui/windows/TopToolbar.cpp
++++ b/src/openrct2-ui/windows/TopToolbar.cpp
+@@ -71,6 +71,7 @@
+         WIDX_SCENERY,
+         WIDX_PATH,
+         WIDX_CONSTRUCT_RIDE,
++        WIDX_STARCRAFT_CONSTRUCTION,
+         WIDX_RIDES,
+         WIDX_PARK,
+         WIDX_STAFF,
+@@ -210,6 +211,7 @@
+         WIDX_SCENERY,
+         WIDX_PATH,
+         WIDX_CONSTRUCT_RIDE,
++        WIDX_STARCRAFT_CONSTRUCTION,
+ 
+         WIDX_SEPARATOR,
+ 
+@@ -252,6 +254,7 @@
+         makeRemapWidget({357, 0}, {30, kTopToolbarHeight + 1}, WidgetType::trnBtn, WindowColour::tertiary  , SPR_TOOLBAR_SCENERY,        STR_PLACE_SCENERY_TIP             ), // Scenery
+         makeRemapWidget({387, 0}, {30, kTopToolbarHeight + 1}, WidgetType::trnBtn, WindowColour::tertiary  , SPR_TOOLBAR_FOOTPATH,       STR_BUILD_FOOTPATH_TIP            ), // Path
+         makeRemapWidget({490, 0}, {30, kTopToolbarHeight + 1}, WidgetType::trnBtn, WindowColour::tertiary  , SPR_TOOLBAR_CONSTRUCT_RIDE, STR_BUILD_RIDE_TIP                ), // Construct ride
++        makeRemapWidget({490, 0}, {30, kTopToolbarHeight + 1}, WidgetType::trnBtn, WindowColour::tertiary  , SPR_TAB_TOOLBAR,            STR_BUILD_RIDE_TIP                ), // StarCraft construction
+         makeRemapWidget({520, 0}, {30, kTopToolbarHeight + 1}, WidgetType::trnBtn, WindowColour::quaternary, SPR_TOOLBAR_RIDES,          STR_RIDES_IN_PARK_TIP             ), // Rides
+         makeRemapWidget({550, 0}, {30, kTopToolbarHeight + 1}, WidgetType::trnBtn, WindowColour::quaternary, SPR_TOOLBAR_PARK,           STR_PARK_INFORMATION_TIP          ), // Park
+         makeRemapWidget({560, 0}, {30, kTopToolbarHeight + 1}, WidgetType::trnBtn, WindowColour::quaternary, SPR_TAB_TOOLBAR,            STR_STAFF_TIP                     ), // Staff
+@@ -833,6 +836,18 @@
+                     break;
+                 case WIDX_CONSTRUCT_RIDE:
+                     ContextOpenWindow(WindowClass::constructRide);
++                    break;
++                case WIDX_STARCRAFT_CONSTRUCTION:
++#ifdef ENABLE_SCRIPTING
++                    for (const auto& item : Scripting::CustomMenuItems)
++                    {
++                        if (item.Kind == Scripting::CustomToolbarMenuItemKind::standard && item.Text == "StarCraft Construction")
++                        {
++                            item.Invoke();
++                            break;
++                        }
++                    }
++#endif
+                     break;
+                 case WIDX_RIDES:
+                     ContextOpenWindow(WindowClass::rideList);
+@@ -1308,6 +1323,15 @@
+         void onPrepareDraw() override
+         {
+             ResetWidgetsToDefaultState();
++#ifdef ENABLE_SCRIPTING
++            widgets[WIDX_STARCRAFT_CONSTRUCTION].setVisible(std::ranges::any_of(
++                Scripting::CustomMenuItems, [](const auto& item) {
++                    return item.Kind == Scripting::CustomToolbarMenuItemKind::standard
++                        && item.Text == "StarCraft Construction";
++                }));
++#else
++            widgets[WIDX_STARCRAFT_CONSTRUCTION].setHidden();
++#endif
+             HideDisabledButtons();
+             ApplyEditorMode();
+ 
+@@ -1331,6 +1355,13 @@
+             int32_t imgId;
+ 
+             WindowDrawWidgets(*this, rt);
++
++            if (widgets[WIDX_STARCRAFT_CONSTRUCTION].isVisible())
++            {
++                const auto& button = widgets[WIDX_STARCRAFT_CONSTRUCTION];
++                drawText(rt, { windowPos.x + button.left + 15, windowPos.y + button.top + 8 },
++                    "SC", { Drawing::Colour::brightRed, FontStyle::medium, TextAlignment::centre });
++            }
+ 
+             ScreenCoordsXY screenPos{};
+             // Draw staff button image (setting masks to the staff colours)
