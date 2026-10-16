@@ -1387,7 +1387,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		s.ack(p, m, true, "")
 		s.sendTargetLink(s.controller, m.Session, m.Revision, payload)
 		if s.lastReady != nil && (!hadLink || previousLink.ProxyID != payload.ProxyID ||
-			previousLink.X != payload.X || previousLink.Y != payload.Y) {
+			previousLink.X != payload.X || previousLink.Y != payload.Y || previousLink.Health != payload.Health) {
 			_ = s.emit(s.park, "entity.target", m.Session, m.Revision, payload)
 		}
 		if !hadLink || previousLink.Health != payload.Health {

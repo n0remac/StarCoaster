@@ -369,6 +369,39 @@ func TestTargetLinkIsForwardedAndValidated(t *testing.T) {
 	}
 }
 
+func TestNativeTargetHealthUpdateReachesPark(t *testing.T) {
+	s := testService()
+	e := testEntity()
+	if err := s.registry.Replace("session-a", 3, 8, 8, []world.Entity{e}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.bwWidth, s.bwHeight = 128, 128
+	s.lastReady = &world.Ready{Entities: 1, Targets: 1}
+	s.proxies = map[string]string{}
+	s.targetLinks = map[string]targetLink{}
+	s.proxies[e.ID] = "openbw:19"
+	s.targetLinks[e.ID] = targetLink{ID: e.ID, ProxyID: "openbw:19", X: 250, Y: 300, Health: 40}
+	bridgeSide, parkSide := net.Pipe()
+	defer bridgeSide.Close()
+	defer parkSide.Close()
+	s.park = &peer{Conn: bridgeSide}
+	done := make(chan struct{})
+	go func() {
+		s.bwMessage(nil, world.Message("entity.state", "session-a", "bw:health", "openbw", 3,
+			targetLink{ID: e.ID, ProxyID: "openbw:19", X: 250, Y: 300, Health: 23}))
+		close(done)
+	}()
+	var update world.Envelope
+	if err := json.Unmarshal([]byte(readLine(parkSide)), &update); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	var link targetLink
+	if update.Kind != "entity.target" || update.Decode(&link) != nil || link.Health != 23 {
+		t.Fatalf("native health update was not published to the park: %+v", update)
+	}
+}
+
 func readLine(connection net.Conn) string {
 	line, _ := bufio.NewReader(connection).ReadString('\n')
 	return line
