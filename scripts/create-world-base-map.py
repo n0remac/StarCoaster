@@ -46,9 +46,12 @@ def scenario_units(path: Path) -> list[bytes]:
             or any(type(value) is not int or not 1 <= value <= MAP_SIZE for value in size)):
         raise ValueError("scenario must describe a park of at most 256x256 with version 1 or 2")
     groups = scenario.get("starting_units")
-    if (not isinstance(groups, dict) or any(not isinstance(groups.get(name), list)
-            or not 1 <= len(groups[name]) <= 256 for name in ("marines", "zerglings"))):
-        raise ValueError("scenario requires 1-256 Marines and 1-256 Zerglings")
+    minimum_zerglings = 0 if scenario.get("mode") == "park_defense" else 1
+    if (not isinstance(groups, dict) or not isinstance(groups.get("marines"), list)
+            or not 1 <= len(groups["marines"]) <= 256
+            or not isinstance(groups.get("zerglings"), list)
+            or not minimum_zerglings <= len(groups["zerglings"]) <= 256):
+        raise ValueError("scenario requires 1-256 Marines and valid starting Zerglings")
     units = []
     occupied = set()
     for name, kind, owner, first_id in (("zerglings", 37, 0, 10), ("marines", 0, 1, 1000)):

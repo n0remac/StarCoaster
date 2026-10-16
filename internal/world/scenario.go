@@ -13,6 +13,7 @@ import (
 type Scenario struct {
 	Version       int    `json:"version"`
 	ID            string `json:"scenario_id"`
+	Mode          string `json:"mode,omitempty"`
 	DisplayName   string `json:"display_name"`
 	ParkFile      string `json:"park_file"`
 	ParkSize      [2]int `json:"park_size"`
@@ -35,9 +36,20 @@ type Scenario struct {
 		ObjectiveDestroyed   string `json:"objective_destroyed"`
 		AllMarinesEliminated bool   `json:"all_marines_eliminated"`
 	} `json:"defeat"`
-	SpawnWaves []SpawnWave          `json:"spawn_waves,omitempty"`
-	SpawnZones map[string]SpawnZone `json:"spawn_zones,omitempty"`
-	Waves      []ScenarioWave       `json:"waves,omitempty"`
+	SpawnWaves  []SpawnWave          `json:"spawn_waves,omitempty"`
+	SpawnZones  map[string]SpawnZone `json:"spawn_zones,omitempty"`
+	Waves       []ScenarioWave       `json:"waves,omitempty"`
+	ParkDefense *ParkDefenseWaves    `json:"park_defense,omitempty"`
+}
+
+// ParkDefenseWaves is one recurring attack template. Frames follow the
+// authoritative OpenBW simulation clock (42 ms per frame at normal speed).
+type ParkDefenseWaves struct {
+	InitialDelayFrames   int      `json:"initial_delay_frames"`
+	IntervalFrames       int      `json:"interval_frames"`
+	UnitsPerWave         int      `json:"units_per_wave"`
+	ManualCooldownFrames int      `json:"manual_cooldown_frames"`
+	SpawnZones           []string `json:"spawn_zones"`
 }
 
 // Description is player-facing metadata. It is never evaluated as a script.
@@ -101,14 +113,21 @@ func LoadScenario(path string) (*Scenario, error) {
 	} else if err := json.Unmarshal(data, &scenario); err != nil {
 		return nil, err
 	}
+	parkDefense := scenario.Mode == "park_defense"
 	if (scenario.Version != 1 && scenario.Version != 2) || !identifier.MatchString(scenario.ID) || scenario.ParkSize[0] < 1 || scenario.ParkSize[1] < 1 ||
 		scenario.ParkSize[0] > 256 || scenario.ParkSize[1] > 256 || len(scenario.StartingUnits.Marines) == 0 ||
-		len(scenario.StartingUnits.Zerglings) == 0 || len(scenario.Objectives) == 0 ||
-		scenario.InitialAI.Strategy != "objective_assault" || scenario.InitialAI.Objective == "" ||
+		(!parkDefense && (len(scenario.StartingUnits.Zerglings) == 0 || len(scenario.Objectives) == 0 ||
+			scenario.InitialAI.Strategy != "objective_assault" || scenario.InitialAI.Objective == "")) ||
+		(parkDefense && (scenario.Version != 2 || len(scenario.StartingUnits.Zerglings) != 0 ||
+			scenario.InitialAI.Strategy != "park_defense" || scenario.InitialAI.Objective != "")) ||
 		scenario.InitialAI.DelayFrames < 0 || scenario.InitialAI.DelayFrames > 600 ||
-		!scenario.Victory.AllZerglingsEliminated || !scenario.Defeat.AllMarinesEliminated ||
-		scenario.Victory.ObjectiveIntact != scenario.InitialAI.Objective ||
-		scenario.Defeat.ObjectiveDestroyed != scenario.InitialAI.Objective {
+		(!parkDefense && (!scenario.Victory.AllZerglingsEliminated || !scenario.Defeat.AllMarinesEliminated ||
+			scenario.Victory.ObjectiveIntact != scenario.InitialAI.Objective ||
+			scenario.Defeat.ObjectiveDestroyed != scenario.InitialAI.Objective)) ||
+		(parkDefense && (scenario.Victory.AllWavesCleared || scenario.Victory.AllZerglingsEliminated ||
+			scenario.Victory.ObjectiveIntact != "" || scenario.Defeat.AllMarinesEliminated ||
+			scenario.Defeat.ObjectiveDestroyed != "")) ||
+		(scenario.Mode != "" && scenario.Mode != "park_defense") {
 		return nil, fmt.Errorf("invalid scenario configuration")
 	}
 	for _, objective := range scenario.Objectives {
@@ -140,7 +159,9 @@ func LoadScenario(path string) (*Scenario, error) {
 
 func (s *Scenario) validateV2() error {
 	if strings.TrimSpace(s.DisplayName) == "" || strings.TrimSpace(s.ParkFile) == "" ||
-		!s.Victory.AllWavesCleared || len(s.Waves) == 0 || len(s.SpawnWaves) != 0 || len(s.SpawnZones) == 0 {
+		len(s.SpawnWaves) != 0 || len(s.SpawnZones) == 0 ||
+		(s.Mode != "park_defense" && (!s.Victory.AllWavesCleared || len(s.Waves) == 0 || s.ParkDefense != nil)) ||
+		(s.Mode == "park_defense" && (len(s.Waves) != 0 || s.ParkDefense == nil)) {
 		return fmt.Errorf("invalid v2 scenario configuration")
 	}
 	objectives := map[string]bool{}
@@ -151,7 +172,7 @@ func (s *Scenario) validateV2() error {
 		}
 		objectives[objective.ID] = true
 	}
-	if !objectives[s.InitialAI.Objective] || !objectives[s.Victory.ObjectiveIntact] || !objectives[s.Defeat.ObjectiveDestroyed] {
+	if s.Mode != "park_defense" && (!objectives[s.InitialAI.Objective] || !objectives[s.Victory.ObjectiveIntact] || !objectives[s.Defeat.ObjectiveDestroyed]) {
 		return fmt.Errorf("unknown objective reference")
 	}
 	seenTiles := map[[2]int]bool{}
@@ -174,6 +195,21 @@ func (s *Scenario) validateV2() error {
 			}
 			seen[tile] = true
 		}
+	}
+	if s.Mode == "park_defense" {
+		p := s.ParkDefense
+		if p.InitialDelayFrames < 1 || p.IntervalFrames < 1 || p.UnitsPerWave < 1 || p.UnitsPerWave > 64 ||
+			p.ManualCooldownFrames < 0 || len(p.SpawnZones) < 2 {
+			return fmt.Errorf("invalid park defense wave template")
+		}
+		seen := map[string]bool{}
+		for _, id := range p.SpawnZones {
+			if seen[id] || s.SpawnZones[id].Tiles == nil {
+				return fmt.Errorf("invalid park defense spawn zone: %s", id)
+			}
+			seen[id] = true
+		}
+		return nil
 	}
 	waves := map[string]ScenarioWave{}
 	for _, wave := range s.Waves {
@@ -244,6 +280,9 @@ func (s *Scenario) validTile(tile [2]int) bool {
 
 // Outcome uses only confirmed park demolition and complete OpenBW actor counts.
 func (s *Scenario) Outcome(objectiveDestroyed bool, marines, zerglings int) string {
+	if s.Mode == "park_defense" {
+		return ""
+	}
 	if objectiveDestroyed || marines == 0 {
 		return "defeat"
 	}

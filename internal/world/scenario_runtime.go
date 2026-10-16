@@ -12,21 +12,32 @@ import (
 // submitted; native creation and death are learned only from authoritative
 // queue, actor lifecycle, and complete combat snapshots.
 type ScenarioRuntime struct {
-	Session            string        `json:"session"`
-	DefinitionHash     string        `json:"definition_hash"`
-	ObjectiveEntityID  string        `json:"objective_entity_id,omitempty"`
-	ObjectiveDestroyed bool          `json:"objective_destroyed,omitempty"`
-	ObjectiveRemoved   bool          `json:"objective_removed,omitempty"`
-	StartFrame         int           `json:"start_frame"`
-	Started            bool          `json:"started"`
-	LastFrame          int           `json:"last_frame"`
-	LastSeq            uint64        `json:"last_seq"`
-	Waves              []RuntimeWave `json:"waves"`
-	Outcome            string        `json:"outcome,omitempty"`
-	Error              string        `json:"error,omitempty"`
+	Session            string            `json:"session"`
+	DefinitionHash     string            `json:"definition_hash"`
+	ObjectiveEntityID  string            `json:"objective_entity_id,omitempty"`
+	ObjectiveDestroyed bool              `json:"objective_destroyed,omitempty"`
+	ObjectiveRemoved   bool              `json:"objective_removed,omitempty"`
+	StartFrame         int               `json:"start_frame"`
+	Started            bool              `json:"started"`
+	LastFrame          int               `json:"last_frame"`
+	LastSeq            uint64            `json:"last_seq"`
+	NextAutomaticFrame int               `json:"next_automatic_frame,omitempty"`
+	NextWaveSequence   int               `json:"next_wave_sequence,omitempty"`
+	TotalTriggered     int               `json:"total_triggered,omitempty"`
+	LastManualFrame    int               `json:"last_manual_frame,omitempty"`
+	ManualRequests     map[string]string `json:"manual_requests,omitempty"`
+	ManualOrder        []string          `json:"manual_order,omitempty"`
+	ManualSequence     map[int]int       `json:"manual_sequence,omitempty"`
+	Waves              []RuntimeWave     `json:"waves"`
+	Outcome            string            `json:"outcome,omitempty"`
+	Error              string            `json:"error,omitempty"`
 }
 type RuntimeWave struct {
 	ID             string        `json:"id"`
+	TemplateID     string        `json:"template_id,omitempty"`
+	Origin         string        `json:"origin,omitempty"`
+	Sequence       int           `json:"sequence,omitempty"`
+	SpawnZone      string        `json:"spawn_zone,omitempty"`
 	State          string        `json:"state"`
 	TriggeredFrame int           `json:"triggered_frame,omitempty"`
 	Units          []RuntimeUnit `json:"units,omitempty"`
@@ -56,6 +67,10 @@ func ScenarioDefinitionHash(s *Scenario) string {
 
 func NewScenarioRuntime(s *Scenario, session string) *ScenarioRuntime {
 	r := &ScenarioRuntime{Session: session, DefinitionHash: ScenarioDefinitionHash(s)}
+	if s.Mode == "park_defense" {
+		r.NextWaveSequence = 1
+		return r
+	}
 	for _, wave := range s.Waves {
 		r.Waves = append(r.Waves, RuntimeWave{ID: wave.ID, State: "pending"})
 	}
@@ -65,6 +80,18 @@ func NewScenarioRuntime(s *Scenario, session string) *ScenarioRuntime {
 func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 	if r.Session != session || r.DefinitionHash != ScenarioDefinitionHash(s) {
 		return errors.New("scenario_session_or_hash_mismatch")
+	}
+	if s.Mode == "park_defense" {
+		if r.NextWaveSequence < 1 || r.TotalTriggered < 0 {
+			return errors.New("scenario_journal_sequence_invalid")
+		}
+		for _, wave := range r.Waves {
+			if wave.TemplateID != "park-defense" || wave.Sequence < 1 ||
+				(wave.Origin != "periodic" && wave.Origin != "manual") || s.SpawnZones[wave.SpawnZone].Tiles == nil {
+				return errors.New("scenario_journal_wave_mismatch")
+			}
+		}
+		return nil
 	}
 	if len(r.Waves) != len(s.Waves) {
 		return errors.New("scenario_journal_wave_mismatch")
@@ -103,6 +130,25 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 	if !r.Started || r.Outcome != "" || r.Error != "" {
 		return false
 	}
+	if s.Mode == "park_defense" {
+		if r.NextAutomaticFrame == 0 {
+			r.NextAutomaticFrame = r.StartFrame + s.ParkDefense.InitialDelayFrames
+			return true
+		}
+		if r.LastFrame < r.NextAutomaticFrame {
+			return false
+		}
+		for _, wave := range r.Waves {
+			if wave.State == "triggered" || wave.State == "spawning" {
+				// Keep one scheduled intent while capacity or construction is blocked.
+				return false
+			}
+		}
+		r.newParkDefenseWave(s, "periodic")
+		// A late complete frame creates one attack, with no outage burst.
+		r.NextAutomaticFrame = r.LastFrame + s.ParkDefense.IntervalFrames
+		return true
+	}
 	changed := false
 	for i, wave := range s.Waves {
 		entry := &r.Waves[i]
@@ -134,6 +180,110 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 		changed = true
 	}
 	return changed
+}
+
+func (r *ScenarioRuntime) newParkDefenseWave(s *Scenario, origin string) string {
+	sequence := r.NextWaveSequence
+	r.NextWaveSequence++
+	r.TotalTriggered++
+	id := fmt.Sprintf("%s-%04d", origin, sequence)
+	zone := s.ParkDefense.SpawnZones[(sequence-1)%len(s.ParkDefense.SpawnZones)]
+	wave := RuntimeWave{ID: id, TemplateID: "park-defense", Origin: origin,
+		Sequence: sequence, SpawnZone: zone, State: "triggered", TriggeredFrame: r.LastFrame}
+	for index := 0; index < s.ParkDefense.UnitsPerWave; index++ {
+		wave.Units = append(wave.Units, RuntimeUnit{GroupIndex: 0, UnitIndex: index, State: "planned"})
+	}
+	r.Waves = append(r.Waves, wave)
+	return id
+}
+
+// RequestManual records one durable extra wave without changing the automatic
+// deadline. Replays return the original wave; older evicted IDs are rejected.
+func (r *ScenarioRuntime) RequestManual(s *Scenario, requestID string, playerID, requestSequence int) (string, error) {
+	if s.Mode != "park_defense" || !r.Started || r.Outcome != "" || r.Error != "" {
+		return "", errors.New("scenario_not_ready")
+	}
+	if wave, ok := r.ManualRequests[requestID]; ok {
+		return wave, nil
+	}
+	if requestID == "" || len(requestID) > 128 {
+		return "", errors.New("invalid_wave_request")
+	}
+	if playerID < 0 || requestSequence < 1 || requestSequence <= r.ManualSequence[playerID] {
+		return "", errors.New("stale_wave_request")
+	}
+	if r.LastManualFrame > 0 && r.LastFrame-r.LastManualFrame < s.ParkDefense.ManualCooldownFrames {
+		return "", errors.New("manual_wave_cooldown")
+	}
+	id := r.newParkDefenseWave(s, "manual")
+	r.LastManualFrame = r.LastFrame
+	if r.ManualRequests == nil {
+		r.ManualRequests = make(map[string]string)
+	}
+	r.ManualRequests[requestID] = id
+	if r.ManualSequence == nil {
+		r.ManualSequence = make(map[int]int)
+	}
+	r.ManualSequence[playerID] = requestSequence
+	r.ManualOrder = append(r.ManualOrder, requestID)
+	if len(r.ManualOrder) > 128 {
+		delete(r.ManualRequests, r.ManualOrder[0])
+		r.ManualOrder = r.ManualOrder[1:]
+	}
+	return id, nil
+}
+
+// WaveZone resolves an instance against its recorded template rather than its
+// position in the authored finite-wave list.
+func (r *ScenarioRuntime) WaveZone(s *Scenario, wi, group int) (SpawnZone, bool) {
+	if wi < 0 || wi >= len(r.Waves) {
+		return SpawnZone{}, false
+	}
+	instance := r.Waves[wi]
+	if s.Mode == "park_defense" {
+		zone, ok := s.SpawnZones[instance.SpawnZone]
+		return zone, ok && group == 0
+	}
+	if wi >= len(s.Waves) || group < 0 || group >= len(s.Waves[wi].Groups) {
+		return SpawnZone{}, false
+	}
+	zone, ok := s.SpawnZones[s.Waves[wi].Groups[group].SpawnZone]
+	return zone, ok
+}
+
+// PruneParkDefenseHistory retains recent completed attacks and all work that
+// may still need native reconciliation. The caller saves the runtime before
+// removing corresponding settled queue entries.
+func (r *ScenarioRuntime) PruneParkDefenseHistory(s *Scenario) []string {
+	if s.Mode != "park_defense" || len(r.Waves) <= 64 {
+		return nil
+	}
+	completed := 0
+	for _, wave := range r.Waves {
+		if wave.State == "cleared" || wave.State == "failed" {
+			completed++
+		}
+	}
+	remove := completed - 64
+	if remove <= 0 {
+		return nil
+	}
+	requests := []string{}
+	kept := make([]RuntimeWave, 0, len(r.Waves)-remove)
+	for _, wave := range r.Waves {
+		if remove > 0 && (wave.State == "cleared" || wave.State == "failed") {
+			for _, unit := range wave.Units {
+				for _, attempt := range unit.Attempts {
+					requests = append(requests, attempt.RequestID)
+				}
+			}
+			remove--
+			continue
+		}
+		kept = append(kept, wave)
+	}
+	r.Waves = kept
+	return requests
 }
 
 // NextPlanned returns one unit that needs initial placement or a confirmed

@@ -94,6 +94,41 @@ func (q *SpawnQueue) Request(id string) (SpawnRequest, bool) {
 	return entry.Request, true
 }
 
+// PruneSettled removes only journal entries whose native creation has reached
+// a terminal queue state. Callers must first persist the matching wave journal.
+func (q *SpawnQueue) PruneSettled(ids []string) int {
+	remove := map[string]bool{}
+	for _, id := range ids {
+		entry := q.Entries[id]
+		if entry == nil || q.Active == id {
+			continue
+		}
+		settled := true
+		for _, unit := range entry.Status.Units {
+			if unit.State != "ready" && unit.State != "failed" && unit.State != "rejected" {
+				settled = false
+				break
+			}
+		}
+		if settled {
+			remove[id] = true
+		}
+	}
+	if len(remove) == 0 {
+		return 0
+	}
+	order := q.Order[:0]
+	for _, id := range q.Order {
+		if remove[id] {
+			delete(q.Entries, id)
+		} else {
+			order = append(order, id)
+		}
+	}
+	q.Order = order
+	return len(remove)
+}
+
 func (q *SpawnQueue) FindActor(actor string) (string, int, bool) {
 	for id, entry := range q.Entries {
 		for _, unit := range entry.Status.Units {

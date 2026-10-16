@@ -952,6 +952,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.ack(p, m, false, "live_update_unsupported")
 	case "unit.spawn.request", "unit.spawn.query", "unit.spawn.cancel":
 		s.parkSpawnMessage(p, m)
+	case "scenario.wave.request":
+		s.parkWaveRequest(p, m)
 	case "combat.command":
 		var command worldCommand
 		if m.Decode(&command) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
@@ -1066,7 +1068,7 @@ func (s *service) forwardSnapshot() {
 		chunks = append(chunks, world.SnapshotChunk{Terrain: derivedTerrain[start:end]})
 	}
 	begin := world.SnapshotBegin{Width: derivedWidth, Height: derivedHeight, Chunks: len(chunks)}
-	if s.scenario != nil {
+	if s.scenario != nil && s.scenario.Mode != "park_defense" {
 		if s.runtime != nil && (s.runtime.ObjectiveDestroyed || s.runtime.ObjectiveRemoved) {
 			s.objectiveID = s.runtime.ObjectiveEntityID
 		} else {
@@ -1088,6 +1090,9 @@ func (s *service) forwardSnapshot() {
 				}
 			}
 		}
+	}
+	if s.scenario != nil {
+		begin.ScenarioMode = s.scenario.Mode
 	}
 	if err := s.emit(s.bw, "world.snapshot.begin", r.Session, rev, begin); err != nil {
 		log.Printf("OpenBW begin: %v", err)

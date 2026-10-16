@@ -82,6 +82,9 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 	if r == nil || r.Outcome != "" || r.Error != "" {
 		return
 	}
+	if s.scenario.Mode == "park_defense" && r.Started && (frame <= r.LastFrame || seq <= r.LastSeq) {
+		return // stale native snapshots cannot move the recurring schedule
+	}
 	if err := r.AcceptFrame(frame, seq, true); err != nil {
 		s.scenarioRuntimeError(err)
 		return
@@ -103,11 +106,19 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 	}
 	r.Reconcile(s.spawns, living, removed)
 	r.Trigger(s.scenario)
+	pruned := r.PruneParkDefenseHistory(s.scenario)
 	if !s.saveScenarioRuntime() {
 		s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
 		return
 	}
+	if len(pruned) > 0 && s.spawns.PruneSettled(pruned) > 0 && !s.saveSpawns() {
+		s.scenarioRuntimeError(fmt.Errorf("spawn_journal_unavailable"))
+		return
+	}
 	if s.outcome != "" {
+		return
+	}
+	if s.parkPatch != nil || s.targetPatch != nil {
 		return
 	}
 	for {
@@ -139,13 +150,21 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 				break
 			}
 			unit := &r.Waves[wi].Units[ui]
-			zone := s.scenario.SpawnZones[s.scenario.Waves[wi].Groups[unit.GroupIndex].SpawnZone]
+			zone, valid := r.WaveZone(s.scenario, wi, unit.GroupIndex)
+			if !valid {
+				s.scenarioRuntimeError(fmt.Errorf("scenario_wave_template_missing"))
+				return
+			}
 			excluded := make([]world.Point, 0, len(unit.Attempts))
 			for _, attempt := range unit.Attempts {
 				excluded = append(excluded, world.Point{X: attempt.X, Y: attempt.Y})
 			}
 			position, ok := s.scenarioZoneCandidate(zone, excluded)
 			if !ok {
+				if s.scenario.Mode == "park_defense" {
+					r.Waves[wi].FailureReason = "no_eligible_spawn_zone_tile"
+					break
+				}
 				unit.State = "failed"
 				r.Waves[wi].FailureReason = "no_eligible_spawn_zone_tile"
 				if !s.saveScenarioRuntime() {

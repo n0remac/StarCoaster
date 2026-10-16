@@ -5,20 +5,58 @@ import (
 )
 
 type scenarioStatus struct {
-	Session     string `json:"session"`
-	ScenarioID  string `json:"scenario_id"`
-	DisplayName string `json:"display_name"`
-	Objective   string `json:"objective"`
-	WaveOrdinal int    `json:"wave_ordinal"`
-	WaveTotal   int    `json:"wave_total"`
-	WaveState   string `json:"wave_state"`
-	Outcome     string `json:"outcome"`
-	Error       string `json:"error"`
+	Session               string `json:"session"`
+	ScenarioID            string `json:"scenario_id"`
+	DisplayName           string `json:"display_name"`
+	Mode                  string `json:"mode"`
+	Objective             string `json:"objective"`
+	WaveOrdinal           int    `json:"wave_ordinal"`
+	WaveTotal             int    `json:"wave_total"`
+	WaveState             string `json:"wave_state"`
+	Outcome               string `json:"outcome"`
+	Error                 string `json:"error"`
+	TotalTriggered        int    `json:"total_triggered"`
+	NextWaveSeconds       int    `json:"next_wave_seconds"`
+	ActiveZerglings       int    `json:"active_zerglings"`
+	ManualCooldownSeconds int    `json:"manual_cooldown_seconds"`
+	ManualEligible        bool   `json:"manual_eligible"`
 }
 
 func (s *service) currentScenarioStatus() scenarioStatus {
 	status := scenarioStatus{Session: s.registry.Session, ScenarioID: s.scenario.ID,
-		DisplayName: s.scenario.DisplayName, Outcome: s.outcome}
+		DisplayName: s.scenario.DisplayName, Mode: s.scenario.Mode,
+		Outcome: s.outcome, ActiveZerglings: s.lastZerglings}
+	if s.scenario.Mode == "park_defense" {
+		status.Objective = "Manage and defend the park"
+		if s.runtime != nil {
+			status.TotalTriggered = s.runtime.TotalTriggered
+			status.WaveOrdinal = s.runtime.TotalTriggered
+			status.WaveTotal = 0
+			status.NextWaveSeconds = (s.runtime.NextAutomaticFrame - s.runtime.LastFrame + 23) / 24
+			if status.NextWaveSeconds < 0 {
+				status.NextWaveSeconds = 0
+			}
+			cooldown := s.scenario.ParkDefense.ManualCooldownFrames - (s.runtime.LastFrame - s.runtime.LastManualFrame)
+			if s.runtime.LastManualFrame == 0 || cooldown < 0 {
+				cooldown = 0
+			}
+			status.ManualCooldownSeconds = (cooldown + 23) / 24
+			status.ManualEligible = s.ready && s.bw != nil && s.controller != nil && cooldown == 0 && s.runtime.Error == ""
+			status.WaveState = "pending"
+			for _, wave := range s.runtime.Waves {
+				if wave.State != "cleared" && wave.State != "failed" {
+					status.WaveState = wave.State
+				}
+				if wave.FailureReason != "" {
+					status.Error = wave.FailureReason
+				}
+			}
+			if s.runtime.Error != "" {
+				status.Error = s.runtime.Error
+			}
+		}
+		return status
+	}
 	for _, objective := range s.scenario.Objectives {
 		if objective.ID == s.scenario.InitialAI.Objective {
 			status.Objective = objective.Description

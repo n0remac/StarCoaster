@@ -73,6 +73,19 @@ class WorldBaseMapTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "256x256"):
                 module.scenario_units(path)
 
+    def test_park_defense_starts_without_zerglings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scenario.json"
+            scenario = json.loads((ROOT / "scenarios/frontier-outpost/scenario.json").read_text())
+            scenario["mode"] = "park_defense"
+            scenario["starting_units"]["zerglings"] = []
+            path.write_text(json.dumps(scenario))
+            self.assertEqual(len(module.scenario_units(path)), len(scenario["starting_units"]["marines"]))
+            scenario.pop("mode")
+            path.write_text(json.dumps(scenario))
+            with self.assertRaisesRegex(ValueError, "starting Zerglings"):
+                module.scenario_units(path)
+
 
 if __name__ == "__main__":
     unittest.main()
