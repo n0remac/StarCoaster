@@ -2,6 +2,24 @@ package world
 
 import "testing"
 
+func TestSlopedRailStripsMeetGroundClearanceBoundary(t *testing.T) {
+	e := exampleEntity("openrct2:ride:19#1")
+	e.Collision = Collision{Blocks: true, Mode: "height_aware"}
+	for i, z := range []int{136, 140, 144, 148} {
+		e.Collision.Volumes = append(e.Collision.Volumes, CollisionVolume{
+			Rect: Rect{64 + i*8, 96, 8, 32}, BaseZ: z, ClearanceZ: z + 12,
+			OccupiedQuadrants: 15, Classification: "approximate", Source: "slope_25_rail",
+		})
+	}
+	terrain := []Terrain{{X: 2, Y: 3, Height: 112, Walkable: true}}
+	mask := navFor(t, 8, 8, 8, 8, terrain, []Entity{e})
+	for x, wantBlocked := range []bool{true, true, false, false} {
+		if got := mask.BlockedWalk(8+x, 12); got != wantBlocked {
+			t.Fatalf("slope strip %d: blocked=%t, want %t", x, got, wantBlocked)
+		}
+	}
+}
+
 func TestHeightAwareTrackClearanceAndQuadrants(t *testing.T) {
 	base := exampleEntity("openrct2:ride:17#1")
 	base.Collision = Collision{Blocks: true, Mode: "height_aware"}

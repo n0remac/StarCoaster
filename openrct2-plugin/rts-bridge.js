@@ -94,6 +94,62 @@
             if (direction === 3) return { x: -offset.y, y: offset.x };
             return { x: offset.x, y: offset.y };
         }
+        function rideCollisionVolumes(element, ride, x, y, groundHeight) {
+            const trackType = Number.isInteger(element.trackType) ? element.trackType : -1;
+            const sequence = Number.isInteger(element.sequence) ? element.sequence : 0;
+            const direction = Number.isInteger(element.direction) ? element.direction : 0;
+            const baseZ = Number.isInteger(element.baseZ) ? element.baseZ : element.baseHeight * 8;
+            const clearanceZ = Number.isInteger(element.clearanceZ) ? element.clearanceZ
+                : Number.isInteger(element.clearanceHeight) ? element.clearanceHeight * 8 : baseZ + 32;
+            const quadrants = (element.occupiedQuadrants & 15) || 15;
+            const rect = { x: x * 32, y: y * 32, width: 32, height: 32 };
+            const tag = element.type === "entrance" ? "entrance:" : "track:";
+            const source = tag + trackType + ":" + sequence + ":" + direction;
+            const building = ride.classification === "stall" || ride.classification === "facility";
+            // Ride type 19 uses the pinned CorkscrewRollerCoaster painter whose
+            // flat and 25-degree rail geometry is inspected for this profile.
+            const verifiedCoaster = ride.type === 19;
+            const station = trackType >= 1 && trackType <= 3;
+            // Entrances have a 28x28 painted body and an object-specific support.
+            // Shops and facilities have substantial bodies even if a ride uses a
+            // flat internal track tile. Their unknown support shape stays blocked.
+            if (element.type === "entrance" || building || station) return [{
+                rect: rect, base_z: Math.min(baseZ, groundHeight),
+                clearance_z: Math.max(baseZ + 32, clearanceZ), occupied_quadrants: quadrants,
+                classification: "approximate", source: source + (element.type === "entrance"
+                    ? ":ride_entrance_exit" : building ? ":solid_building" : ":station_approx")
+            }];
+            const flatCurve = (trackType === 16 || trackType === 17) && sequence >= 0 && sequence <= 6
+                || (trackType === 42 || trackType === 43) && sequence >= 0 && sequence <= 3;
+            if (trackType === 0 || verifiedCoaster && flatCurve) return [{
+                rect: rect, base_z: baseZ, clearance_z: baseZ + 8,
+                occupied_quadrants: quadrants, classification: "approximate",
+                source: source + (flatCurve ? ":flat_curve_unrepresented_supports" : ":unrepresented_supports")
+            }];
+            // The pinned descriptor gives up25/down25 a 16-Z endpoint delta.
+            // Four strips enclose the rail's local rise; +8 retains the same
+            // conservative rail thickness used for flat track. Direction is
+            // OpenRCT2 travel direction (0=-X, 1=+Y, 2=+X, 3=-Y).
+            if (verifiedCoaster && (trackType === 4 || trackType === 10)
+                    && sequence === 0 && direction >= 0 && direction <= 3) {
+                const volumes = [];
+                for (let strip = 0; strip < 4; strip++) {
+                    const r = { x: x * 32, y: y * 32, width: 32, height: 32 };
+                    if (direction === 0 || direction === 2) { r.x += strip * 8; r.width = 8; }
+                    else { r.y += strip * 8; r.height = 8; }
+                    const progress = direction === 0 || direction === 3 ? 3 - strip : strip;
+                    const lowStep = trackType === 4 ? progress : 3 - progress;
+                    volumes.push({ rect: r, base_z: baseZ + lowStep * 4,
+                        clearance_z: baseZ + (lowStep + 1) * 4 + 8,
+                        occupied_quadrants: 15, classification: "approximate",
+                        source: source + ":slope_25_rail:" + strip + ":unrepresented_supports" });
+                }
+                return volumes;
+            }
+            return [{ rect: rect, base_z: Math.min(baseZ, groundHeight),
+                clearance_z: Math.max(baseZ + 32, clearanceZ), occupied_quadrants: quadrants,
+                classification: "approximate", source: source + ":unknown_track_shape" }];
+        }
         function readPark() {
             const grouped = {}, terrain = [], rides = {};
             map.rides.forEach(function (ride) {
@@ -142,30 +198,9 @@
                         if (rides[element.ride]) {
                             rides[element.ride].cells.push({ x: x, y: y });
                             if (rides[element.ride].height === null) rides[element.ride].height = element.baseHeight * 8;
-                            if (kind === "track") {
-                                const trackType = Number.isInteger(element.trackType) ? element.trackType : -1;
-                                const sequence = Number.isInteger(element.sequence) ? element.sequence : 0;
-                                const station = trackType >= 1 && trackType <= 3;
-                                const simple = trackType === 0;
-                                const q = element.occupiedQuadrants & 15;
-                                const baseZ = element.baseZ === undefined ? element.baseHeight * 8 : element.baseZ;
-                                // Flat rail and station lower bounds are object-specific
-                                // approximations. Descriptor clearance is construction air,
-                                // never the collider for these supported pieces.
-                                rides[element.ride].volumes.push({
-                                    rect: { x: x * 32, y: y * 32, width: 32, height: 32 },
-                                    base_z: simple ? baseZ : station ? baseZ : Math.min(baseZ, ground ? ground.height : baseZ),
-                                    clearance_z: simple ? baseZ + 8 : station ? baseZ + 32
-                                        : Math.max(baseZ + 32, Number.isInteger(element.clearanceZ)
-                                            ? element.clearanceZ : Number.isInteger(element.clearanceHeight)
-                                                ? element.clearanceHeight * 8 : baseZ + 32),
-                                    occupied_quadrants: q || 15,
-                                    classification: "approximate",
-                                    source: "track:" + trackType + ":" + sequence + ":" + (element.direction || 0)
-                                        + (simple ? ":unrepresented_supports" : station ? ":station_approx"
-                                            : ":unknown_track_shape")
-                                });
-                            }
+                            rides[element.ride].volumes.push.apply(rides[element.ride].volumes,
+                                rideCollisionVolumes(element, rides[element.ride].ride, x, y,
+                                    ground ? ground.height : element.baseHeight * 8));
                         }
                         continue;
                     }

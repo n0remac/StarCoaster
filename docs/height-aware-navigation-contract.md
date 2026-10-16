@@ -71,6 +71,22 @@ Exported volume `source` tags include `unrepresented_supports` on flat rails,
 `unknown_track_shape` on complex track, and `unknown_scenery_shape` on scenery
 support fallbacks. Raised-path obstruction causes carry `slab_approx`.
 
+The navigation-completeness extension supports Corkscrew coaster flat
+five-tile and three-tile curve segments (types 16/17 and 42/43) with the
+same rail-level approximation as straight track. The pinned Corkscrew painter
+draws these sequences at element `baseZ`; already rotated occupied quadrants
+limit their horizontal footprint. Corkscrew 25-degree straight track (types
+4/10) uses four 8-pixel strips along its travel direction. Its descriptor
+supplies a 16-Z end-to-end rise, so each strip encloses its local four-Z rise
+plus the existing eight-Z rail thickness. The strip model approximates the
+visible rail body; exact rail silhouette and structural supports remain
+unknown. Other ride styles and one-tile curves retain the conservative
+unknown-shape fallback. Ride entrances and exits are conservative full-tile
+building approximations because the pinned painter draws a body plus
+object-specific supports. Shops and facilities always use a ground-to-top
+solid-building approximation, even if an internal track element reports
+type zero.
+
 Source references in the pinned checkout: `world/ConstructionClearance.cpp`
 (`MapCanConstructWithClearAt`, `landSlopeFitsUnderTrack`,
 `landSlopeFitsUnderPath`), `world/QuarterTile.cpp`, `world/Map.cpp`

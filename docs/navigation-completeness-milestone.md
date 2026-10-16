@@ -110,3 +110,38 @@ Phase 1 should use source-backed collision classes and keep these rendering
 results separate. Phase 2 must put the foreground wall directly across a
 controlled projected actor path. Phase 3 must inspect before/during/after
 frames before changing the renderer.
+
+## Phase 1: collision classification audit
+
+The exporter retains one logical ride entity and complete combat footprint.
+These rows describe **physical ground collision approximations**, not track
+construction clearance. `tests/test_navigation_geometry_plugin.js` exercises
+plugin discovery; `TestSlopedRailStripsMeetGroundClearanceBoundary` and the
+height-aware Go tests exercise the authoritative mask projection. Existing
+fixtures cover walls, scenery, raised paths, terrain slopes, ghosts, and Z
+boundaries. The new fixture includes a type-zero shop track that must remain
+blocked.
+
+| Source type / sequence / direction | Physical classification | Evidence | Precision and limitation |
+| --- | --- | --- | --- |
+| Corkscrew flat track 0 / 0 / 0 | Rail `[baseZ,baseZ+8)` with rotated quarters | Pinned Corkscrew flat painter and prior live straight crossing | Approximate; supports unrepresented. |
+| Corkscrew flat left/right 5-tile curve 16/17 / 0–6 / all directions | Rail `[baseZ,baseZ+8)` with exported quarters | `TrackData.cpp` sequences and Corkscrew curve painter place rail sprites at `height` | Approximate; sequence-specific rail silhouette and supports unrepresented. |
+| Corkscrew flat left/right 3-tile curve 42/43 / 0–3 / all directions | Same rail interval and quarters | Three-tile Corkscrew painter and sequence descriptor | Approximate; supports unrepresented. |
+| Corkscrew up/down 25-degree straight 4/10 / 0 / all directions | Four 8-pixel strips; local 4-Z rise plus 8-Z rail thickness | Descriptor `zBegin/zEnd` differ by 16; pinned painter draws a sloped rail sprite; `CoordsDirectionDelta` fixes strip order | Approximate; rail profile within each strip and supports unrepresented. |
+| Station 1–3 / any / any | Full occupied tile from ground to at least `baseZ+32` | Station painter has base and platform; existing station fixture | Conservative for an elevated station and its supports. |
+| Shop/facility track / any / any | Full occupied tile from ground to construction top | Shop/facility painters draw substantial 28-pixel building bodies and foundations; fixture includes type zero | Conservative body/support footprint; object-specific façade unresolved. |
+| Ride entrance/exit / any / any | Full occupied tile from ground to construction top | Pinned `Paint.Entrance.cpp` draws 28×28 front and support; exporter previously omitted the collider | Conservative body/support footprint. |
+| Directional wall / any / direction 0–3 | Existing 4-pixel edge with vertical interval | Pinned wall painter and plugin fixture | Approximate edge; fence openings unknown. |
+| Raised footpath / flat or supported slope / any | Existing walking-surface slab and terrain-relative check | Pinned footpath semantics and height-aware Go tests | Approximate slab; supports and underside unknown. |
+| Small/large scenery / object-specific | Existing solid/support fallback and object footprint | Scripting object flags and height-aware fixture | Approximate or conservative; precise branches and support posts unknown. |
+| Other coaster styles and complex pieces, including one-tile curves and loops | Ground-to-clearance fallback | No verified physical body in the selected painter | Conservative; may block a genuine underpass. |
+
+The new curve and slope classes are restricted to ride type 19 (Corkscrew
+Roller Coaster), whose pinned painter was inspected. Type-zero flat track
+keeps its previous behavior for other rides; stalls and facilities are
+explicitly excluded from that rail rule. Other coaster styles await painter
+verification. No exact support-pillar geometry is claimed. The Phase 1
+fixture verifies high and low curves, mixed blocked/clear slope strips at the
+32-Z boundary, solid buildings and entrances, unknown fallback, ghost
+exclusion, and one combat identity for the ride. Phase 2 must confirm curve
+and slope behavior with real construction and actual native movement.
