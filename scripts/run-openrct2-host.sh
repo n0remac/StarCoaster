@@ -14,6 +14,7 @@ test -x "$project_dir/build/openrct2/openrct2-cli" || { printf 'Missing OpenRCT2
 
 mkdir -p "$server_data/plugin"
 cp "$project_dir/openrct2-plugin/rts-bridge.js" "$server_data/plugin/rts-bridge.js"
+cp "$project_dir/openrct2-plugin/park-operator-permissions.js" "$server_data/plugin/park-operator-permissions.js"
 if ! test -f "$server_data/config.ini"; then
   printf '[network]\nadvertise = false\n' > "$server_data/config.ini"
 elif grep -q '^advertise = true$' "$server_data/config.ini"; then

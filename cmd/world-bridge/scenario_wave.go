@@ -69,19 +69,6 @@ func (s *service) parkWaveRequest(p *peer, m world.Envelope) {
 		s.respondWave(p, m, request.RequestID, "", "rejected", "native_participants_unavailable")
 		return
 	}
-	count := s.scenario.ParkDefense.UnitsPerWave
-	if s.lastMarines+s.lastZerglings+s.spawns.PendingCount()+count > s.actorLimit() ||
-		s.spawns.PendingCount()+count > 64 {
-		s.respondWave(p, m, request.RequestID, "", "rejected", "spawn_capacity_unavailable")
-		return
-	}
-	if s.parkPatch == nil && s.targetPatch == nil {
-		zoneID := s.scenario.ParkDefense.SpawnZones[(s.runtime.NextWaveSequence-1)%len(s.scenario.ParkDefense.SpawnZones)]
-		if _, ok := s.scenarioZoneCandidate(s.scenario.SpawnZones[zoneID], nil); !ok {
-			s.respondWave(p, m, request.RequestID, "", "rejected", "no_eligible_spawn_zone_tile")
-			return
-		}
-	}
 	waveID, err := s.runtime.RequestManual(s.scenario, request.RequestID, request.PlayerID, sequence)
 	if err != nil {
 		s.respondWave(p, m, request.RequestID, "", "rejected", err.Error())

@@ -58,7 +58,7 @@ const sandbox = {
     rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
     ui: { tileSelection: { tiles: [] }, openWindow(desc) { squadWidgets = desc.widgets;
-            return { findWidget() { return { text: '' }; } }; },
+            return { findWidget(name) { return squadWidgets.find(widget => widget.name === name); } }; },
         registerShortcut(shortcut) { shortcuts.set(shortcut.id, shortcut); },
         activateTool(tool) { selectionTool = tool; }, showError() {} },
     context: { registerAction(name, query, execute) { registered.set(name, { query, execute }); },
@@ -349,6 +349,11 @@ const parkStatus = { session: sid, scenario_id: 'mt-zergling', display_name: 'Mt
     wave_state: 'pending', outcome: '', error: '', total_triggered: 0, next_wave_seconds: 120,
     active_zerglings: 0, manual_cooldown_seconds: 0, manual_eligible: true };
 assert.equal(missionAction.query({ player: 1, args: parkStatus }).error, undefined);
+missionAction.execute({ player: 1, args: parkStatus });
+missionAction.execute({ player: 1, args: { ...parkStatus, error: 'spawn_zones_temporarily_blocked' } });
+subscriptions.get('interval.tick')();
+assert.equal(squadWidgets.find(widget => widget.name === 'wave-feedback').text,
+    'Spawn edges occupied; retrying', 'temporarily blocked waves show a retry message');
 missionAction.execute({ player: 1, args: parkStatus });
 const waveArgs = { session: sid, request: 1, request_id: `${sid}:wave:1:1` };
 assert.equal(waveAction.query({ player: 1, args: waveArgs }).error, undefined);

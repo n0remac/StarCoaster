@@ -1,11 +1,108 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"starcoaster/internal/world"
 )
+
+func parkDefenseTestScenario() *world.Scenario {
+	return &world.Scenario{Version: 2, ID: "repeat", Mode: "park_defense",
+		SpawnZones: map[string]world.SpawnZone{
+			"north": {Tiles: [][2]int{{20, 20}, {21, 20}, {22, 20}, {23, 20}, {20, 21}, {21, 21}, {22, 21}, {23, 21}}},
+			"south": {Tiles: [][2]int{{20, 40}, {21, 40}, {22, 40}, {23, 40}, {20, 41}, {21, 41}, {22, 41}, {23, 41}}},
+		}, ParkDefense: &world.ParkDefenseWaves{InitialDelayFrames: 10000, IntervalFrames: 10000,
+			UnitsPerWave: 8, ManualCooldownFrames: 0, SpawnZones: []string{"north", "south"}}}
+}
+
+func TestParkDefenseFallbackAndTwentyFourReusableWaves(t *testing.T) {
+	s, _ := spawnService(t)
+	s.scenario = parkDefenseTestScenario()
+	s.nativeOccupancyComplete = true
+	s.navigationMask = world.NavigationMask{Width: 128, Height: 128, Bits: make([]byte, 128*4*128*4/8)}
+	s.bw = nil // inspect the durable queue without issuing native commands
+	if err := s.initScenarioRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	s.advanceScenarioRuntime(100, 1, nil)
+	for _, tile := range s.scenario.SpawnZones["north"].Tiles {
+		s.nativeOccupants = append(s.nativeOccupants, world.NativeOccupant{
+			X: s.transform.X(tile[0]*32 + 16), Y: s.transform.Y(tile[1]*32 + 16)})
+	}
+	if _, err := s.runtime.RequestManual(s.scenario, "wave-request-1", 2, 1); err != nil {
+		t.Fatal(err)
+	}
+	s.advanceScenarioRuntime(101, 2, nil)
+	if len(s.spawns.Order) != 8 {
+		t.Fatalf("blocked primary did not fall back to another zone: %d", len(s.spawns.Order))
+	}
+	for _, id := range s.spawns.Order {
+		request, _ := s.spawns.Request(id)
+		if request.Y/32 < 40 {
+			t.Fatalf("fallback used blocked northern tile: %+v", request)
+		}
+	}
+	// Native actors leave the edge before the next wave. Settled queue entries
+	// must not hold their former spawn positions forever.
+	s.nativeOccupants = nil
+	actorSequence := 3000
+	for wave := 1; wave <= 24; wave++ {
+		if wave > 1 {
+			if _, err := s.runtime.RequestManual(s.scenario, fmt.Sprintf("wave-request-%d", wave), 2, wave); err != nil {
+				t.Fatal(err)
+			}
+			s.advanceScenarioRuntime(100+wave, uint64(1+wave), nil)
+		}
+		for {
+			execute, ok := s.spawns.Next()
+			if !ok {
+				break
+			}
+			if err := s.spawns.Issue(execute); err != nil {
+				t.Fatal(err)
+			}
+			actorSequence++
+			actor := fmt.Sprintf("openbw:%d", actorSequence)
+			if err := s.spawns.Created(execute.RequestID, 0, actor, execute.X, execute.Y); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.spawns.Ready(execute.RequestID, 0, actor); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if s.spawns.PendingCount() != 0 || len(s.spawns.Order) != wave*8 {
+			t.Fatalf("wave %d did not settle exactly eight actors: pending=%d orders=%d", wave,
+				s.spawns.PendingCount(), len(s.spawns.Order))
+		}
+	}
+}
+
+func TestParkDefenseWaitsForNativeActorCapacity(t *testing.T) {
+	s, _ := spawnService(t)
+	s.scenario = parkDefenseTestScenario()
+	s.nativeOccupancyComplete = true
+	s.navigationMask = world.NavigationMask{Width: 128, Height: 128, Bits: make([]byte, 128*4*128*4/8)}
+	s.bw = nil
+	if err := s.initScenarioRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	s.advanceScenarioRuntime(100, 1, nil)
+	if _, err := s.runtime.RequestManual(s.scenario, "capacity-wave", 2, 1); err != nil {
+		t.Fatal(err)
+	}
+	s.lastMarines = s.actorLimit()
+	s.advanceScenarioRuntime(101, 2, nil)
+	if len(s.spawns.Order) != 0 || s.runtime.Waves[0].FailureReason != "spawn_capacity_unavailable" {
+		t.Fatal("actor cap was bypassed or its blocked reason was lost")
+	}
+	s.lastMarines = 5
+	s.advanceScenarioRuntime(102, 3, nil)
+	if len(s.spawns.Order) != 8 || s.runtime.Waves[0].FailureReason != "" {
+		t.Fatal("capacity-blocked wave did not resume")
+	}
+}
 
 func TestBridgeScenarioJournalPreventsInterWaveVictoryAndDuplicateIssue(t *testing.T) {
 	s, _ := spawnService(t)

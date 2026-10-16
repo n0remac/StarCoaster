@@ -217,7 +217,7 @@ def main():
                               "navigation_baseline": args.navigation_baseline,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
-    if args.live_construction or args.navigation_baseline or args.mt_zergling_playthrough:
+    if args.live_construction or args.navigation_baseline:
         server_plugins = out / "server-data/plugin"
         server_plugins.mkdir(parents=True, exist_ok=True)
         (server_plugins / "live-construction-permissions.js").write_text(

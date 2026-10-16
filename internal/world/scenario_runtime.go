@@ -251,6 +251,24 @@ func (r *ScenarioRuntime) WaveZone(s *Scenario, wi, group int) (SpawnZone, bool)
 	return zone, ok
 }
 
+// WaveZones tries the wave's rotating zone first, then the other authored
+// zones. The primary is recorded in the durable wave for restart stability.
+func (r *ScenarioRuntime) WaveZones(s *Scenario, wi, group int) ([]SpawnZone, bool) {
+	primary, ok := r.WaveZone(s, wi, group)
+	if !ok {
+		return nil, false
+	}
+	zones := []SpawnZone{primary}
+	if s.Mode == "park_defense" {
+		for _, id := range s.ParkDefense.SpawnZones {
+			if id != r.Waves[wi].SpawnZone {
+				zones = append(zones, s.SpawnZones[id])
+			}
+		}
+	}
+	return zones, true
+}
+
 // PruneParkDefenseHistory retains recent completed attacks and all work that
 // may still need native reconciliation. The caller saves the runtime before
 // removing corresponding settled queue entries.

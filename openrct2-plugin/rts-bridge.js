@@ -1356,7 +1356,11 @@
                         : "No recurring waves";
                     const waveStatus = squadWindow.findWidget("wave-feedback");
                     if (waveStatus) waveStatus.text = waveFeedback || (missionStatus && missionStatus.mode === "park_defense"
-                        ? missionStatus.error ? "Wave blocked: " + missionStatus.error
+                        ? missionStatus.error ? ({
+                                native_occupancy_unavailable: "Waiting for native positions; retrying",
+                                spawn_zones_temporarily_blocked: "Spawn edges occupied; retrying",
+                                spawn_capacity_unavailable: "Actor limit reached; retrying"
+                            }[missionStatus.error] || "Wave blocked: " + missionStatus.error)
                             : missionStatus.manual_cooldown_seconds > 0
                                 ? "Manual wave in " + missionStatus.manual_cooldown_seconds + "s"
                                 : "Ready for an extra wave"

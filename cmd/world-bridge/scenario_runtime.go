@@ -151,7 +151,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 				break
 			}
 			unit := &r.Waves[wi].Units[ui]
-			zone, valid := r.WaveZone(s.scenario, wi, unit.GroupIndex)
+			zones, valid := r.WaveZones(s.scenario, wi, unit.GroupIndex)
 			if !valid {
 				s.scenarioRuntimeError(fmt.Errorf("scenario_wave_template_missing"))
 				return
@@ -160,10 +160,20 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 			for _, attempt := range unit.Attempts {
 				excluded = append(excluded, world.Point{X: attempt.X, Y: attempt.Y})
 			}
-			position, ok := s.scenarioZoneCandidate(zone, excluded)
+			var position world.Point
+			ok = false
+			for _, zone := range zones {
+				if position, ok = s.scenarioZoneCandidate(zone, excluded); ok {
+					break
+				}
+			}
 			if !ok {
 				if s.scenario.Mode == "park_defense" {
-					r.Waves[wi].FailureReason = "no_eligible_spawn_zone_tile"
+					if !s.nativeOccupancyComplete || s.navigationMask.Width == 0 {
+						r.Waves[wi].FailureReason = "native_occupancy_unavailable"
+					} else {
+						r.Waves[wi].FailureReason = "spawn_zones_temporarily_blocked"
+					}
 					blocked[[2]int{wi, ui}] = true
 					continue
 				}
@@ -176,6 +186,9 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 				continue
 			}
 			if s.spawns.PendingCount() >= 64 || s.lastMarines+s.lastZerglings+s.spawns.PendingCount()+1 > s.actorLimit() {
+				if s.scenario.Mode == "park_defense" {
+					r.Waves[wi].FailureReason = "spawn_capacity_unavailable"
+				}
 				break
 			}
 			r.Waves[wi].FailureReason = ""
