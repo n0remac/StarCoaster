@@ -1,0 +1,332 @@
+diff --git a/distribution/scripting/openrct2.d.ts b/distribution/scripting/openrct2.d.ts
+--- a/distribution/scripting/openrct2.d.ts
++++ b/distribution/scripting/openrct2.d.ts
+@@ -4922,6 +4922,10 @@
+          */
+         activateTool(tool: ToolDesc): void;
+
++        /** Registers passive viewport input. Return true to consume hover/click.
++         * Active tools take priority. Removed automatically when the plugin stops. */
++        registerViewportInteraction(interaction: ViewportInteractionDesc): void;
++
+         registerMenuItem(text: string, callback: () => void): void;
+
+         /**
+@@ -5044,6 +5048,7 @@
+     interface ToolEventArgs {
+         readonly isDown: boolean;
+         readonly shift: boolean;
++        readonly alt: boolean;
+         readonly screenCoords: ScreenCoordsXY;
+         readonly mapCoords?: CoordsXY;
+         readonly tileElementIndex?: number;
+@@ -5053,6 +5058,17 @@
+     /**
+      * Describes the properties and event handlers for a custom tool.
+      */
++    interface ViewportInteractionDesc {
++        id: string;
++        filter?: ToolFilter[];
++        onHover?: (e: ToolEventArgs) => boolean;
++        onDown?: (e: ToolEventArgs) => void;
++        onMove?: (e: ToolEventArgs) => void;
++        onUp?: (e: ToolEventArgs) => boolean;
++        onRightClick?: (e: ToolEventArgs) => boolean;
++        onFinish?: (e: ToolEventArgs) => void;
++    }
++
+     interface ToolDesc {
+         id: string;
+         cursor?: CursorType;
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -229,7 +229,8 @@
+ {
+     const auto* mainWindow = WindowGetMain();
+     const auto* viewport = mainWindow == nullptr ? nullptr : mainWindow->viewport;
+-    if (viewport == nullptr) return std::nullopt;
++    if (viewport == nullptr || viewport->flags.has(ViewportFlag::hideEntities)
++        || viewport->zoom > ZoomLevel{ 2 } || gTrackDesignSaveMode) return std::nullopt;
+     const auto snapshot = std::atomic_load(&gBridgeSnapshot);
+     const auto actor = std::find_if(snapshot->actors.begin(), snapshot->actors.end(),
+         [&](const BridgeActor& item) { return item.id == id; });
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -28,6 +28,7 @@
+     #include "../core/Path.hpp"
+     #include "../interface/InteractiveConsole.h"
+     #include "../interface/Viewport.h"
++    #include "../interface/WindowBase.h"
+     #include "../platform/Platform.h"
+     #include "../paint/Paint.Entity.h"
+     #include "../ride/ted/PitchAndRoll.h"
+@@ -855,6 +856,10 @@
+     JSValue point = JS_NewObject(ctx);
+     JS_SetPropertyStr(ctx, point, "x", JS_NewInt32(ctx, position->first));
+     JS_SetPropertyStr(ctx, point, "y", JS_NewInt32(ctx, position->second));
++    const auto* window = WindowGetMain();
++    const auto* viewport = window == nullptr ? nullptr : window->viewport;
++    JS_SetPropertyStr(ctx, point, "scale", JS_NewFloat64(ctx,
++        viewport == nullptr ? 1.0 : viewport->zoom.ApplyInversedTo(1024) / 1024.0));
+     return point;
+ }
+
+diff --git a/src/openrct2-ui/input/MouseInput.cpp b/src/openrct2-ui/input/MouseInput.cpp
+--- a/src/openrct2-ui/input/MouseInput.cpp
++++ b/src/openrct2-ui/input/MouseInput.cpp
+@@ -32,6 +32,9 @@
+ #include <openrct2/ui/WindowManager.h>
+ #include <openrct2/world/Map.h>
+ #include <optional>
++#ifdef ENABLE_SCRIPTING
++    #include <openrct2-ui/scripting/CustomMenu.h>
++#endif
+
+ namespace OpenRCT2
+ {
+@@ -387,6 +390,10 @@
+                             break;
+                         }
+
++#ifdef ENABLE_SCRIPTING
++                        if (!gInputFlags.has(InputFlag::toolActive))
++                            Scripting::InvokeViewportInteraction(&Scripting::CustomTool::onMove, screenCoords);
++#endif
+                         if (!gInputFlags.has(InputFlag::leftMousePressed))
+                             break;
+
+@@ -406,6 +413,15 @@
+                         break;
+                     case MouseState::leftRelease:
+                         _inputState = InputState::reset;
++#ifdef ENABLE_SCRIPTING
++                        if (!gInputFlags.has(InputFlag::toolActive)
++                            && (windowMgr->FindFromPoint(screenCoords) != w || widget == nullptr
++                                || widget->type != WidgetType::viewport))
++                        {
++                            Scripting::InvokeViewportInteraction(&Scripting::CustomTool::onFinish, screenCoords);
++                            break;
++                        }
++#endif
+                         if (_dragWidget.windowNumber == w->number)
+                         {
+                             if (gInputFlags.has(InputFlag::toolActive))
+@@ -419,7 +435,11 @@
+                             }
+                             else if (!gInputFlags.has(InputFlag::leftMousePressed))
+                             {
+-                                ViewportInteractionLeftClick(screenCoords);
++#ifdef ENABLE_SCRIPTING
++                                if (widget != nullptr && widget->type == WidgetType::viewport
++                                    && !Scripting::InvokeViewportInteraction(&Scripting::CustomTool::onUp, screenCoords))
++#endif
++                                    ViewportInteractionLeftClick(screenCoords);
+                             }
+                         }
+                         break;
+@@ -1091,6 +1111,10 @@
+                 gInputDragLast = screenCoords;
+                 _dragWidget.windowClassification = windowClass;
+                 _dragWidget.windowNumber = windowNumber;
++#ifdef ENABLE_SCRIPTING
++                if (!gInputFlags.has(InputFlag::toolActive))
++                    Scripting::InvokeViewportInteraction(&Scripting::CustomTool::onDown, screenCoords);
++#endif
+                 if (gInputFlags.has(InputFlag::toolActive))
+                 {
+                     w = windowMgr->FindByNumber(gCurrentToolWidget.windowClassification, gCurrentToolWidget.windowNumber);
+@@ -1173,6 +1197,13 @@
+                     case WidgetType::viewport:
+                         if (!gInputFlags.has(InputFlag::toolActive))
+                         {
++#ifdef ENABLE_SCRIPTING
++                            if (Scripting::InvokeViewportInteraction(&Scripting::CustomTool::onHover, screenCoords))
++                            {
++                                SetCursor(CursorID::crossHair);
++                                return;
++                            }
++#endif
+                             if (ViewportInteractionLeftOver(screenCoords))
+                             {
+                                 SetCursor(CursorID::handPoint);
+diff --git a/src/openrct2-ui/interface/ViewportInteraction.cpp b/src/openrct2-ui/interface/ViewportInteraction.cpp
+--- a/src/openrct2-ui/interface/ViewportInteraction.cpp
++++ b/src/openrct2-ui/interface/ViewportInteraction.cpp
+@@ -560,6 +560,9 @@
+     bool ViewportInteractionRightClick(const ScreenCoordsXY& screenCoords)
+     {
+ #ifdef ENABLE_SCRIPTING
++        if (!gInputFlags.has(InputFlag::toolActive)
++            && Scripting::InvokeViewportInteraction(&Scripting::CustomTool::onRightClick, screenCoords))
++            return true;
+         if (Scripting::ActiveCustomTool && Scripting::ActiveCustomTool->OnRightClick(screenCoords))
+             return true;
+ #endif
+diff --git a/src/openrct2-ui/scripting/CustomMenu.cpp b/src/openrct2-ui/scripting/CustomMenu.cpp
+--- a/src/openrct2-ui/scripting/CustomMenu.cpp
++++ b/src/openrct2-ui/scripting/CustomMenu.cpp
+@@ -16,6 +16,7 @@
+     #include <openrct2-ui/input/InputManager.h>
+     #include <openrct2/core/EnumMap.hpp>
+     #include <openrct2/interface/Viewport.h>
++    #include <openrct2/interface/WindowBase.h>
+     #include <openrct2/scripting/ScriptUtil.hpp>
+     #include <openrct2/ui/WindowManager.h>
+     #include <openrct2/world/Map.h>
+@@ -27,6 +28,28 @@
+ namespace OpenRCT2::Scripting
+ {
+     std::optional<CustomTool> ActiveCustomTool;
++    std::optional<CustomTool> ViewportInteraction;
++
++    bool InvokeViewportInteraction(JSCallback CustomTool::* event, const ScreenCoordsXY& screenCoords)
++    {
++        if (!ViewportInteraction) return false;
++        auto* window = WindowGetMain();
++        if (event != &CustomTool::onFinish
++            && (window == nullptr || GetWindowManager()->FindFromPoint(screenCoords) != window
++                || window->viewport == nullptr || screenCoords.x < window->viewport->pos.x
++                || screenCoords.y < window->viewport->pos.y
++                || screenCoords.x >= window->viewport->pos.x + window->viewport->width
++                || screenCoords.y >= window->viewport->pos.y + window->viewport->height))
++        {
++            InvokeViewportInteraction(&CustomTool::onFinish, screenCoords);
++            return false;
++        }
++        if (event == &CustomTool::onDown) ViewportInteraction->MouseDown = true;
++        if (event == &CustomTool::onUp || event == &CustomTool::onFinish) ViewportInteraction->MouseDown = false;
++        // Keep the owner and callbacks alive if the plugin unregisters during the call.
++        auto interaction = *ViewportInteraction;
++        return interaction.InvokeEventHandler((interaction.*event).callback, screenCoords);
++    }
+     std::vector<CustomToolbarMenuItem> CustomMenuItems;
+     std::vector<std::unique_ptr<CustomShortcut>> CustomShortcuts;
+
+@@ -133,6 +156,9 @@
+             }
+         }
+
++        if (ViewportInteraction && ViewportInteraction->Owner == owner)
++            ViewportInteraction.reset();
++
+         auto& menuItems = CustomMenuItems;
+         for (auto it = menuItems.begin(); it != menuItems.end();)
+         {
+@@ -207,7 +233,7 @@
+         scriptEngine.ExecutePluginCall(Owner, onFinish.callback, {}, false);
+     }
+
+-    void CustomTool::InvokeEventHandler(JSValue handler, const ScreenCoordsXY& screenCoords)
++    bool CustomTool::InvokeEventHandler(JSValue handler, const ScreenCoordsXY& screenCoords)
+     {
+         JSContext* ctx = Owner->GetContext();
+         if (JS_IsFunction(ctx, handler))
+@@ -217,6 +243,7 @@
+             JSValue obj = JS_NewObject(ctx);
+             JS_SetPropertyStr(ctx, obj, "isDown", JS_NewBool(ctx, MouseDown));
+             JS_SetPropertyStr(ctx, obj, "shift", JS_NewBool(ctx, GetInputManager().isModifierKeyPressed(ModifierKey::shift)));
++            JS_SetPropertyStr(ctx, obj, "alt", JS_NewBool(ctx, GetInputManager().isModifierKeyPressed(ModifierKey::alt)));
+             JS_SetPropertyStr(ctx, obj, "screenCoords", ToJSValue(ctx, screenCoords));
+             JS_SetPropertyStr(ctx, obj, "mapCoords", ToJSValue(ctx, info.Loc));
+
+@@ -239,11 +266,15 @@
+             }
+
+             auto& scriptEngine = GetContext()->GetScriptEngine();
+-            scriptEngine.ExecutePluginCall(Owner, handler, { obj }, false);
+-        }
+-    }
+-
+-    [[nodiscard]] JSValue InitialiseCustomTool(ScriptEngine& scriptEngine, JSContext* ctx, JSValue value)
++            const auto result = scriptEngine.ExecutePluginCall(Owner, handler, JS_UNDEFINED, { obj }, false, false, true);
++            const bool handled = JS_IsBool(result) && JS_ToBool(ctx, result) == 1;
++            JS_FreeValue(ctx, result);
++            return handled;
++        }
++        return false;
++    }
++
++    [[nodiscard]] JSValue InitialiseCustomTool(ScriptEngine& scriptEngine, JSContext* ctx, JSValue value, bool passive)
+     {
+         std::shared_ptr<Plugin> currentPlugin = scriptEngine.GetExecInfo().GetCurrentPlugin();
+
+@@ -287,12 +318,19 @@
+             }
+             JS_FreeValue(ctx, filter);
+
++            customTool.onHover = JSToCallback(ctx, value, "onHover");
+             customTool.onStart = JSToCallback(ctx, value, "onStart");
+             customTool.onDown = JSToCallback(ctx, value, "onDown");
+             customTool.onRightClick = JSToCallback(ctx, value, "onRightClick");
+             customTool.onMove = JSToCallback(ctx, value, "onMove");
+             customTool.onUp = JSToCallback(ctx, value, "onUp");
+             customTool.onFinish = JSToCallback(ctx, value, "onFinish");
++
++            if (passive)
++            {
++                ViewportInteraction = std::move(customTool);
++                return JS_UNDEFINED;
++            }
+
+             auto* windowMgr = GetWindowManager();
+             auto toolbarWindow = windowMgr->FindByClass(WindowClass::topToolbar);
+diff --git a/src/openrct2-ui/scripting/CustomMenu.h b/src/openrct2-ui/scripting/CustomMenu.h
+--- a/src/openrct2-ui/scripting/CustomMenu.h
++++ b/src/openrct2-ui/scripting/CustomMenu.h
+@@ -82,6 +82,7 @@
+         bool MouseDown{};
+
+         // Event handlers
++        JSCallback onHover;
+         JSCallback onStart;
+         JSCallback onDown;
+         JSCallback onRightClick;
+@@ -97,16 +98,17 @@
+         void OnUp(const ScreenCoordsXY& screenCoords);
+         void OnAbort();
+
+-    private:
+-        void InvokeEventHandler(JSValue handler, const ScreenCoordsXY& screenCoords);
++        bool InvokeEventHandler(JSValue handler, const ScreenCoordsXY& screenCoords);
+     };
+
+     extern std::optional<CustomTool> ActiveCustomTool;
++    extern std::optional<CustomTool> ViewportInteraction;
++    bool InvokeViewportInteraction(JSCallback CustomTool::* event, const ScreenCoordsXY& screenCoords);
+     extern std::vector<CustomToolbarMenuItem> CustomMenuItems;
+     extern std::vector<std::unique_ptr<CustomShortcut>> CustomShortcuts;
+
+     void InitialiseCustomMenuItems(ScriptEngine& scriptEngine);
+-    JSValue InitialiseCustomTool(ScriptEngine& scriptEngine, JSContext* ctx, JSValue value);
++    JSValue InitialiseCustomTool(ScriptEngine& scriptEngine, JSContext* ctx, JSValue value, bool passive = false);
+
+     JSValue CursorIDToJSValue(JSContext* ctx, CursorID id);
+ } // namespace OpenRCT2::Scripting
+diff --git a/src/openrct2-ui/scripting/ScUi.hpp b/src/openrct2-ui/scripting/ScUi.hpp
+--- a/src/openrct2-ui/scripting/ScUi.hpp
++++ b/src/openrct2-ui/scripting/ScUi.hpp
+@@ -364,6 +364,14 @@
+             return InitialiseCustomTool(*scriptEngine, ctx, argv[0]);
+         }
+
++        static JSValue registerViewportInteraction(JSContext* ctx, JSValue thisVal, int argc, JSValue* argv)
++        {
++            auto* scriptEngine = gScUi.GetOpaque<ScriptEngine*>(thisVal);
++            if (!scriptEngine || argc != 1)
++                return JS_ThrowTypeError(ctx, "expected viewport interaction descriptor");
++            return InitialiseCustomTool(*scriptEngine, ctx, argv[0], true);
++        }
++
+         static JSValue registerMenuItem(JSContext* ctx, JSValue thisVal, int argc, JSValue* argv)
+         {
+             ScriptEngine* scriptEngine = gScUi.GetOpaque<ScriptEngine*>(thisVal);
+@@ -519,6 +527,7 @@
+                 JS_CFUNC_DEF("showFileBrowse", 1, ScUi::showFileBrowse),
+                 JS_CFUNC_DEF("showScenarioSelect", 1, ScUi::showScenarioSelect),
+                 JS_CFUNC_DEF("activateTool", 1, ScUi::activateTool),
++                JS_CFUNC_DEF("registerViewportInteraction", 1, ScUi::registerViewportInteraction),
+                 JS_CFUNC_DEF("registerMenuItem", 2, ScUi::registerMenuItem),
+                 JS_CFUNC_DEF("registerToolboxMenuItem", 2, ScUi::registerToolboxMenuItem),
+                 JS_CFUNC_DEF("registerShortcut", 1, ScUi::registerShortcut),

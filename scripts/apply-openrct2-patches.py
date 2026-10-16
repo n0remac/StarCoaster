@@ -38,7 +38,8 @@ def ensure_bridge(checkout: Path) -> str:
             subprocess.run(["git", "-C", str(candidate), "apply", str(patch)], check=True)
             result = "applied"
         else:
-            for name in ("0003-terrain-rendering-upgrade.patch", "0002-screen-selection-upgrade.patch"):
+            for name in ("0003-terrain-rendering-upgrade.patch", "0002-screen-selection-upgrade.patch",
+                         "0004-shared-viewport-input-upgrade.patch"):
                 upgrade = ROOT / "openrct2-patches" / name
                 if applies(candidate, upgrade):
                     subprocess.run(["git", "-C", str(candidate), "apply", str(upgrade)], check=True)

@@ -54,7 +54,7 @@ const sandbox = {
     rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot() {}, hitTest() {},
         actorScreenPosition() { return null; } },
     ui: { tileSelection: { tiles: [] }, openWindow() { return { findWidget() { return { text: '' }; } }; },
-        registerShortcut() {}, activateTool() {}, showError() {} },
+        registerShortcut() {}, registerViewportInteraction() {}, activateTool() {}, showError() {} },
     context: { registerAction() {}, subscribe() {}, executeAction() {} },
     console: { log() {} }, registerPlugin(plugin) { plugin.main(); },
 };

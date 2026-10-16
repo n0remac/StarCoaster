@@ -1252,7 +1252,6 @@
             let selectionSession = "";
             let dragStart = null;
             let dragEnd = null;
-            let selectionWanted = true;
             let attackMove = false;
             let spawnMode = false;
             let spawnPreview = null;
@@ -1265,7 +1264,7 @@
                     { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
                         text: "Waiting for battlefield" },
                     { type: "label", x: 8, y: 38, width: 232, height: 14,
-                        text: "Drag select | A attack move | H hold | S stop" },
+                        text: "Drag select | A attack | H hold | S stop" },
                     { type: "label", name: "objective", x: 8, y: 57, width: 232, height: 14,
                         text: "Defend Frontier Carousel" },
                     { type: "label", name: "command", x: 8, y: 75, width: 232, height: 14,
@@ -1276,11 +1275,11 @@
                     { type: "button", name: "spawn-mode", x: 88, y: 94, width: 152, height: 20,
                         text: "Spawn Marine", onClick: function () { activateSpawnTool(); } },
                     { type: "button", name: "select-mode", x: 8, y: 119, width: 72, height: 20,
-                        text: "Select", onClick: function () { selectionWanted = true; ui.activateTool(marineSelectionTool); } },
+                        text: "Select", onClick: function () { if (ui.tool) ui.tool.cancel(); } },
                     { type: "label", name: "spawn-status", x: 88, y: 121, width: 152, height: 14,
                         text: "Call in reinforcements" },
                     { type: "label", name: "spawn-detail", x: 8, y: 144, width: 232, height: 14,
-                        text: "Click Spawn Marine, then a clear tile" },
+                        text: "Alt-click: park objects beneath units" },
                     { type: "button", name: "spawn-wave", x: 8, y: 164, width: 84, height: 20,
                         text: "Spawn Wave", onClick: function () { requestWave(); } },
                     { type: "label", name: "wave-countdown", x: 100, y: 167, width: 140, height: 14,
@@ -1332,7 +1331,7 @@
                         return { x: Math.floor(unit.x / 32) * 32, y: Math.floor(unit.y / 32) * 32 };
                     });
                     const key = JSON.stringify(tiles);
-                    if (key !== highlightedTiles) {
+                    if ((!ui.tool || spawnMode) && key !== highlightedTiles) {
                         ui.tileSelection.tiles = tiles;
                         highlightedTiles = key;
                     }
@@ -1392,16 +1391,29 @@
             };
             context.subscribe("interval.tick", function () {
                 refreshSelection();
-                if (selectionWanted && !spawnMode && !ui.tool) ui.activateTool(marineSelectionTool);
+                if (ui.tool && dragStart) clearDrag();
             });
-            function chooseAt(point, shift) {
+            function unitAtScreen(point, ownedOnly) {
+                if (!point) return null;
+                let closest = null, best = Infinity;
+                Object.keys(controlUnits).forEach(function (id) {
+                    const unit = controlUnits[id];
+                    if (unit.hp <= 0 || (ownedOnly
+                        && (unit.kind !== "terran_marine" || unit.owner !== terranOwner))) return;
+                    const screen = rtsBridge.actorScreenPosition(id);
+                    if (!screen) return;
+                    const scale = screen.scale || 1;
+                    // A compact footprint around the rendered body and feet, in screen pixels.
+                    const halfWidth = Math.max(4, 12 * scale), height = Math.max(8, 28 * scale);
+                    const dx = point.x - screen.x, dy = point.y - screen.y;
+                    if (Math.abs(dx) > halfWidth || dy < -height || dy > Math.max(3, 4 * scale)) return;
+                    const distance = dx * dx + (dy + height / 2) * (dy + height / 2);
+                    if (distance <= best) { best = distance; closest = id; }
+                });
+                return closest;
+            }
+            function chooseAt(id, shift) {
                 refreshSelection();
-                const id = point && rtsBridge.hitTest(point.x, point.y, 48);
-                const unit = id && controlUnits[id];
-                if (!unit || unit.kind !== "terran_marine" || unit.hp <= 0) {
-                    if (!shift && !selectingMultiple) selected = [];
-                    return;
-                }
                 if (shift || selectingMultiple) {
                     selected = selected.includes(id) ? selected.filter(function (entry) { return entry !== id; })
                         : selected.concat(id);
@@ -1454,10 +1466,10 @@
                 callback: function () { refreshSelection(); selected = (controlGroups[1] || []).filter(function (id) {
                     return controlUnits[id] && controlUnits[id].hp > 0;
                 }); } });
-            function orderAt(point) {
+            function orderAt(point, screen) {
                 refreshSelection();
-                if (!selected.length || !point) return;
-                const hit = rtsBridge.hitTest(point.x, point.y, 48);
+                if (!selected.length || !point) return false;
+                const hit = screen ? unitAtScreen(screen, false) : rtsBridge.hitTest(point.x, point.y, 48);
                 const target = hit && controlUnits[hit];
                 const structure = Object.keys(worldTargetIds).filter(function (id) {
                     return worldTargetIds[id].geometry.rects.some(function (rect) {
@@ -1475,6 +1487,7 @@
                 }
                 attackMove = false;
                 commandSquad(verb, extras);
+                return true;
             }
             function activateSpawnTool() {
                 if (!controlSession || outcomeState) {
@@ -1482,7 +1495,6 @@
                     return;
                 }
                 spawnMode = true;
-                selectionWanted = false;
                 ui.activateTool({ id: "starcoaster.spawn-marine", cursor: "cross_hair",
                     filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
                     onMove: function (event) {
@@ -1507,22 +1519,31 @@
                         });
                         spawnMode = false;
                         spawnPreview = null;
-                        selectionWanted = true;
-                        ui.activateTool(marineSelectionTool);
+                        if (ui.tool) ui.tool.cancel();
                     },
                     onFinish: function () { spawnMode = false; spawnPreview = null;
-                        selectionWanted = true; refreshSelection(); }
+                        refreshSelection(); }
                 });
             }
-            const marineSelectionTool = { id: "starcoaster.select-marine", cursor: "cross_hair",
-                filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
+            function clearDrag() {
+                dragStart = null; dragEnd = null;
+                ui.tileSelection.range = null;
+            }
+            if (typeof ui.registerViewportInteraction !== "function")
+                throw new Error("RTS Bridge needs the native shared viewport input build");
+            const marineSelection = { id: "starcoaster.select-marine",
+                filter: ["terrain", "water", "footpath", "ride", "wall", "scenery", "large_scenery"],
+                onHover: function (event) {
+                    return !event.alt && !!unitAtScreen(event.screenCoords, true);
+                },
                 onDown: function (event) {
+                    clearDrag();
+                    if (event.alt) return;
                     dragStart = { world: pointFrom(event), screen: event.screenCoords };
                     dragEnd = dragStart;
-
                 },
                 onMove: function (event) {
-                    if (dragStart && event.isDown) {
+                    if (dragStart) {
                         dragEnd = { world: pointFrom(event), screen: event.screenCoords };
                         if (dragStart.world && dragEnd.world) ui.tileSelection.range = {
                             leftTop: { x: Math.min(dragStart.world.x, dragEnd.world.x), y: Math.min(dragStart.world.y, dragEnd.world.y) },
@@ -1531,23 +1552,29 @@
                     }
                 },
                 onUp: function (event) {
-                    const end = { world: pointFrom(event), screen: event.screenCoords };
-                    if (dragStart && end) {
-                        if (dragStart.screen && end.screen
-                            && (Math.abs(end.screen.x - dragStart.screen.x) >= 4
-                                || Math.abs(end.screen.y - dragStart.screen.y) >= 4))
-                            chooseRectangle(dragStart.screen, end.screen, event.shift);
-                        else chooseAt(end.world || (dragEnd && dragEnd.world), event.shift);
+                    const start = dragStart;
+                    clearDrag();
+                    if (!start || !start.screen || !event.screenCoords || event.alt) return false;
+                    const end = event.screenCoords;
+                    if (Math.abs(end.x - start.screen.x) >= 4 || Math.abs(end.y - start.screen.y) >= 4) {
+                        chooseRectangle(start.screen, end, event.shift);
+                        return true;
                     }
-                    ui.tileSelection.range = null;
-                    dragStart = null; dragEnd = null;
+                    const id = unitAtScreen(end, true);
+                    if (!id) return false;
+                    chooseAt(id, event.shift);
+                    return true;
                 },
-                onFinish: function () {
-                     dragStart = null; dragEnd = null;
-                     ui.tileSelection.range = null; ui.tileSelection.tiles = [];
-                },
-                onRightClick: function (event) { orderAt(pointFrom(event)); } };
-            ui.activateTool(marineSelectionTool);
+                onFinish: clearDrag,
+                onRightClick: function (event) {
+                    return !event.alt && orderAt(pointFrom(event), event.screenCoords);
+                } };
+            ui.registerViewportInteraction(marineSelection);
+            ui.registerShortcut({ id: "starcoaster.select-mode", text: "Return to unit selection",
+                bindings: ["CTRL+SHIFT+U"], callback: function () {
+                    if (ui.tool) ui.tool.cancel();
+                    clearDrag();
+                } });
         }
 
         if (network.mode !== "server") return;

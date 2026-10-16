@@ -614,8 +614,8 @@ def main():
                       and [int(row[0]) for row in projected] == [0, 1, 2, 3]
                       and [int(row[1]) for row in projected] == [0, 1, 2, -1],
                       "elevated_projection": len(projected) == 4 and all(int(row[2]) > 112 for row in projected),
-                      "selection_tool_active": len(projected) == 4
-                      and all(row[5] == "starcoaster.select-marine" for row in projected),
+                      "park_cursor_available": len(projected) == 4
+                      and all(row[5] == "none" for row in projected),
                       "all_visible_marines_selected": len(selected) >= 4
                       and all(marines.issubset(set(row.split(","))) for row in selected[-4:])}
             detailed["marine_screen_probe"] = {"checks": checks, "projected": projected, "selected": selected[-4:]}

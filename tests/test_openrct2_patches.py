@@ -11,6 +11,7 @@ spec = importlib.util.spec_from_file_location("openrct2_patches", ROOT / "script
 patches = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(patches)
 PATCH = ROOT / "openrct2-patches/0001-native-bridge.patch"
+SHARED_INPUT = ROOT / "openrct2-patches/0004-shared-viewport-input-upgrade.patch"
 UPGRADE = ROOT / "openrct2-patches/0002-screen-selection-upgrade.patch"
 
 
@@ -44,9 +45,20 @@ class OpenRCT2PatchTest(unittest.TestCase):
         self.assertEqual(patches.ensure_bridge(self.checkout), "current")
         self.assertEqual(sprites.read_bytes(), expected)
 
+    def test_upgrade_shared_input_and_keep_local_edits(self):
+        patches.ensure_bridge(self.checkout)
+        mouse = self.checkout / "src/openrct2-ui/input/MouseInput.cpp"
+        expected = mouse.read_bytes() + b"\n// Local input edit.\n"
+        subprocess.run(["git", "-C", str(self.checkout), "apply", "--reverse", str(SHARED_INPUT)], check=True)
+        mouse.write_bytes(mouse.read_bytes() + b"\n// Local input edit.\n")
+        self.assertEqual(patches.ensure_bridge(self.checkout), "upgraded")
+        self.assertEqual(mouse.read_bytes(), expected)
+        self.assertEqual(patches.ensure_bridge(self.checkout), "current")
+
     def test_upgrade_preserves_local_edits(self):
         patches.ensure_bridge(self.checkout)
         expected = self.source.read_bytes() + b"\n// Local unrelated edit.\n"
+        subprocess.run(["git", "-C", str(self.checkout), "apply", "--reverse", str(SHARED_INPUT)], check=True)
         subprocess.run(["git", "-C", str(self.checkout), "apply", "--reverse", str(UPGRADE)], check=True)
         self.source.write_bytes(self.source.read_bytes() + b"\n// Local unrelated edit.\n")
         self.assertNotIn(b'"actorScreenPosition"', self.source.read_bytes())
@@ -65,13 +77,14 @@ class OpenRCT2PatchTest(unittest.TestCase):
     def test_upgrade_both_missed_patch_versions(self):
         patches.ensure_bridge(self.checkout)
         expected = {name: (self.checkout / name).read_bytes() for name in self.original}
-        for upgrade in (UPGRADE, ROOT / "openrct2-patches/0003-terrain-rendering-upgrade.patch"):
+        for upgrade in (SHARED_INPUT, UPGRADE, ROOT / "openrct2-patches/0003-terrain-rendering-upgrade.patch"):
             subprocess.run(["git", "-C", str(self.checkout), "apply", "--reverse", str(upgrade)], check=True)
         self.assertEqual(patches.ensure_bridge(self.checkout), "upgraded")
         self.assertEqual({name: (self.checkout / name).read_bytes() for name in self.original}, expected)
 
     def test_conflict_aborts_all_pending_upgrades(self):
         patches.ensure_bridge(self.checkout)
+        subprocess.run(["git", "-C", str(self.checkout), "apply", "--reverse", str(SHARED_INPUT)], check=True)
         subprocess.run(["git", "-C", str(self.checkout), "apply", "--reverse", str(UPGRADE)], check=True)
         self.source.write_bytes(self.source.read_bytes().replace(b"BridgeGetActorsJS", b"LocalGetActorsJS"))
         expected = {name: (self.checkout / name).read_bytes() for name in self.original}

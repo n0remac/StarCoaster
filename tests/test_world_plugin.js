@@ -30,7 +30,7 @@ at(6, 6).push({ type: 'footpath', object: 4, surfaceObject: 4,
     baseHeight: 18, baseZ: 144, clearanceZ: 176, occupiedQuadrants: 15 });
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
 const shortcuts = new Map();
-let selectionTool;
+let selectionTool, activeTool = null;
 const actorScreens = new Map();
 let squadWidgets;
 let socket;
@@ -56,13 +56,15 @@ const sandbox = {
                     payload: { op_id: m.op_id, accepted: true } }) + '\n');
             } }; return socket;
     } },
-    rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); },
+    rtsBridge: { version: 4, assetVersion: 3, cursorWorld() { return null; }, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); },
         actorScreenPosition(id) { return actorScreens.get(id) || null; },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
-    ui: { tileSelection: { tiles: [] }, get tool() { return selectionTool; }, openWindow(desc) { squadWidgets = desc.widgets;
+    ui: { tileSelection: { tiles: [] }, get tool() { return activeTool; }, openWindow(desc) { squadWidgets = desc.widgets;
             return { findWidget(name) { return squadWidgets.find(widget => widget.name === name); } }; },
         registerShortcut(shortcut) { shortcuts.set(shortcut.id, shortcut); },
-        activateTool(tool) { selectionTool = tool; }, showError() {} },
+        registerViewportInteraction(handler) { selectionTool = handler; },
+        activateTool(tool) { if (activeTool) activeTool.cancel(); activeTool = tool;
+            tool.cancel = function () { activeTool = null; if (tool.onFinish) tool.onFinish(); }; }, showError() {} },
     context: { registerAction(name, query, execute) { registered.set(name, { query, execute }); },
         subscribe(name, callback) { const previous = subscriptions.get(name);
             subscriptions.set(name, previous ? function (event) { previous(event); callback(event); } : callback);
@@ -91,13 +93,19 @@ const sandbox = {
     console: { log(line) { logs.push(line); } }, registerPlugin(plugin) { plugin.main(); },
 };
 vm.runInNewContext(fs.readFileSync('openrct2-plugin/rts-bridge.js', 'utf8'), sandbox);
-assert.equal(selectionTool.id, 'starcoaster.select-marine', 'selection is active at startup');
-selectionTool = { id: 'construction' };
+assert.equal(activeTool, null, 'passive selection leaves normal park interaction active');
+assert.equal(selectionTool.id, 'starcoaster.select-marine');
+activeTool = { id: 'construction', cancel() { activeTool = null; } };
 subscriptions.get('interval.tick')();
-assert.equal(selectionTool.id, 'construction', 'construction keeps its active tool');
-selectionTool = null;
+assert.equal(activeTool.id, 'construction', 'construction keeps its active tool');
+activeTool = null;
 subscriptions.get('interval.tick')();
-assert.equal(selectionTool.id, 'starcoaster.select-marine', 'selection returns when construction finishes');
+assert.equal(activeTool, null, 'finishing construction restores native park interaction');
+const parkEvent = { mapCoords: { x: 32, y: 32 }, screenCoords: { x: 900, y: 900 } };
+assert.equal(selectionTool.onHover(parkEvent), false);
+selectionTool.onDown(parkEvent);
+assert.equal(selectionTool.onUp(parkEvent), false, 'park clicks pass through');
+assert.equal(selectionTool.onRightClick(parkEvent), false, 'right click without a squad passes through');
 function drain() { while (responses.length) socket.handlers.data(responses.shift()); }
 drain();
 const begin = sent.find(m => m.kind === 'world.snapshot.begin');
@@ -194,10 +202,31 @@ assert.ok(actions.some(a => a.name === 'rtsbridge.actorLifecycle' && a.args.stat
 assert.equal(registered.get('rtsbridge.marineCommand').query({ player: 1, args: {
     session: sid, request: 98, unit_ids: [runtimeMarine.id], verb: 'hold'
 } }).error, undefined, 'bound runtime Marine is commandable');
-selectionTool.onDown({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y }, screenCoords: { x: 32, y: 32 } });
-selectionTool.onUp({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y }, screenCoords: { x: 32, y: 32 } });
+actorScreens.set(runtimeMarine.id, { x: 190, y: 190, scale: 1 });
+selectionTool.onDown({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y }, screenCoords: { x: 190, y: 178 } });
+assert.equal(selectionTool.onUp({ mapCoords: { x: 99, y: 99 }, screenCoords: { x: 190, y: 178 } }), true, 'screen hit consumes click despite different terrain projection');
 assert.ok(logs.some(line => line.includes('selected Marines=openbw:3001')),
     'native hit testing selects the runtime Marine');
+assert.equal(selectionTool.onHover({ screenCoords: { x: 190, y: 178 } }), true);
+assert.equal(selectionTool.onHover({ screenCoords: { x: 190, y: 178 }, alt: true }), false);
+selectionTool.onDown({ screenCoords: { x: 190, y: 178 }, alt: true });
+assert.equal(selectionTool.onUp({ screenCoords: { x: 190, y: 178 }, alt: true }), false,
+    'Alt lets the native object underneath a Marine receive the click');
+actorScreens.set(runtimeMarine.id, { x: 190, y: 190, scale: 0.25 });
+assert.equal(selectionTool.onHover({ screenCoords: { x: 190, y: 185 } }), true);
+assert.equal(selectionTool.onHover({ screenCoords: { x: 200, y: 185 } }), false,
+    'zoomed-out footprint does not steal a nearby park object');
+actorScreens.set(runtimeMarine.id, { x: 190, y: 190, scale: 2 });
+assert.equal(selectionTool.onHover({ screenCoords: { x: 210, y: 150 } }), true,
+    'zoomed-in body remains selectable above its terrain tile');
+selectionTool.onDown({ screenCoords: { x: 190, y: 178 } });
+selectionTool.onFinish();
+assert.equal(selectionTool.onUp({ screenCoords: { x: 190, y: 178 } }), false,
+    'release over another window cancels the gesture');
+const parkCommands = sent.filter(m => m.kind === 'combat.command').length;
+assert.equal(selectionTool.onRightClick({ ...parkEvent, alt: true }), false);
+assert.equal(sent.filter(m => m.kind === 'combat.command').length, parkCommands);
+actorScreens.set(runtimeMarine.id, { x: runtimeMarine.x, y: runtimeMarine.y });
 shortcuts.get('starcoaster.save-group-1').callback();
 selectionTool.onDown({ mapCoords: { x: 0, y: 32 }, screenCoords: { x: 0, y: 0 } });
 selectionTool.onMove({ mapCoords: { x: 96, y: 0 }, screenCoords: { x: 96, y: 32 }, isDown: true });
@@ -208,10 +237,10 @@ selectionTool.onRightClick({ mapCoords: { x: 80, y: 80 } });
 drain();
 assert.ok(sent.filter(m => m.kind === 'combat.command').at(-1).payload.unit_ids.includes('openbw:3001'),
     'squad movement order includes the runtime Marine');
-selectionTool = { id: 'construction' };
+activeTool = { id: 'construction', cancel() { activeTool = null; } };
 subscriptions.get('interval.tick')();
-assert.equal(selectionTool.id, 'construction');
-selectionTool = null;
+assert.equal(activeTool.id, 'construction');
+activeTool = null;
 subscriptions.get('interval.tick')();
 const beforeRestoredOrder = sent.filter(m => m.kind === 'combat.command').length;
 selectionTool.onRightClick({ mapCoords: { x: 112, y: 112 } });
@@ -295,14 +324,14 @@ assert.ok(spawnAction.query({ player: 1, args: { ...spawnArgs, count: 6 } }).err
 assert.ok(spawnAction.query({ player: 1, args: { ...spawnArgs, x: 9999 } }).error,
     'spawn action rejects locations outside the park');
 squadWidgets.find(widget => widget.name === 'spawn-mode').onClick();
-assert.equal(selectionTool.id, 'starcoaster.spawn-marine', 'spawn button activates park placement tool');
-selectionTool.onMove({ mapCoords: { x: 96, y: 96 } });
+assert.equal(activeTool.id, 'starcoaster.spawn-marine', 'spawn button activates park placement tool');
+activeTool.onMove({ mapCoords: { x: 96, y: 96 } });
 assert.equal(sandbox.ui.tileSelection.tiles.length, 1, 'spawn placement is highlighted');
-selectionTool.onDown({ mapCoords: { x: 96, y: 96 } });
+activeTool.onDown({ mapCoords: { x: 96, y: 96 } });
 drain();
 const spawnRequest = sent.filter(message => message.kind === 'unit.spawn.request').at(-1);
 assert.ok(spawnRequest && spawnRequest.payload.count === 5 && spawnRequest.payload.unit_type === 'terran_marine');
-assert.equal(selectionTool.id, 'starcoaster.select-marine', 'placement restores Marine selection');
+assert.equal(activeTool, null, 'placement restores park interaction and passive selection');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'unit.spawn.status', session: sid,
     payload: { request_id: spawnRequest.payload.request_id, state: 'ready', units: [
         { index: 0, state: 'ready', actor_id: 'openbw:3001' },
@@ -311,12 +340,11 @@ assert.ok(actions.some(action => action.name === 'rtsbridge.spawnStatus' && acti
     'spawn progress is synchronized to clients');
 const requestsBeforeCancel = sent.filter(message => message.kind === 'unit.spawn.request').length;
 squadWidgets.find(widget => widget.name === 'spawn-mode').onClick();
-selectionTool.onFinish();
-selectionTool = null;
+activeTool.cancel();
 subscriptions.get('interval.tick')();
 assert.equal(sent.filter(message => message.kind === 'unit.spawn.request').length, requestsBeforeCancel,
     'canceling placement does not issue a spawn request');
-assert.equal(selectionTool.id, 'starcoaster.select-marine', 'selection returns after spawn cancellation');
+assert.equal(activeTool, null, 'spawn cancellation restores park interaction');
 assert.ok(actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets
     .some(target => target.id === rideTarget.id));
 const structureArgs = { session: sid, request: 3, unit_ids: ['openbw:1000'],
