@@ -29,16 +29,15 @@ site outside native Marine vision. A temporary local diagnostic change that
 skipped only that fog check let the real Barracks appear at the exact saved
 park coordinates on both participants while the park navigation mask remained
 active; see `run-data/barracks-native-mask-probe-1792192984/server.log`.
-That diagnostic change is not a product implementation. The pinned engine's
-editor placement path needs a maintained patch to permit bridge-authorized
-creation outside native vision without weakening normal SCV construction.
+Patch `0005-editor-building-fog-openbw.patch` now makes the pinned engine's
+editor placement path ignore fog while preserving ordinary SCV construction.
 
 OpenBW emits the new Marine's creation event when training starts, while the
 unit is incomplete and has only partial HP. The existing actor registry
 published and bound `openbw:3001` near frame 448, roughly 360 frames before
 completion. A production integration must defer actor registration until
 `Unit::isCompleted()` on both participants. The first local change for this
-is in the adapter/controller, pending its own live regression.
+is in the adapter/controller; its live regression remains pending.
 
 ## Authority and lifecycle
 
@@ -71,12 +70,10 @@ operational-state checks, and a status query for retries. The information
 window should read queue and HP reports from OpenBW rather than keeping its
 own production state.
 
-## Current gate
+## Current production gate
 
-Native training is supported. Full park-linked production is not yet wired:
-editor placement is blocked by native fog at the park site, the adapter still
-creates a civilian target proxy, the scenario has no Terran resources or
-supply, and the current actor path exposes an incomplete trainee. The native
-test fixtures prove engine mechanics; they do not make the player-facing
-Train Marine control functional. Until those four points and the identity
-and retry protocol are resolved, the production tab remains disabled.
+Native training is supported and the real building lifecycle is wired. The
+scenario still lacks Terran minerals and supply, and the player-facing train
+request and queue status are not yet wired. The native test fixtures prove
+engine mechanics; they do not make the Train Marine control functional. The
+production tab remains disabled until command, status, and retry checks pass.

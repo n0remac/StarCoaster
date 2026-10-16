@@ -3,10 +3,10 @@
 The park owns the visible Barracks and its stable ID. OpenRCT2 saves both the
 large scenery object and its generation counter in park storage. The bridge
 derives the same 4×3 collision footprint on each snapshot or ordered patch.
-OpenBW owns the target proxy's current HP and the navigation mask. The plugin
-stores the most recently reported native HP in park storage so a later park
-save can seed native target recovery. A newly constructed Barracks currently
-uses a 40 HP civilian proxy; a native Barracks will need its own HP source.
+OpenBW owns the real Terran Barracks' current HP and the navigation mask. The
+plugin stores the most recently reported native HP in park storage so a later
+park save can seed native building recovery. A newly constructed Barracks has
+1000 HP; old 40 HP proxy saves migrate proportionally.
 
 ## Occupied placement recovery
 
@@ -35,11 +35,11 @@ authorization against the native Terran player.
 | --- | --- |
 | `scripts/project.sh test` | Passed: Go, C++, 87 Python tests (one skipped), and plugin JavaScript tests. |
 | `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_overlap_live.sh` | Passed: `run-data/barracks-overlap-live-1792191848/verification.json`. OpenRCT2 accepted scenery over a moving Marine, OpenBW rejected revision 2, the plugin removed it, and both participants returned to the original hash `6782e549dd7cb935` with 4254 entities. |
-| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_save_load_live.sh` | Passed: `run-data/barracks-save-load-live-1792192004/verification.json`. A real `.park` save/load retained ID `openrct2:large_scenery:248:3200:3328:1216:0#1`, 40 HP, and mask `ee9230f1842ece7d`; demolition and reconstruction produced `#2`. |
+| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_save_load_live.sh` | Passed: `run-data/barracks-save-load-live-1792193357/verification.json`. A real `.park` save/load retained ID `openrct2:large_scenery:248:3200:3328:1216:0#1`, 1000 HP, real `Terran_Barracks` type, and mask `ee9230f1842ece7d`; demolition and reconstruction produced `#2`. |
 
 The save/load run starts fresh OpenBW processes. Same-session bridge restart
 recovery is covered by the generic live construction regression in
 `tests/test_live_construction_recovery.sh`; the Barracks-specific restart and
-damaged-HP save/load cases still need dedicated live checks. The 40 HP value
+damaged-HP save/load cases still need dedicated live checks. The 1000 HP value
 was unchanged in the save/load run, so that test establishes identity and
 native recreation rather than damaged-HP restoration.
