@@ -15,6 +15,7 @@
     const WAVE_ACTION = "rtsbridge.requestWave";
     const WAVE_STATUS_ACTION = "rtsbridge.waveStatus";
     const BARRACKS_OBJECT = "starcoaster.scenery_large.terran_barracks";
+    let terranOwner = 1, markOwnerChange = function () {};
 
     function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor,
                                onSpawnSender, onSpawnStatus, onWaveSender, onWaveStatus) {
@@ -26,6 +27,7 @@
         const queue = [], generations = {}, activeKeys = {}, activeItems = {}, entities = {}, completed = {};
         const parkStorage = typeof context.getParkStorage === "function" ? context.getParkStorage() : null;
         const savedBarracksGenerations = parkStorage ? (parkStorage.get("barracksGenerations", {}) || {}) : {};
+        const savedBarracksHealth = parkStorage ? (parkStorage.get("barracksHealth", {}) || {}) : {};
         const constructionActions = {
             ridecreate: true, ridedemolish: true, trackplace: true, trackremove: true,
             trackdesign: true, mazeplacetrack: true, mazesettrack: true,
@@ -58,7 +60,7 @@
         }
         let constructionTick = 0, dirtySince = -1, publishedWorld = null, snapshotWorld = null;
         let detectedBatch = null, detectedSignature = "", combatRemovalKey = "", patchInFlight = null;
-        let combatSyncID = "";
+        let combatSyncID = "", recoveringRejectedBarracks = false;
         const queuedCombatEvents = [];
         const pendingCommands = [];
         let patchSerial = 0;
@@ -329,7 +331,7 @@
                 });
                 const id = "openrct2:" + key + "#" + generations[key];
                 const entity = { id: id, source: "openrct2", source_id: key, kind: item.kind,
-                    type: item.type, owner: item.kind === "structure" ? 1 : 0,
+                    type: item.type, owner: item.kind === "structure" ? terranOwner : 0,
                     position: { x: Math.max(0, minX), y: Math.max(0, minY) },
                     rotation: item.direction || 0, elevation: item.z,
                     geometry: { cells: sortedCells, rects: item.kind === "wall" ? item.rects.slice().sort(function (a, b) {
@@ -337,7 +339,8 @@
                     }) : rects },
                     collision: { blocks: item.kind !== "path" },
                     destructible: true,
-                    combat: { targetable: item.kind !== "path", health: 100 },
+                    combat: { targetable: item.kind !== "path",
+                        health: item.kind === "structure" ? savedBarracksHealth[id] || 40 : 100 },
                     removal: item.removal, revision: revision };
                 if (item.name) entity.name = item.name;
                 if (item.kind !== "path" && item.volumes && item.volumes.length) {
@@ -361,6 +364,8 @@
                 if (activeItems[key] && activeItems[key].kind === "structure" && parkStorage) {
                     savedBarracksGenerations[key] = (generations[key] || 1) + 1;
                     parkStorage.set("barracksGenerations", savedBarracksGenerations);
+                    delete savedBarracksHealth[activeItems[key].id];
+                    parkStorage.set("barracksHealth", savedBarracksHealth);
                 }
                 delete activeKeys[key]; delete activeItems[key];
             } });
@@ -410,6 +415,7 @@
                 removals: removals, terrain: changedTerrain };
         }
         function markConstruction() { if (dirtySince < 0) dirtySince = constructionTick; }
+        markOwnerChange = markConstruction;
         function detectConstruction() {
             if (!publishedWorld) return;
             const discoveryStarted = Date.now();
@@ -459,7 +465,10 @@
                 console.log("WORLD_CHANGESET_OVERFLOW bytes=" + payloadBytes + " recovery=snapshot");
                 snapshot(); return;
             }
-            patchInFlight = { id: payload.patch_id, base: revision, current: batch.current };
+            patchInFlight = { id: payload.patch_id, base: revision, current: batch.current,
+                additions: payload.additions.filter(function (entity) {
+                    return entity.kind === "structure" && entity.type === "terran_barracks";
+                }) };
             console.log("WORLD_PATCH_METRIC patch=" + payload.patch_id
                 + " action_to_detection_ms=" + (batch.actionAt ? batch.detectedAt - batch.actionAt : -1)
                 + " detection_to_patch_ms=" + (Date.now() - batch.detectedAt)
@@ -571,6 +580,44 @@
                 console.log("WORLD_REMOVAL id=" + tracked.id + " state=" + (confirmed ? "confirmed" : "failed"));
             });
         }
+        function rollbackRejectedBarracks(patch) {
+            if (!patch.additions.length) return false;
+            recoveringRejectedBarracks = true;
+            const additions = patch.additions.slice();
+            function removeNext() {
+                if (!additions.length) {
+                    recoveringRejectedBarracks = false;
+                    console.log("WORLD_BARRACKS_ROLLBACK_COMPLETE patch=" + patch.id);
+                    snapshot();
+                    return;
+                }
+                const entity = additions.shift();
+                const item = activeItems[entity.source_id];
+                const present = discover().entities.some(function (current) { return current.id === entity.id; });
+                if (!present) { removeNext(); return; }
+                if (!item || item.id !== entity.id || !item.removal) {
+                    console.log("WORLD_BARRACKS_ROLLBACK_ERROR id=" + entity.id + " reason=identity_changed");
+                    recoveringRejectedBarracks = false;
+                    snapshot();
+                    return;
+                }
+                context.executeAction(item.removal.action, item.removal.args, function (result) {
+                    const remains = discover().entities.some(function (current) { return current.id === entity.id; });
+                    if (result.error || remains) {
+                        console.log("WORLD_BARRACKS_ROLLBACK_ERROR id=" + entity.id
+                            + " reason=" + (result.errorMessage || "object_still_present"));
+                        recoveringRejectedBarracks = false;
+                        // Keep the bridge paused rather than publishing scenery that
+                        // native navigation has already rejected.
+                        return;
+                    }
+                    console.log("WORLD_BARRACKS_ROLLBACK id=" + entity.id);
+                    removeNext();
+                });
+            }
+            removeNext();
+            return true;
+        }
         function onLine(line) {
             let message; try { message = JSON.parse(line); } catch (_) { return; }
             if (!message || message.v !== 1 || message.session !== session) return;
@@ -603,6 +650,7 @@
                 }
                 inFlight = null; sendNext();
             } else if (message.kind === "world.resync") {
+                if (recoveringRejectedBarracks) return;
                 queue.length = 0; inFlight = null; patchInFlight = null; combatSyncID = ""; snapshot();
             }
             else if (message.kind === "world.patch.status" && message.payload && combatSyncID
@@ -634,8 +682,12 @@
                         console.log("WORLD_TARGET_UNSUPPORTED total=" + message.payload.unsupported_total
                             + " reasons=" + JSON.stringify(message.payload.unsupported_reasons || {}));
                 } else if (message.payload.state === "failed" || message.payload.state === "unsynchronized") {
-                    console.log("WORLD_PATCH_ERROR " + (message.payload.reason || message.payload.state));
-                    queue.length = 0; inFlight = null; patchInFlight = null; snapshot();
+                    const failed = patchInFlight;
+                    const reason = message.payload.reason || message.payload.state;
+                    console.log("WORLD_PATCH_ERROR " + reason);
+                    queue.length = 0; inFlight = null; patchInFlight = null;
+                    if (!reason.includes("occupied_construction_geometry")
+                        || !rollbackRejectedBarracks(failed)) snapshot();
                 }
             }
             else if (message.kind === "combat.event") {
@@ -697,7 +749,13 @@
                 const target = message.payload || {};
                 if (entities[target.id] && typeof target.proxy_id === "string") {
                     entities[target.id].activeTarget = true;
-                    if (Number.isInteger(target.health)) entities[target.id].health = target.health;
+                    if (Number.isInteger(target.health)) {
+                        entities[target.id].health = target.health;
+                        if (entities[target.id].kind === "structure" && parkStorage) {
+                            savedBarracksHealth[target.id] = target.health;
+                            parkStorage.set("barracksHealth", savedBarracksHealth);
+                        }
+                    }
                     publishActiveTargets();
                 }
             }
@@ -805,7 +863,6 @@
         let clientReadyPending = false;
         let pendingClientRefresh = false;
         let onActorRemoved = function () {};
-        let terranOwner = -1;
         let commanderPlayer = -1;
         let commandSerial = 0;
         let worldCommandSender = null;
@@ -917,7 +974,10 @@
             occupancyUnits = {};
             event.args.units.forEach(function (unit) { occupancyUnits[unit.id] = unit; });
             const marine = event.args.units.filter(function (unit) { return unit.kind === "terran_marine"; })[0];
-            if (marine) terranOwner = marine.owner;
+            if (marine && terranOwner !== marine.owner) {
+                terranOwner = marine.owner;
+                if (network.mode === "server") markOwnerChange();
+            }
             return {};
         });
 
