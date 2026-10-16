@@ -1,0 +1,45 @@
+# Barracks reliability checkpoint
+
+The park owns the visible Barracks and its stable ID. OpenRCT2 saves both the
+large scenery object and its generation counter in park storage. The bridge
+derives the same 4×3 collision footprint on each snapshot or ordered patch.
+OpenBW owns the target proxy's current HP and the navigation mask. The plugin
+stores the most recently reported native HP in park storage so a later park
+save can seed native target recovery. A newly constructed Barracks currently
+uses a 40 HP civilian proxy; a native Barracks will need its own HP source.
+
+## Occupied placement recovery
+
+The plugin's cursor check uses the latest actor snapshot. A Marine can still
+enter the site before the native patch applies. Both OpenBW participants check
+the candidate mask at staging and at the scheduled application frame. If
+either rejects the patch with `occupied_construction_geometry`, the bridge
+cancels staging and reports the patch as unsynchronized. The plugin then
+removes the exact Barracks footprint through OpenRCT2's normal large scenery
+action, retrying a failed removal on later ticks. It does not publish a new
+snapshot while that removal is pending. Once the scenery is gone, it sends a
+full snapshot through the existing bridge protocol. A fresh placement at the
+same site gets a new generation. If the park never permits removal, the
+plugin remains paused and logs `WORLD_BARRACKS_ROLLBACK_ERROR`; an operator
+must resolve that OpenRCT2 action failure before synchronization resumes.
+
+Barracks owner is derived from the observed native Terran Marine owner when
+available. Existing parks start with the current scenario's player 1 owner
+until a Marine snapshot arrives. RCT2 construction permissions still decide
+who may place or demolish scenery. Production requests will require their own
+authorization against the native Terran player.
+
+## Checks
+
+| Command | Result |
+| --- | --- |
+| `scripts/project.sh test` | Passed: Go, C++, 87 Python tests (one skipped), and plugin JavaScript tests. |
+| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_overlap_live.sh` | Passed: `run-data/barracks-overlap-live-1792191848/verification.json`. OpenRCT2 accepted scenery over a moving Marine, OpenBW rejected revision 2, the plugin removed it, and both participants returned to the original hash `6782e549dd7cb935` with 4254 entities. |
+| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_save_load_live.sh` | Passed: `run-data/barracks-save-load-live-1792192004/verification.json`. A real `.park` save/load retained ID `openrct2:large_scenery:248:3200:3328:1216:0#1`, 40 HP, and mask `ee9230f1842ece7d`; demolition and reconstruction produced `#2`. |
+
+The save/load run starts fresh OpenBW processes. Same-session bridge restart
+recovery is covered by the generic live construction regression in
+`tests/test_live_construction_recovery.sh`; the Barracks-specific restart and
+damaged-HP save/load cases still need dedicated live checks. The 40 HP value
+was unchanged in the save/load run, so that test establishes identity and
+native recreation rather than damaged-HP restoration.
