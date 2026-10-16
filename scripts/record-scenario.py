@@ -130,19 +130,25 @@ def parse_args(argv=None):
     parser.add_argument("--display-width", type=int, default=1280)
     parser.add_argument("--display-height", type=int, default=800)
     parser.add_argument("--graphics", choices=("software", "native"), default="software")
-    parser.add_argument("--frame-ms", type=int, default=70)
+    parser.add_argument("--frame-ms", type=int,
+                        help="native frame delay (Mt. Zergling defaults to normal 42 ms; other captures use 70 ms)")
     parser.add_argument("--no-video", action="store_true", help="capture screenshots and logs without FFmpeg")
     parser.add_argument("--cycle-rotations", action="store_true", help="save screenshots from all four park views")
     parser.add_argument("--ridge-probe", action="store_true", help="run the test-only cliff, slope and combat driver on client A")
     parser.add_argument("--ridge-assault", action="store_true", help="test native Zergling approach from below the saved ridge")
     parser.add_argument("--live-construction", action="store_true",
                         help="capture ordinary two-client wall construction and native rerouting")
+    parser.add_argument("--mt-zergling-playthrough", action="store_true",
+                        help="exercise Mt. Zergling construction and the graphical Spawn Wave button")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
     parser.add_argument("--navigation-baseline", action="store_true",
                         help="capture a close graphical audit of the layered park's wall and elevated rail")
     args = parser.parse_args(argv)
-    if not 15 <= args.duration <= 300:
-        parser.error("duration must be 15–300 seconds")
+    if not 15 <= args.duration <= 900:
+        parser.error("duration must be 15–900 seconds")
+    scenario_id = args.scenario or "frontier-outpost"
+    if args.frame_ms is None:
+        args.frame_ms = 42 if scenario_id == "mt-zergling" else 70
     if not 10 <= args.frame_ms <= 200:
         parser.error("frame pacing must be 10–200 ms")
     if args.world_256 and (args.ridge_probe or args.ridge_assault):
@@ -157,7 +163,8 @@ def parse_args(argv=None):
         parser.error("--navigation-baseline requires two clients")
     if args.live_construction and args.video_layout == "single":
         parser.error("--live-construction requires two clients")
-    scenario_id = args.scenario or "frontier-outpost"
+    if args.mt_zergling_playthrough and scenario_id != "mt-zergling":
+        parser.error("--mt-zergling-playthrough requires --scenario mt-zergling")
     if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault
                                              or args.cycle_rotations or args.live_construction):
         parser.error("Frontier visual probes require --scenario frontier-outpost")
@@ -206,10 +213,11 @@ def main():
                               "graphics": args.graphics, "frame_ms": args.frame_ms,
                               "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault,
                               "live_construction": args.live_construction,
+                              "mt_zergling_playthrough": args.mt_zergling_playthrough,
                               "navigation_baseline": args.navigation_baseline,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
-    if args.live_construction or args.navigation_baseline:
+    if args.live_construction or args.navigation_baseline or args.mt_zergling_playthrough:
         server_plugins = out / "server-data/plugin"
         server_plugins.mkdir(parents=True, exist_ok=True)
         (server_plugins / "live-construction-permissions.js").write_text(
@@ -331,6 +339,9 @@ def main():
                 if name == "client-a":
                     source = "var STARCOASTER_VISUAL_TWO_CLIENTS = true;\n" + source
                 (data_dir / "plugin" / probe).write_text(source)
+            if args.mt_zergling_playthrough and name == "client-a":
+                (data_dir / "plugin/mt-zergling-construction-probe.js").write_text(
+                    (ROOT / "scripts/mt-zergling-construction-probe.js").read_text())
             if args.navigation_baseline:
                 camera = (ROOT / "scripts/navigation-baseline-camera.js").read_text()
                 camera = camera.replace("var baselineRotation = 0;",
@@ -396,6 +407,11 @@ def main():
         seen_rotations = {name: set() for name, _ in displays}
         baseline_samples = {2, 4, 6, 8, 10, 12, 14, 18, 22, 26} if args.navigation_baseline else set()
         captured_baseline_samples = set()
+        mt_wave_clicked = False
+        mt_wave_screenshot = False
+        mt_marine_clicked = False
+        mt_zoomed = False
+        mt_samples = set()
         rotation_offsets = {name: len(re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
                               (out / f"{name}.log").read_text(errors="replace")))
                             for name, _ in displays}
@@ -403,6 +419,45 @@ def main():
         while time.monotonic() < until:
             if recorder:
                 recorder.check_alive()
+            if args.mt_zergling_playthrough:
+                elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
+                if not mt_marine_clicked and elapsed >= 5:
+                    subprocess.run(["xdotool", "mousemove", "150", "174", "click", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    subprocess.run(["xdotool", "mousemove", "620", "365", "click", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    mt_marine_clicked = True
+                    if recorder:
+                        recorder.event("spawn_marine_tool_click", client="client-a")
+                server_text = (out / "server.log").read_text(errors="replace")
+                if not mt_wave_clicked and "wave=periodic-0001 state=ready" in server_text:
+                    subprocess.run(["xdotool", "mousemove", "50", "245", "click", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    mt_wave_clicked = True
+                    if recorder:
+                        recorder.event("spawn_wave_button_click", client="client-a")
+                if mt_wave_clicked and not mt_wave_screenshot and "wave=manual-0001 state=ready" in server_text:
+                    subprocess.run(["scrot", "-z", "-o", str(out / "mt-zergling-manual-wave.png")],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    mt_wave_screenshot = True
+                    if recorder:
+                        recorder.event("manual_wave_active_screenshot", client="client-a",
+                                       filename="mt-zergling-manual-wave.png")
+                if mt_wave_screenshot and not mt_zoomed:
+                    subprocess.run(["xdotool", "mousemove", "114", "52", "click", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    mt_zoomed = True
+                    if recorder:
+                        recorder.event("combat_camera_zoom", client="client-a")
+                for second in (150, 300):
+                    if elapsed >= second and second not in mt_samples:
+                        filename = f"mt-zergling-t{second}.png"
+                        subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                       env=env | {"DISPLAY": ":91"}, check=True)
+                        mt_samples.add(second)
+                        if recorder:
+                            recorder.event("park_defense_screenshot", client="client-a",
+                                           second=second, filename=filename)
             if args.navigation_baseline and recorder:
                 elapsed = time.monotonic() - recorder.start_monotonic
                 for point in sorted(baseline_samples - captured_baseline_samples):
@@ -493,6 +548,29 @@ def main():
             }
             detailed["live_construction"] = construction
             detailed["capture_complete"] = detailed["capture_complete"] and all(construction.values())
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
+        if args.mt_zergling_playthrough:
+            driver = client_logs[0]
+            wave_instances = re.findall(r"wave=(periodic-\d{4}|manual-\d{4}) state=ready", snapshot)
+            simultaneous_zerglings = any(len(re.findall(r"zerg_zergling", line)) >= 2
+                                        for line in driver.splitlines() if "RTS Bridge apply tick=" in line)
+            checks = {
+                "marine_reinforcement": bool(re.search(r"WORLD_SPAWN_STATUS request=\S+:spawn:\d+:\d+ state=ready", snapshot)),
+                "automatic_waves": "periodic-0001" in wave_instances and "periodic-0002" in wave_instances,
+                "manual_wave_button": mt_wave_clicked and "manual-0001" in wave_instances
+                    and "WORLD_WAVE_STATUS_ERROR" not in snapshot,
+                "construction_during_combat": bool(re.search(
+                    r"MT_ZERGLING_CONSTRUCTION_BUILD x=\d+ y=\d+ accepted=true", driver))
+                    and "park patch synchronized" in snapshot,
+                "simultaneous_zerglings": simultaneous_zerglings,
+                "normal_scenario_continues": detailed["outcome"] is None,
+                "manual_wave_screenshot": mt_wave_screenshot,
+            }
+            detailed["mt_zergling_playthrough"] = {
+                "checks": checks, "wave_instances": sorted(set(wave_instances)),
+                "construction_log": re.findall(r"MT_ZERGLING_CONSTRUCTION_.*", driver),
+            }
+            detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
             (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
         if args.ridge_probe:
             with (out / "ridge-check.log").open("w") as check_log:

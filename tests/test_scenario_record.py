@@ -68,6 +68,17 @@ class ScenarioRecordTest(unittest.TestCase):
             self.assertNotEqual(env["BRIDGE_SPAWN_JOURNAL"], plan["spawn_journal"])
             self.assertEqual(env["BRIDGE_LAUNCH_CLIENT"], "0")
 
+    def test_mt_zergling_recording_accepts_six_minutes_at_normal_speed(self):
+        with mock.patch.object(record, "resolve", return_value={"scenario_id": "mt-zergling"}):
+            args, _ = record.parse_args(["--scenario", "mt-zergling", "--duration", "360", "--no-video"])
+            playthrough, _ = record.parse_args(["--scenario", "mt-zergling", "--duration", "360",
+                                                 "--no-video", "--mt-zergling-playthrough"])
+        self.assertEqual(args.duration, 360)
+        self.assertEqual(args.frame_ms, 42)
+        self.assertTrue(playthrough.mt_zergling_playthrough)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            record.parse_args(["--scenario", "example-defense", "--mt-zergling-playthrough", "--no-video"])
+
     def test_navigation_baseline_requires_native_route_and_both_participants(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
