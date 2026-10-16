@@ -1331,7 +1331,8 @@
                         return { x: Math.floor(unit.x / 32) * 32, y: Math.floor(unit.y / 32) * 32 };
                     });
                     const key = JSON.stringify(tiles);
-                    if ((!ui.tool || spawnMode) && key !== highlightedTiles) {
+                    if (ui.tool && !spawnMode) highlightedTiles = "";
+                    else if (key !== highlightedTiles) {
                         ui.tileSelection.tiles = tiles;
                         highlightedTiles = key;
                     }

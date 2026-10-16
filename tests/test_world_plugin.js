@@ -238,11 +238,14 @@ drain();
 assert.ok(sent.filter(m => m.kind === 'combat.command').at(-1).payload.unit_ids.includes('openbw:3001'),
     'squad movement order includes the runtime Marine');
 activeTool = { id: 'construction', cancel() { activeTool = null; } };
+sandbox.ui.tileSelection.tiles = [{ x: 224, y: 224 }];
 subscriptions.get('interval.tick')();
 assert.equal(activeTool.id, 'construction');
+assert.deepEqual(sandbox.ui.tileSelection.tiles, [{ x: 224, y: 224 }], 'construction owns its highlights');
 activeTool = null;
 subscriptions.get('interval.tick')();
 const beforeRestoredOrder = sent.filter(m => m.kind === 'combat.command').length;
+assert.ok(sandbox.ui.tileSelection.tiles.length > 0, 'unit highlights return after construction');
 selectionTool.onRightClick({ mapCoords: { x: 112, y: 112 } });
 drain();
 assert.equal(sent.filter(m => m.kind === 'combat.command').length, beforeRestoredOrder + 1,
