@@ -7,6 +7,7 @@
 #include "WorldActorRegistry.h"
 #include "WorldAssaultController.h"
 #include "WorldSpawnPlacement.h"
+#include "WorldProductionFixture.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -82,6 +83,8 @@ public:
         actorRegistry_.forget(unit);
     }
     void onFrame(BWAPI::Game* game) {
+        if (!startingResourcesApplied_)
+            startingResourcesApplied_ = applyWorldProductionFixture(game);
         std::set<int> pendingIDs;
         for (const auto& [id, creation] : pendingCreations_) pendingIDs.insert(id);
         actorRegistry_.prepare(game, pendingIDs);
@@ -1214,6 +1217,7 @@ private:
     WorldAssaultController assault_;
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
     std::map<std::string,int> preservedHP_;
+    bool startingResourcesApplied_ = false;
     bool liveTargetsResolving_=false;
     std::string liveTargetPatchID_;
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();

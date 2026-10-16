@@ -958,7 +958,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		var command worldCommand
 		if m.Decode(&command) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
 			!s.ready || s.outcome != "" || s.controller == nil || command.CommandID == "" || len(command.CommandID) > 128 ||
-			command.PlayerID < 0 || command.RequestID < 1 || len(command.UnitIDs) < 1 ||
+			command.PlayerID < 0 || command.RequestID < 1 ||
 			len(command.UnitIDs) > 32 || s.commands[command.CommandID].CommandID != "" {
 			s.ack(p, m, false, "invalid_or_unavailable_command")
 			return
@@ -978,7 +978,20 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			}
 		}
 		switch command.Verb {
+		case "unit.train":
+			entity, exists := s.registry.Entities[command.TargetID]
+			if len(command.UnitIDs) != 0 || !exists || entity.Kind != "structure" ||
+				entity.Type != "terran_barracks" || entity.Owner < 0 ||
+				s.registry.Destroyed[command.TargetID] || s.proxies[command.TargetID] == "" {
+				s.ack(p, m, false, "barracks_unavailable")
+				return
+			}
+			command.TargetProxyID = s.proxies[command.TargetID]
 		case "unit.move", "unit.attack_move":
+			if len(command.UnitIDs) == 0 {
+				s.ack(p, m, false, "missing_units")
+				return
+			}
 			if command.X < 0 || command.Y < 0 || command.X >= s.registry.Width*32 || command.Y >= s.registry.Height*32 {
 				s.ack(p, m, false, "invalid_destination")
 				return
@@ -986,6 +999,10 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			command.X = s.transform.X(command.X)
 			command.Y = s.transform.Y(command.Y)
 		case "unit.attack":
+			if len(command.UnitIDs) == 0 {
+				s.ack(p, m, false, "missing_units")
+				return
+			}
 			if proxy := s.proxies[command.TargetID]; proxy != "" && !s.registry.Destroyed[command.TargetID] {
 				command.TargetProxyID = proxy
 			} else if unitIDPattern.MatchString(command.TargetID) {
@@ -995,6 +1012,10 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				return
 			}
 		case "unit.hold", "unit.stop":
+			if len(command.UnitIDs) == 0 {
+				s.ack(p, m, false, "missing_units")
+				return
+			}
 		default:
 			s.ack(p, m, false, "unsupported_command")
 			return
@@ -1523,6 +1544,31 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			_ = s.emit(s.park, "actor.bind", m.Session, m.Revision, binding)
 			s.spawnActorReady(binding.ID)
 		}
+	case "building.state":
+		var state struct {
+			ID              string `json:"id"`
+			NativeID        string `json:"native_id"`
+			Owner           int    `json:"owner"`
+			Health          int    `json:"health"`
+			Queue           int    `json:"queue"`
+			RemainingFrames int    `json:"remaining_frames"`
+			Minerals        int    `json:"minerals"`
+			SupplyUsed      int    `json:"supply_used"`
+			SupplyTotal     int    `json:"supply_total"`
+		}
+		if m.Decode(&state) != nil {
+			return
+		}
+		entity, exists := s.registry.Entities[state.ID]
+		if m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
+			!exists || entity.Kind != "structure" || entity.Type != "terran_barracks" ||
+			s.registry.Destroyed[state.ID] || s.proxies[state.ID] != state.NativeID ||
+			entity.Owner != state.Owner || state.Health < 0 || state.Health > 1000 ||
+			state.Queue < 0 || state.Queue > 5 || state.RemainingFrames < 0 ||
+			state.Minerals < 0 || state.SupplyUsed < 0 || state.SupplyTotal < 0 {
+			return
+		}
+		_ = s.emit(s.park, "building.state", m.Session, m.Revision, state)
 	case "world.ack":
 		var answer world.Ack
 		if m.Decode(&answer) != nil || m.Session != s.registry.Session {

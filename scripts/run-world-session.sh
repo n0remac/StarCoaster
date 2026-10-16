@@ -19,6 +19,14 @@ if [[ ! -f "$project_dir/run-data/world-base/world-base-v5-256.scm" ]]; then
 fi
 bridge_args=()
 if [[ -n "${BRIDGE_SCENARIO_CONFIG:-}" ]]; then bridge_args+=(--scenario "$BRIDGE_SCENARIO_CONFIG"); fi
+if [[ -n "${BRIDGE_SCENARIO_CONFIG:-}" ]]; then
+  export BRIDGE_TERRAN_STARTING_MINERALS="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'
+import json, sys
+scenario = json.load(open(sys.argv[1], encoding="utf-8"))
+print(scenario.get("production_fixture", {}).get("terran_minerals", 0))
+PY
+)"
+fi
 if [[ -n "${BRIDGE_RULES_CONFIG:-}" ]]; then bridge_args+=(--rules "$BRIDGE_RULES_CONFIG"); fi
 if [[ -n "${BRIDGE_SPAWN_JOURNAL:-}" ]]; then bridge_args+=(--spawn-journal "$BRIDGE_SPAWN_JOURNAL"); fi
 "$project_dir/build/world-bridge" "${bridge_args[@]}" &

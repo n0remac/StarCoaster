@@ -66,6 +66,20 @@ def scenario_units(path: Path) -> list[bytes]:
             x, y = (((location[0] + (MAP_SIZE - size[0]) // 2) * 32 + 16),
                     ((location[1] + (MAP_SIZE - size[1]) // 2) * 32 + 16))
             units.append(unit(first_id + index, x, y, kind, owner))
+    fixture = scenario.get("production_fixture") or {}
+    if fixture.get("terran_minerals", 0):
+        tile = fixture.get("native_supply_depot")
+        if (not isinstance(tile, list) or len(tile) != 2
+                or any(type(v) is not int for v in tile)
+                or not (1 <= tile[0] <= 252 and 1 <= tile[1] <= 253)):
+            raise ValueError("invalid native supply depot fixture")
+        park_x, park_y = (MAP_SIZE - size[0]) // 2, (MAP_SIZE - size[1]) // 2
+        if (tile[0] < park_x + size[0] and tile[0] + 3 > park_x
+                and tile[1] < park_y + size[1] and tile[1] + 2 > park_y):
+            raise ValueError("native supply depot fixture overlaps mapped park")
+        # This map-only supply provider lies outside the park and is never a
+        # player construction option. OpenBW owns its supply accounting.
+        units.append(unit(2000, tile[0] * 32 + 48, tile[1] * 32 + 32, 109, 1))
     return units
 
 

@@ -12,6 +12,7 @@ function tile(x, y) {
 }
 const windows = new Map(), actions = new Map(), menu = new Map();
 let tool = null, passive = null, placements = 0, closedWindows = 0, frontedWindows = 0;
+const orders = [];
 const ui = {
     tileSelection: { tiles: [], range: null },
     get tool() { return tool; },
@@ -50,6 +51,9 @@ const context = {
         callback(blocked ? { error: 1, errorMessage: blocked } : {});
     },
     executeAction(name, args, callback) {
+        if (name === 'rtsbridge.marineCommand') {
+            orders.push(args); callback({}); return;
+        }
         assert.equal(name, 'largesceneryplace');
         placements++;
         for (let y = args.y / 32; y < args.y / 32 + 3; y++)
@@ -110,6 +114,21 @@ assert.equal(action.query({ player: 1, args: damaged }).error, undefined);
 action.execute({ player: 1, args: damaged });
 info.desc.onUpdate();
 assert.equal(info.findWidget('building-health').text, 'Health: 43');
+const nativeState = { session: 'a'.repeat(32), id: targetID, native_id: 'openbw:8',
+    owner: 1, health: 1000, queue: 1, remaining_frames: 240, minerals: 450,
+    supply_used: 12, supply_total: 16 };
+const buildingAction = actions.get('rtsbridge.buildingState');
+assert.equal(buildingAction.query({ player: 1, args: nativeState }).error, undefined);
+buildingAction.execute({ player: 1, args: nativeState });
+info.desc.onUpdate();
+assert.equal(info.findWidget('building-health').text, 'Health: 1000/1000');
+assert.match(info.findWidget('building-queue').text, /Queue: 1/);
+assert.equal(info.findWidget('building-train').isDisabled, false);
+info.findWidget('building-train').onClick();
+assert.equal(orders.length, 1);
+assert.equal(orders[0].verb, 'train');
+assert.equal(orders[0].target_entity_id, targetID);
+assert.equal(orders[0].unit_ids.length, 0);
 passive.onDown(event);
 assert.equal(passive.onUp(event), true);
 assert.equal(closedWindows, 1, 'opening an existing Barracks closes its earlier info window');

@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include "WorldActorRegistry.h"
 #include "WorldNavigation.h"
+#include "WorldProductionFixture.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -43,6 +44,8 @@ public:
         actorRegistry_.forget(unit);
     }
     void onFrame(BWAPI::Game* game) {
+        if (!startingResourcesApplied_)
+            startingResourcesApplied_ = applyWorldProductionFixture(game);
         std::set<int> candidateIDs;
         for (const auto& [id, candidate] : creationCandidates_) candidateIDs.insert(id);
         actorRegistry_.prepare(game, candidateIDs);
@@ -79,6 +82,26 @@ public:
         for (const auto& id : pendingActors) tryBind(id);
         applyScheduledNavigation(game);
         probeNativeBarracks(game);
+        if (!session_.empty() && game->getFrameCount() % 24 == 0) {
+            for (const auto& [id, link] : targetLinks_) {
+                for (auto unit : game->getAllUnits()) {
+                    if (!unit || !unit->exists()
+                        || unit->getType() != BWAPI::UnitTypes::Terran_Barracks
+                        || "openbw:" + std::to_string(unit->getID()) != link.proxyID) continue;
+                    send("building.state", session_, revision_ ? revision_ : 1,
+                        {{"id", id}, {"native_id", link.proxyID},
+                         {"owner", unit->getPlayer()->getID()},
+                         {"health", unit->getHitPoints()},
+                         {"queue", unit->getTrainingQueue().size()},
+                         {"remaining_frames", unit->getRemainingTrainTime()},
+                         {"minerals", unit->getPlayer()->minerals()},
+                         {"supply_used", unit->getPlayer()->supplyUsed()},
+                         {"supply_total", unit->getPlayer()->supplyTotal()}},
+                        game->getFrameCount());
+                    break;
+                }
+            }
+        }
         flush();
     }
 private:
@@ -520,14 +543,38 @@ private:
         if (session_.empty() || message.value("session", "") != session_
             || message.at("revision").get<uint64_t>() < revision_) {
             accepted = false; reason = "stale_session";
-        } else if (commandID.empty() || !units.is_array() || units.empty() || units.size() > 32
+        } else if (commandID.empty() || !units.is_array() || units.size() > 32
+            || (verb != "unit.train" && units.empty())
+            || (verb == "unit.train" && !units.empty())
             || (verb != "unit.move" && verb != "unit.attack" && verb != "unit.attack_move"
-                && verb != "unit.hold" && verb != "unit.stop")) {
+                && verb != "unit.hold" && verb != "unit.stop" && verb != "unit.train")) {
             accepted = false; reason = "invalid_command";
         } else if (!validCommandSerial(commandID)) {
             accepted = false; reason = "duplicate_command";
         }
         BWAPI::Unit target = nullptr;
+        if (accepted && verb == "unit.train") {
+            const auto targetID = command.value("target_id", "");
+            const auto link = targetLinks_.find(targetID);
+            if (link == targetLinks_.end() || link->second.proxyID
+                != command.value("target_proxy_id", "")) {
+                accepted = false; reason = "barracks_unlinked";
+            } else {
+                for (auto candidate : game->getAllUnits()) {
+                    if (!candidate || !candidate->exists()
+                        || "openbw:" + std::to_string(candidate->getID())
+                            != link->second.proxyID) continue;
+                    const auto position = candidate->getPosition();
+                    if (candidate->getType() == BWAPI::UnitTypes::Terran_Barracks
+                        && candidate->getPlayer() == game->self()
+                        && candidate->isCompleted() && candidate->getHitPoints() > 0
+                        && std::abs(position.x - link->second.x) <= 16
+                        && std::abs(position.y - link->second.y) <= 16) target = candidate;
+                    break;
+                }
+                if (!target) { accepted = false; reason = "barracks_unavailable"; }
+            }
+        }
         if (accepted && verb == "unit.attack") {
             const auto targetID = command.value("target_id", "");
             if (targetID.compare(0, 7, "openbw:") == 0) target = actorRegistry_.lookup(targetID);
@@ -571,6 +618,17 @@ private:
         if (accepted) {
             revision_ = message.at("revision").get<uint64_t>();
             lastCommandSerial_ = std::stoull(commandID.substr(session_.size() + 1));
+            if (verb == "unit.train") {
+                accepted = target->train(BWAPI::UnitTypes::Terran_Marine);
+                if (!accepted) reason = "native_train_rejected";
+                std::cerr << "[world-control] train command=" << commandID
+                          << " barracks=" << target->getID() << " accepted=" << accepted
+                          << " queue=" << target->getTrainingQueue().size()
+                          << " minerals=" << game->self()->minerals()
+                          << " supply=" << game->self()->supplyUsed()
+                          << "/" << game->self()->supplyTotal()
+                          << " frame=" << game->getFrameCount() << std::endl;
+            }
             for (const auto& idValue : units) {
                 auto unit = actorRegistry_.lookup(idValue.get<std::string>());
                 const auto previousOrder = unit->getOrder().getName();
@@ -671,6 +729,7 @@ private:
     bool barracksProbeSupplyIssued_ = false, barracksProbeTrainIssued_ = false;
     bool barracksProbeQueueSeen_ = false, barracksProbeMarineSeen_ = false;
     int barracksProbeInitialMarines_ = 0;
+    bool startingResourcesApplied_ = false;
     starcoaster::NavigationAdapter navigation_;
     starcoaster::NavigationMaskReceiver maskReceiver_;
     std::vector<uint8_t> pendingMask_, stagedMask_;

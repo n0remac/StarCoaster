@@ -21,6 +21,10 @@ type Scenario struct {
 		Marines   [][2]int `json:"marines"`
 		Zerglings [][2]int `json:"zerglings"`
 	} `json:"starting_units"`
+	ProductionFixture struct {
+		TerranMinerals    int    `json:"terran_minerals,omitempty"`
+		NativeSupplyDepot [2]int `json:"native_supply_depot,omitempty"`
+	} `json:"production_fixture,omitempty"`
 	Objectives []ScenarioObjective `json:"objectives"`
 	InitialAI  struct {
 		Strategy    string `json:"strategy"`
@@ -129,6 +133,20 @@ func LoadScenario(path string) (*Scenario, error) {
 			scenario.Defeat.ObjectiveDestroyed != "")) ||
 		(scenario.Mode != "" && scenario.Mode != "park_defense") {
 		return nil, fmt.Errorf("invalid scenario configuration")
+	}
+	if scenario.ProductionFixture.TerranMinerals < 0 || scenario.ProductionFixture.TerranMinerals > 100000 ||
+		(scenario.ProductionFixture.TerranMinerals > 0 &&
+			(scenario.ProductionFixture.NativeSupplyDepot[0] < 1 || scenario.ProductionFixture.NativeSupplyDepot[0] > 252 ||
+				scenario.ProductionFixture.NativeSupplyDepot[1] < 1 || scenario.ProductionFixture.NativeSupplyDepot[1] > 253)) {
+		return nil, fmt.Errorf("invalid production fixture")
+	}
+	if scenario.ProductionFixture.TerranMinerals > 0 {
+		x, y := scenario.ProductionFixture.NativeSupplyDepot[0], scenario.ProductionFixture.NativeSupplyDepot[1]
+		parkX, parkY := (256-scenario.ParkSize[0])/2, (256-scenario.ParkSize[1])/2
+		if x < parkX+scenario.ParkSize[0] && x+3 > parkX &&
+			y < parkY+scenario.ParkSize[1] && y+2 > parkY {
+			return nil, fmt.Errorf("production fixture overlaps mapped park")
+		}
 	}
 	for _, objective := range scenario.Objectives {
 		if !identifier.MatchString(objective.ID) || objective.EntityKind == "" || objective.EntityType == "" {

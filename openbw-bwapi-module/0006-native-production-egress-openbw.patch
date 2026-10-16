@@ -1,0 +1,72 @@
+--- a/bwgame.h
++++ b/bwgame.h
+@@ -16505,7 +16505,7 @@
+ 
+ 	}
+ 
+-	std::pair<bool, xy> find_unit_placement(const unit_t* u, xy pos, rect bounds, bool terrain_displaces_unit) const {
++	std::pair<bool, xy> find_unit_placement(const unit_t* u, xy pos, rect bounds, bool terrain_displaces_unit, bool ignore_reachability = false) const {
+ 		if (bounds.from.x < 0) bounds.from.x = 0;
+ 		if (bounds.from.y < 0) bounds.from.y = 0;
+ 		if (bounds.to.x >= (int)game_st.map_width) bounds.to.x = (int)game_st.map_width - 1;
+@@ -16575,7 +16575,7 @@
+ 						continue;
+ 					} else {
+ 						xy pos{x, bb.to.y};
+-						if (is_reachable(u, pos)) {
++						if (ignore_reachability || is_reachable(u, pos)) {
+ 							if (u_flying(u) || unit_type_can_fit_at(u->unit_type, pos)) {
+ 								find_result = pos;
+ 								return true;
+@@ -16602,7 +16602,7 @@
+ 						continue;
+ 					} else {
+ 						xy pos{bb.to.x, y};
+-						if (is_reachable(u, pos)) {
++						if (ignore_reachability || is_reachable(u, pos)) {
+ 							if (u_flying(u) || unit_type_can_fit_at(u->unit_type, pos)) {
+ 								find_result = pos;
+ 								return true;
+@@ -16633,7 +16633,7 @@
+ 						continue;
+ 					} else {
+ 						xy pos{x, bb.from.y};
+-						if (is_reachable(u, pos)) {
++						if (ignore_reachability || is_reachable(u, pos)) {
+ 							if (u_flying(u) || unit_type_can_fit_at(u->unit_type, pos)) {
+ 								find_result = pos;
+ 								return true;
+@@ -16660,7 +16660,7 @@
+ 						continue;
+ 					} else {
+ 						xy pos{bb.from.x, y};
+-						if (is_reachable(u, pos)) {
++						if (ignore_reachability || is_reachable(u, pos)) {
+ 							if (u_flying(u) || unit_type_can_fit_at(u->unit_type, pos)) {
+ 								find_result = pos;
+ 								return true;
+@@ -16696,8 +16696,8 @@
+ 		return {false, {}};
+ 	}
+ 
+-	std::pair<bool, xy> find_unit_placement(const unit_t* u, xy pos, bool terrain_displaces_unit) const {
+-		return find_unit_placement(u, pos, {pos - xy(128, 128), pos + xy(127, 127)}, terrain_displaces_unit);
++	std::pair<bool, xy> find_unit_placement(const unit_t* u, xy pos, bool terrain_displaces_unit, bool ignore_reachability = false) const {
++		return find_unit_placement(u, pos, {pos - xy(128, 128), pos + xy(127, 127)}, terrain_displaces_unit, ignore_reachability);
+ 	}
+ 
+ 	void move_unit(unit_t* u, xy pos) {
+@@ -16719,7 +16719,12 @@
+ 		if (!us_hidden(u)) return true;
+ 		bool res;
+ 		xy pos;
+-		std::tie(res, pos) = find_unit_placement(u, u->sprite->position, false);
++		// A Barracks stands inside StarCoaster's park navigation mask.
++		// The trainee starts inside its blocked footprint; the exit still
++		// must be walkable and clear of other units.
++		const bool park_marine_exit = unit_is(u, UnitTypes::Terran_Marine)
++			&& !st.park_base_mega_tile_index.empty();
++		std::tie(res, pos) = find_unit_placement(u, u->sprite->position, false, park_marine_exit);
+ 		if (!res) {
+ 			display_last_error_for_player(u->owner);
+ 			return false;

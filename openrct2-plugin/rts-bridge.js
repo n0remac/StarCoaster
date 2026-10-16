@@ -5,6 +5,7 @@
     const ACTION = "rtsbridge.applySnapshot";
     const COMMAND_ACTION = "rtsbridge.marineCommand";
     const RESULT_ACTION = "rtsbridge.commandResult";
+    const BUILDING_ACTION = "rtsbridge.buildingState";
     const OUTCOME_ACTION = "rtsbridge.worldOutcome";
     const SCENARIO_STATUS_ACTION = "rtsbridge.scenarioStatus";
     const TARGET_ACTION = "rtsbridge.targetCatalog";
@@ -706,6 +707,11 @@
                 else combatEvent(message);
             }
             else if (message.kind === "combat.result" && message.payload.command_id) onCommandResult(message.payload);
+            else if (message.kind === "building.state" && message.payload)
+                context.executeAction(BUILDING_ACTION, Object.assign({ session: session }, message.payload),
+                    function (result) {
+                        if (result.error) console.log("WORLD_BUILDING_STATE_ERROR " + result.errorMessage);
+                    });
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
             else if (message.kind === "combat.snapshot") {
@@ -935,7 +941,10 @@
         let missionStatus = null;
         let shownOutcome = "";
         let commandFeedback = "";
+        let productionFeedback = "";
+        let buildingStates = {};
         const pendingCommands = {};
+        const seenCommandRequests = {};
         context.registerAction(SPAWN_STATUS_ACTION, function (event) {
             const args = event.args || {};
             if (network.mode === "server" && event.player !== network.currentPlayer.id)
@@ -983,6 +992,7 @@
             rtsBridge.applySnapshot({ session: event.args.session, seq: event.args.seq, units: visible });
             if (controlSession !== event.args.session) {
                 outcomeState = null; shownOutcome = "";
+                buildingStates = {};
                 if (missionStatus && missionStatus.session !== event.args.session) missionStatus = null;
             }
             controlSession = event.args.session;
@@ -1226,9 +1236,21 @@
                         return { error: 1, errorMessage: "Only the Terran commander may order Marines" };
                 }
                 if (!args || args.session !== controlSession || !Number.isSafeInteger(args.request)
-                    || args.request < 1 || !Array.isArray(args.unit_ids) || args.unit_ids.length < 1
-                    || args.unit_ids.length > (32) || !(["move", "attack", "attack_move", "hold", "stop"].includes(args.verb)))
+                    || args.request < 1 || !Array.isArray(args.unit_ids)
+                    || args.unit_ids.length > 32
+                    || !(["move", "attack", "attack_move", "hold", "stop", "train"].includes(args.verb))
+                    || (args.verb === "train" ? args.unit_ids.length !== 0 : args.unit_ids.length < 1))
                     return { error: 1, errorMessage: "Invalid Marine command" };
+                if (seenCommandRequests[args.session + ":" + event.player + ":" + args.request])
+                    return { error: 1, errorMessage: "Duplicate command request" };
+                if (args.verb === "train") {
+                    const id = args.target_entity_id;
+                    if (typeof id !== "string" || !/^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(id)
+                        || targetCatalogSession !== args.session || !worldTargetIds[id]
+                        || !buildingStates[id] || buildingStates[id].owner !== terranOwner
+                        || buildingStates[id].health < 1)
+                        return { error: 1, errorMessage: "Barracks is unavailable" };
+                }
                 const unique = {};
                 if (!args.unit_ids.every(function (id) {
                     const unit = controlUnits[id];
@@ -1255,15 +1277,16 @@
             }, function (event) {
                 if (network.mode !== "server") return {};
                 const args = event.args;
+                seenCommandRequests[args.session + ":" + event.player + ":" + args.request] = true;
 
                     const commandId = args.session + ":" + (++commandSerial);
                     pendingCommands[commandId] = { player: event.player, request: args.request,
-                        unit: args.unit_ids[0] };
+                        unit: args.verb === "train" ? args.target_entity_id : args.unit_ids[0] };
                     const payload = { command_id: commandId, player_id: event.player,
                         request_id: args.request, unit_ids: args.unit_ids.slice(), verb: "unit." + args.verb };
                     if (args.verb === "move" || args.verb === "attack_move") {
                         payload.x = args.x; payload.y = args.y;
-                    } else if (args.verb === "attack")
+                    } else if (args.verb === "attack" || args.verb === "train")
                         payload.target_id = args.target_entity_id || args.target_id;
                     console.log("WORLD_COMMAND_ACTION id=" + commandId + " request=" + args.request
                         + " units=" + args.unit_ids.length + " verb=" + args.verb);
@@ -1309,17 +1332,42 @@
                     return { error: 1, errorMessage: "Only the server can report Marine commands" };
                 const args = event.args;
                 return args && Number.isSafeInteger(args.player) && Number.isSafeInteger(args.request)
-                    && /^openbw:[0-9]+$/.test(args.unit) && typeof args.accepted === "boolean"
+                    && (/^openbw:[0-9]+$/.test(args.unit)
+                        || /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.unit))
+                    && typeof args.accepted === "boolean"
                     && /^[a-z_]{2,64}$/.test(args.reason)
                     ? {} : { error: 1, errorMessage: "Invalid Marine command result" };
             }, function (event) {
                 const args = event.args;
                 if (args.player === network.currentPlayer.id) {
+                    if (args.unit.startsWith("openrct2:")) {
+                        productionFeedback = args.accepted ? "Marine training started"
+                            : "Training rejected: " + args.reason;
+                        console.log("WORLD_TRAIN_RESULT id=" + args.unit + " accepted="
+                            + args.accepted + " reason=" + args.reason);
+                        return {};
+                    }
                     commandFeedback = args.accepted ? "Order " + args.request + " accepted"
                         : "Order " + args.request + " rejected: " + args.reason;
                     console.log("RTS Bridge Marine command request=" + args.request + " unit=" + args.unit
                         + " accepted=" + args.accepted + " reason=" + args.reason);
                 }
+                return {};
+            });
+            context.registerAction(BUILDING_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may publish native building state" };
+                return args.session === controlSession
+                    && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.id || "")
+                    && /^openbw:[0-9]+$/.test(args.native_id || "")
+                    && ["owner", "health", "queue", "remaining_frames", "minerals",
+                        "supply_used", "supply_total"].every(function (field) {
+                        return Number.isInteger(args[field]) && args[field] >= 0;
+                    }) && args.health <= 1000 && args.queue <= 5
+                    ? {} : { error: 1, errorMessage: "Invalid native building state" };
+            }, function (event) {
+                buildingStates[event.args.id] = event.args;
                 return {};
             });
 
@@ -1801,28 +1849,61 @@
                 barracksInfoID = barracksTargetAt(point);
                 if (barracksInfoWindow) barracksInfoWindow.close();
                 barracksInfoWindow = ui.openWindow({ classification: "starcoaster-barracks-info",
-                    width: 244, height: 148, title: "Terran Barracks",
+                    width: 244, height: 190, title: "Terran Barracks",
                     onClose: function () { barracksInfoWindow = null; },
                     onUpdate: function () {
                         if (!barracksInfoWindow) return;
                         if (!barracksInfoID) barracksInfoID = barracksTargetAt(point);
                         const target = worldTargetIds[barracksInfoID];
+                        const native = buildingStates[barracksInfoID];
+                        const owner = barracksInfoWindow.findWidget("building-owner");
                         const identity = barracksInfoWindow.findWidget("building-identity");
                         const health = barracksInfoWindow.findWidget("building-health");
                         const status = barracksInfoWindow.findWidget("building-status");
+                        const queue = barracksInfoWindow.findWidget("building-queue");
+                        const resources = barracksInfoWindow.findWidget("building-resources");
+                        const feedback = barracksInfoWindow.findWidget("building-feedback");
+                        const train = barracksInfoWindow.findWidget("building-train");
+                        if (owner) owner.text = "Owner: Terran (player " + (native ? native.owner : terranOwner) + ")";
                         if (identity) identity.text = barracksInfoID || "Awaiting world identity";
-                        if (health) health.text = target ? "Health: " + target.health : "Health: awaiting native state";
-                        if (status) status.text = target ? "Construction: complete" : "Construction: synchronizing";
+                        if (health) health.text = native ? "Health: " + native.health + "/1000"
+                            : target ? "Health: " + target.health : "Health: awaiting native state";
+                        if (status) status.text = target && native ? "Construction: complete"
+                            : "Construction: synchronizing";
+                        if (queue) queue.text = native ? "Queue: " + native.queue
+                            + (native.queue ? " (" + Math.ceil(native.remaining_frames / 24) + "s remaining)" : "")
+                            : "Queue: awaiting native state";
+                        if (resources) resources.text = native ? "Minerals: " + native.minerals
+                            + "  Supply: " + (native.supply_used / 2) + "/" + (native.supply_total / 2) : "";
+                        if (feedback) feedback.text = productionFeedback;
+                        if (train) train.isDisabled = !target || !native || native.health < 1
+                            || native.queue >= 5 || native.owner !== terranOwner;
                     }, widgets: [
-                        { type: "label", x: 8, y: 19, width: 228, height: 14, text: "Owner: Terran (player 1)" },
+                        { type: "label", name: "building-owner", x: 8, y: 19, width: 228,
+                            height: 14, text: "Owner: Terran" },
                         { type: "label", name: "building-identity", x: 8, y: 37, width: 228,
                             height: 14, text: barracksInfoID || "Awaiting world identity" },
                         { type: "label", name: "building-health", x: 8, y: 55, width: 228,
                             height: 14, text: "Health: awaiting native state" },
                         { type: "label", name: "building-status", x: 8, y: 73, width: 228,
                             height: 14, text: "Construction: synchronizing" },
-                        { type: "button", x: 8, y: 99, width: 228, height: 22,
-                            text: "Production (coming later)", isDisabled: true }
+                        { type: "label", name: "building-queue", x: 8, y: 91, width: 228,
+                            height: 14, text: "Queue: awaiting native state" },
+                        { type: "label", name: "building-resources", x: 8, y: 109, width: 228,
+                            height: 14, text: "" },
+                        { type: "button", name: "building-train", x: 8, y: 130, width: 228, height: 22,
+                            text: "Train Marine", isDisabled: true,
+                            onClick: function () {
+                                if (!barracksInfoID) return;
+                                productionFeedback = "Requesting Marine training...";
+                                context.executeAction(COMMAND_ACTION, { session: controlSession,
+                                    request: ++nextRequest, unit_ids: [], verb: "train",
+                                    target_entity_id: barracksInfoID }, function (result) {
+                                    if (result.error) productionFeedback = result.errorMessage;
+                                });
+                            } },
+                        { type: "label", name: "building-feedback", x: 8, y: 158, width: 228,
+                            height: 24, text: "" }
                     ] });
             }
             if (typeof ui.registerViewportInteraction !== "function")

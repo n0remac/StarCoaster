@@ -270,15 +270,15 @@ const command = registered.get('rtsbridge.marineCommand');
 assert.ok(command.query({ player: 1, args: { session: sid, request: 1,
     unit_ids: [runtimeMarine.id], verb: 'hold' } }).error,
     'despawned runtime Marine cannot be commanded');
-assert.equal(command.query({ player: 1, args: { session: sid, request: 1,
+assert.equal(command.query({ player: 1, args: { session: sid, request: 10001,
     unit_ids: ['openbw:1000'], verb: 'attack', target_id: 'openbw:1001' } }).error, undefined);
-command.execute({ player: 1, args: { session: sid, request: 1,
+command.execute({ player: 1, args: { session: sid, request: 10001,
     unit_ids: ['openbw:1000'], verb: 'attack', target_id: 'openbw:1001' } });
 drain();
 assert.equal(sent.filter(m => m.kind === 'combat.command').at(-1).payload.target_id, 'openbw:1001');
 const squad = ['openbw:1000', 'openbw:1002', 'openbw:1004', 'openbw:1006', 'openbw:1008', 'openbw:1010'];
 const beforeSquad = sent.filter(m => m.kind === 'combat.command').length;
-const squadArgs = { session: sid, request: 2, unit_ids: squad, verb: 'attack_move', x: 80, y: 80 };
+const squadArgs = { session: sid, request: 10002, unit_ids: squad, verb: 'attack_move', x: 80, y: 80 };
 assert.equal(command.query({ player: 1, args: squadArgs }).error, undefined);
 command.execute({ player: 1, args: squadArgs });
 drain();
@@ -350,7 +350,7 @@ assert.equal(sent.filter(message => message.kind === 'unit.spawn.request').lengt
 assert.equal(activeTool, null, 'spawn cancellation restores park interaction');
 assert.ok(actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets
     .some(target => target.id === rideTarget.id));
-const structureArgs = { session: sid, request: 3, unit_ids: ['openbw:1000'],
+const structureArgs = { session: sid, request: 10003, unit_ids: ['openbw:1000'],
     verb: 'attack', target_entity_id: rideTarget.id };
 assert.equal(command.query({ player: 1, args: structureArgs }).error, undefined);
 command.execute({ player: 1, args: structureArgs });
