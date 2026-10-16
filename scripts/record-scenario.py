@@ -140,6 +140,8 @@ def parse_args(argv=None):
                         help="capture ordinary two-client wall construction and native rerouting")
     parser.add_argument("--mt-zergling-playthrough", action="store_true",
                         help="exercise Mt. Zergling construction and the graphical Spawn Wave button")
+    parser.add_argument("--marine-screen-probe", action="store_true",
+                        help="check Marine drag selection across Mt. Zergling rotations and zoom levels")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
     parser.add_argument("--navigation-baseline", action="store_true",
                         help="capture a close graphical audit of the layered park's wall and elevated rail")
@@ -165,6 +167,8 @@ def parse_args(argv=None):
         parser.error("--live-construction requires two clients")
     if args.mt_zergling_playthrough and scenario_id != "mt-zergling":
         parser.error("--mt-zergling-playthrough requires --scenario mt-zergling")
+    if args.marine_screen_probe and (scenario_id != "mt-zergling" or args.mt_zergling_playthrough):
+        parser.error("--marine-screen-probe requires Mt. Zergling without the playthrough probe")
     if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault
                                              or args.cycle_rotations or args.live_construction):
         parser.error("Frontier visual probes require --scenario frontier-outpost")
@@ -342,6 +346,9 @@ def main():
             if args.mt_zergling_playthrough and name == "client-a":
                 (data_dir / "plugin/mt-zergling-construction-probe.js").write_text(
                     (ROOT / "scripts/mt-zergling-construction-probe.js").read_text())
+            if args.marine_screen_probe and name == "client-a":
+                (data_dir / "plugin/marine-screen-probe.js").write_text(
+                    (ROOT / "scripts/marine-screen-probe.js").read_text())
             if args.navigation_baseline:
                 camera = (ROOT / "scripts/navigation-baseline-camera.js").read_text()
                 camera = camera.replace("var baselineRotation = 0;",
@@ -398,6 +405,10 @@ def main():
         if recorder:
             recorder.start()
             recording = True
+        if args.marine_screen_probe:
+            subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+m"],
+                           env=env | {"DISPLAY": ":91"}, check=True)
+            wait_for(out / "client-a.log", "MARINE_SCREEN_PROBE_START", clients["client-a"], 12)
         if args.navigation_baseline:
             subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+y"],
                            env=env | {"DISPLAY": ":91"}, check=True)
@@ -412,6 +423,7 @@ def main():
         mt_marine_clicked = False
         mt_zoomed = False
         mt_samples = set()
+        marine_screen_seen = 0
         rotation_offsets = {name: len(re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
                               (out / f"{name}.log").read_text(errors="replace")))
                             for name, _ in displays}
@@ -419,6 +431,26 @@ def main():
         while time.monotonic() < until:
             if recorder:
                 recorder.check_alive()
+            if args.marine_screen_probe:
+                samples = re.findall(r"MARINE_SCREEN_PROBE rotation=(\d) zoom=(-?\d+) z=(\d+)"
+                                     r" x=(-?\d+) y=(-?\d+) tool=([a-z0-9.-]+)",
+                                     (out / "client-a.log").read_text(errors="replace"))
+                for rotation, zoom, z, x, y, tool in samples[marine_screen_seen:]:
+                    marine_screen_seen += 1
+                    px, py = int(x), int(y)
+                    if not 250 <= px <= args.display_width - 180 or not 190 <= py <= args.display_height - 190:
+                        continue
+                    subprocess.run(["xdotool", "mousemove", str(px - 230), str(py - 170),
+                                    "mousedown", "1", "mousemove", "--sync", str(px + 230),
+                                    str(py + 170), "mouseup", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    time.sleep(0.2)
+                    filename = f"marine-screen-rot{rotation}-zoom{zoom}.png"
+                    subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    if recorder:
+                        recorder.event("marine_screen_drag", client="client-a", rotation=int(rotation),
+                                       zoom=int(zoom), elevation=int(z), filename=filename)
             if args.mt_zergling_playthrough:
                 elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
                 if not mt_marine_clicked and elapsed >= 5:
@@ -572,6 +604,23 @@ def main():
                 "construction_log": re.findall(r"MT_ZERGLING_CONSTRUCTION_.*", driver),
             }
             detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
+        if args.marine_screen_probe:
+            projected = re.findall(r"MARINE_SCREEN_PROBE rotation=(\d) zoom=(-?\d+) z=(\d+)"
+                                   r" x=(-?\d+) y=(-?\d+) tool=([a-z0-9.-]+)", client_logs[0])
+            selected = re.findall(r"RTS Bridge selected Marines=([^'\x1b\r\n]+)", client_logs[0])
+            marines = {f"openbw:{number}" for number in range(1000, 1005)}
+            checks = {"four_rotations_and_zooms": len(projected) == 4
+                      and [int(row[0]) for row in projected] == [0, 1, 2, 3]
+                      and [int(row[1]) for row in projected] == [0, 1, 2, -1],
+                      "elevated_projection": len(projected) == 4 and all(int(row[2]) > 112 for row in projected),
+                      "selection_tool_active": len(projected) == 4
+                      and all(row[5] == "starcoaster.select-marine" for row in projected),
+                      "all_visible_marines_selected": len(selected) >= 4
+                      and all(marines.issubset(set(row.split(","))) for row in selected[-4:])}
+            detailed["marine_screen_probe"] = {"checks": checks, "projected": projected, "selected": selected[-4:]}
+            detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
+            detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
             (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
         if args.ridge_probe:
             with (out / "ridge-check.log").open("w") as check_log:

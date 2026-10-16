@@ -466,6 +466,7 @@ private:
             lastCommandSerial_ = std::stoull(commandID.substr(session_.size() + 1));
             for (const auto& idValue : units) {
                 auto unit = actorRegistry_.lookup(idValue.get<std::string>());
+                const auto previousOrder = unit->getOrder().getName();
                 bool applied = false;
                 if (verb == "unit.move") applied = unit->move({x, y});
                 else if (verb == "unit.attack_move") applied = unit->attack({x, y});
@@ -475,6 +476,8 @@ private:
                 if (!applied) { accepted = false; reason = "bwapi_rejected"; }
                 std::cerr << "[world-control] command=" << commandID << " unit=" << unit->getID()
                           << " verb=" << verb << " accepted=" << applied
+                          << " frame=" << game->getFrameCount()
+                          << " order_before=" << previousOrder << " order_after=" << unit->getOrder().getName()
                           << " from=" << unit->getPosition().x << "," << unit->getPosition().y
                           << " to=" << x << "," << y << std::endl;
             }

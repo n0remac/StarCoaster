@@ -990,10 +990,10 @@ index 500f197..ce9cb21 100644
  
      // Main palettes
 diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
-index 7fd474f..52376ce 100644
+index 7fd474f..f229706 100644
 --- a/src/openrct2/paint/Paint.Entity.cpp
 +++ b/src/openrct2/paint/Paint.Entity.cpp
-@@ -9,6 +9,9 @@
+@@ -9,13 +9,20 @@
  
  #include "Paint.Entity.h"
  
@@ -1003,7 +1003,8 @@ index 7fd474f..52376ce 100644
  #include "../drawing/LightFX.h"
  #include "../entity/EntityList.h"
  #include "../entity/Staff.h"
-@@ -16,6 +19,9 @@
+ #include "../interface/Viewport.h"
++#include "../interface/WindowBase.h"
  #include "../profiling/Profiling.h"
  #include "../ride/TrackDesign.h"
  #include "../world/Map.h"
@@ -1013,7 +1014,7 @@ index 7fd474f..52376ce 100644
  #include "Paint.h"
  #include "entity/Paint.Balloon.h"
  #include "entity/Paint.CrashSplashParticle.h"
-@@ -32,10 +36,192 @@
+@@ -32,10 +39,212 @@
  #include "entity/Paint.VehicleCrashParticle.h"
  
  #include <cassert>
@@ -1203,10 +1204,30 @@ index 7fd474f..52376ce 100644
 +    return { snapshot->session, snapshot->actors };
 +}
 +
++std::optional<std::pair<int32_t, int32_t>> BridgeActorScreenPosition(const std::string& id)
++{
++    const auto* mainWindow = WindowGetMain();
++    const auto* viewport = mainWindow == nullptr ? nullptr : mainWindow->viewport;
++    if (viewport == nullptr) return std::nullopt;
++    const auto snapshot = std::atomic_load(&gBridgeSnapshot);
++    const auto actor = std::find_if(snapshot->actors.begin(), snapshot->actors.end(),
++        [&](const BridgeActor& item) { return item.id == id; });
++    if (actor == snapshot->actors.end() || actor->motion == "death") return std::nullopt;
++    const auto visual = snapshot->visual.find(id);
++    if (visual == snapshot->visual.end()) return std::nullopt;
++    const auto position = VisualPosition(*actor, visual->second);
++    if (!MapIsLocationValid(position)) return std::nullopt;
++    const auto projected = Translate3DTo2DWithZ(viewport->rotation,
++        { position, TileElementHeight(position) });
++    return std::pair<int32_t, int32_t>{
++        viewport->pos.x + viewport->zoom.ApplyInversedTo(projected.x - viewport->viewPos.x),
++        viewport->pos.y + viewport->zoom.ApplyInversedTo(projected.y - viewport->viewPos.y) };
++}
++
  /**
   * Paint Quadrant
   *  rct2: 0x0069E8B0
-@@ -180,3 +366,107 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
+@@ -180,3 +389,107 @@ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos)
          }
      }
  }
@@ -1315,10 +1336,10 @@ index 7fd474f..52376ce 100644
 +    }
 +}
 diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
-index b481242..5e3a595 100644
+index b481242..67671d8 100644
 --- a/src/openrct2/paint/Paint.Entity.h
 +++ b/src/openrct2/paint/Paint.Entity.h
-@@ -9,7 +9,32 @@
+@@ -9,7 +9,34 @@
  
  #pragma once
  
@@ -1326,6 +1347,7 @@ index b481242..5e3a595 100644
 +#include <string>
 +#include <vector>
 +#include <utility>
++#include <optional>
 +
  struct PaintSession;
  struct CoordsXY;
@@ -1351,6 +1373,7 @@ index b481242..5e3a595 100644
 +void BridgeInvalidateAnimation();
 +std::string BridgeHitTest(int32_t x, int32_t y, int32_t radius);
 +std::pair<std::string, std::vector<BridgeActor>> BridgeGetActors();
++std::optional<std::pair<int32_t, int32_t>> BridgeActorScreenPosition(const std::string& id);
 diff --git a/src/openrct2/paint/Paint.cpp b/src/openrct2/paint/Paint.cpp
 index 7aea6d1..6e3f788 100644
 --- a/src/openrct2/paint/Paint.cpp
@@ -1403,7 +1426,7 @@ index 8820369..4962081c 100644
      {
          TryLoadSequence();
 diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
-index bb88d98..9560f5a 100644
+index bb88d98..c9296ca 100644
 --- a/src/openrct2/scripting/ScriptEngine.cpp
 +++ b/src/openrct2/scripting/ScriptEngine.cpp
 @@ -27,8 +27,11 @@
@@ -1428,7 +1451,7 @@ index bb88d98..9560f5a 100644
      #include <stdexcept>
      #include <string>
  
-@@ -694,9 +699,161 @@ JSContext* ScriptEngine::CreateContext() const
+@@ -694,9 +699,178 @@ JSContext* ScriptEngine::CreateContext() const
      return newCtx;
  }
  
@@ -1575,6 +1598,22 @@ index bb88d98..9560f5a 100644
 +    return result;
 +}
 +
++static JSValue BridgeActorScreenPositionJS(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
++{
++    if (argc != 1 || !JS_IsString(argv[0]))
++        return JS_ThrowTypeError(ctx, "expected actor id");
++    const char* text = JS_ToCString(ctx, argv[0]);
++    if (text == nullptr) return JS_EXCEPTION;
++    const std::string id(text);
++    JS_FreeCString(ctx, text);
++    const auto position = BridgeActorScreenPosition(id);
++    if (!position) return JS_NULL;
++    JSValue point = JS_NewObject(ctx);
++    JS_SetPropertyStr(ctx, point, "x", JS_NewInt32(ctx, position->first));
++    JS_SetPropertyStr(ctx, point, "y", JS_NewInt32(ctx, position->second));
++    return point;
++}
++
  void ScriptEngine::InitialiseContext(JSContext* ctx) const
  {
      JSValue glb = JS_GetGlobalObject(ctx);
@@ -1586,6 +1625,7 @@ index bb88d98..9560f5a 100644
 +    JS_SetPropertyStr(ctx, bridge, "hitTest", JS_NewCFunction(ctx, BridgeHitTestJS, "hitTest", 3));
 +    JS_SetPropertyStr(ctx, bridge, "cursorWorld", JS_NewCFunction(ctx, BridgeCursorWorldJS, "cursorWorld", 0));
 +    JS_SetPropertyStr(ctx, bridge, "getActors", JS_NewCFunction(ctx, BridgeGetActorsJS, "getActors", 0));
++    JS_SetPropertyStr(ctx, bridge, "actorScreenPosition", JS_NewCFunction(ctx, BridgeActorScreenPositionJS, "actorScreenPosition", 1));
 +    JS_SetPropertyStr(ctx, glb, "rtsBridge", bridge);
      JS_SetPropertyStr(ctx, glb, "cheats", gScCheats.New(ctx));
      JS_SetPropertyStr(ctx, glb, "climate", gScWeather.New(ctx));

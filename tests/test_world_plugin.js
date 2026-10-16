@@ -31,6 +31,7 @@ at(6, 6).push({ type: 'footpath', object: 4, surfaceObject: 4,
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
 const shortcuts = new Map();
 let selectionTool;
+const actorScreens = new Map();
 let squadWidgets;
 let socket;
 const sandbox = {
@@ -56,8 +57,9 @@ const sandbox = {
             } }; return socket;
     } },
     rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); },
+        actorScreenPosition(id) { return actorScreens.get(id) || null; },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
-    ui: { tileSelection: { tiles: [] }, openWindow(desc) { squadWidgets = desc.widgets;
+    ui: { tileSelection: { tiles: [] }, get tool() { return selectionTool; }, openWindow(desc) { squadWidgets = desc.widgets;
             return { findWidget(name) { return squadWidgets.find(widget => widget.name === name); } }; },
         registerShortcut(shortcut) { shortcuts.set(shortcut.id, shortcut); },
         activateTool(tool) { selectionTool = tool; }, showError() {} },
@@ -89,6 +91,13 @@ const sandbox = {
     console: { log(line) { logs.push(line); } }, registerPlugin(plugin) { plugin.main(); },
 };
 vm.runInNewContext(fs.readFileSync('openrct2-plugin/rts-bridge.js', 'utf8'), sandbox);
+assert.equal(selectionTool.id, 'starcoaster.select-marine', 'selection is active at startup');
+selectionTool = { id: 'construction' };
+subscriptions.get('interval.tick')();
+assert.equal(selectionTool.id, 'construction', 'construction keeps its active tool');
+selectionTool = null;
+subscriptions.get('interval.tick')();
+assert.equal(selectionTool.id, 'starcoaster.select-marine', 'selection returns when construction finishes');
 function drain() { while (responses.length) socket.handlers.data(responses.shift()); }
 drain();
 const begin = sent.find(m => m.kind === 'world.snapshot.begin');
@@ -166,7 +175,13 @@ const many = Array.from({ length: 100 }, function (_, index) {
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
     payload: { seq: 2, bw_tick: 6, units: many } }) + '\n');
 assert.equal(applied.at(-1).units.length, 100, 'world actor transport accepts 100 mixed units');
+for (const unit of many) actorScreens.set(unit.id, { x: unit.x, y: unit.y });
+selectionTool.onDown({ mapCoords: { x: 200, y: 200 }, screenCoords: { x: 20, y: 20 } });
+selectionTool.onUp({ mapCoords: { x: 0, y: 0 }, screenCoords: { x: 80, y: 60 } });
+assert.ok(logs.at(-1).includes('openbw:1000') && logs.at(-1).includes('openbw:1002'),
+    'starting Marines can be box selected before any reinforcements spawn');
 const runtimeMarine = { ...many[0], id: 'openbw:3001' };
+for (const unit of many.concat([runtimeMarine])) actorScreens.set(unit.id, { x: unit.x, y: unit.y });
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
     payload: { seq: 3, bw_tick: 9, units: many.concat([runtimeMarine]) } }) + '\n');
 assert.equal(applied.at(-1).units.length, 100, 'unbound runtime Marine is not rendered');
@@ -179,20 +194,31 @@ assert.ok(actions.some(a => a.name === 'rtsbridge.actorLifecycle' && a.args.stat
 assert.equal(registered.get('rtsbridge.marineCommand').query({ player: 1, args: {
     session: sid, request: 98, unit_ids: [runtimeMarine.id], verb: 'hold'
 } }).error, undefined, 'bound runtime Marine is commandable');
-selectionTool.onDown({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y } });
-selectionTool.onUp({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y } });
+selectionTool.onDown({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y }, screenCoords: { x: 32, y: 32 } });
+selectionTool.onUp({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y }, screenCoords: { x: 32, y: 32 } });
 assert.ok(logs.some(line => line.includes('selected Marines=openbw:3001')),
     'native hit testing selects the runtime Marine');
 shortcuts.get('starcoaster.save-group-1').callback();
-selectionTool.onDown({ mapCoords: { x: 0, y: 32 } });
-selectionTool.onMove({ mapCoords: { x: 96, y: 0 }, isDown: true });
-selectionTool.onUp({ mapCoords: { x: 96, y: 0 } });
+selectionTool.onDown({ mapCoords: { x: 0, y: 32 }, screenCoords: { x: 0, y: 0 } });
+selectionTool.onMove({ mapCoords: { x: 96, y: 0 }, screenCoords: { x: 96, y: 32 }, isDown: true });
+selectionTool.onUp({ mapCoords: { x: 96, y: 0 }, screenCoords: { x: 96, y: 32 } });
 assert.ok(logs.at(-1).includes('openbw:3001') && logs.at(-1).includes('openbw:1002'),
     'drag selection includes runtime and starting Marines');
 selectionTool.onRightClick({ mapCoords: { x: 80, y: 80 } });
 drain();
 assert.ok(sent.filter(m => m.kind === 'combat.command').at(-1).payload.unit_ids.includes('openbw:3001'),
     'squad movement order includes the runtime Marine');
+selectionTool = { id: 'construction' };
+subscriptions.get('interval.tick')();
+assert.equal(selectionTool.id, 'construction');
+selectionTool = null;
+subscriptions.get('interval.tick')();
+const beforeRestoredOrder = sent.filter(m => m.kind === 'combat.command').length;
+selectionTool.onRightClick({ mapCoords: { x: 112, y: 112 } });
+drain();
+assert.equal(sent.filter(m => m.kind === 'combat.command').length, beforeRestoredOrder + 1,
+    'restored selection tool delivers a replacement move order');
+assert.equal(sent.filter(m => m.kind === 'combat.command').at(-1).payload.x, 112);
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'actor.despawn', session: sid,
     payload: { id: runtimeMarine.id, generation: 1 } }) + '\n');
 const commandsBeforeRemoved = actions.filter(a => a.name === 'rtsbridge.marineCommand').length;
@@ -227,6 +253,32 @@ drain();
 const squadCommands = sent.filter(m => m.kind === 'combat.command');
 assert.equal(squadCommands.length, beforeSquad + 1, 'squad order uses one command');
 assert.deepEqual([...squadCommands.at(-1).payload.unit_ids], squad);
+for (const [rotation, zoom, elevation] of [[0, 0, 0], [1, 1, 64], [2, 2, 128], [3, -1, 32]]) {
+    for (const unit of many) actorScreens.set(unit.id, { x: 500, y: 500 });
+    actorScreens.set('openbw:1000', { x: 30 + rotation, y: 40 + zoom });
+    actorScreens.set('openbw:1002', { x: 60 + rotation, y: 35 - elevation / 16 });
+    selectionTool.onDown({ mapCoords: { x: 220, y: 220 }, screenCoords: { x: 20, y: 20 } });
+    selectionTool.onUp({ mapCoords: { x: 0, y: 0 }, screenCoords: { x: 80, y: 60 } });
+    const chosen = logs.at(-1);
+    assert.ok(chosen.includes('openbw:1000') && chosen.includes('openbw:1002')
+        && !chosen.includes('openbw:1004'), `screen selection rotation=${rotation} zoom=${zoom} z=${elevation}`);
+}
+for (const unit of many) actorScreens.set(unit.id, { x: 40 + unit.x / 8, y: 40 + unit.y / 8 });
+selectionTool.onDown({ mapCoords: { x: 255, y: 255 }, screenCoords: { x: 20, y: 20 } });
+selectionTool.onUp({ mapCoords: { x: 0, y: 0 }, screenCoords: { x: 120, y: 120 } });
+const beforeLargeOrder = sent.filter(m => m.kind === 'combat.command').length;
+selectionTool.onRightClick({ mapCoords: { x: 200, y: 200 } });
+drain();
+const largeOrders = sent.filter(m => m.kind === 'combat.command').slice(beforeLargeOrder);
+assert.deepEqual(largeOrders.map(m => m.payload.unit_ids.length), [32, 18],
+    'all 50 selected Marines receive orders in supported batches');
+const beforeRedirect = sent.filter(m => m.kind === 'combat.command').length;
+selectionTool.onRightClick({ mapCoords: { x: 180, y: 180 } });
+selectionTool.onRightClick({ mapCoords: { x: 80, y: 80 } });
+drain();
+const redirects = sent.filter(m => m.kind === 'combat.command').slice(beforeRedirect);
+assert.deepEqual(redirects.map(m => m.payload.x), [180, 180, 80, 80],
+    'replacement destinations retain command order across squad batches');
 const rideTarget = all.find(e => e.kind === 'ride');
 const wallTarget = all.find(e => e.kind === 'wall');
 const sceneryTarget = all.find(e => e.kind === 'small_scenery');
@@ -260,10 +312,11 @@ assert.ok(actions.some(action => action.name === 'rtsbridge.spawnStatus' && acti
 const requestsBeforeCancel = sent.filter(message => message.kind === 'unit.spawn.request').length;
 squadWidgets.find(widget => widget.name === 'spawn-mode').onClick();
 selectionTool.onFinish();
+selectionTool = null;
+subscriptions.get('interval.tick')();
 assert.equal(sent.filter(message => message.kind === 'unit.spawn.request').length, requestsBeforeCancel,
     'canceling placement does not issue a spawn request');
-squadWidgets.find(widget => widget.name === 'select-mode').onClick();
-assert.equal(selectionTool.id, 'starcoaster.select-marine', 'selection remains available after cancel');
+assert.equal(selectionTool.id, 'starcoaster.select-marine', 'selection returns after spawn cancellation');
 assert.ok(actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets
     .some(target => target.id === rideTarget.id));
 const structureArgs = { session: sid, request: 3, unit_ids: ['openbw:1000'],

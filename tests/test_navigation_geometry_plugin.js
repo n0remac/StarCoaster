@@ -51,7 +51,8 @@ const sandbox = {
             }, destroy() {} };
         return socket;
     } },
-    rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot() {}, hitTest() {} },
+    rtsBridge: { version: 4, assetVersion: 3, invalidateAnimation() {}, applySnapshot() {}, hitTest() {},
+        actorScreenPosition() { return null; } },
     ui: { tileSelection: { tiles: [] }, openWindow() { return { findWidget() { return { text: '' }; } }; },
         registerShortcut() {}, activateTool() {}, showError() {} },
     context: { registerAction() {}, subscribe() {}, executeAction() {} },

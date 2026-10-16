@@ -103,13 +103,32 @@ def main():
         expected_start = (252 * 32 + 16, 252 * 32 + 16)
         if (marine["x"], marine["y"]) != expected_start:
             raise AssertionError(f"unscaled Marine placement failed: {marine}")
+        first_target = (248 * 32 + 16, 252 * 32 + 16)
         target = (254 * 32 + 16, 252 * 32 + 16)
         controller.send("combat.command", "probe:move", {"command_id": SESSION + ":1",
                         "verb": "unit.move", "unit_ids": ["openbw:1001"],
-                        "x": target[0], "y": target[1], "player_id": 1, "request_id": 1})
+                        "x": first_target[0], "y": first_target[1], "player_id": 1, "request_id": 1})
         result = controller.until(lambda packet: packet["kind"] == "combat.result")
         if not result["payload"]["accepted"]:
             raise AssertionError(f"native move rejected: {result['payload']}")
+        moving = publisher.until(lambda packet: packet["kind"] == "combat.snapshot"
+                                 and any(unit["id"] == "openbw:1001"
+                                         and unit["x"] <= expected_start[0] - 24
+                                         for unit in packet["payload"]["units"]), timeout=20)
+        moving_marine = next(unit for unit in moving["payload"]["units"]
+                             if unit["id"] == "openbw:1001")
+        controller.send("combat.command", "probe:redirect", {"command_id": SESSION + ":2",
+                        "verb": "unit.move", "unit_ids": ["openbw:1001"],
+                        "x": target[0], "y": target[1], "player_id": 1, "request_id": 2})
+        redirected = controller.until(lambda packet: packet["kind"] == "combat.result")
+        if not redirected["payload"]["accepted"]:
+            raise AssertionError(f"native redirect rejected: {redirected['payload']}")
+        reversal = publisher.until(lambda packet: packet["kind"] == "combat.snapshot"
+                                   and any(unit["id"] == "openbw:1001"
+                                           and unit["x"] >= moving_marine["x"] + 16
+                                           for unit in packet["payload"]["units"]), timeout=12)
+        if reversal["payload"]["bw_tick"] - moving["payload"]["bw_tick"] > 75:
+            raise AssertionError("Marine did not reverse promptly after a new move order")
         arrived = publisher.until(lambda packet: packet["kind"] == "combat.snapshot"
                                   and any(unit["id"] == "openbw:1001"
                                           and abs(unit["x"] - target[0]) <= 12
@@ -205,6 +224,8 @@ def main():
         if large_ready["payload"]["navigation"] != "native":
             raise AssertionError(f"large collision mask failed: {large_ready['payload']}")
         report = {"native_map": [256, 256], "marine_start": expected_start,
+                  "redirect_from": [moving_marine["x"], moving_marine["y"]],
+                  "redirect_frames": reversal["payload"]["bw_tick"] - moving["payload"]["bw_tick"],
                   "marine_arrived": [arrived_marine["x"], arrived_marine["y"]],
                   "destination": target, "blocked_tiles": 256 * 256 - len(occupied_tiles),
                   "large_mask_seconds": elapsed, "navigation": "native",

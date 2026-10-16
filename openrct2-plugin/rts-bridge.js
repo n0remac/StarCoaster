@@ -68,6 +68,9 @@
             if (!socket || inFlight || !queue.length) return;
             inFlight = queue.shift();
             inFlightTicks = 0;
+            if (inFlight.kind === "combat.command")
+                console.log("WORLD_COMMAND_SENT id=" + inFlight.payload.command_id
+                    + " request=" + inFlight.payload.request_id + " queue=" + queue.length);
             socket.write(JSON.stringify(inFlight) + "\n");
         }
         function send(kind, payload, rev) { queue.push(envelope(kind, payload, rev)); sendNext(); }
@@ -77,6 +80,9 @@
         }
         onCommandSender(function (payload) {
             if (!socket || patchInFlight || combatSyncID || snapshotWorld) {
+                console.log("WORLD_COMMAND_WAIT id=" + payload.command_id
+                    + " patch=" + !!patchInFlight + " combat=" + !!combatSyncID
+                    + " snapshot=" + !!snapshotWorld + " socket=" + !!socket);
                 if (pendingCommands.length >= 128) {
                     onCommandResult({ command_id: payload.command_id, player_id: payload.player_id,
                         request_id: payload.request_id, accepted: false, reason: "update_command_queue_full" });
@@ -751,7 +757,8 @@
     function main() {
         if (typeof rtsBridge !== "object" || rtsBridge.version !== 4 || rtsBridge.assetVersion !== 3
             || typeof rtsBridge.applySnapshot !== "function"
-            || typeof rtsBridge.invalidateAnimation !== "function") {
+            || typeof rtsBridge.invalidateAnimation !== "function"
+            || typeof rtsBridge.actorScreenPosition !== "function") {
             throw new Error("RTS Bridge needs the matching native OpenRCT2 build and asset pack");
         }
 
@@ -1143,6 +1150,8 @@
                         payload.x = args.x; payload.y = args.y;
                     } else if (args.verb === "attack")
                         payload.target_id = args.target_entity_id || args.target_id;
+                    console.log("WORLD_COMMAND_ACTION id=" + commandId + " request=" + args.request
+                        + " units=" + args.unit_ids.length + " verb=" + args.verb);
                     worldCommandSender(payload);
                     return {};
             });
@@ -1243,6 +1252,7 @@
             let selectionSession = "";
             let dragStart = null;
             let dragEnd = null;
+            let selectionWanted = true;
             let attackMove = false;
             let spawnMode = false;
             let spawnPreview = null;
@@ -1266,7 +1276,7 @@
                     { type: "button", name: "spawn-mode", x: 88, y: 94, width: 152, height: 20,
                         text: "Spawn Marine", onClick: function () { activateSpawnTool(); } },
                     { type: "button", name: "select-mode", x: 8, y: 119, width: 72, height: 20,
-                        text: "Select", onClick: function () { ui.activateTool(marineSelectionTool); } },
+                        text: "Select", onClick: function () { selectionWanted = true; ui.activateTool(marineSelectionTool); } },
                     { type: "label", name: "spawn-status", x: 88, y: 121, width: 152, height: 14,
                         text: "Call in reinforcements" },
                     { type: "label", name: "spawn-detail", x: 8, y: 144, width: 232, height: 14,
@@ -1380,7 +1390,10 @@
                 });
                 refreshSelection();
             };
-            context.subscribe("interval.tick", refreshSelection);
+            context.subscribe("interval.tick", function () {
+                refreshSelection();
+                if (selectionWanted && !spawnMode && !ui.tool) ui.activateTool(marineSelectionTool);
+            });
             function chooseAt(point, shift) {
                 refreshSelection();
                 const id = point && rtsBridge.hitTest(point.x, point.y, 48);
@@ -1397,20 +1410,28 @@
             }
             function chooseRectangle(start, end, shift) {
                 refreshSelection();
-                // A screen rectangle is a diamond in park coordinates. The
-                // isometric screen axes are x+y and y-x for every rotation.
-                const lowSum = Math.min(start.x + start.y, end.x + end.y);
-                const highSum = Math.max(start.x + start.y, end.x + end.y);
-                const lowDiff = Math.min(start.y - start.x, end.y - end.x);
-                const highDiff = Math.max(start.y - start.x, end.y - end.x);
+                const left = Math.min(start.x, end.x), right = Math.max(start.x, end.x);
+                const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
                 const inside = Object.keys(controlUnits).filter(function (id) {
                     const unit = controlUnits[id];
-                    return unit.kind === "terran_marine" && unit.hp > 0 && unit.owner === terranOwner
-                        && unit.x + unit.y >= lowSum && unit.x + unit.y <= highSum
-                        && unit.y - unit.x >= lowDiff && unit.y - unit.x <= highDiff;
+                    if (unit.kind !== "terran_marine" || unit.hp <= 0 || unit.owner !== terranOwner)
+                        return false;
+                    const screen = rtsBridge.actorScreenPosition(id);
+                    return screen && screen.x >= left && screen.x <= right
+                        && screen.y >= top && screen.y <= bottom;
                 });
                 selected = shift ? selected.concat(inside.filter(function (id) { return !selected.includes(id); })) : inside;
                 console.log("RTS Bridge selected Marines=" + selected.join(","));
+            }
+            function commandSquad(verb, extras) {
+                refreshSelection();
+                for (let index = 0; index < selected.length; index += 32) {
+                    const args = Object.assign({ session: controlSession, request: ++nextRequest,
+                        unit_ids: selected.slice(index, index + 32), verb: verb }, extras);
+                    context.executeAction(COMMAND_ACTION, args, function (result) {
+                        if (result.error) ui.showError("Marine command", result.errorMessage);
+                    });
+                }
             }
             ui.registerShortcut({ id: "starcoaster.select-multiple", text: "Toggle Marine squad selection",
                 bindings: ["M"], callback: function () {
@@ -1419,17 +1440,11 @@
                 } });
             ui.registerShortcut({ id: "starcoaster.hold-position", text: "Hold Marine positions",
                 bindings: ["H"], callback: function () {
-                    refreshSelection();
-                    if (selected.length) context.executeAction(COMMAND_ACTION,
-                        { session: controlSession, request: ++nextRequest, unit_ids: selected.slice(), verb: "hold" },
-                        function (result) { if (result.error) ui.showError("Marine command", result.errorMessage); });
+                    commandSquad("hold");
                 } });
             ui.registerShortcut({ id: "starcoaster.stop", text: "Stop Marines", bindings: ["S"],
                 callback: function () {
-                    refreshSelection();
-                    if (selected.length) context.executeAction(COMMAND_ACTION,
-                        { session: controlSession, request: ++nextRequest, unit_ids: selected.slice(), verb: "stop" },
-                        function (result) { if (result.error) ui.showError("Marine command", result.errorMessage); });
+                    commandSquad("stop");
                 } });
             ui.registerShortcut({ id: "starcoaster.attack-move", text: "Marine attack move", bindings: ["A"],
                 callback: function () { attackMove = true; } });
@@ -1450,19 +1465,16 @@
                             && point.x < rect.x + rect.width && point.y < rect.y + rect.height;
                     });
                 })[0];
-                const args = { session: controlSession, request: ++nextRequest,
-                    unit_ids: selected.slice(), verb: target && target.kind === "zerg_zergling" ? "attack" : "move" };
-                if (args.verb === "attack") args.target_id = hit;
-                else if (structure) { args.verb = "attack"; args.target_entity_id = structure; }
+                let verb = target && target.kind === "zerg_zergling" ? "attack" : "move";
+                const extras = {};
+                if (verb === "attack") extras.target_id = hit;
+                else if (structure) { verb = "attack"; extras.target_entity_id = structure; }
                 else {
-                    if (attackMove) args.verb = "attack_move";
-                    args.x = point.x + (0);
-                    args.y = point.y + (0);
+                    if (attackMove) verb = "attack_move";
+                    extras.x = point.x; extras.y = point.y;
                 }
                 attackMove = false;
-                context.executeAction(COMMAND_ACTION, args, function (result) {
-                    if (result.error) ui.showError("Marine command", result.errorMessage);
-                });
+                commandSquad(verb, extras);
             }
             function activateSpawnTool() {
                 if (!controlSession || outcomeState) {
@@ -1470,6 +1482,7 @@
                     return;
                 }
                 spawnMode = true;
+                selectionWanted = false;
                 ui.activateTool({ id: "starcoaster.spawn-marine", cursor: "cross_hair",
                     filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
                     onMove: function (event) {
@@ -1494,37 +1507,43 @@
                         });
                         spawnMode = false;
                         spawnPreview = null;
+                        selectionWanted = true;
                         ui.activateTool(marineSelectionTool);
                     },
-                    onFinish: function () { spawnMode = false; spawnPreview = null; refreshSelection(); }
+                    onFinish: function () { spawnMode = false; spawnPreview = null;
+                        selectionWanted = true; refreshSelection(); }
                 });
             }
             const marineSelectionTool = { id: "starcoaster.select-marine", cursor: "cross_hair",
                 filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
                 onDown: function (event) {
-                    dragStart = pointFrom(event); dragEnd = dragStart;
+                    dragStart = { world: pointFrom(event), screen: event.screenCoords };
+                    dragEnd = dragStart;
 
                 },
                 onMove: function (event) {
                     if (dragStart && event.isDown) {
-                        dragEnd = pointFrom(event) || dragEnd;
-                        if (dragEnd) ui.tileSelection.range = {
-                            leftTop: { x: Math.min(dragStart.x, dragEnd.x), y: Math.min(dragStart.y, dragEnd.y) },
-                            rightBottom: { x: Math.max(dragStart.x, dragEnd.x), y: Math.max(dragStart.y, dragEnd.y) }
+                        dragEnd = { world: pointFrom(event), screen: event.screenCoords };
+                        if (dragStart.world && dragEnd.world) ui.tileSelection.range = {
+                            leftTop: { x: Math.min(dragStart.world.x, dragEnd.world.x), y: Math.min(dragStart.world.y, dragEnd.world.y) },
+                            rightBottom: { x: Math.max(dragStart.world.x, dragEnd.world.x), y: Math.max(dragStart.world.y, dragEnd.world.y) }
                         };
                     }
                 },
                 onUp: function (event) {
-                    const end = pointFrom(event) || dragEnd;
+                    const end = { world: pointFrom(event), screen: event.screenCoords };
                     if (dragStart && end) {
-                        if (Math.abs(end.x - dragStart.x) >= 24 || Math.abs(end.y - dragStart.y) >= 24)
-                            chooseRectangle(dragStart, end, event.shift);
-                        else chooseAt(end, event.shift);
+                        if (dragStart.screen && end.screen
+                            && (Math.abs(end.screen.x - dragStart.screen.x) >= 4
+                                || Math.abs(end.screen.y - dragStart.screen.y) >= 4))
+                            chooseRectangle(dragStart.screen, end.screen, event.shift);
+                        else chooseAt(end.world || (dragEnd && dragEnd.world), event.shift);
                     }
                     ui.tileSelection.range = null;
                     dragStart = null; dragEnd = null;
                 },
                 onFinish: function () {
+                     dragStart = null; dragEnd = null;
                      ui.tileSelection.range = null; ui.tileSelection.tiles = [];
                 },
                 onRightClick: function (event) { orderAt(pointFrom(event)); } };
