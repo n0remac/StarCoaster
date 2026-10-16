@@ -24,6 +24,48 @@ park_spec.loader.exec_module(park_cli)
 
 
 class ScenarioPackageTest(unittest.TestCase):
+    def test_existing_park_source_is_staged_without_fixture_exports(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
+            root = Path(directory)
+            package = root / "scenarios/imported"
+            source = root / "run-data/imported/source/Original.park"
+            package.mkdir(parents=True)
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"PARKoriginal park contents")
+            (package / "scenario.json").write_text(json.dumps({"scenario_id": "imported",
+                "park_file": "run-data/imported/save/imported.park"}))
+            (package / "mapping.json").write_text("{}")
+            metadata = package / "package.json"
+            metadata.write_text(json.dumps({"generator": "existing-park",
+                "source": "run-data/imported/source/Original.park"}))
+            plan = scenario_package.resolve("imported")
+            self.assertIsNone(plan["fixture"])
+            self.assertIsNone(plan["navigation"])
+            scenario_package.ensure_park(plan)
+            staged = Path(plan["park"])
+            self.assertEqual(staged.read_bytes(), source.read_bytes())
+            staged.write_bytes(b"PARKsession changes")
+            self.assertEqual(source.read_bytes(), b"PARKoriginal park contents")
+            scenario_package.ensure_park(plan, force=True)
+            self.assertEqual(staged.read_bytes(), source.read_bytes())
+            source.unlink()
+            with self.assertRaisesRegex(ValueError, "missing existing park"):
+                scenario_package.resolve("imported")
+            source.write_bytes(b"PARKpark")
+            for bad in ("../outside.park", "run-data/another/source/Original.park",
+                        "run-data/imported/save/imported.park"):
+                metadata.write_text(json.dumps({"generator": "existing-park", "source": bad}))
+                with self.assertRaisesRegex(ValueError, "source path"):
+                    scenario_package.resolve("imported")
+            metadata.write_text(json.dumps({"generator": "existing-park",
+                "source": "run-data/imported/source/Original.park"}))
+            source.unlink()
+            outside = root / "outside.park"
+            outside.write_bytes(b"PARKoutside")
+            source.symlink_to(outside)
+            with self.assertRaisesRegex(ValueError, "unsafe existing park"):
+                scenario_package.resolve("imported")
+
     def test_fourth_independent_layout_fixture(self):
         layout = load_layout(ROOT / "tests/fixtures/fourth-layout.json")
         self.assertEqual(layout["name"], "Fourth Layout Proof")

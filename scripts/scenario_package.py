@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 from park_layout import load as load_layout
 
@@ -45,6 +46,7 @@ def resolve(scenario_id: str) -> dict:
 
     generator = metadata.get("generator")
     layout = None
+    source = None
     if generator == "layout-v1":
         value = metadata.get("layout")
         if not isinstance(value, str) or not value or Path(value).is_absolute() or ".." in Path(value).parts:
@@ -54,19 +56,32 @@ def resolve(scenario_id: str) -> dict:
             raise ValueError("missing or unsafe layout file")
         load_layout(layout)
         command = ["python3", "scripts/create-park-assault.py", "--layout", str(layout), "--scenario-id", scenario_id]
+    elif generator == "existing-park":
+        value = metadata.get("source")
+        expected = ROOT / "run-data" / scenario_id / "source"
+        if (not isinstance(value, str) or not value.endswith(".park") or
+                Path(value).is_absolute() or ".." in Path(value).parts or
+                Path(value).parts[:3] != ("run-data", scenario_id, "source")):
+            raise ValueError("invalid existing park source path")
+        source = ROOT / value
+        if not source.resolve().is_relative_to(expected.resolve()) or not expected.resolve().is_relative_to((ROOT / "run-data").resolve()):
+            raise ValueError("unsafe existing park source path")
+        if not source.is_file():
+            raise ValueError(f"missing existing park source: {source}")
+        command = None
     elif isinstance(generator, list) and generator in (["scripts/create-park-assault.py", "--playable"],
                                                      ["scripts/create-park-assault.py", "--example-defense"]):
         command = ["python3", *generator]
     else:
         raise ValueError("unrecognized park generator")
-    isolated = layout is not None
+    isolated = layout is not None or source is not None
     park = output_path(scenario.get("park_file"), "park_file", isolated)
     if isolated and park != str(ROOT / "run-data" / scenario_id / "save" / f"{scenario_id}.park"):
-        raise ValueError("layout park output does not match generator")
-    fixture = output_path(metadata.get("fixture"), "fixture", isolated)
-    navigation = output_path(metadata.get("navigation"), "navigation", isolated)
-    if isolated and (fixture != str(ROOT / "run-data" / scenario_id / "fixture.json") or
-                     navigation != str(ROOT / "run-data" / scenario_id / "navigation-elements.json")):
+        raise ValueError("isolated park output does not match package")
+    fixture = output_path(metadata.get("fixture"), "fixture", isolated) if source is None else None
+    navigation = output_path(metadata.get("navigation"), "navigation", isolated) if source is None else None
+    if layout and (fixture != str(ROOT / "run-data" / scenario_id / "fixture.json") or
+                   navigation != str(ROOT / "run-data" / scenario_id / "navigation-elements.json")):
         raise ValueError("layout export output does not match generator")
     if not isolated:
         legacy = {"--playable": ("frontier-outpost", "frontier-playable", "frontier-outpost-playable.park"),
@@ -82,12 +97,27 @@ def resolve(scenario_id: str) -> dict:
             "mapping": str(mapping_path), "park": park,
             "fixture": fixture, "navigation": navigation,
             "generator": command, "layout": str(layout) if layout else None,
+            "source": str(source) if source else None,
             "native_map": str(output / "map" / f"{scenario_id}.scm"),
             "spawn_journal": str(output / "spawn-queue.json"),
             "server_data": str(output / "server"), "client_data": str(output / "client")}
 
 
 def ensure_park(plan: dict, force: bool = False) -> None:
+    if plan.get("source"):
+        source, park = Path(plan["source"]), Path(plan["park"])
+        if not source.is_file():
+            raise RuntimeError(f"missing existing park source: {source}")
+        with source.open("rb") as stream:
+            signature = stream.read(4)
+        if signature != b"PARK":
+            raise RuntimeError(f"invalid OpenRCT2 park source: {source}")
+        if force or not park.is_file() or source.stat().st_mtime_ns > park.stat().st_mtime_ns:
+            park.parent.mkdir(parents=True, exist_ok=True)
+            temporary = park.with_suffix(".park.tmp")
+            shutil.copy2(source, temporary)
+            os.replace(temporary, park)
+        return
     park, fixture, navigation = (Path(plan[key]) for key in ("park", "fixture", "navigation"))
     inputs = [ROOT / path for path in GENERATOR_INPUTS if (ROOT / path).exists()]
     if plan.get("layout"):
