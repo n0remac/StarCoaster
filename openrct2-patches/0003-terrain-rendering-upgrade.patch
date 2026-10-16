@@ -1,0 +1,20 @@
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -390,11 +390,11 @@
+         session.CurrentlyDrawnTileElement = nullptr;
+         session.InteractionType = ViewportInteractionItem::none;
+         int32_t z = TileElementHeight(actorPos);
+-        // Paths have their own surface. Use it for feet when it sits above the
+-        // terrain, while keeping the draw position distinct from paint sorting.
+-        for (auto* path : TileElementsView<PathElement>(actorPos))
+-            if (!path->isGhost() && path->getBaseZ() >= z)
+-                z = path->getBaseZ();
++        // Terrain is the single supported traversable surface. OpenRCT2's
++        // height interpolation follows a slope at the actor's exact X/Y.
++        // Selecting the highest path on this tile could lift an actor onto an
++        // unrelated bridge, which is outside the single-surface milestone.
++        // Ground-following paths therefore share this sampled terrain Z.
+         // BWAPI headings are in map coordinates. Project that heading through
+         // the same isometric transform as the actor's feet before selecting a
+         // screen-facing GRP frame. A world-west shot, for example, points

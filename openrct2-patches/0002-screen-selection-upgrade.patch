@@ -1,0 +1,88 @@
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -16,6 +16,7 @@
+ #include "../entity/EntityList.h"
+ #include "../entity/Staff.h"
+ #include "../interface/Viewport.h"
++#include "../interface/WindowBase.h"
+ #include "../profiling/Profiling.h"
+ #include "../ride/TrackDesign.h"
+ #include "../world/Map.h"
+@@ -222,6 +223,26 @@
+ {
+     const auto snapshot = std::atomic_load(&gBridgeSnapshot);
+     return { snapshot->session, snapshot->actors };
++}
++
++std::optional<std::pair<int32_t, int32_t>> BridgeActorScreenPosition(const std::string& id)
++{
++    const auto* mainWindow = WindowGetMain();
++    const auto* viewport = mainWindow == nullptr ? nullptr : mainWindow->viewport;
++    if (viewport == nullptr) return std::nullopt;
++    const auto snapshot = std::atomic_load(&gBridgeSnapshot);
++    const auto actor = std::find_if(snapshot->actors.begin(), snapshot->actors.end(),
++        [&](const BridgeActor& item) { return item.id == id; });
++    if (actor == snapshot->actors.end() || actor->motion == "death") return std::nullopt;
++    const auto visual = snapshot->visual.find(id);
++    if (visual == snapshot->visual.end()) return std::nullopt;
++    const auto position = VisualPosition(*actor, visual->second);
++    if (!MapIsLocationValid(position)) return std::nullopt;
++    const auto projected = Translate3DTo2DWithZ(viewport->rotation,
++        { position, TileElementHeight(position) });
++    return std::pair<int32_t, int32_t>{
++        viewport->pos.x + viewport->zoom.ApplyInversedTo(projected.x - viewport->viewPos.x),
++        viewport->pos.y + viewport->zoom.ApplyInversedTo(projected.y - viewport->viewPos.y) };
+ }
+
+ /**
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -13,6 +13,7 @@
+ #include <string>
+ #include <vector>
+ #include <utility>
++#include <optional>
+
+ struct PaintSession;
+ struct CoordsXY;
+@@ -38,3 +39,4 @@
+ void BridgeInvalidateAnimation();
+ std::string BridgeHitTest(int32_t x, int32_t y, int32_t radius);
+ std::pair<std::string, std::vector<BridgeActor>> BridgeGetActors();
++std::optional<std::pair<int32_t, int32_t>> BridgeActorScreenPosition(const std::string& id);
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -842,6 +842,22 @@
+     return result;
+ }
+
++static JSValue BridgeActorScreenPositionJS(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
++{
++    if (argc != 1 || !JS_IsString(argv[0]))
++        return JS_ThrowTypeError(ctx, "expected actor id");
++    const char* text = JS_ToCString(ctx, argv[0]);
++    if (text == nullptr) return JS_EXCEPTION;
++    const std::string id(text);
++    JS_FreeCString(ctx, text);
++    const auto position = BridgeActorScreenPosition(id);
++    if (!position) return JS_NULL;
++    JSValue point = JS_NewObject(ctx);
++    JS_SetPropertyStr(ctx, point, "x", JS_NewInt32(ctx, position->first));
++    JS_SetPropertyStr(ctx, point, "y", JS_NewInt32(ctx, position->second));
++    return point;
++}
++
+ void ScriptEngine::InitialiseContext(JSContext* ctx) const
+ {
+     JSValue glb = JS_GetGlobalObject(ctx);
+@@ -853,6 +869,7 @@
+     JS_SetPropertyStr(ctx, bridge, "hitTest", JS_NewCFunction(ctx, BridgeHitTestJS, "hitTest", 3));
+     JS_SetPropertyStr(ctx, bridge, "cursorWorld", JS_NewCFunction(ctx, BridgeCursorWorldJS, "cursorWorld", 0));
+     JS_SetPropertyStr(ctx, bridge, "getActors", JS_NewCFunction(ctx, BridgeGetActorsJS, "getActors", 0));
++    JS_SetPropertyStr(ctx, bridge, "actorScreenPosition", JS_NewCFunction(ctx, BridgeActorScreenPositionJS, "actorScreenPosition", 1));
+     JS_SetPropertyStr(ctx, glb, "rtsBridge", bridge);
+     JS_SetPropertyStr(ctx, glb, "cheats", gScCheats.New(ctx));
+     JS_SetPropertyStr(ctx, glb, "climate", gScWeather.New(ctx));
