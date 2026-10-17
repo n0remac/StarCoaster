@@ -15,7 +15,9 @@ specialized effect renderers; neither implements gameplay damage or healing.
   Native OpenBW reports 750 HP. Save/load retained its park ID, native link,
   damaged 427/750 health, and navigation hash; demolition and rebuilding
   advanced the generation. A same-session bridge restart reused the native
-  building at 427 HP.
+  building at 427 HP. In a separate live variant, a Zergling wave reduced a
+  35-HP Armory to zero. The ordered combat-demolition patch removed it from
+  the park and relocked future Goliath training.
 - Factory production lists Goliath from the catalog. The UI test confirms its
   button displays the native `Requires Armory` reason and enables when the
   native availability report changes. The live controller rejected training
@@ -36,7 +38,7 @@ specialized effect renderers; neither implements gameplay damage or healing.
 | Catalog and native feasibility | `fd4d4a6`, `5344c98` | `starcraft-types.json`, type generator, generated Go/C++/JS and schemas, native prerequisite probe |
 | Declarative art and rendering | `0c1fd3d`, `886c17d`, `2ae7678` | `starcraft-visuals.json`, sprite preparation and installer, building-object assembler, OpenRCT2 visual registry patches |
 | Armory/Goliath and startup | `95d602b`, `9e80847`, `020c16c` | type catalog, `start.sh`, `project.sh`, native actor-capacity handling |
-| Live gameplay, recovery, and capture | `80ebebf`, `77da546`, `db0fbf7`, `3450319`, `02465db`, `2a034ff` | live probes, save/load and bridge-restart tests, recorder, UI test, generic native HP fixture |
+| Live gameplay, recovery, and capture | `80ebebf`, `77da546`, `db0fbf7`, `3450319`, `02465db`, `2a034ff`, `9766b11` | live probes, save/load and bridge-restart tests, recorder, UI test, generic native HP fixture, combat destruction |
 | Regression fixes and documentation | `437acb3`, `4ecbc14`, `643eb28`, `24fde1b`, `5747767`, `f06aecf` | Firebat and actor test timing, Medic/Vulture script mode, workflow and milestone reports |
 
 ## Verification evidence
@@ -52,6 +54,7 @@ specialized effect renderers; neither implements gameplay damage or healing.
 | `tests/test_armory_goliath_gameplay_live.sh` | Pass, 13 checks | `run-data/armory-goliath-gameplay-1792253495/` |
 | `tests/test_armory_save_load_live.sh` | Pass with 427 HP | `run-data/armory-save-load-live-1792255067/` |
 | `tests/test_armory_bridge_restart_live.sh` | Pass with 427 HP | `run-data/armory-bridge-restart-1792255162/` |
+| `tests/test_armory_combat_destruction_live.sh` | Pass, 13 checks | `run-data/armory-combat-destruction-1792257398/` |
 | Academy save/load and bridge restart regressions | Pass | `run-data/academy-save-load-live-1792256721/`, `run-data/academy-bridge-restart-1792253180/` |
 | `node tests/test_barracks_plugin.js` | Pass | Armory menu and Factory Goliath control assertions |
 | `python3 -m py_compile scripts/record-scenario.py`; `node --check scripts/armory-goliath-camera.js`; `node --check scripts/live-armory-goliath-probe.js`; `node --check scripts/live-firebat-gameplay-probe.js` | Pass | Capture and live-probe syntax |
@@ -110,7 +113,10 @@ all three checks passed on rerun.
 An initial OpenRCT2 build was interrupted by edits to a patch source while
 the linker ran; the clean rebuild and later `project.sh build` both passed.
 Early headless Armory/Goliath probe revisions failed their checker before the
-final synchronized-state and whole-wave damage checks passed twice.
+final synchronized-state and whole-wave damage checks passed twice. The first
+combat-destruction variant expected a Marine attack, but native Zerglings
+destroyed the low-HP Armory first; its final checker follows the observed
+native death and ordered park removal, and the complete command passed.
 
 ## Current limits
 
