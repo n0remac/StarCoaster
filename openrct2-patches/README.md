@@ -17,6 +17,11 @@ the ordinary large-scenery images and saved object ID remain stable.
 patched checkouts. The generated object repeats the idle frame in its dark
 banks and blends only indicator lights into the lit banks.
 
+`0008-actor-visual-registry.patch` resolves supported actor visuals through a
+type mapping. `0009-building-animation-registry.patch` tracks animation banks
+per scenery object with a declared frame count and cadence. The Barracks keeps
+its original seven training light frames at three ticks each.
+
 The fork paints Marine and Zergling actors in the world paint pass, including walking, attacks, deaths, and health bars. An immutable snapshot registry preserves safe access during rendering; old and new regions are invalidated for movement. The fork exposes snapshot, hit testing, cursor location, and actor inspection bindings to the plugin. It also adds `onRightClick` to the existing custom map tool, since OpenRCT2 intentionally does not route right mouse clicks through shortcuts. The plugin distributes state through synchronized game actions and sends player orders to the Terran BWAPI endpoint.
 
 Marine selection uses `ui.registerViewportInteraction`, a passive handler for the

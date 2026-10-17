@@ -22,7 +22,9 @@ in the catalog. OpenBW owns those rules.
    `scripts/install-starcraft-construction-object.py`. The shared archive
    assembler handles tile layout and image banks. Preserve image indexes for
    existing objects; the Barracks has four preview images followed by 48
-   images per frame and an eight-frame light-only training bank.
+   images per frame and an eight-frame light-only training bank. Optional
+   `animation` metadata declares a training trigger, frame count, and ticks
+   per frame; the native renderer tracks animated tiles by scenery object.
 4. Install the object on both OpenRCT2 clients through the normal local asset
    workflow. The plugin's construction catalog, placement footprint,
    recognition, and inspection window read the generated definitions.
