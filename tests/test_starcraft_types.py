@@ -73,6 +73,10 @@ class StarcraftTypeCatalogTests(unittest.TestCase):
         invalid["buildings"]["terran_armory"]["art_method"] = "unimplemented"
         with self.assertRaises(ValueError):
             GENERATOR.validate(self.catalog, invalid)
+        invalid = copy.deepcopy(visuals)
+        invalid["units"]["terran_goliath"]["g2_order"] = invalid["units"]["terran_marine"]["g2_order"]
+        with self.assertRaises(ValueError):
+            GENERATOR.validate(self.catalog, invalid)
 
 
 if __name__ == "__main__":

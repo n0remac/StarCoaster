@@ -36,7 +36,8 @@ LEGACY_ASSETS = {"marine", "firebat", "medic", "vulture", "zergling"}
 def registered_units() -> list[tuple[str, dict]]:
     catalog = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
     visuals = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())["units"]
-    return [(unit["id"], visuals[unit["visual"]]) for unit in catalog["units"]]
+    return sorted(((unit["id"], visuals[unit["visual"]]) for unit in catalog["units"]),
+                  key=lambda item: item[1]["g2_order"])
 
 
 def ensure_registered_banks(contents: str, source: Path, pack: str) -> str:

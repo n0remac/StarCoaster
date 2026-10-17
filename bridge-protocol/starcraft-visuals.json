@@ -7,7 +7,7 @@
   },
   "units": {
     "terran_marine": {
-      "asset": "marine", "source": "unit/terran/marine.grp",
+      "asset": "marine", "g2_order": 2, "source": "unit/terran/marine.grp",
       "canvas": [64, 64], "frame_count": 229, "stride": 17,
       "animations": {
         "idle": {"banks": [0], "ticks": 0},
@@ -18,7 +18,7 @@
       "health_offset": [-10, -28], "bounds": [12, 12, 18]
     },
     "terran_firebat": {
-      "asset": "firebat", "source": "unit/terran/firebat.grp",
+      "asset": "firebat", "g2_order": 3, "source": "unit/terran/firebat.grp",
       "canvas": [32, 32], "frame_count": 170, "stride": 17,
       "animations": {
         "idle": {"banks": [0], "ticks": 0},
@@ -31,7 +31,7 @@
       "effect": "firebat_flame"
     },
     "terran_medic": {
-      "asset": "medic", "source": "unit/terran/medic.grp",
+      "asset": "medic", "g2_order": 4, "source": "unit/terran/medic.grp",
       "canvas": [64, 64], "frame_count": 230, "stride": 17,
       "animations": {
         "idle": {"banks": [0], "ticks": 0},
@@ -42,7 +42,7 @@
       "health_offset": [-10, -42], "bounds": [12, 12, 18]
     },
     "terran_vulture": {
-      "asset": "vulture", "source": "unit/terran/Vulture.grp",
+      "asset": "vulture", "g2_order": 5, "source": "unit/terran/Vulture.grp",
       "canvas": [100, 100], "frame_count": 17, "stride": 17,
       "animations": {
         "idle": {"banks": [0], "ticks": 0},
@@ -53,7 +53,7 @@
       "health_offset": [-10, -28], "bounds": [12, 12, 18]
     },
     "terran_goliath": {
-      "asset": "goliath", "image": "Goliath_Base",
+      "asset": "goliath", "g2_order": 6, "image": "Goliath_Base",
       "source": "unit/terran/goliath.grp",
       "canvas": [76, 76], "frame_count": 170, "stride": 17,
       "animations": {
@@ -76,7 +76,7 @@
       "health_offset": [-10, -42], "bounds": [12, 12, 24]
     },
     "zerg_zergling": {
-      "asset": "zergling", "source": "unit/zerg/zergling.grp",
+      "asset": "zergling", "g2_order": 1, "source": "unit/zerg/zergling.grp",
       "stride": 17, "minimum_frame_count": 289,
       "animations": {
         "idle": {"banks": [0], "ticks": 0, "name_without_zero": true},

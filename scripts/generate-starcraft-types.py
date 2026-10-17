@@ -71,6 +71,7 @@ def validate(catalog, visuals=None):
     objects = set()
     native_types = set()
     legacy_bases = set()
+    visual_orders = set()
     for item in catalog["units"]:
         if not TYPE_ID.fullmatch(item["id"]):
             raise ValueError("Invalid unit ID")
@@ -102,6 +103,10 @@ def validate(catalog, visuals=None):
             raise ValueError(f"Missing unit visual profile: {item['id']}")
         profile = visuals["units"][item["visual"]]
         validate_animation(profile, item["id"])
+        order = profile.get("g2_order")
+        if not isinstance(order, int) or order < 1 or order in visual_orders:
+            raise ValueError(f"Invalid or duplicate visual bank order: {item['id']}")
+        visual_orders.add(order)
         if profile.get("effect") and profile["effect"] not in visuals.get("effects", {}):
             raise ValueError(f"Missing visual effect: {item['id']}")
     for item in catalog["buildings"]:
