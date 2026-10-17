@@ -11,9 +11,9 @@ in the catalog. OpenBW owns those rules.
 ## Add a building
 
 1. Add a stable ID, BWAPI name, scenery object ID, display name, footprint,
-   production list, and optional animation to the catalog. A future Supply
-   Depot would declare its own footprint and scenery ID; this milestone does
-   not register or place one.
+   production list, and optional animation to the catalog. The current
+   constructible types are Barracks, Academy, Supply Depot, and Factory.
+   Academy and Depot have empty production lists; Factory trains Vultures.
 2. Add the native BWAPI mapping in
    `openbw-bwapi-module/src/WorldStarcraftTypes.h`. The existing target
    lifecycle creates or recovers the declared native type. Ordinary rides and
@@ -32,9 +32,9 @@ in the catalog. OpenBW owns those rules.
 ## Add a unit
 
 1. Add the stable ID, BWAPI name, race, ownership, visual ID, commands, and
-   display name to the catalog. Marine, Zergling, and Firebat are currently
-   registered. Firebat production declares the Barracks as producer and uses
-   OpenBW's native Academy requirement.
+   display name to the catalog. Marine, Zergling, Firebat, Medic, and Vulture
+   are registered. Firebat and Medic production use the Barracks and OpenBW's
+   Academy requirement. Vultures use the Factory.
 2. Add BWAPI resolution in `WorldStarcraftTypes.h`. Mark the unit controllable
    only if both the native controller and plugin can issue its intended
    commands. Runtime actors receive canonical IDs from native creation events
@@ -52,6 +52,17 @@ in the catalog. OpenBW owns those rules.
    `canTrain` and `train`. BWAPI decides costs, supply, requirements, queue
    capacity, and timing. Missing `unit_type` in world.v1 means Marine for old
    callers.
+
+Medic `unit.heal` orders pass through the same authenticated command path.
+The native controller checks that the target is friendly, organic, alive,
+and injured, then calls BWAPI Healing. Move and attack-move orders still pass
+through native OpenBW. The combat snapshot reports native energy and `motion: "heal"` only
+when OpenBW reports an actual healing pulse. OpenRCT2 draws the classic Medic
+healing pose for that motion. The Firebat flame bank uses the separate classic
+FlameThrower GRP and its native `ofire.pcx` color remap, baked against a dark
+Badlands palette index because OpenRCT2 does not apply indexed fire blending.
+It starts a burst when a native attack-frame count changes.
+Neither drawing path applies damage or healing.
 
 ## Lifecycle and verification
 

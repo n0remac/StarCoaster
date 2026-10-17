@@ -188,7 +188,7 @@ The separate [scenario snapshot v2 schema](scenario.snapshot.v2.schema.json) add
 
 ## Mixed faction combat snapshot v3
 
-The [v3 schema](scenario.snapshot.v3.schema.json) carries a full snapshot of up to twelve Marines and Zerglings every third OpenBW frame, about 8 Hz at the default frame delay. Each unit has a stable ID, type, owner, position, facing, health, animation state, attack frame counter, and current target. A destroyed unit stays in the snapshot with `hp: 0`, `alive: false`, and `motion: "death"` for sixteen BW frames before despawning. The `events` array carries uniquely identified damage, attack frame, death, and carousel destruction observations; clients deduplicate them by ID. Attack frames are read from BWAPI, and damage and death are read from OpenBW state.
+The [v3 schema](scenario.snapshot.v3.schema.json) carries typed Marine, Firebat, Medic, Vulture, and Zergling states every third OpenBW frame. Each unit has a stable ID, type, owner, position, facing, health, animation state, attack frame counter, and current target; native energy is optional. A destroyed unit stays in the snapshot with `hp: 0`, `alive: false`, and `motion: "death"` for sixteen BW frames before despawning. The `events` array carries uniquely identified damage, attack frame, death, and carousel destruction observations; clients deduplicate them by ID. Attack frames are read from BWAPI, and damage and death are read from OpenBW state.
 
 `targets` is empty for the battle feasibility map and contains the same allowlisted carousel proxy for `frontier-defense`. The publisher and server cap each line at 32768 bytes and reject malformed arrays, duplicate unit or event IDs, invalid positions, stale sequences, and retired sessions. Unit HP may increase through OpenBW regeneration; carousel HP must not increase. The carousel is demolished once by the OpenRCT2 server after the proxy reaches zero HP.
 
@@ -200,14 +200,15 @@ The same [v3 schema](scenario.snapshot.v3.schema.json) also defines `map_id: "pa
 
 ## Native StarCraft building and unit production
 
-A confirmed `terran_barracks` or `terran_academy` keeps its OpenRCT2 scenery ID and
+A confirmed Barracks, Academy, Supply Depot, or Factory keeps its OpenRCT2 scenery ID and
 `#generation`. `entity.state` links that ID to the real OpenBW building and its
 HP; there is no civilian target proxy. The controller receives the
 same link. `building.state` flows from the controller through Go to the park
 with `id`, `native_id`, `owner`, `health`, `queue`, `remaining_frames`,
 `minerals`, `gas`, `supply_used`, and `supply_total`. The optional `max_health`
-field reports the native building maximum (600 for Academy). Academy has an
-empty production list and no training controls. Building state is observational
+field reports the native building maximum (600 for Academy, 500 for Supply
+Depot, and 1250 for Factory). Academy and Depot have empty production lists
+and no training controls. Building state is observational
 native state, not a second production queue. `player.resources` separately
 reports the native owner's minerals, gas, and supply, even when no production
 building exists.
@@ -220,9 +221,16 @@ session/player/request ID. Go requires a live, linked registered producer in
 the confirmed registry; the controller verifies the native owner, completion,
 and BWAPI `canTrain` before invoking `train` with the requested native type.
 `building.state.availability` carries advisory native status for each supported
-product; the command rechecks native rules when it executes. Firebat needs an
-Academy and costs 50 minerals and 25 gas in the pinned engine. The existing
+product; the command rechecks native rules when it executes. Firebat and Medic
+need an Academy; Vultures train at a Factory. A constructed Depot changes
+OpenBW supply capacity, which `player.resources` then reports. The existing
 `combat.result` reports acceptance. Native trainee creation is withheld from
 `actor.spawn` and `actor.bind` until completion; the normal actor lifecycle
-then exposes the Marine or Firebat to both clients. A demolition uses the
+then exposes the Marine, Firebat, Medic, or Vulture to both clients. A demolition uses the
 ordered `world.patch` removal path and invalidates production.
+
+`combat.command` also accepts `unit.heal` for a bound Medic and a friendly
+injured organic target. The controller rechecks native ownership and target
+health, then issues BWAPI Healing. Combat snapshots expose native energy and
+`motion: "heal"` during a native healing pulse. Firebat flame drawing uses the
+native attack-frame counter; the renderer does not calculate healing or damage.
