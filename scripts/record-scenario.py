@@ -152,6 +152,8 @@ def parse_args(argv=None):
                         help="capture Academy construction and Firebat training through the graphical interface")
     parser.add_argument("--medic-vulture-probe", action="store_true",
                         help="capture native Medic and Vulture production with two graphical clients")
+    parser.add_argument("--armory-goliath-probe", action="store_true",
+                        help="capture Armory construction and native Goliath gameplay with two graphical clients")
     parser.add_argument("--marine-screen-probe", action="store_true",
                         help="check Marine drag selection across Mt. Zergling rotations and zoom levels")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
@@ -196,6 +198,12 @@ def parse_args(argv=None):
                                     or args.duration < 180):
         parser.error("--medic-vulture-probe requires Mt. Zergling, two clients, and at least 180 seconds")
     if args.medic_vulture_probe and (args.academy_firebat_probe or args.barracks_training_probe):
+        parser.error("Choose one graphical production probe")
+    if args.armory_goliath_probe and (scenario_id != "mt-zergling" or args.video_layout == "single"
+                                     or args.duration < 180):
+        parser.error("--armory-goliath-probe requires Mt. Zergling, two clients, and at least 180 seconds")
+    if args.armory_goliath_probe and (args.academy_firebat_probe or args.barracks_training_probe
+                                     or args.medic_vulture_probe):
         parser.error("Choose one graphical production probe")
     if args.academy_firebat_probe:
         args.barracks_production = True
@@ -253,6 +261,7 @@ def main():
                               "barracks_production": args.barracks_production,
                               "academy_firebat_probe": args.academy_firebat_probe,
                               "medic_vulture_probe": args.medic_vulture_probe,
+                              "armory_goliath_probe": args.armory_goliath_probe,
                               "navigation_baseline": args.navigation_baseline,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
@@ -271,7 +280,7 @@ def main():
         env["LIBGL_ALWAYS_SOFTWARE"] = "1"
     else:
         env.pop("LIBGL_ALWAYS_SOFTWARE", None)
-    if args.ridge_probe:
+    if args.ridge_probe or args.armory_goliath_probe:
         env["BRIDGE_DISABLE_ASSAULT_AI"] = "1"
     if args.ridge_assault:
         env["BRIDGE_TEST_ASSAULT_MARINES"] = "1"
@@ -398,6 +407,12 @@ def main():
             if args.medic_vulture_probe:
                 (data_dir / "plugin/medic-vulture-camera.js").write_text(
                     (ROOT / "scripts/medic-vulture-camera.js").read_text())
+            if args.armory_goliath_probe:
+                camera = (ROOT / "scripts/armory-goliath-camera.js").read_text()
+                if name == "client-b":
+                    camera = "var STARCOASTER_ARMORY_STATIC_CAMERA = true;\n" + camera
+                (data_dir / "plugin/armory-goliath-camera.js").write_text(
+                    camera)
             if args.barracks_training_probe and name == "client-a":
                 probe = "live-barracks-training-probe.js"
                 (data_dir / "plugin" / probe).write_text(
@@ -411,6 +426,9 @@ def main():
                 (data_dir / "plugin/live-medic-vulture-probe.js").write_text(
                     "var STARCOASTER_CAPTURE_NEXT_TECH = true;\n"
                     + (ROOT / "scripts/live-medic-vulture-probe.js").read_text())
+            if args.armory_goliath_probe and name == "client-a":
+                (data_dir / "plugin/live-armory-goliath-probe.js").write_text(
+                    (ROOT / "scripts/live-armory-goliath-probe.js").read_text())
             if args.marine_screen_probe and name == "client-a":
                 (data_dir / "plugin/marine-screen-probe.js").write_text(
                     (ROOT / "scripts/marine-screen-probe.js").read_text())
@@ -609,6 +627,7 @@ def main():
         mt_samples = set()
         barracks_samples = set()
         next_unit_samples = set()
+        goliath_samples = set()
         next_wave_clicked = False
         next_heal_at = None
         next_flame_at = None
@@ -836,6 +855,19 @@ def main():
                             recorder.event("medic_vulture_screenshot", client=name,
                                            second=point, filename=filename)
                     next_unit_samples.add(point)
+            if args.armory_goliath_probe:
+                elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
+                for point in (5, 20, 40, 65, 90, 95, 100, 105, 120, 150, 175):
+                    if elapsed < point or point in goliath_samples:
+                        continue
+                    for name, display in displays:
+                        filename = f"{name}-armory-goliath-t{point}.png"
+                        subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                       env=env | {"DISPLAY": display}, check=True)
+                        if recorder:
+                            recorder.event("armory_goliath_screenshot", client=name,
+                                           second=point, filename=filename)
+                    goliath_samples.add(point)
             if args.navigation_baseline and recorder:
                 elapsed = time.monotonic() - recorder.start_monotonic
                 for point in sorted(baseline_samples - captured_baseline_samples):
@@ -1003,6 +1035,41 @@ def main():
             }
             detailed["medic_vulture_probe"] = {"checks": checks,
                                                 "sample_seconds": sorted(next_unit_samples)}
+            detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
+            detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
+        if args.armory_goliath_probe:
+            driver = client_logs[0]
+            commands = dict(re.findall(r"GOLIATH_PROBE_COMMAND label=(\S+) accepted=(\w+)", driver))
+            trains = re.findall(r"\[world-control\] train command=\S+ barracks=\d+ accepted=(\d).*?"
+                                r"minerals=(\d+).*?unit_type=terran_goliath gas=(\d+)", snapshot)
+            availability = [json.loads(row)["terran_goliath"] for row in re.findall(
+                r"\[world-control\] production id=.*? availability=(\{.*\}) minerals=", snapshot)
+                if "terran_goliath" in json.loads(row)]
+            checks = {
+                "native_armory": "type=Terran_Armory hp=750" in snapshot,
+                "native_prerequisite": all(label in commands for label in
+                    ("without_armory", "with_armory", "after_armory_removal"))
+                    and len(trains) >= 3 and trains[0] == ("0", "500", "250")
+                    and any(row[0] == "1" for row in trains)
+                    and trains[-1] == ("0", "400", "200")
+                    and bool(availability and availability[-1]["reason"] == "requires_building"),
+                "player_supply_depot": "GOLIATH_PROBE_PLACE type=terran_supply_depot accepted=true" in driver
+                    and bool(re.search(r"train command=.*accepted=1.*supply=14/32.*"
+                                       r"unit_type=terran_goliath", snapshot)),
+                "actor_and_mixed_order": "GOLIATH_PROBE_ACTOR id=" in driver
+                    and commands.get("mixed_move") == "true",
+                "native_goliath_combat": commands.get("goliath_attack") == "true"
+                    and "GOLIATH_PROBE_ATTACK id=" in driver
+                    and "GOLIATH_PROBE_HIT target=" in driver,
+                "two_clients_rendered": all("terran_goliath" in text for text in client_logs),
+                "two_client_screenshots": len(goliath_samples) == 11 and all(
+                    (out / f"client-{letter}-armory-goliath-t{point}.png").is_file()
+                    for letter in "ab" for point in goliath_samples),
+                "armory_removed": "GOLIATH_PROBE_REMOVE accepted=true" in driver,
+            }
+            detailed["armory_goliath_probe"] = {"checks": checks,
+                                                  "sample_seconds": sorted(goliath_samples)}
             detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
             detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
             (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
