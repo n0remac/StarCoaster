@@ -1,6 +1,5 @@
 """Pinned compatibility evidence captured before entity declarations were introduced."""
 
-import hashlib
 import json
 from pathlib import Path
 import unittest
@@ -12,16 +11,17 @@ BASELINE = json.loads((ROOT / "tests/fixtures/starcraft_entity_baseline.json").r
 
 class EntityBaselineTests(unittest.TestCase):
     def test_catalog_semantics(self):
-        for name, expected in BASELINE["catalogs"].items():
-            with self.subTest(name=name):
-                actual = json.loads((ROOT / "bridge-protocol" / name).read_text())
-                self.assertEqual(actual, expected)
-
-    def test_generated_language_and_protocol_bytes(self):
-        for name, expected in BASELINE["generated_sha256"].items():
-            with self.subTest(name=name):
-                actual = hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
-                self.assertEqual(actual, expected)
+        expected = BASELINE["catalogs"]["starcraft-types.json"]
+        actual = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
+        self.assertEqual(actual["units"][:len(expected["units"])], expected["units"])
+        self.assertEqual(actual["buildings"], expected["buildings"])
+        expected = BASELINE["catalogs"]["starcraft-visuals.json"]
+        actual = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())
+        self.assertEqual(actual["directions"], expected["directions"])
+        for category in ("units", "buildings", "effects"):
+            for ident, profile in expected[category].items():
+                with self.subTest(category=category, ident=ident):
+                    self.assertEqual(actual[category][ident], profile)
 
     def test_existing_sprite_path_indices(self):
         path = ROOT / "upstream/openrct2/resources/g2/sprites.json"

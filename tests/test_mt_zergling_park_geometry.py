@@ -16,13 +16,20 @@ class MtZerglingGeometryTest(unittest.TestCase):
     def setUpClass(cls):
         cls.scenario = json.loads(SCENARIO.read_text())
 
+    @classmethod
+    def largest_wave(cls):
+        defense = cls.scenario["park_defense"]
+        return max((sum(group["count"] for group in tier["groups"])
+                    for tier in defense.get("wave_tiers", [])),
+                   default=defense.get("units_per_wave", 0))
+
     def test_each_edge_has_reusable_capacity(self):
         width, height = self.scenario["park_size"]
         zones = self.scenario["spawn_zones"]
         self.assertEqual(set(zones), {"north", "south", "east", "west"})
         for side, zone in zones.items():
             tiles = {tuple(tile) for tile in zone["tiles"]}
-            self.assertGreaterEqual(len(tiles), 4 * self.scenario["park_defense"]["units_per_wave"])
+            self.assertGreaterEqual(len(tiles), 4 * self.largest_wave())
             for x, y in tiles:
                 self.assertTrue(8 <= x < width - 8 and 8 <= y < height - 8)
                 self.assertTrue({"north": y <= 14, "south": y >= height - 14,
@@ -48,8 +55,8 @@ class MtZerglingGeometryTest(unittest.TestCase):
         scenery = {(item["x"], item["y"]) for item in detail["scenery"]}
         for side, zone in self.scenario["spawn_zones"].items():
             clear = {tuple(tile) for tile in zone["tiles"]} - scenery
-            self.assertGreaterEqual(len(clear & visited), 4 * self.scenario["park_defense"]["units_per_wave"],
-                                    f"{side} lacks 32 clear connected terrain tiles")
+            self.assertGreaterEqual(len(clear & visited), 4 * self.largest_wave(),
+                                    f"{side} lacks enough clear connected terrain tiles")
 
 
 if __name__ == "__main__":

@@ -87,6 +87,24 @@ class EntityDeclarationTests(unittest.TestCase):
     def hashes(self):
         return {name: hashlib.sha256((self.root / name).read_bytes()).hexdigest() for name in OUTPUTS}
 
+    def test_new_zerg_declarations_preserve_established_catalog(self):
+        catalog = json.loads((self.root / OUTPUTS[0]).read_text())
+        established = BASELINE["catalogs"]["starcraft-types.json"]["units"]
+        self.assertEqual(catalog["units"][:len(established)], established)
+        self.assertEqual([(unit["id"], unit["native_type"], unit["spawnable"], unit["legacy_static_base"])
+                          for unit in catalog["units"][len(established):]],
+                         [("zerg_hydralisk", "Zerg_Hydralisk", True, 0),
+                          ("zerg_ultralisk", "Zerg_Ultralisk", True, 0)])
+        visuals = json.loads((self.root / OUTPUTS[1]).read_text())["units"]
+        for name, order in (("hydralisk", 7), ("ultralisk", 8)):
+            self.assertEqual(visuals["zerg_" + name]["g2_order"], order)
+            self.assertIn('"zerg_' + name + '": {ID:',
+                          (self.root / "internal/world/starcraft_types.go").read_text())
+            self.assertIn('BWAPI::UnitTypes::Zerg_' + name.capitalize(),
+                          (self.root / "openbw-bwapi-module/src/WorldStarcraftTypes.h").read_text())
+            self.assertIn('zerg_' + name + ': { name:',
+                          (self.root / "openrct2-plugin/rts-bridge.js").read_text())
+
     def test_new_unit_from_one_declaration(self):
         self.write_entity(self.ghost())
         self.run_generator()

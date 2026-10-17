@@ -28,7 +28,8 @@ class StarcraftTypeCatalogTests(unittest.TestCase):
         for path, rendered in GENERATOR.schema_definitions(self.catalog).items():
             GENERATOR.write_generated(path, rendered, True)
         self.assertEqual(self.catalog["units"][0]["legacy_static_base"], 1000)
-        self.assertEqual(self.catalog["units"][-1]["legacy_static_base"], 2000)
+        zergling = next(unit for unit in self.catalog["units"] if unit["id"] == "zerg_zergling")
+        self.assertEqual(zergling["legacy_static_base"], 2000)
 
     def test_rejects_invalid_extensions(self):
         invalid = copy.deepcopy(self.catalog)
