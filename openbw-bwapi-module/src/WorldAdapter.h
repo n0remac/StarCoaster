@@ -110,8 +110,25 @@ public:
         flush();
         applyScheduledNavigation(game);
         if (initializing_ || liveTargetsResolving_) resolveTargets(game);
-        if (!ready_) return;
         const int frame = game->getFrameCount();
+        std::vector<std::string> failedHealthTargets;
+        for (auto& [id, target] : targets_) {
+            if (target.lifecycle != "pending_health") continue;
+            const int hp = target.unit && target.unit->exists() ? target.unit->getHitPoints() : 0;
+            if (hp == target.desiredHP) {
+                target.lifecycle = "active";
+                target.lastHP = hp;
+                send("entity.state", {{"id", id},
+                    {"proxy_id", "openbw:" + std::to_string(target.proxyID)},
+                    {"proxy_x", target.x}, {"proxy_y", target.y}, {"health", hp}}, revision_, frame);
+            } else if (frame - target.healthFrame >= 12) {
+                reportUnsupported(id, "proxy_health_update_failed");
+                failedHealthTargets.push_back(id);
+            }
+        }
+        for (const auto& id : failedHealthTargets)
+            retireTarget(game, id, "proxy_health_update_failed");
+        if (!ready_) return;
         publishRuntimeEvents(frame);
         publishSpawnOutcomes(frame);
         const char* spawnAt = std::getenv("BRIDGE_TEST_SPAWN_MARINE_FRAME");
@@ -165,21 +182,22 @@ public:
                 }
             }
         }
-        std::vector<std::string> failedHealthTargets;
         for (auto& [id,target] : targets_) {
-            const int hp = target.unit && target.unit->exists() ? target.unit->getHitPoints() : 0;
-            if (target.lifecycle == "pending_health") {
-                if (hp == target.desiredHP) {
-                    target.lifecycle = "active";
-                    target.lastHP = hp;
-                    send("entity.state",{{"id",id},{"proxy_id","openbw:"+std::to_string(target.proxyID)},
-                        {"proxy_x",target.x},{"proxy_y",target.y},{"health",hp}},revision_,frame);
-                } else if (frame - target.healthFrame >= 12) {
-                    reportUnsupported(id, "proxy_health_update_failed");
-                    failedHealthTargets.push_back(id);
+            const char* testBarracksHP = std::getenv("BRIDGE_TEST_BARRACKS_HP");
+            if (!testBarracksDamageApplied_ && testBarracksHP && *testBarracksHP
+                && target.unit && target.unit->exists()
+                && target.unit->getType() == BWAPI::UnitTypes::Terran_Barracks) {
+                char* end = nullptr;
+                const long requested = std::strtol(testBarracksHP, &end, 10);
+                if (end && !*end && requested > 0 && requested < 1000) {
+                    testBarracksDamageApplied_ = true;
+                    target.unit->setHitPoints(static_cast<int>(requested));
+                    std::cerr << "[world] test Barracks HP requested id=" << id
+                              << " hp=" << requested << " frame=" << frame << std::endl;
                 }
-                continue;
             }
+            const int hp = target.unit && target.unit->exists() ? target.unit->getHitPoints() : 0;
+            if (target.lifecycle == "pending_health") continue;
             if (hp != target.lastHP) { target.lastHP=hp; send("entity.state",{{"id",id},{"proxy_id","openbw:"+std::to_string(target.proxyID)},
                 {"proxy_x",target.x},{"proxy_y",target.y},{"health",hp}},revision_,frame); }
             if (hp==0 && !target.reported && (target.lifecycle=="active"
@@ -192,8 +210,6 @@ public:
                 std::cerr << "[world] target destroyed id=" << id << " frame=" << frame << std::endl;
             }
         }
-        for (const auto& id : failedHealthTargets)
-            retireTarget(game, id, "proxy_health_update_failed");
         if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI") && assault_.active(frame)) assaultAI(game);
         for (auto unit:game->getAllUnits()) {
             if (unit && unit->exists() && (unit->getType()==BWAPI::UnitTypes::Zerg_Zergling
@@ -1220,6 +1236,7 @@ private:
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
     std::map<std::string,int> preservedHP_;
     bool startingResourcesApplied_ = false;
+    bool testBarracksDamageApplied_ = false;
     bool liveTargetsResolving_=false;
     std::string liveTargetPatchID_;
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();

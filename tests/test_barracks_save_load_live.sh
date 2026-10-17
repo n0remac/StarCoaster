@@ -34,6 +34,7 @@ wait_for() {
   done
 }
 BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/mt-zergling/mapping.json" \
+  BRIDGE_TEST_BARRACKS_HP="${BARRACKS_TEST_HEALTH:-}" \
   BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_LAUNCH_CLIENT=0 \
   BRIDGE_SERVER_DATA_DIR="$run_dir/server" \
   timeout 115s scripts/run-world-session.sh "$park_file" > "$run_dir/build.log" 2>&1 &
@@ -62,13 +63,14 @@ build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
   --user-data-path="$run_dir/client" > "$run_dir/rebuild-client.log" 2>&1 &
 client_pid=$!
 wait_for 'WORLD_PATCH_SYNC revision=3' "$run_dir/reload.log" 40
-python3 - "$run_dir" <<'PY'
+python3 - "$run_dir" "${BARRACKS_TEST_HEALTH:-1000}" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
 directory = Path(sys.argv[1])
+expected_hp = sys.argv[2]
 build = (directory / 'build.log').read_text(errors='replace')
 reload = (directory / 'reload.log').read_text(errors='replace')
 client = (directory / 'client.log').read_text(errors='replace')
@@ -83,9 +85,9 @@ checks = {
     'confirmed_before_save': 'WORLD_PATCH_SYNC revision=2' in build,
     'real_park_saved': (directory / 'server/save/barracks-recovery.park').stat().st_size > 0,
     'identity_and_health_preserved': bool(before and after) and before[-1] == after[0],
-    'real_native_barracks': bool(before and after) and before[-1][1] == after[0][1] == '1000'
+    'real_native_barracks': bool(before and after) and before[-1][1] == after[0][1] == expected_hp
         and build.count('type=Terran_Barracks hp=1000') >= 1
-        and reload.count('type=Terran_Barracks hp=1000') >= 2,
+        and reload.count('type=Terran_Barracks') >= 2,
     'native_mask_preserved': bool(hashes[0] and hashes[1]) and hashes[0][-1] == hashes[1][-1],
     'two_native_participants_ready': 'WORLD_READY entities=4255 targets=3' in reload,
     'demolition_and_rebuild': 'BARRACKS_REBUILD_REMOVE accepted=true' in rebuild_client
