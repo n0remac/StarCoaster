@@ -45,6 +45,8 @@ const depot = { index: 9, identifier: 'starcoaster.scenery_large.terran_supply_d
     tiles: academy.tiles };
 const factory = { index: 10, identifier: 'starcoaster.scenery_large.terran_factory',
     tiles: barracks.tiles };
+const armory = { index: 11, identifier: 'starcoaster.scenery_large.terran_armory',
+    tiles: academy.tiles };
 const context = {
     registerAction(name, query, execute) { actions.set(name, { query, execute }); },
     subscribe() {},
@@ -73,7 +75,7 @@ const context = {
 const sandbox = {
     map: { size: { x: 16, y: 16 }, rides: [], getTile: tile },
     objectManager: { getAllObjects(kind) { return kind === 'large_scenery'
-        ? [barracks, academy, depot, factory] : []; } },
+        ? [barracks, academy, depot, factory, armory] : []; } },
     network: { mode: 'client', currentPlayer: { id: 1 }, players: [{ id: 1 }] },
     rtsBridge: { version: 5, assetVersion: 4, applySnapshot() {},
         invalidateAnimation() {}, setBuildingAnimations(state) { buildingAnimations.push(state); },
@@ -87,6 +89,7 @@ const construction = windows.get('starcoaster-construction');
 assert.ok(construction);
 assert.ok(construction.desc.widgets.some(widget => widget.text === 'Supply Depot  |  3 x 2 tiles'));
 assert.ok(construction.desc.widgets.some(widget => widget.text === 'Factory  |  4 x 3 tiles'));
+assert.ok(construction.desc.widgets.some(widget => widget.text === 'Armory  |  3 x 2 tiles'));
 menu.get('StarCraft Construction')();
 assert.equal(frontedWindows, 1);
 construction.desc.widgets.find(widget => widget.text && widget.text.startsWith('Barracks')).onClick();
@@ -266,7 +269,8 @@ action.execute({ player: 1, args: { ...catalog, version: 5, targets: catalog.tar
 ]) } });
 buildingAction.execute({ player: 1, args: { ...nativeState, id: factoryID,
     native_id: 'openbw:9', health: 1250, queue: 0, remaining_frames: 0,
-    availability: { terran_vulture: { ready: true, reason: 'ready', requirement: '' } } } });
+    availability: { terran_vulture: { ready: true, reason: 'ready', requirement: '' },
+        terran_goliath: { ready: false, reason: 'requires_building', requirement: 'Terran_Armory' } } } });
 const factoryEvent = { mapCoords: { x: 320, y: 64 }, screenCoords: { x: 600, y: 300 } };
 passive.onDown(factoryEvent);
 assert.equal(passive.onUp(factoryEvent), true);
@@ -275,8 +279,19 @@ assert.ok(factoryInfo);
 factoryInfo.desc.onUpdate();
 assert.equal(factoryInfo.findWidget('building-health').text, 'Health: 1250/1250');
 assert.equal(factoryInfo.findWidget('building-train-terran_vulture').isDisabled, false);
+assert.equal(factoryInfo.findWidget('building-train-terran_goliath').isDisabled, true);
+assert.match(factoryInfo.findWidget('building-train-terran_goliath').text, /Requires Armory/);
 factoryInfo.findWidget('building-train-terran_vulture').onClick();
 assert.equal(orders.at(-1).unit_type, 'terran_vulture');
+assert.equal(orders.at(-1).target_entity_id, factoryID);
+buildingAction.execute({ player: 1, args: { ...nativeState, id: factoryID,
+    native_id: 'openbw:9', health: 1250, queue: 0, remaining_frames: 0,
+    availability: { terran_vulture: { ready: true, reason: 'ready', requirement: '' },
+        terran_goliath: { ready: true, reason: 'ready', requirement: '' } } } });
+factoryInfo.desc.onUpdate();
+assert.equal(factoryInfo.findWidget('building-train-terran_goliath').isDisabled, false);
+factoryInfo.findWidget('building-train-terran_goliath').onClick();
+assert.equal(orders.at(-1).unit_type, 'terran_goliath');
 assert.equal(orders.at(-1).target_entity_id, factoryID);
 tile(10, 5).elements.push({ type: 'large_scenery', object: 9, baseHeight: 14,
     baseZ: 112, sequence: 0 });
