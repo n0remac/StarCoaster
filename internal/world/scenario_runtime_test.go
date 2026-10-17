@@ -216,6 +216,14 @@ func TestMixedWaveIntentRecoveryAndDeath(t *testing.T) {
 	if err := recovered.Validate(s, "session-a"); err != nil {
 		t.Fatal(err)
 	}
+	if err := recovered.ValidateSpawnQueue(q); err != nil {
+		t.Fatal(err)
+	}
+	q.Entries[requests[1].RequestID].Request.UnitType = "zerg_zergling"
+	if err := recovered.ValidateSpawnQueue(q); err == nil {
+		t.Fatal("mismatched queued unit type accepted")
+	}
+	q.Entries[requests[1].RequestID].Request.UnitType = "zerg_hydralisk"
 	for i, kind := range []string{"zerg_zergling", "zerg_hydralisk", "zerg_ultralisk"} {
 		unit := recovered.Waves[0].Units[i]
 		if unit.UnitType != kind || unit.Attempts[0].RequestID == "" {
@@ -265,5 +273,26 @@ func TestMixedWaveIntentRecoveryAndDeath(t *testing.T) {
 	recovered.Waves[0].Units[1].UnitType = ""
 	if err := recovered.Validate(s, "session-a"); err == nil {
 		t.Fatal("ambiguous legacy type accepted")
+	}
+}
+
+func TestScenarioJournalLegacyTypeAndChangedDefinition(t *testing.T) {
+	s, r := runtimeFixture(t)
+	if err := r.AcceptFrame(100, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	r.Trigger(s)
+	unit := &r.Waves[0].Units[0]
+	unit.UnitType = ""
+	r.Waves[0].Composition = nil
+	if err := r.Validate(s, "session-a"); err != nil {
+		t.Fatalf("legacy Zergling journal rejected: %v", err)
+	}
+	if unit.UnitType != "zerg_zergling" {
+		t.Fatal("legacy unit type was not restored")
+	}
+	s.Waves[0].Groups[0].Count++
+	if err := r.Validate(s, "session-a"); err == nil {
+		t.Fatal("changed authored scenario reused journal")
 	}
 }

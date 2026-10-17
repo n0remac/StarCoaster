@@ -16,7 +16,10 @@ func (s *service) initScenarioRuntime() error {
 	}
 	session := s.registry.Session
 	if s.runtime != nil && s.runtime.Session == session {
-		return s.runtime.Validate(s.scenario, session)
+		if err := s.runtime.Validate(s.scenario, session); err != nil {
+			return err
+		}
+		return s.runtime.ValidateSpawnQueue(s.spawns)
 	}
 	path := s.spawnJournalPath + ".scenario.json"
 	if data, err := os.ReadFile(path); err == nil {
@@ -26,6 +29,9 @@ func (s *service) initScenarioRuntime() error {
 		}
 		if prior.Session == session {
 			if err := prior.Validate(s.scenario, session); err != nil {
+				return err
+			}
+			if err := prior.ValidateSpawnQueue(s.spawns); err != nil {
 				return err
 			}
 			s.runtime = &prior

@@ -121,6 +121,29 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 	return nil
 }
 
+// ValidateSpawnQueue rejects a persisted queue entry that would recreate a
+// different unit or location for a durable scenario intent.
+func (r *ScenarioRuntime) ValidateSpawnQueue(queue *SpawnQueue) error {
+	if queue == nil {
+		return nil
+	}
+	for _, wave := range r.Waves {
+		for _, unit := range wave.Units {
+			for _, attempt := range unit.Attempts {
+				request, ok := queue.Request(attempt.RequestID)
+				if !ok {
+					continue // journal-first intent may not yet have reached the queue
+				}
+				if request.UnitType != unit.UnitType || request.X != attempt.X || request.Y != attempt.Y ||
+					request.Count != 1 || request.PlayerID != 0 || request.Formation != "compact" {
+					return fmt.Errorf("scenario_spawn_journal_mismatch: %s", attempt.RequestID)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func normalizeLegacyWave(wave *RuntimeWave, groups []WaveTierGroup) {
 	if len(wave.Composition) == 0 && len(wave.Units) > 0 {
 		wave.Composition = append([]WaveTierGroup(nil), groups...)
