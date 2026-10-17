@@ -1,0 +1,14 @@
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -239,8 +239,8 @@
+     if (animation->session != std::atomic_load(&gBridgeSnapshot)->session || animation->objectIndex != objectIndex
+         || !animation->tiles.contains({ position.x, position.y }))
+         return 0;
+-    // Banks 1..7 contain classic Barracks GRP frames 2..8. Frame 1 is the
+-    // unfinished structure and does not belong in the production loop.
++    // The locally generated banks repeat the idle structure and add only the
++    // indicator lights. Lift-off frames are not part of the training loop.
+     return 1 + (getGameState().currentTicks / 3) % 7;
+ }
+ 

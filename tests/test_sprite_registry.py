@@ -10,7 +10,7 @@ import unittest
 import zipfile
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +19,44 @@ MARINE_MANIFEST = ROOT / "run-data/generated-assets/starcraft/marine/manifest.js
 
 
 class SpriteRegistryTests(unittest.TestCase):
+    def test_barracks_light_overlay_keeps_structure_pixels(self):
+        spec = importlib.util.spec_from_file_location(
+            "barracks_object", ROOT / "scripts/install-starcraft-construction-object.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        idle = Image.new("RGBA", (9, 9), (40, 50, 60, 255))
+        idle.putpixel((5, 5), (0, 0, 0, 0))
+        animated = idle.copy()
+        animated.putpixel((0, 0), (80, 70, 60, 255))  # moving leg
+        animated.putpixel((4, 4), (176, 144, 24, 255))  # indicator light
+        animated.putpixel((5, 4), (90, 90, 55, 255))  # light surround
+        animated.putpixel((5, 5), (252, 204, 44, 255))  # changing silhouette
+        output = module.light_only_frame(idle, animated)
+        self.assertEqual(output.getpixel((0, 0)), idle.getpixel((0, 0)))
+        self.assertEqual(output.getpixel((4, 4)), animated.getpixel((4, 4)))
+        self.assertEqual(output.getpixel((5, 4)), animated.getpixel((5, 4)))
+        self.assertEqual(output.getpixel((5, 5)), idle.getpixel((5, 5)))
+
+    @unittest.skipUnless((ROOT / "run-data/generated-assets/starcraft/barracks/.source/TBarrack.grp").is_file(),
+                         "local licensed Barracks art has not been extracted")
+    def test_classic_barracks_training_changes_only_lights(self):
+        spec = importlib.util.spec_from_file_location(
+            "barracks_object", ROOT / "scripts/install-starcraft-construction-object.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        game = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
+        frames = module.barracks_images(game)
+        self.assertEqual(len(frames), 8)
+        self.assertTrue(all(frame.tobytes() == frames[0].tobytes() for frame in frames[1:6]))
+        for frame in frames[6:]:
+            difference = ImageChops.difference(frames[0].convert("RGB"), frame.convert("RGB"))
+            self.assertIsNotNone(difference.getbbox())
+            self.assertTrue(all(frame.getpixel((x, y)) == frames[0].getpixel((x, y))
+                                for y in range(110, frame.height) for x in range(frame.width)),
+                            "Barracks legs and silhouette must stay still during training")
+            self.assertEqual([pixel == 0 for pixel in frame.getdata()],
+                             [pixel == 0 for pixel in frames[0].getdata()])
+
     def test_barracks_animation_images_keep_idle_bank_and_footprint(self):
         spec = importlib.util.spec_from_file_location(
             "barracks_object", ROOT / "scripts/install-starcraft-construction-object.py")

@@ -519,7 +519,7 @@ def main():
                                            second=second, filename=filename)
             if args.barracks_training_probe:
                 elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
-                for point in (8, 12, 16, 20, 24, 28, 32, 40):
+                for point in (4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40):
                     if elapsed < point or point in barracks_samples:
                         continue
                     for name, display in displays:
@@ -607,8 +607,10 @@ def main():
                 for point in sorted(barracks_samples):
                     with Image.open(out / f"{name}-barracks-t{point}.png") as image:
                         centre_x, centre_y = image.width // 2, image.height // 2
-                        pixels = image.crop((centre_x - 100, centre_y - 125,
-                                             centre_x + 100, centre_y + 25)).tobytes()
+                        # Keep the crop on the Barracks. A newly trained Marine
+                        # walks just below it and must not count as animation.
+                        pixels = image.crop((centre_x - 100, centre_y - 130,
+                                             centre_x + 100, centre_y + 10)).tobytes()
                         frames.append(hashlib.sha256(pixels).hexdigest()[:12])
                 animation_hashes[name] = frames
             checks = {

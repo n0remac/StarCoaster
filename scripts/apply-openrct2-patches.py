@@ -74,21 +74,44 @@ def ensure_barracks_animation(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_barracks_light_only(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0007-barracks-light-only.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected native changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
-        animation = ROOT / "openrct2-patches/0006-barracks-training-animation.patch"
-        animation_applied = applies(checkout, animation, reverse=True)
-        if animation_applied:
-            subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(animation)], check=True)
+        overlays = [ROOT / "openrct2-patches/0006-barracks-training-animation.patch",
+                    ROOT / "openrct2-patches/0007-barracks-light-only.patch"]
+        reversed_overlays = []
+        for overlay in reversed(overlays):
+            if applies(checkout, overlay, reverse=True):
+                subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(overlay)], check=True)
+                reversed_overlays.append(overlay)
         try:
             bridge_status = ensure_bridge(checkout)
         finally:
-            if animation_applied:
-                subprocess.run(["git", "-C", str(checkout), "apply", str(animation)], check=True)
+            for overlay in reversed(reversed_overlays):
+                subprocess.run(["git", "-C", str(checkout), "apply", str(overlay)], check=True)
         print("OpenRCT2 native bridge patch " + bridge_status)
         print("StarCraft toolbar patch " + ensure_starcraft_toolbar(checkout))
-        print("Barracks training animation patch " + ensure_barracks_animation(checkout))
+        light_overlay = overlays[1]
+        light_applied = applies(checkout, light_overlay, reverse=True)
+        if light_applied:
+            subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(light_overlay)], check=True)
+        try:
+            animation_status = ensure_barracks_animation(checkout)
+        finally:
+            if light_applied:
+                subprocess.run(["git", "-C", str(checkout), "apply", str(light_overlay)], check=True)
+        print("Barracks training animation patch " + animation_status)
+        print("Barracks light-only patch " + ensure_barracks_light_only(checkout))
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)

@@ -18,6 +18,28 @@ ROOT = Path(__file__).resolve().parent.parent
 BARRACKS_RESOURCE = "unit/terran/TBarrack.grp"
 PALETTE_RESOURCE = "Tileset/Badlands.wpe"
 
+
+def light_only_frame(idle: Image.Image, illuminated: Image.Image) -> Image.Image:
+    """Copy only each indicator and its two-pixel glow onto the idle shape."""
+    frame = idle.copy()
+    destination = frame.load()
+    base = idle.load()
+    source = illuminated.load()
+    indicators = []
+    for y in range(idle.height):
+        for x in range(idle.width):
+            red, green, blue, alpha = source[x, y]
+            if (alpha and destination[x, y][3] and source[x, y] != destination[x, y]
+                    and red >= 140 and green >= 100 and blue <= 50 and red > green * 1.1):
+                indicators.append((x, y))
+    for light_x, light_y in indicators:
+        for y in range(max(0, light_y - 2), min(idle.height, light_y + 3)):
+            for x in range(max(0, light_x - 2), min(idle.width, light_x + 3)):
+                if source[x, y][3] and base[x, y][3]:
+                    destination[x, y] = source[x, y]
+    return frame
+
+
 def barracks_images(game_dir: Path) -> list[Image.Image]:
     source = ROOT / "run-data/generated-assets/starcraft/barracks/.source"
     source.mkdir(parents=True, exist_ok=True)
@@ -29,8 +51,13 @@ def barracks_images(game_dir: Path) -> list[Image.Image]:
     count, width, height = struct.unpack_from("<HHH", data)
     if (count, width, height) != (9, 192, 160) or len(wpe) != 1024:
         raise ValueError("Unexpected classic StarCraft Barracks GRP or Badlands palette")
-    source_images = [helpers["decode_grp"](data, wpe, index)
-                     for index in (0, 2, 3, 4, 5, 6, 7, 8)]
+    idle = helpers["decode_grp"](data, wpe, 0)
+    # The first five training banks are dark. GRP frames 2–4 also contain the
+    # lift-off sequence, so never use their moving geometry during training.
+    # The final two banks keep frame 0's shape and add only the light pixels
+    # from GRP frames 7 and 8, preserving the existing flash cadence.
+    source_images = [idle] * 6 + [light_only_frame(idle, helpers["decode_grp"](data, wpe, index))
+                                  for index in (7, 8)]
     bounds = source_images[0].getbbox()
     if bounds is None:
         raise ValueError("Classic StarCraft Barracks frame is empty")
