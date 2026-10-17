@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ FIREBAT_DEATH_RESOURCE = "unit/thingy/tBangS.grp"
 MEDIC_RESOURCE = "unit/terran/medic.grp"
 VULTURE_RESOURCE = "unit/terran/Vulture.grp"
 FLAME_RESOURCE = "unit/thingy/flamer.grp"
+FLAME_LIGHT_RESOURCE = "Tileset/Badlands/ofire.pcx"
 PALETTE = "Tileset/Badlands.wpe"
 # Contact-sheet inspection of the local classic Zergling GRP: directional
 # groups 0..10 form the run, while 11..16 crouch/collapse into death art.
@@ -340,11 +342,31 @@ def prepare_vulture_pack(data: bytes, wpe: bytes, output: Path,
 
 
 def prepare_flame_pack(data: bytes, wpe: bytes, output: Path,
-                       palette: list[tuple[int, int, int]], archives: dict) -> None:
-    """Extract the separate directional FlameThrower thingy, not Firebat poses."""
+                       palette: list[tuple[int, int, int]], archives: dict,
+                       light_data: bytes, image_data: bytes) -> None:
+    """Extract FlameThrower using the native image's orange fire remap."""
     count, width, height = struct.unpack_from("<HHH", data)
     if (count, width, height) != (221, 224, 224):
         raise ValueError(f"Unexpected FlameThrower GRP: {count} frames, {width}x{height}")
+    enum_source = (ROOT / "upstream/openbw/bwenums.h").read_text()
+    image_names = re.findall(r"\bIMAGEID_[A-Za-z0-9_]+\b",
+                             enum_source.split("enum struct ImageTypes : int {", 1)[1].split("};", 1)[0])
+    image_index = image_names.index("IMAGEID_FlameThrower")
+    if len(image_data) < 10 * 999 or (image_data[8 * 999 + image_index],
+                                      image_data[9 * 999 + image_index]) != (9, 1):
+        raise ValueError("Pinned FlameThrower image no longer uses orange fire remap")
+    light = Image.open(io.BytesIO(light_data))
+    if light.size != (256, 63):
+        raise ValueError(f"Unexpected Badlands fire remap size: {light.size}")
+    # images.dat gives FlameThrower modifier 9, colour shift 1. OpenBW's
+    # renderer indexes ofire.pcx with source index - 1 and the background
+    # palette index. OpenRCT2 cannot blend that indexed table at draw time, so
+    # bake it against Badlands dark ground index 220. Damage stays in OpenBW.
+    background_index = 220
+    remapped = bytearray(wpe)
+    for source_index in range(1, 64):
+        result_index = light.getpixel((background_index, source_index - 1))
+        remapped[source_index * 4:source_index * 4 + 4] = wpe[result_index * 4:result_index * 4 + 4]
     selected, frames = {}, {}
     # Every second 17-direction bank samples the growth and fade of the burst.
     banks = (0, 2, 4, 6, 8, 10, 12)
@@ -352,7 +374,7 @@ def prepare_flame_pack(data: bytes, wpe: bytes, output: Path,
         names = []
         for pose, bank in enumerate(banks):
             frame = bank * 17 + facing
-            image = decode_grp(data, wpe, frame)
+            image = decode_grp(data, remapped, frame)
             if mirror:
                 image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
             bbox = image.getbbox()
@@ -373,6 +395,8 @@ def prepare_flame_pack(data: bytes, wpe: bytes, output: Path,
         "registry": {"firebat_flame": {"burst": {"frames": frames, "ticks_per_frame": 2}}},
         "frames": selected,
         "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; west mirrors east",
+        "fire_remap": {"source": FLAME_LIGHT_RESOURCE, "background_index": background_index,
+                        "modifier": 9, "color_shift": 1},
         "output_palette": "nearest OpenRCT2 standard palette colour"}, indent=2) + "\n")
     print(f"Prepared {len(selected)} FlameThrower frames in {output} from {archives}")
 
@@ -456,10 +480,20 @@ def main() -> None:
     if args.unit in ("firebat", "vulture"):
         archives[FIREBAT_DEATH_RESOURCE] = extract(
             args.game_dir, FIREBAT_DEATH_RESOURCE, source / "death.grp")
+    if args.unit == "flame":
+        archives[FLAME_LIGHT_RESOURCE] = extract(
+            args.game_dir, FLAME_LIGHT_RESOURCE, source / "ofire.pcx")
+        archives["arr/images.dat"] = extract(
+            args.game_dir, "arr/images.dat", source / "images.dat")
     data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
     if len(wpe) != 1024:
         raise ValueError(f"Expected 1024-byte WPE palette, got {len(wpe)}")
-    profile["prepare"](data, wpe, output, openrct2_palette(), archives)
+    if args.unit == "flame":
+        profile["prepare"](data, wpe, output, openrct2_palette(), archives,
+                           (source / "ofire.pcx").read_bytes(),
+                           (source / "images.dat").read_bytes())
+    else:
+        profile["prepare"](data, wpe, output, openrct2_palette(), archives)
 
 if __name__ == "__main__":
     main()

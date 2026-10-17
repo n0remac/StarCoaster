@@ -256,7 +256,8 @@ public:
                     const bool firstPulse = !lastHealFrame_.count(unit->getID())
                         || frame - lastHealFrame_[unit->getID()] > 4;
                     lastHealFrame_[unit->getID()] = frame;
-                    if (firstPulse && std::getenv("BRIDGE_TEST_MEDIC_VULTURE_NATIVE"))
+                    if (firstPulse && (std::getenv("BRIDGE_TEST_MEDIC_VULTURE_NATIVE")
+                        || std::getenv("BRIDGE_TEST_MEDIC_CAPTURE_DAMAGE")))
                         std::cerr << "[next-tech] role=publisher stage=heal_visual"
                                   << " frame=" << frame << " medic=" << unit->getID()
                                   << " target=" << target->getID()

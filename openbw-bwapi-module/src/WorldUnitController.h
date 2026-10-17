@@ -108,6 +108,24 @@ public:
         for (const auto& id : pendingActors) tryBind(id);
         applyScheduledNavigation(game);
         probeNativeBarracks(game);
+        if (std::getenv("BRIDGE_TEST_MEDIC_CAPTURE_DAMAGE") && !medicCaptureDamaged_
+            && actorRegistry_.prepare(game)) {
+            BWAPI::Unit firebat = nullptr, medic = nullptr;
+            for (auto unit : game->getAllUnits()) {
+                if (!unit || !unit->exists() || unit->getPlayer() != game->self()
+                    || !unit->isCompleted() || !actorRegistry_.known(unit)) continue;
+                if (unit->getType() == BWAPI::UnitTypes::Terran_Firebat) firebat = unit;
+                if (unit->getType() == BWAPI::UnitTypes::Terran_Medic) medic = unit;
+            }
+            if (firebat && medic && firebat->getHitPoints() == firebat->getType().maxHitPoints()) {
+                medicCaptureDamaged_ = true;
+                firebat->setHitPoints(20);
+                std::cerr << "[medic-capture] damaged firebat=" << firebat->getID()
+                          << " hp=" << firebat->getHitPoints()
+                          << " medic=" << medic->getID()
+                          << " energy=" << medic->getEnergy() << std::endl;
+            }
+        }
         if (!session_.empty() && game->getFrameCount() % 24 == 0) {
             if (game->self()) send("player.resources", session_, revision_ ? revision_ : 1,
                 {{"owner", game->self()->getID()}, {"minerals", game->self()->minerals()},
@@ -842,6 +860,7 @@ private:
     bool barracksProbeQueueSeen_ = false, barracksProbeMarineSeen_ = false;
     int barracksProbeInitialMarines_ = 0;
     bool startingResourcesApplied_ = false;
+    bool medicCaptureDamaged_ = false;
     starcoaster::NavigationAdapter navigation_;
     starcoaster::NavigationMaskReceiver maskReceiver_;
     std::vector<uint8_t> pendingMask_, stagedMask_;

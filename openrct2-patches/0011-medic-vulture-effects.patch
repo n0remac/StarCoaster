@@ -236,7 +236,7 @@ diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Enti
          else
          {
              if (actor.motion == "death")
-@@ -593,6 +625,16 @@
+@@ -593,6 +625,20 @@
          }
          const BoundBoxXYZ actorBounds{ { -6, -6, z + 5 }, { 12, 12, 18 } };
          PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, actorBounds);
@@ -247,7 +247,11 @@ diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Enti
 +                SPR_BRIDGE_FLAME_BURST1_EAST, SPR_BRIDGE_FLAME_BURST2_EAST,
 +                SPR_BRIDGE_FLAME_BURST3_EAST, SPR_BRIDGE_FLAME_BURST4_EAST,
 +                SPR_BRIDGE_FLAME_BURST5_EAST, SPR_BRIDGE_FLAME_BURST6_EAST };
-+            PaintAddImageAsChild(session, ImageId(flameBases[elapsed / 2] + direction),
++            // Snapshot cadence can retrigger a burst before its first frames
++            // grow large enough to read at park zoom. Start at the native
++            // flame's developed stage, then animate the remaining frames.
++            const uint32_t flameFrame = std::min(6u, 2u + elapsed / 2);
++            PaintAddImageAsChild(session, ImageId(flameBases[flameFrame] + direction),
 +                { 0, 0, z + 1 }, actorBounds);
 +        }
          if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
@@ -273,7 +277,18 @@ diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/Sc
              && BridgeReadInt(ctx, unit, "owner", owner) && owner >= 0 && owner <= 11
              && BridgeReadInt(ctx, unit, "hp", hp) && hp >= 0 && hp <= 10000
              && BridgeReadInt(ctx, unit, "max_hp", maxHp) && maxHp >= hp && maxHp <= 10000
-@@ -926,7 +928,7 @@
+@@ -895,6 +897,10 @@
+         JS_SetPropertyStr(ctx, unit, "x", JS_NewInt32(ctx, actor.x));
+         JS_SetPropertyStr(ctx, unit, "y", JS_NewInt32(ctx, actor.y));
+         JS_SetPropertyStr(ctx, unit, "hp", JS_NewInt32(ctx, actor.hp));
++        JS_SetPropertyStr(ctx, unit, "max_hp", JS_NewInt32(ctx, actor.maxHp));
++        JS_SetPropertyStr(ctx, unit, "motion", JS_NewString(ctx, actor.motion.c_str()));
++        JS_SetPropertyStr(ctx, unit, "attack_frames", JS_NewInt32(ctx, actor.attackFrames));
++        JS_SetPropertyStr(ctx, unit, "owner", JS_NewInt32(ctx, actor.owner));
+         JS_SetPropertyUint32(ctx, units, index, unit);
+     }
+     JS_SetPropertyStr(ctx, result, "units", units);
+@@ -926,7 +932,7 @@
      JSValue glb = JS_GetGlobalObject(ctx);
      JSValue bridge = JS_NewObject(ctx);
      JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5));

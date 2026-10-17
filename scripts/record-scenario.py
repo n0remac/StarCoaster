@@ -150,6 +150,8 @@ def parse_args(argv=None):
                         help="capture Barracks placement and Marine training through the graphical interface")
     parser.add_argument("--academy-firebat-probe", action="store_true",
                         help="capture Academy construction and Firebat training through the graphical interface")
+    parser.add_argument("--medic-vulture-probe", action="store_true",
+                        help="capture native Medic and Vulture production with two graphical clients")
     parser.add_argument("--marine-screen-probe", action="store_true",
                         help="check Marine drag selection across Mt. Zergling rotations and zoom levels")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
@@ -189,6 +191,11 @@ def parse_args(argv=None):
                                        or args.duration < 180 or (args.display_width, args.display_height) != (1280, 800)):
         parser.error("--academy-firebat-probe requires Mt. Zergling, two 1280x800 clients, and at least 180 seconds")
     if args.academy_firebat_probe and args.barracks_training_probe:
+        parser.error("Choose one graphical production probe")
+    if args.medic_vulture_probe and (scenario_id != "mt-zergling" or args.video_layout == "single"
+                                    or args.duration < 180):
+        parser.error("--medic-vulture-probe requires Mt. Zergling, two clients, and at least 180 seconds")
+    if args.medic_vulture_probe and (args.academy_firebat_probe or args.barracks_training_probe):
         parser.error("Choose one graphical production probe")
     if args.academy_firebat_probe:
         args.barracks_production = True
@@ -245,6 +252,7 @@ def main():
                               "mt_zergling_playthrough": args.mt_zergling_playthrough,
                               "barracks_production": args.barracks_production,
                               "academy_firebat_probe": args.academy_firebat_probe,
+                              "medic_vulture_probe": args.medic_vulture_probe,
                               "navigation_baseline": args.navigation_baseline,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
@@ -269,6 +277,8 @@ def main():
         env["BRIDGE_TEST_ASSAULT_MARINES"] = "1"
     if args.academy_firebat_probe:
         env["BRIDGE_TEST_FIREBAT_GAMEPLAY"] = "1"
+    if args.medic_vulture_probe:
+        env["BRIDGE_TEST_MEDIC_CAPTURE_DAMAGE"] = "1"
     displays = (("client-a", ":91"),) if args.video_layout == "single" else (
         ("client-a", ":91"), ("client-b", ":92"))
     processes = []
@@ -385,6 +395,9 @@ def main():
             if args.barracks_production:
                 (data_dir / "plugin/barracks-production-camera.js").write_text(
                     (ROOT / "scripts/barracks-production-camera.js").read_text())
+            if args.medic_vulture_probe:
+                (data_dir / "plugin/medic-vulture-camera.js").write_text(
+                    (ROOT / "scripts/medic-vulture-camera.js").read_text())
             if args.barracks_training_probe and name == "client-a":
                 probe = "live-barracks-training-probe.js"
                 (data_dir / "plugin" / probe).write_text(
@@ -394,6 +407,10 @@ def main():
                 (data_dir / "plugin/firebat-capture-audit.js").write_text(
                     ("var STARCOASTER_FIREBAT_CAPTURE_DRIVER = true;\n" if name == "client-a" else "")
                     + (ROOT / "scripts/firebat-capture-audit.js").read_text())
+            if args.medic_vulture_probe and name == "client-a":
+                (data_dir / "plugin/live-medic-vulture-probe.js").write_text(
+                    "var STARCOASTER_CAPTURE_NEXT_TECH = true;\n"
+                    + (ROOT / "scripts/live-medic-vulture-probe.js").read_text())
             if args.marine_screen_probe and name == "client-a":
                 (data_dir / "plugin/marine-screen-probe.js").write_text(
                     (ROOT / "scripts/marine-screen-probe.js").read_text())
@@ -591,6 +608,12 @@ def main():
         mt_zoomed = False
         mt_samples = set()
         barracks_samples = set()
+        next_unit_samples = set()
+        next_wave_clicked = False
+        next_heal_at = None
+        next_flame_at = None
+        next_heal_samples = set()
+        next_flame_samples = set()
         trained_marine_selected = False
         captured_firebat_actor = False
         selected_mixed_firebat = False
@@ -626,7 +649,7 @@ def main():
                                    env=env | {"DISPLAY": ":91"}, check=True)
                     time.sleep(0.5)
                     firebat_shot("mixed-selected")
-                    selections = re.findall(r"RTS Bridge selected Marines=([^'\r\n]+)",
+                    selections = re.findall(r"RTS Bridge selected units=([^'\r\n]+)",
                                             (out / "client-a.log").read_text(errors="replace"))
                     if not selections or not set(ids.split(",")).issubset(set(selections[-1].split(","))):
                         raise RuntimeError("graphical box selection missed the mixed squad")
@@ -772,6 +795,47 @@ def main():
                             recorder.event("barracks_training_screenshot", client=name,
                                            second=point, filename=filename)
                     barracks_samples.add(point)
+            if args.medic_vulture_probe:
+                elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
+                driver_now = (out / "client-a.log").read_text(errors="replace")
+                if not next_wave_clicked and "NEXT_PROBE_FIREBAT id=" in driver_now:
+                    subprocess.run(["xdotool", "mousemove", "48", "244", "click", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    next_wave_clicked = True
+                    if recorder:
+                        recorder.event("medic_vulture_manual_wave", client="client-a")
+                if next_heal_at is None and ("NEXT_PROBE_HEAL_ORDER accepted=true" in driver_now
+                                             or "NEXT_PROBE_HEAL_VISUAL medic=" in driver_now):
+                    next_heal_at = time.monotonic()
+                if next_flame_at is None and re.search(
+                        r",attack,\d+,terran_firebat,\d+,\d+,\d+,[1-9]", driver_now):
+                    next_flame_at = time.monotonic()
+                for kind, started, samples in (("heal", next_heal_at, next_heal_samples),
+                                               ("flame", next_flame_at, next_flame_samples)):
+                    if started is None:
+                        continue
+                    for frame in range(16):
+                        if frame in samples or time.monotonic() - started < frame * 0.35:
+                            continue
+                        for name, display in displays:
+                            filename = f"{name}-{kind}-frame{frame:02d}.png"
+                            subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                           env=env | {"DISPLAY": display}, check=True)
+                            if recorder:
+                                recorder.event("native_effect_screenshot", client=name,
+                                               effect=kind, frame=frame, filename=filename)
+                        samples.add(frame)
+                for point in (5, 20, 40, 60, 85, 110, 140, 170):
+                    if elapsed < point or point in next_unit_samples:
+                        continue
+                    for name, display in displays:
+                        filename = f"{name}-medic-vulture-t{point}.png"
+                        subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                       env=env | {"DISPLAY": display}, check=True)
+                        if recorder:
+                            recorder.event("medic_vulture_screenshot", client=name,
+                                           second=point, filename=filename)
+                    next_unit_samples.add(point)
             if args.navigation_baseline and recorder:
                 elapsed = time.monotonic() - recorder.start_monotonic
                 for point in sorted(baseline_samples - captured_baseline_samples):
@@ -827,7 +891,7 @@ def main():
                   "outcome": "defeat" if "outcome=defeat" in snapshot else "victory" if "outcome=victory" in snapshot else None,
                   "demolitions": snapshot.count("WORLD_REMOVAL id="),
                   "client_snapshots": [text.count("RTS Bridge apply tick=") for text in client_logs],
-                  "client_selection": "selected Marines=openbw:" in client_logs[0],
+                  "client_selection": "selected units=openbw:" in client_logs[0],
                   "accepted_marine_order": "accepted=true reason=ok" in client_logs[0],
                   "marine_attack_frames": client_logs[0].count(",attack,112,terran_marine,"),
                   "video_layout": None if args.no_video else args.video_layout,
@@ -864,7 +928,7 @@ def main():
                     and (out / "barracks-training-requested.png").is_file(),
                 "marine_completed_and_moved": "BARRACKS_TRAIN_PROBE_MARINE id=" in client_logs[0]
                     and "BARRACKS_TRAIN_PROBE_MOVE accepted=true" in client_logs[0]
-                    and "selected Marines=openbw:" in client_logs[0]
+                    and "selected units=openbw:" in client_logs[0]
                     and (out / "trained-marine-selected.png").is_file()
                     and (out / "park-interface-open.png").is_file(),
                 "animation_visible_on_both_clients": all(len(set(frames)) >= 2
@@ -906,6 +970,39 @@ def main():
                     and (out / "client-a-firebat-requires-academy-again.png").is_file(),
             }
             detailed["academy_firebat_probe"] = {"checks": checks}
+            detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
+            detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
+        if args.medic_vulture_probe:
+            driver = client_logs[0]
+            checks = {
+                "buildings_confirmed": all(f"type={kind} hp={hp}" in snapshot
+                    for kind, hp in (("Terran_Barracks", 1000), ("Terran_Factory", 1250),
+                                     ("Terran_Supply_Depot", 500), ("Terran_Academy", 600))),
+                "native_medic_and_vulture_training": bool(re.search(
+                    r"accepted=1.*unit_type=terran_medic gas=225", snapshot))
+                    and bool(re.search(r"accepted=1.*unit_type=terran_vulture gas=225", snapshot)),
+                "new_actors_bound": "NEXT_PROBE_ACTORS ids=" in driver
+                    and "NEXT_PROBE_MIXED_MOVE accepted=true" in driver,
+                "firebat_completed_and_ordered": "NEXT_PROBE_FIREBAT id=" in driver
+                    and "NEXT_PROBE_COMBAT_ORDER accepted=true" in driver,
+                "native_medic_heal_visible": "NEXT_PROBE_HEAL_VISUAL medic=" in driver
+                    and "[medic-capture] damaged firebat=" in snapshot,
+                "manual_wave_clicked": next_wave_clicked,
+                "both_clients_rendered": all(
+                    all(kind in text for kind in ("terran_medic", "terran_vulture", "terran_firebat"))
+                    for text in client_logs),
+                "sampled_both_clients": len(next_unit_samples) == 8 and all(
+                    (out / f"client-{letter}-medic-vulture-t{point}.png").is_file()
+                    for letter in "ab" for point in next_unit_samples),
+                "heal_and_flame_frames": len(next_heal_samples) == 16
+                    and len(next_flame_samples) == 16
+                    and all((out / f"client-{letter}-{kind}-frame{frame:02d}.png").is_file()
+                            for letter in "ab" for kind in ("heal", "flame")
+                            for frame in range(16)),
+            }
+            detailed["medic_vulture_probe"] = {"checks": checks,
+                                                "sample_seconds": sorted(next_unit_samples)}
             detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
             detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
             (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
@@ -956,7 +1053,7 @@ def main():
         if args.marine_screen_probe:
             projected = re.findall(r"MARINE_SCREEN_PROBE rotation=(\d) zoom=(-?\d+) z=(\d+)"
                                    r" x=(-?\d+) y=(-?\d+) tool=([a-z0-9.-]+)", client_logs[0])
-            selected = re.findall(r"RTS Bridge selected Marines=([^'\x1b\r\n]+)", client_logs[0])
+            selected = re.findall(r"RTS Bridge selected units=([^'\x1b\r\n]+)", client_logs[0])
             marines = {f"openbw:{number}" for number in range(1000, 1005)}
             checks = {"four_rotations_and_zooms": len(projected) == 4
                       and [int(row[0]) for row in projected] == [0, 1, 2, 3]

@@ -42,9 +42,14 @@ class SpriteRegistryTests(unittest.TestCase):
         self.assertEqual((flame["frame_count"], flame["canvas"], len(flame["frames"])),
                          (221, [224, 224], 56))
         self.assertEqual(flame["frames"]["burst6_east.png"]["source_frame"], 12 * 17 + 8)
+        self.assertEqual(flame["fire_remap"], {
+            "source": "Tileset/Badlands/ofire.pcx", "background_index": 220,
+            "modifier": 9, "color_shift": 1})
         with Image.open(FLAME_MANIFEST.parent / "burst0_east.png") as first, \
                 Image.open(FLAME_MANIFEST.parent / "burst3_east.png") as middle:
             self.assertNotEqual(first.size, middle.size)
+            self.assertTrue(any(red > green > blue and red >= 170
+                                for red, green, blue, alpha in middle.getdata() if alpha))
 
     @unittest.skipUnless(FIREBAT_MANIFEST.is_file(), "local Firebat art has not been prepared")
     def test_firebat_uses_its_classic_direction_banks_and_death_effect(self):
