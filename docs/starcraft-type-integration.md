@@ -93,8 +93,45 @@ scripts/project.sh record --scenario mt-zergling --armory-goliath-probe --durati
 ```
 
 Inspect the rendered frames and `verification.json` before claiming graphical
-success. The current scenario format still has Marine reinforcement and
-Zergling wave restrictions. Air movement, transport, siege and morph modes,
+success. Version 2 finite wave groups accept registered spawnable ground Zerg
+enemies. `park_defense.wave_tiers` selects the highest `from_wave` threshold
+for each durable wave sequence; omit it to retain legacy `units_per_wave`
+Zerglings. Every authored group is persisted with its unit type, request IDs,
+placement attempts, and native actor IDs. Manual waves use the same sequence
+without moving the automatic deadline. The legacy
+`all_zerglings_eliminated` outcome field remains accepted, but finite-wave
+victory waits for every living enemy wave actor to die. Restart recovery
+accepts old type-less journals only for an unchanged Zergling-only definition;
+a changed scenario hash or a queue entry with a different type or position
+fails clearly instead of recreating another unit.
+
+Hydralisk and Ultralisk declarations append unit orders 70 and 80 and G2
+banks 7 and 8. The pinned StarCraft image table resolves them to
+`unit/zerg/hydra.grp` (297 frames, 128×128) and `unit/zerg/ultra.grp`
+(265 frames, 128×128). Their independently inspected attack and death banks
+are in the declarations. Local extraction preserves the Ultralisk's 72×58
+idle body compared with the Marine's 21×25 body; the renderer applies no
+Marine-sized rescaling. OpenBW supplies unit dimensions, placement, pathing,
+weapon range, damage, and attack timing. The Go zone filter only proposes
+candidate centers; native placement rejection advances to another candidate.
+The Hydralisk body attack animates, but its projectile is not drawn in
+OpenRCT2 because no generic projectile effect renderer exists.
+
+For a two-client mixed-combat visual audit, run
+`scripts/project.sh record --scenario frontier-outpost --duration 110 --video-layout combined --mixed-zerg-camera`.
+The option creates an ignored test-only park-defense fixture on Frontier's
+existing park, with a short first-wave delay and two camera angles. It leaves
+the packaged Frontier timing and mission rules intact. Inspect the resulting
+`combined.mp4`, screenshots, logs, and `verification.json` under
+`run-data/artifacts/`. The mixed verifier requires matching snapshots, all
+three kinds together, attack and death states, Marine and enemy HP loss, and
+native 10-HP Hydralisk ranged and 20-HP Ultralisk melee damage samples. The
+2026-10-17 capture had 265 matching two-client sequences with no mismatches;
+its damage samples were at snapshot sequences 200 and 229. Those observations
+come from the locally licensed native engines; extracted art and recordings
+remain outside Git.
+
+Air movement, transport, siege and morph modes,
 new spells or effect renderers, resource collection, non-Terran construction,
 Zerg larva production, and multi-producer relationships need separate runtime
 work. The declarations do not implement those mechanics.
