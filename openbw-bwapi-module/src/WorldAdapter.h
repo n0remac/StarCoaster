@@ -35,7 +35,7 @@ class WorldAdapter {
         bool reported = false; std::string lifecycle = "active"; int x = 0, y = 0;
         int desiredHP = 0, healthFrame = 0; };
     struct PendingTarget { std::string id; int x = 0; int y = 0; int health = 0;
-        bool barracks = false; int ownerID = -1;
+        std::string buildingType; int ownerID = -1;
         bool requested = false; int requestedFrame = 0; std::set<int> beforeIDs; };
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
     struct NativeSpawn {
@@ -49,7 +49,7 @@ public:
     void onUnitCreate(BWAPI::Unit unit, int frame) {
         if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
-        if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) return;
+        if (!worldUnitType(type)) return;
         pendingCreations_[unit->getID()] = {unit, frame};
     }
     void onUnitDestroy(BWAPI::Unit unit, int frame) {
@@ -212,8 +212,7 @@ public:
         }
         if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI") && assault_.active(frame)) assaultAI(game);
         for (auto unit:game->getAllUnits()) {
-            if (unit && unit->exists() && (unit->getType()==BWAPI::UnitTypes::Zerg_Zergling
-                || unit->getType()==BWAPI::UnitTypes::Terran_Marine) && unit->isAttackFrame())
+            if (unit && unit->exists() && worldUnitType(unit->getType()) && unit->isAttackFrame())
                 ++attackFrames_[unit->getID()];
         }
         if (frame%3==0) publishActors(game,frame);
@@ -584,7 +583,7 @@ private:
         for (auto unit : game->getAllUnits()) {
             if (!unit || !unit->exists()) continue;
             const auto type = unit->getType();
-            if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) continue;
+            if (!worldUnitType(type)) continue;
             const auto point = unit->getPosition();
             if (point.x < 0 || point.y < 0) continue;
             const size_t index = static_cast<size_t>(point.y / 8) * width + point.x / 8;
@@ -650,7 +649,7 @@ private:
         const auto type = actor.unit->getType();
         return {{"id", "openbw:" + std::to_string(actor.canonical)},
             {"engine", "openbw"},
-            {"type", type == BWAPI::UnitTypes::Terran_Marine ? "terran_marine" : "zerg_zergling"},
+            {"type", worldUnitType(type)->id},
             {"owner", actor.unit->getPlayer()->getID()},
             {"generation", actor.generation}, {"session", session_}};
     }
@@ -674,7 +673,7 @@ private:
         const int index = payload.at("index").get<int>();
         const int x = payload.at("x").get<int>(), y = payload.at("y").get<int>();
         if (requestID.empty() || requestID.size() > 128 || index < 0 || index > 4
-            || (kind != "terran_marine" && kind != "zerg_zergling")) return false;
+            || !worldUnitType(kind)) return false;
         const std::string key = requestID + ":" + std::to_string(index);
         if (auto prior = nativeSpawns_.find(key); prior != nativeSpawns_.end()) {
             const auto& spawn = prior->second;
@@ -686,8 +685,7 @@ private:
         }
         if (!activeSpawn_.empty()) { spawnError_ = "native_spawn_busy"; return false; }
         if (nativeSpawns_.size() >= 4096) { spawnError_ = "native_spawn_history_full"; return false; }
-        const auto type = kind == "terran_marine" ? BWAPI::UnitTypes::Terran_Marine
-            : BWAPI::UnitTypes::Zerg_Zergling;
+        const auto type = worldUnitType(kind)->native;
         int& ownerID = kind == "terran_marine" ? marineOwnerID_ : zergOwnerID_;
         // Resolve the native owner once from the starting roster. Later units
         // of the same type may belong to another player; they do not change
@@ -753,8 +751,7 @@ private:
                 || creation.frame < spawn.issueFrame
                 || !creation.unit->getPlayer() || creation.unit->getPlayer()->getID() != spawn.ownerID) continue;
             const auto type = creation.unit->getType();
-            if ((spawn.unitType == "terran_marine" && type != BWAPI::UnitTypes::Terran_Marine)
-                || (spawn.unitType == "zerg_zergling" && type != BWAPI::UnitTypes::Zerg_Zergling)) continue;
+            if (!worldUnitType(spawn.unitType) || type != worldUnitType(spawn.unitType)->native) continue;
             candidatesByFrame[creation.frame].push_back(native);
         }
         if (candidatesByFrame.empty()) return;
@@ -873,13 +870,13 @@ private:
         for (const auto& id : ids) {
             if (only && !only->count(id)) continue;
             const auto& entity = entities_.at(id);
-            const bool barracks = entity.value("kind", "") == "structure"
-                && entity.value("type", "") == "terran_barracks";
+            const auto* building = entity.value("kind", "") == "structure"
+                ? worldBuildingType(entity.value("type", "")) : nullptr;
             if (!entity.value("destructible", false)) continue;
             if (!entity.at("combat").value("targetable", false)) {
                 reportUnsupported(id, "not_targetable"); continue;
             }
-            if (!enemy && !barracks) { reportUnsupported(id, "no_enemy_player"); continue; }
+            if (!enemy && !building) { reportUnsupported(id, "no_enemy_player"); continue; }
             auto current = targets_.find(id);
             if (current != targets_.end()) {
                 if (current->second.lifecycle == "destroyed_in_openbw") {
@@ -904,7 +901,7 @@ private:
                         const int dy = std::max({y - position.y, 0, position.y - bottom});
                         if (dx + dy <= 48) { nearFootprint = true; break; }
                     }
-                    if ((!barracks && navigation_.blocked(position.x, position.y, 12))
+                    if ((!building && navigation_.blocked(position.x, position.y, 12))
                         || !nearFootprint) {
                         preservedHP_[id] = current->second.unit->getHitPoints();
                         retireTarget(game, id, "controlled_replacement");
@@ -940,13 +937,13 @@ private:
             if (targets_.size() + pending_.size() >= static_cast<size_t>(targetLimit())) {
                 reportUnsupported(id, "configured_target_capacity"); continue;
             }
-            if (!barracks && !findProxyPosition(game, x, y)) {
+            if (!building && !findProxyPosition(game, x, y)) {
                 reportUnsupported(id, "no_valid_proxy_position"); continue;
             }
             const int health = preservedHP_.count(id) ? preservedHP_.at(id)
                 : entity.at("combat").value("health", 40);
-            pending_.push_back({id, x, y, health, barracks,
-                barracks ? entity.value("owner", -1) : -1});
+            pending_.push_back({id, x, y, health, building ? building->id : "",
+                building ? entity.value("owner", -1) : -1});
         }
         std::cerr << "[world] requested targets=" << pending_.size()
                   << " unsupported=" << unsupportedTotal_ << std::endl;
@@ -962,9 +959,9 @@ private:
             BWAPI::Unit found = nullptr;
             for (auto unit : game->getAllUnits()) {
                 if (!unit || !unit->exists() || !unit->getPlayer()
-                    || (pending.barracks
+                    || (!pending.buildingType.empty()
                         ? unit->getPlayer()->getID() != pending.ownerID
-                            || unit->getType() != BWAPI::UnitTypes::Terran_Barracks
+                            || unit->getType() != worldBuildingType(pending.buildingType)->native
                         : unit->getPlayer() != enemy
                             || unit->getType() != BWAPI::UnitTypes::Terran_Civilian)
                     || pending.beforeIDs.count(unit->getID()) || usedUnits_.count(unit->getID())) continue;
@@ -978,7 +975,7 @@ private:
                 pending_.erase(pending_.begin() + index);
             } else if (game->getFrameCount() - pending.requestedFrame >= 12) {
                 if (!pending.id.empty()) reportUnsupported(pending.id,
-                    pending.barracks ? "native_barracks_not_created" : "proxy_not_created");
+                    !pending.buildingType.empty() ? "native_building_not_created" : "proxy_not_created");
                 pending_.erase(pending_.begin() + index);
             } else ++index;
         }
@@ -996,13 +993,13 @@ private:
                 });
             if (nearbyRequest) { ++index; continue; }
             BWAPI::Player owner = enemy;
-            if (pending.barracks) {
+            if (!pending.buildingType.empty()) {
                 owner = nullptr;
                 for (auto player : game->getPlayers())
                     if (player && player->getID() == pending.ownerID
-                        && player->getRace() == BWAPI::Races::Terran) owner = player;
+                        && player->getRace() == worldBuildingType(pending.buildingType)->native.getRace()) owner = player;
                 if (!owner) {
-                    reportUnsupported(pending.id, "native_barracks_owner_unavailable");
+                    reportUnsupported(pending.id, "native_building_owner_unavailable");
                     pending_.erase(pending_.begin() + index);
                     continue;
                 }
@@ -1010,7 +1007,7 @@ private:
                 int matches = 0;
                 for (auto unit : game->getAllUnits()) {
                     if (!unit || !unit->exists() || unit->getPlayer() != owner
-                        || unit->getType() != BWAPI::UnitTypes::Terran_Barracks
+                        || unit->getType() != worldBuildingType(pending.buildingType)->native
                         || usedUnits_.count(unit->getID())) continue;
                     const auto position = unit->getPosition();
                     if (std::abs(position.x - pending.x) <= 16
@@ -1019,7 +1016,7 @@ private:
                     }
                 }
                 if (matches > 1) {
-                    reportUnsupported(pending.id, "ambiguous_native_barracks");
+                    reportUnsupported(pending.id, "ambiguous_native_building");
                     pending_.erase(pending_.begin() + index);
                     continue;
                 }
@@ -1034,8 +1031,8 @@ private:
             pending.requested = true;
             pending.requestedFrame = game->getFrameCount();
             auto immediate = owner
-                ? game->createUnit(owner, pending.barracks
-                    ? BWAPI::UnitTypes::Terran_Barracks : BWAPI::UnitTypes::Terran_Civilian,
+                ? game->createUnit(owner, !pending.buildingType.empty()
+                    ? worldBuildingType(pending.buildingType)->native : BWAPI::UnitTypes::Terran_Civilian,
                     {pending.x, pending.y})
                 : nullptr;
             if (immediate) {
@@ -1163,7 +1160,8 @@ private:
         for (auto unit:game->getAllUnits()) {
             if (!unit || !unit->exists()) continue;
             const auto type=unit->getType();
-            if (type!=BWAPI::UnitTypes::Zerg_Zergling && type!=BWAPI::UnitTypes::Terran_Marine) continue;
+            const auto* definition = worldUnitType(type);
+            if (!definition) continue;
             ++total;
             observed.insert(unit->getID());
             if (units.size()>=256) continue;
@@ -1179,7 +1177,7 @@ private:
             if (target) for (const auto& [id,combat]:targets_)
                 if (combat.proxyID==target->getID()) { targetEntity=id; break; }
             json actor={{"id",actorID},
-                {"kind",type==BWAPI::UnitTypes::Zerg_Zergling?"zerg_zergling":"terran_marine"},
+                {"kind",definition->id},
                 {"owner",unit->getPlayer()?unit->getPlayer()->getID():0},
                 {"x",position.x},{"y",position.y},{"facing",facing},
                 {"motion",unit->isAttacking()?"attack":unit->isMoving()?"walk":"idle"},

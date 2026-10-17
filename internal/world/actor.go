@@ -78,11 +78,16 @@ func decodeActorPayload(raw json.RawMessage, value any) error {
 func (identity ActorIdentity) Validate(session string) error {
 	if identity.Session != session || !identifier.MatchString(identity.Session) ||
 		!actorID.MatchString(identity.ID) || identity.Engine != "openbw" ||
-		(identity.Type != "terran_marine" && identity.Type != "zerg_zergling") ||
+		!supportedActorType(identity.Type) ||
 		identity.Owner < 0 || identity.Owner > 15 || identity.Generation == 0 {
 		return errors.New("invalid actor identity or session")
 	}
 	return nil
+}
+
+func supportedActorType(id string) bool {
+	_, ok := SupportedUnit(id)
+	return ok
 }
 
 func (binding ActorBinding) Validate(session string) error {

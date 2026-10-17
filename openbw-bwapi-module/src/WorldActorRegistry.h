@@ -1,6 +1,7 @@
 #pragma once
 
 #include <BWAPI.h>
+#include "WorldStarcraftTypes.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -26,8 +27,11 @@ public:
         std::vector<BWAPI::Unit> marines, zerglings;
         for (auto unit : game->getAllUnits()) {
             if (!unit || !unit->exists() || runtimeCandidates.count(unit->getID())) continue;
-            if (unit->getType() == BWAPI::UnitTypes::Terran_Marine) marines.push_back(unit);
-            else if (unit->getType() == BWAPI::UnitTypes::Zerg_Zergling) zerglings.push_back(unit);
+            const auto* type = worldUnitType(unit->getType());
+            if (!type) continue;
+            // Preserve the original positional identity groups for saved games.
+            if (std::string(type->id) == "terran_marine") marines.push_back(unit);
+            else if (std::string(type->id) == "zerg_zergling") zerglings.push_back(unit);
         }
         const auto byPosition = [](BWAPI::Unit a, BWAPI::Unit b) {
             const auto x = a->getPosition(), y = b->getPosition();
@@ -62,8 +66,7 @@ public:
     bool registerRuntime(BWAPI::Unit unit, int canonical, uint64_t generation, int creationFrame) {
         if (!prepared_ || !unit || !unit->exists() || canonical < 3000 || generation == 0
             || creationFrame < 1 || known(unit) || canonicalToUnit_.count(canonical)
-            || (unit->getType() != BWAPI::UnitTypes::Terran_Marine
-                && unit->getType() != BWAPI::UnitTypes::Zerg_Zergling)) return false;
+            || !unit->isCompleted() || !worldUnitType(unit->getType())) return false;
         canonicalToUnit_[canonical] = unit;
         localToCanonical_[unit->getID()] = canonical;
         runtime_[canonical] = {canonical, unit, generation, creationFrame};

@@ -32,7 +32,7 @@ public:
     void onUnitCreate(BWAPI::Unit unit, int frame) {
         if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
-        if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) return;
+        if (!worldUnitType(type)) return;
         creationCandidates_[unit->getID()] = {unit, frame};
         std::vector<std::string> pending;
         for (const auto& [id, binding] : publisherBindings_) pending.push_back(id);
@@ -235,9 +235,8 @@ private:
                 || !candidate.unit->isCompleted()
                 || !candidate.unit->getPlayer()
                 || candidate.unit->getPlayer()->getID() != identity.value("owner", -1)) continue;
-            const auto kind = candidate.unit->getType() == BWAPI::UnitTypes::Terran_Marine
-                ? "terran_marine" : "zerg_zergling";
-            if (identity.value("type", "") != kind) continue;
+            const auto* type = worldUnitType(candidate.unit->getType());
+            if (!type || identity.value("type", "") != type->id) continue;
             match = candidate.unit; ++matches;
         }
         if (matches != 1) {
@@ -696,7 +695,7 @@ private:
         for (auto unit : game->getAllUnits()) {
             if (!unit || !unit->exists()) continue;
             const auto type = unit->getType();
-            if (type != BWAPI::UnitTypes::Terran_Marine && type != BWAPI::UnitTypes::Zerg_Zergling) continue;
+            if (!worldUnitType(type)) continue;
             const auto point = unit->getPosition();
             if (point.x < 0 || point.y < 0) continue;
             const size_t index = static_cast<size_t>(point.y / 8) * width + point.x / 8;
