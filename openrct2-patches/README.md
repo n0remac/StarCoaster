@@ -23,4 +23,4 @@ search for unit selection. Alt bypasses unit input for overlapping park entities
 `0001-native-bridge.patch` includes the same changes for clean checkouts. The
 patch reconciler verifies the final native code and preserves unrelated local edits.
 
-The native compatibility version is 4 and the asset version is 3. Older bridge clients are rejected by the plugin. Local art is installed with `BRIDGE_SPRITE_SOURCE=starcraft-local`; the public `alien-scout` build uses original open art and a CC0 Marine placeholder.
+The native compatibility version is 4 and the asset version is 3. Older bridge clients are rejected by the plugin. `BRIDGE_SPRITE_SOURCE=starcraft-local` installs local StarCraft unit art; `alien-scout` uses original open unit art and a CC0 Marine placeholder. Barracks scenery art is generated locally from the player's StarCraft data in either mode.
