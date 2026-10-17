@@ -112,7 +112,7 @@ assert.equal(action.query({ player: 1, args: catalog }).error, undefined);
 action.execute({ player: 1, args: catalog });
 info.desc.onUpdate();
 assert.equal(info.findWidget('building-health').text, 'Health: 76');
-assert.equal(info.findWidget('building-identity').text, targetID);
+assert.equal(info.findWidget('building-identity').text, 'Identity: awaiting native state');
 const damaged = { ...catalog, version: 2, targets: [{ ...catalog.targets[0], health: 43 }] };
 assert.equal(action.query({ player: 1, args: damaged }).error, undefined);
 action.execute({ player: 1, args: damaged });
@@ -142,6 +142,7 @@ assert.equal(buildingAnimations.at(-1).tiles.length, 0, 'demolition removes trai
 action.execute({ player: 1, args: { ...catalog, version: 4 } });
 info.desc.onUpdate();
 assert.equal(info.findWidget('building-health').text, 'Health: 1000/1000');
+assert.equal(info.findWidget('building-identity').text, 'Native: openbw:8  Generation: 1');
 assert.match(info.findWidget('building-queue').text, /Queue: 1/);
 assert.equal(info.findWidget('building-train').isDisabled, false);
 assert.equal(info.findWidget('building-train-terran_firebat').isDisabled, true);
@@ -224,7 +225,7 @@ buildingAction.execute({ player: 1, args: { ...nativeState, id: academyID,
     remaining_frames: 0, availability: {} } });
 academyInfo.desc.onUpdate();
 assert.equal(academyInfo.findWidget('building-health').text, 'Health: 600/600');
-assert.equal(academyInfo.findWidget('building-identity').text, academyID);
+assert.equal(academyInfo.findWidget('building-identity').text, 'Native: openbw:9  Generation: 1');
 assert.equal(academyInfo.findWidget('building-status').text, 'Construction: complete');
 assert.equal(academyInfo.findWidget('building-queue'), undefined);
 assert.equal(academyInfo.findWidget('building-train'), undefined);
