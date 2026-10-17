@@ -120,7 +120,8 @@ class EntityDeclarationTests(unittest.TestCase):
         g2.write_text(extended)
         paths = [entry["path"] for entry in json.loads(extended)]
         self.assertEqual(paths[:len(BASELINE["sprite_paths"])], BASELINE["sprite_paths"])
-        self.assertGreater(paths.index("bridge/ghost/idle0_east.png"), len(BASELINE["sprite_paths"]) - 1)
+        self.assertEqual(paths.index("bridge/ghost/idle0_east.png"), len(BASELINE["sprite_paths"]))
+        self.assertEqual(len(paths) - len(BASELINE["sprite_paths"]), 67)
         registry = module(self.root / "scripts/generate-starcraft-visual-registry.py", "fixture_registry")
         paint = self.root / "upstream/openrct2/src/openrct2/paint"
         paint.mkdir(parents=True)
@@ -151,6 +152,7 @@ class EntityDeclarationTests(unittest.TestCase):
         with zipfile.ZipFile(destination) as archive:
             definition = json.loads(archive.read("object.json"))
             self.assertEqual(definition["id"], starport["object_id"])
+            self.assertEqual(definition["strings"]["name"]["en-GB"], "Terran Starport")
             self.assertEqual(len(definition["properties"]["tiles"]), 12)
             self.assertEqual(len(definition["images"]), 4 + 12 * 4)
         self.run_generator("--check")

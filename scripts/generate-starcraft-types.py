@@ -271,6 +271,8 @@ def validate_entities(entities, root=ROOT):
             base = entity["legacy_static_base"]
             if type(base) is not int or base < 0 or (base and (base % 1000 or base >= 3000)):
                 raise ValueError(f"{label}: legacy_static_base: invalid legacy actor base")
+            if ident not in PINNED_UNITS and base != 0:
+                raise ValueError(f"{label}: legacy_static_base: new runtime units must use 0")
             _fields(profile, {"asset", "g2_order", "source", "stride", "animations",
                               "health_offset", "bounds"}, UNIT_VISUAL_FIELDS -
                     {"asset", "g2_order", "source", "stride", "animations", "health_offset", "bounds"},
