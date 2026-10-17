@@ -60,11 +60,24 @@ def main():
             f"--openrct2-data-path={game_data}", f"--user-data-path={client}"],
             cwd=ROOT, env=env, stdout=client_log, stderr=subprocess.STDOUT, start_new_session=True)
         processes.append(player)
-        deadline = time.monotonic() + 130
+        deadline = time.monotonic() + 240
         while time.monotonic() < deadline:
             source = (run / "client.log").read_text(errors="replace")
             journal_path = run / "spawns.json.scenario.json"
             journal = json.loads(journal_path.read_text()) if journal_path.is_file() else {}
+            waves = journal.get("waves") or []
+            third = next((wave for wave in waves if wave.get("sequence") == 3), None)
+            sixth = next((wave for wave in waves if wave.get("sequence") == 6), None)
+            hydralisks = [unit for unit in (third or {}).get("units", [])
+                          if unit.get("unit_type") == "zerg_hydralisk"]
+            ultralisks = [unit for unit in (sixth or {}).get("units", [])
+                          if unit.get("unit_type") == "zerg_ultralisk"]
+            hydra_bound = any(unit.get("actor_id") and re.search(
+                re.escape(unit["actor_id"]) + r",[^;\n]*,zerg_hydralisk,\d+,\d+,0,", source)
+                for unit in hydralisks)
+            ultra_bound = any(unit.get("actor_id") and re.search(
+                re.escape(unit["actor_id"]) + r",[^;\n]*,zerg_ultralisk,\d+,\d+,0,", source)
+                for unit in ultralisks)
             starts = {id: (int(x), int(y)) for id, x, y in re.findall(
                 r"MT_GAMEPLAY_ZERG_START id=(\S+) x=(\d+) y=(\d+)", source)}
             moves = {id: (int(x), int(y)) for id, x, y in re.findall(
@@ -82,7 +95,8 @@ def main():
                 inward["south"] |= y >= 187 * 32 and y - my >= 64
                 inward["west"] |= x <= 14 * 32 and mx - x >= 64
                 inward["east"] |= x >= 187 * 32 and x - mx >= 64
-            if journal.get("total_triggered", 0) >= 4 and all(edges.values()) and all(inward.values()):
+            if journal.get("total_triggered", 0) >= 6 and all(edges.values()) \
+                    and all(inward.values()) and hydra_bound and ultra_bound:
                 break
             if player.poll() is not None or session.poll() is not None:
                 raise RuntimeError("native session stopped before gameplay checks")
@@ -91,10 +105,16 @@ def main():
                   "ride_create": "MT_GAMEPLAY_RIDECREATE accepted=true" in source,
                   "ride_place": "MT_GAMEPLAY_TRACKPLACE accepted=true" in source,
                   "operator_group": "PARK_OPERATOR_GROUP player=" in (run / "session.log").read_text(errors="replace"),
-                  "four_manual_waves": journal.get("total_triggered", 0) >= 4,
+                  "six_manual_waves": journal.get("total_triggered", 0) >= 6,
+                  "manual_wave_status_confirmed": len(set(re.findall(
+                      r"MT_GAMEPLAY_WAVE_STATUS request=\S+ accepted=true wave=(\S+) reason=", source))) >= 6,
                   "four_edge_starts": all(edges.values()), "four_edge_inward_routes": all(inward.values())}
+        checks["tier_three_native_hydralisk"] = len(hydralisks) == 2 and hydra_bound
+        checks["tier_six_native_ultralisk"] = len(ultralisks) == 1 and ultra_bound
         (run / "verification.json").write_text(json.dumps({"checks": checks,
-            "edge_starts": edges, "inward_routes": inward}, indent=2) + "\n")
+            "edge_starts": edges, "inward_routes": inward,
+            "wave_sequences": [(wave["id"], wave.get("sequence"), wave.get("composition"))
+                               for wave in waves]}, indent=2) + "\n")
         print(json.dumps({"run": str(run), "checks": checks}, indent=2))
         if not all(checks.values()):
             raise AssertionError(f"failed gameplay checks: {checks}")

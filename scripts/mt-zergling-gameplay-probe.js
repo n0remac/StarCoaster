@@ -4,7 +4,17 @@ registerPlugin({ name: "Mt. Zergling Gameplay Probe", version: "1.0.0", authors:
     main: function () {
         if (network.mode !== "client") return;
         let opened = false, built = false, waveCount = 0, nextWaveAt = 0;
+        const confirmedWaves = {};
         const first = {}, moved = {};
+        context.subscribe("action.execute", function (event) {
+            if (event.action !== "rtsbridge.waveStatus" || !event.args
+                || !event.result || event.result.error) return;
+            const status = event.args;
+            if (status.accepted && status.wave_id) confirmedWaves[status.wave_id] = true;
+            console.log("MT_GAMEPLAY_WAVE_STATUS request=" + status.request_id
+                + " accepted=" + status.accepted + " wave=" + status.wave_id
+                + " reason=" + status.reason);
+        });
         function buildRide() {
             const entry = objectManager.getAllObjects("ride").find(function (item) {
                 return item.identifier === "rct2.ride.burgb";
@@ -43,7 +53,7 @@ registerPlugin({ name: "Mt. Zergling Gameplay Probe", version: "1.0.0", authors:
             }
             if (!built) { built = true; buildRide(); }
             const now = Date.now();
-            if (waveCount < 8 && now >= nextWaveAt) {
+            if (Object.keys(confirmedWaves).length < 6 && waveCount < 24 && now >= nextWaveAt) {
                 waveCount++;
                 nextWaveAt = now + 6000;
                 const request = waveCount;
