@@ -57,6 +57,35 @@ mismatches. The recording driver issued the same authenticated training action
 as the Factory button; the button itself was exercised by the JavaScript UI
 test, not by a mouse click in the video.
 
+The specialized live commands passed individually after the harness fixes:
+
+- `tests/test_barracks_production_live.sh`,
+  `tests/test_barracks_save_load_live.sh`,
+  `tests/test_barracks_bridge_restart_live.sh`, and
+  `tests/test_barracks_overlap_live.sh`.
+- `tests/test_academy_construction_live.sh`,
+  `tests/test_academy_overlap_live.sh`,
+  `tests/test_academy_save_load_live.sh`, and
+  `tests/test_academy_bridge_restart_live.sh`.
+- `tests/test_firebat_production_live.sh`,
+  `tests/test_firebat_splash_live.sh`,
+  `tests/test_firebat_academy_count_live.sh`,
+  `tests/test_firebat_bridge_restart_live.sh`,
+  `tests/test_firebat_insufficient_gas_live.sh`, and
+  `tests/test_firebat_native_tech_live.sh`.
+- `tests/test_medic_vulture_native_live.sh`,
+  `tests/test_medic_vulture_gameplay_live.sh`,
+  `tests/test_actor_lifecycle_live.sh`, and
+  `tests/test_goliath_native_live.sh`.
+
+Their per-command logs and the initial failures are under
+`run-data/type-expansion-regressions/`; final passing Firebat and actor
+lifecycle artifacts are listed in the table. `scripts/project.sh
+test-live-construction` completed all 15 construction regressions with exit
+code zero. The final `scripts/project.sh test` rerun passed after all test
+changes. JavaScript and Python syntax checks for the new recording/probe
+scripts also passed.
+
 The first graphical capture exposed a probe timing race before the Factory's
 native state reached the plugin. A later recording process was interrupted
 before finalization. The synchronized-state gate fixed the timing race, and
@@ -66,6 +95,11 @@ Vulture native script was missing its executable bit. The actor lifecycle
 checker assumed the second client always saw the pre-spawn roster, although a
 late join can begin at seven units. Those test harness issues were fixed and
 all three checks passed on rerun.
+
+An initial OpenRCT2 build was interrupted by edits to a patch source while
+the linker ran; the clean rebuild and later `project.sh build` both passed.
+Early headless Armory/Goliath probe revisions failed their checker before the
+final synchronized-state and whole-wave damage checks passed twice.
 
 ## Current limits
 
