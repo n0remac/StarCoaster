@@ -794,8 +794,12 @@ private:
                 shape.width(), shape.height()});
         }
         if (!starcoaster::validSpawnPlacement(navigation_, position.x, position.y,
+                game->mapWidth(), game->mapHeight(), halfWidth, halfHeight, {})) {
+            spawnError_ = "invalid_native_position"; return false;
+        }
+        if (!starcoaster::validSpawnPlacement(navigation_, position.x, position.y,
                 game->mapWidth(), game->mapHeight(), halfWidth, halfHeight, occupied)) {
-            spawnError_ = "invalid_or_occupied_native_position"; return false;
+            spawnError_ = "occupied"; return false;
         }
         for (int sy : {position.y - halfHeight, position.y, position.y + halfHeight})
             for (int sx : {position.x - halfWidth, position.x, position.x + halfWidth})
@@ -1220,9 +1224,12 @@ private:
                 if (id == assault_.objectiveID()) objective = target.unit;
             }
         }
-        for (auto unit : game->getAllUnits())
-            if (unit && unit->exists() && unit->getType() == BWAPI::UnitTypes::Terran_Marine)
+        for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists() || unit->getPlayer() == game->self()) continue;
+            const auto* kind = worldUnitType(unit->getType());
+            if (kind && std::string(kind->ownership) == "player" && unit->getType().canAttack())
                 alternatives.push_back(unit);
+        }
         assault_.step(game, objective, alternatives);
     }
     void reportUnsupported(const std::string& id,const std::string& reason) {

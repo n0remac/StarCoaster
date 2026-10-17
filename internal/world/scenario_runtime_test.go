@@ -192,11 +192,15 @@ func TestMixedWaveIntentRecoveryAndDeath(t *testing.T) {
 	}
 	r.Trigger(s)
 	q := NewSpawnQueue("session-a", 64)
+	requests := make([]SpawnRequest, 3)
 	for i, kind := range []string{"zerg_zergling", "zerg_hydralisk", "zerg_ultralisk"} {
 		request := r.Intent(0, i, Point{X: 100 + i*32, Y: 100})
 		if request.UnitType != kind {
 			t.Fatalf("intent %d: %s", i, request.UnitType)
 		}
+		requests[i] = request
+	}
+	for _, request := range []SpawnRequest{requests[1], requests[0], requests[2]} {
 		if _, err := q.Submit("session-a", request); err != nil {
 			t.Fatal(err)
 		}
@@ -226,34 +230,36 @@ func TestMixedWaveIntentRecoveryAndDeath(t *testing.T) {
 		t.Fatal(err)
 	}
 	recovered.Reconcile(q, nil, nil)
-	if retry := recovered.Intent(0, 0, Point{X: 200, Y: 100}); retry.UnitType != "zerg_zergling" || retry.RequestID == first.RequestID {
+	retry := recovered.Intent(0, 1, Point{X: 200, Y: 100})
+	if retry.UnitType != "zerg_hydralisk" || retry.RequestID == first.RequestID {
 		t.Fatalf("retry changed identity: %+v", retry)
 	}
-	for i := 1; i < 3; i++ {
-		req := recovered.Waves[0].Units[i].Attempts[0]
-		for {
-			next, ok := q.Next()
-			if !ok {
-				t.Fatal("missing queued request")
-			}
-			if err := q.Issue(next); err != nil {
-				t.Fatal(err)
-			}
-			if next.RequestID == req.RequestID {
-				actor := "openbw:" + string(rune('1'+i))
-				if err := q.Created(req.RequestID, 0, actor, req.X, req.Y); err != nil {
-					t.Fatal(err)
-				}
-				if err := q.Ready(req.RequestID, 0, actor); err != nil {
-					t.Fatal(err)
-				}
-				break
-			}
+	if _, err := q.Submit("session-a", retry); err != nil {
+		t.Fatal(err)
+	}
+	for i, request := range []SpawnRequest{requests[0], requests[2], retry} {
+		next, ok := q.Next()
+		if !ok || next.RequestID != request.RequestID {
+			t.Fatalf("queue order: %+v", next)
+		}
+		if err := q.Issue(next); err != nil {
+			t.Fatal(err)
+		}
+		actor := "openbw:" + string(rune('1'+i))
+		if err := q.Created(request.RequestID, 0, actor, request.X, request.Y); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.Ready(request.RequestID, 0, actor); err != nil {
+			t.Fatal(err)
 		}
 	}
-	recovered.Reconcile(q, map[string]bool{"openbw:2": true, "openbw:3": true}, nil)
+	recovered.Reconcile(q, map[string]bool{"openbw:1": true, "openbw:2": true, "openbw:3": true}, nil)
 	if recovered.Waves[0].State == "cleared" {
 		t.Fatal("living mixed enemies cleared wave")
+	}
+	recovered.Reconcile(q, nil, map[string]bool{"openbw:1": true, "openbw:2": true, "openbw:3": true})
+	if !recovered.AllWavesCleared() {
+		t.Fatal("mixed wave did not clear after all native deaths")
 	}
 	// A missing unit type can only be recovered from an unchanged Zergling group.
 	recovered.Waves[0].Units[1].UnitType = ""

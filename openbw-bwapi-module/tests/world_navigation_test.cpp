@@ -40,6 +40,13 @@ int main() {
     assert(!validSpawnPlacement(navigation, 252, 160, 8, 8, 9, 9, {}));
     navigation.upsert("new-wall", {{152, 152, 16, 16}});
     assert(!validSpawnPlacement(navigation, first.x, first.y, 8, 8, 9, 9, {}));
+    navigation.remove("new-wall");
+    navigation.upsert("large-only-wall", {{180, 152, 16, 16}});
+    assert(validSpawnPlacement(navigation, first.x, first.y, 8, 8, 9, 9, {}));
+    assert(!validSpawnPlacement(navigation, first.x, first.y, 8, 8, 25, 25, {}));
+    assert(validSpawnPlacement(navigation, 160, 208, 8, 8, 25, 25, {}));
+    navigation.remove("large-only-wall");
+    assert(validSpawnPlacement(navigation, first.x, first.y, 8, 8, 25, 25, {}));
     NavigationMaskReceiver receiver;
     const std::vector<uint8_t> packed{0xff, 0x00, 0x00, 0x00};
     const auto hash = NavigationMaskReceiver::hashOf(packed);

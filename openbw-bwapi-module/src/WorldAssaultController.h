@@ -1,6 +1,7 @@
 #pragma once
 
 #include <BWAPI.h>
+#include "WorldStarcraftTypes.h"
 #include <algorithm>
 #include <climits>
 #include <cstdlib>
@@ -36,8 +37,10 @@ public:
               const std::vector<BWAPI::Unit>& alternatives) const {
         if (!game || !game->self()) return;
         for (auto unit : game->getAllUnits()) {
-            if (!unit || !unit->exists() || unit->getPlayer() != game->self()
-                || unit->getType() != BWAPI::UnitTypes::Zerg_Zergling) continue;
+            if (!unit || !unit->exists() || unit->getPlayer() != game->self()) continue;
+            const auto* kind = worldUnitType(unit->getType());
+            if (!kind || std::string(kind->race) != "zerg" || std::string(kind->ownership) != "enemy"
+                || !kind->spawnable || !unit->getType().canAttack()) continue;
             BWAPI::Unit target = !parkDefense_ && objective && objective->exists() ? objective : nullptr;
             if (!target) {
                 int best = INT_MAX;
