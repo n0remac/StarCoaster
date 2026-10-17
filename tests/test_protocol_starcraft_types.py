@@ -34,6 +34,10 @@ class StarcraftProtocolSchemaTests(unittest.TestCase):
         command["unit_type"] = "terran_firebat"
         self.validator.validate(self.envelope("combat.command", command))
         command["unit_type"] = "terran_medic"
+        self.validator.validate(self.envelope("combat.command", command))
+        command["unit_type"] = "terran_vulture"
+        self.validator.validate(self.envelope("combat.command", command))
+        command["unit_type"] = "terran_ghost"
         self.assertFalse(self.validator.is_valid(self.envelope("combat.command", command)))
 
     def test_building_and_player_reports(self):
@@ -59,7 +63,9 @@ class StarcraftProtocolSchemaTests(unittest.TestCase):
     def test_firebat_actor_identity(self):
         actor = {"id": "openbw:3001", "engine": "openbw", "type": "terran_firebat",
                  "owner": 1, "generation": 7, "session": "session-a"}
-        self.validator.validate(self.envelope("actor.spawn", actor, "openbw"))
+        for unit_type in ("terran_firebat", "terran_medic", "terran_vulture"):
+            actor["type"] = unit_type
+            self.validator.validate(self.envelope("actor.spawn", actor, "openbw"))
 
 
 if __name__ == "__main__":

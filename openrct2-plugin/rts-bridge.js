@@ -21,11 +21,15 @@
     const UNIT_TYPES = Object.freeze({
         terran_marine: { name: "Marine", visual: "terran_marine", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
         terran_firebat: { name: "Firebat", visual: "terran_firebat", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
+        terran_medic: { name: "Medic", visual: "terran_medic", race: "terran", controllable: true, commands: ["move", "attack_move", "hold", "stop", "heal"] },
+        terran_vulture: { name: "Vulture", visual: "terran_vulture", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
         zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
-        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
+        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat", "terran_medic"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
         terran_academy: { name: "Terran Academy", objectID: "starcoaster.scenery_large.terran_academy", width: 3, height: 2, maxHealth: 600, production: [], animation: null },
+        terran_supply_depot: { name: "Terran Supply Depot", objectID: "starcoaster.scenery_large.terran_supply_depot", width: 3, height: 2, maxHealth: 500, production: [], animation: null },
+        terran_factory: { name: "Terran Factory", objectID: "starcoaster.scenery_large.terran_factory", width: 4, height: 3, maxHealth: 1250, production: ["terran_vulture"], animation: null },
     });
     // END GENERATED STARCRAFT TYPES
     const buildingByObject = {};

@@ -120,21 +120,23 @@ def barracks_images(game_dir: Path) -> list[Image.Image]:
     return output_images
 
 
-def academy_images(game_dir: Path) -> list[Image.Image]:
-    source = ROOT / "run-data/generated-assets/starcraft/academy/.source"
+def static_building_images(game_dir: Path, kind: str, image_name: str,
+                           expected: tuple[int, int, int],
+                           size: tuple[int, int]) -> list[Image.Image]:
+    source = ROOT / f"run-data/generated-assets/starcraft/{kind}/.source"
     source.mkdir(parents=True, exist_ok=True)
     helpers = runpy.run_path(str(ROOT / "scripts/prepare-starcraft-sprites.py"))
-    grp_path, wpe_path = source / "Academy.grp", source / "Badlands.wpe"
-    helpers["extract"](game_dir, image_resource(game_dir, "Terran_Academy", helpers), grp_path)
+    grp_path, wpe_path = source / f"{image_name}.grp", source / "Badlands.wpe"
+    helpers["extract"](game_dir, image_resource(game_dir, image_name, helpers), grp_path)
     helpers["extract"](game_dir, PALETTE_RESOURCE, wpe_path)
     data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
-    if struct.unpack_from("<HHH", data) != (2, 96, 128) or len(wpe) != 1024:
-        raise ValueError("Unexpected classic StarCraft Academy GRP or Badlands palette")
+    if struct.unpack_from("<HHH", data) != expected or len(wpe) != 1024:
+        raise ValueError(f"Unexpected classic StarCraft {kind} GRP or Badlands palette")
     image = helpers["decode_grp"](data, wpe, 0)
     bounds = image.getbbox()
     if bounds is None:
-        raise ValueError("Classic StarCraft Academy frame is empty")
-    image = image.crop(bounds).resize((140, 140), Image.Resampling.NEAREST)
+        raise ValueError(f"Classic StarCraft {kind} frame is empty")
+    image = image.crop(bounds).resize(size, Image.Resampling.NEAREST)
     palette = helpers["openrct2_palette"]()
     available = [i for i in range(10, 255) if not 230 <= i <= 239 and not 243 <= i <= 254]
     cache = {}
@@ -154,6 +156,21 @@ def academy_images(game_dir: Path) -> list[Image.Image]:
     return [output]
 
 
+def academy_images(game_dir: Path) -> list[Image.Image]:
+    return static_building_images(game_dir, "academy", "Terran_Academy",
+                                  (2, 96, 128), (140, 140))
+
+
+def supply_depot_images(game_dir: Path) -> list[Image.Image]:
+    return static_building_images(game_dir, "supply_depot", "Supply_Depot",
+                                  (2, 96, 128), (140, 140))
+
+
+def factory_images(game_dir: Path) -> list[Image.Image]:
+    return static_building_images(game_dir, "factory", "Factory",
+                                  (7, 128, 160), (189, 164))
+
+
 # Visual preparation is building-specific; tile layout and archive assembly are
 # shared. The Barracks' name, image paths, and bank order are save-compatible.
 BUILDING_OBJECTS = {
@@ -161,6 +178,9 @@ BUILDING_OBJECTS = {
                         "prepare": lambda game_dir: barracks_images(game_dir)},
     "terran_academy": {"frame_name": "academy", "prepare": academy_images,
                         "preview_size": (52, 52), "preview_offset": (-26, -18)},
+    "terran_supply_depot": {"frame_name": "supply_depot", "prepare": supply_depot_images,
+                            "preview_size": (52, 52), "preview_offset": (-26, -18)},
+    "terran_factory": {"frame_name": "factory", "prepare": factory_images},
 }
 
 

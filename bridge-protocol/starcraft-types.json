@@ -13,6 +13,18 @@
       "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
     },
     {
+      "id": "terran_medic", "native_type": "Terran_Medic", "race": "terran",
+      "ownership": "player", "display_name": "Medic", "visual": "terran_medic",
+      "controllable": true,
+      "commands": ["unit.move", "unit.attack_move", "unit.hold", "unit.stop", "unit.heal"]
+    },
+    {
+      "id": "terran_vulture", "native_type": "Terran_Vulture", "race": "terran",
+      "ownership": "player", "display_name": "Vulture", "visual": "terran_vulture",
+      "controllable": true,
+      "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
+    },
+    {
       "id": "zerg_zergling", "native_type": "Zerg_Zergling", "race": "zerg",
       "ownership": "enemy", "display_name": "Zergling", "visual": "zerg_zergling",
       "controllable": false, "commands": []
@@ -24,7 +36,7 @@
       "object_id": "starcoaster.scenery_large.terran_barracks",
       "display_name": "Terran Barracks", "visual": "terran_barracks",
       "width": 4, "height": 3, "max_health": 1000,
-      "production": ["terran_marine", "terran_firebat"],
+      "production": ["terran_marine", "terran_firebat", "terran_medic"],
       "animation": {"trigger": "training", "frames": 7, "ticks_per_frame": 3}
     },
     {
@@ -32,6 +44,19 @@
       "object_id": "starcoaster.scenery_large.terran_academy",
       "display_name": "Terran Academy", "visual": "terran_academy",
       "width": 3, "height": 2, "max_health": 600, "production": []
+    },
+    {
+      "id": "terran_supply_depot", "native_type": "Terran_Supply_Depot",
+      "object_id": "starcoaster.scenery_large.terran_supply_depot",
+      "display_name": "Terran Supply Depot", "visual": "terran_supply_depot",
+      "width": 3, "height": 2, "max_health": 500, "production": []
+    },
+    {
+      "id": "terran_factory", "native_type": "Terran_Factory",
+      "object_id": "starcoaster.scenery_large.terran_factory",
+      "display_name": "Terran Factory", "visual": "terran_factory",
+      "width": 4, "height": 3, "max_health": 1250,
+      "production": ["terran_vulture"]
     }
   ]
 }

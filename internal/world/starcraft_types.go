@@ -20,12 +20,16 @@ type BuildingDefinition struct {
 var unitDefinitions = map[string]UnitDefinition{
 	"terran_marine": {ID: "terran_marine", NativeType: "Terran_Marine", Race: "terran", Ownership: "player", DisplayName: "Marine", Visual: "terran_marine", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
 	"terran_firebat": {ID: "terran_firebat", NativeType: "Terran_Firebat", Race: "terran", Ownership: "player", DisplayName: "Firebat", Visual: "terran_firebat", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
+	"terran_medic": {ID: "terran_medic", NativeType: "Terran_Medic", Race: "terran", Ownership: "player", DisplayName: "Medic", Visual: "terran_medic", Controllable: true, Commands: []string{"unit.move", "unit.attack_move", "unit.hold", "unit.stop", "unit.heal"}},
+	"terran_vulture": {ID: "terran_vulture", NativeType: "Terran_Vulture", Race: "terran", Ownership: "player", DisplayName: "Vulture", Visual: "terran_vulture", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
 	"zerg_zergling": {ID: "zerg_zergling", NativeType: "Zerg_Zergling", Race: "zerg", Ownership: "enemy", DisplayName: "Zergling", Visual: "zerg_zergling", Controllable: false, Commands: []string{}},
 }
 
 var buildingDefinitions = map[string]BuildingDefinition{
-	"terran_barracks": {ID: "terran_barracks", NativeType: "Terran_Barracks", ObjectID: "starcoaster.scenery_large.terran_barracks", DisplayName: "Terran Barracks", Visual: "terran_barracks", Width: 4, Height: 3, MaxHealth: 1000, Production: []string{"terran_marine", "terran_firebat"}},
+	"terran_barracks": {ID: "terran_barracks", NativeType: "Terran_Barracks", ObjectID: "starcoaster.scenery_large.terran_barracks", DisplayName: "Terran Barracks", Visual: "terran_barracks", Width: 4, Height: 3, MaxHealth: 1000, Production: []string{"terran_marine", "terran_firebat", "terran_medic"}},
 	"terran_academy": {ID: "terran_academy", NativeType: "Terran_Academy", ObjectID: "starcoaster.scenery_large.terran_academy", DisplayName: "Terran Academy", Visual: "terran_academy", Width: 3, Height: 2, MaxHealth: 600, Production: []string{}},
+	"terran_supply_depot": {ID: "terran_supply_depot", NativeType: "Terran_Supply_Depot", ObjectID: "starcoaster.scenery_large.terran_supply_depot", DisplayName: "Terran Supply Depot", Visual: "terran_supply_depot", Width: 3, Height: 2, MaxHealth: 500, Production: []string{}},
+	"terran_factory": {ID: "terran_factory", NativeType: "Terran_Factory", ObjectID: "starcoaster.scenery_large.terran_factory", DisplayName: "Terran Factory", Visual: "terran_factory", Width: 4, Height: 3, MaxHealth: 1250, Production: []string{"terran_vulture"}},
 }
 
 // END GENERATED STARCRAFT TYPES

@@ -170,7 +170,7 @@ info.desc.onUpdate();
 assert.equal(info.findWidget('building-feedback').text, 'Firebat training started');
 const unsupportedTrain = actions.get('rtsbridge.marineCommand').query({ player: 1,
     args: { session: 'a'.repeat(32), request: 900, unit_ids: [], verb: 'train',
-        unit_type: 'terran_medic', target_entity_id: targetID } });
+        unit_type: 'terran_ghost', target_entity_id: targetID } });
 assert.equal(unsupportedTrain.error, 1);
 const resourcesAction = actions.get('rtsbridge.playerResources');
 const resources = { session: 'a'.repeat(32), owner: 1, minerals: 999, gas: 250,

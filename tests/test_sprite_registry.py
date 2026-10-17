@@ -137,6 +137,24 @@ class SpriteRegistryTests(unittest.TestCase):
                 self.assertEqual({image["path"] for image in definition["images"][4:]},
                                  {"images/academy-0.png"})
 
+    def test_depot_and_factory_use_native_footprints_and_metadata_resolved_art(self):
+        spec = importlib.util.spec_from_file_location(
+            "construction_objects", ROOT / "scripts/install-starcraft-construction-object.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        game = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
+        for building, image_name, expected_path, tiles, hp in (
+                ("terran_supply_depot", "Supply_Depot", "unit/terran/Depot.grp", 6, 500),
+                ("terran_factory", "Factory", "unit/terran/factory.grp", 12, 1250)):
+            with self.subTest(building=building), tempfile.TemporaryDirectory() as directory:
+                self.assertEqual(module.image_resource(game, image_name), expected_path)
+                path = module.install(Path(directory), game, building)
+                with zipfile.ZipFile(path) as archive:
+                    definition = json.loads(archive.read("object.json"))
+                    self.assertEqual(len(definition["properties"]["tiles"]), tiles)
+                    self.assertEqual(len(definition["images"]), 4 + tiles * 4)
+                    self.assertEqual(module.TYPE_DEFINITIONS[building]["max_health"], hp)
+
     @unittest.skipUnless((ROOT / "run-data/generated-assets/starcraft/academy/.source/Academy.grp").is_file(),
                          "local licensed Academy art has not been extracted")
     def test_academy_art_resolves_from_classic_image_metadata(self):

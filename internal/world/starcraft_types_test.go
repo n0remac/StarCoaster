@@ -9,8 +9,8 @@ func TestSupportedStarcraftTypes(t *testing.T) {
 	if _, ok := SupportedUnit("Terran_Firebat"); ok {
 		t.Fatal("unknown BWAPI type became supported")
 	}
-	if _, ok := SupportedBuilding("terran_supply_depot"); ok {
-		t.Fatal("future building became supported")
+	if _, ok := SupportedBuilding("terran_starport"); ok {
+		t.Fatal("unsupported building became supported")
 	}
 	marine, ok := SupportedUnit("terran_marine")
 	if !ok || !marine.Controllable || marine.NativeType != "Terran_Marine" {
@@ -21,15 +21,34 @@ func TestSupportedStarcraftTypes(t *testing.T) {
 		firebat.Ownership != "player" || len(firebat.Commands) != len(marine.Commands) {
 		t.Fatal(firebat)
 	}
+	medic, ok := SupportedUnit("terran_medic")
+	if !ok || !medic.Controllable || medic.NativeType != "Terran_Medic" || medic.Ownership != "player" {
+		t.Fatal(medic)
+	}
+	vulture, ok := SupportedUnit("terran_vulture")
+	if !ok || !vulture.Controllable || vulture.NativeType != "Terran_Vulture" || vulture.Ownership != "player" {
+		t.Fatal(vulture)
+	}
 	barracks, ok := SupportedBuilding("terran_barracks")
 	if !ok || barracks.Width != 4 || barracks.Height != 3 || barracks.MaxHealth != 1000 ||
-		len(barracks.Production) != 2 || barracks.Production[0] != marine.ID || barracks.Production[1] != firebat.ID {
+		len(barracks.Production) != 3 || barracks.Production[0] != marine.ID ||
+		barracks.Production[1] != firebat.ID || barracks.Production[2] != medic.ID {
 		t.Fatal(barracks)
 	}
 	academy, ok := SupportedBuilding("terran_academy")
 	if !ok || academy.NativeType != "Terran_Academy" || academy.Width != 3 || academy.Height != 2 ||
 		academy.MaxHealth != 600 || len(academy.Production) != 0 {
 		t.Fatal(academy)
+	}
+	depot, ok := SupportedBuilding("terran_supply_depot")
+	if !ok || depot.NativeType != "Terran_Supply_Depot" || depot.Width != 3 || depot.Height != 2 ||
+		depot.MaxHealth != 500 || len(depot.Production) != 0 {
+		t.Fatal(depot)
+	}
+	factory, ok := SupportedBuilding("terran_factory")
+	if !ok || factory.NativeType != "Terran_Factory" || factory.Width != 4 || factory.Height != 3 ||
+		factory.MaxHealth != 1250 || len(factory.Production) != 1 || factory.Production[0] != vulture.ID {
+		t.Fatal(factory)
 	}
 }
 
@@ -40,7 +59,7 @@ func TestInvalidStarcraftDefinitions(t *testing.T) {
 		t.Fatal("accepted mismatched ID")
 	}
 	building := buildingDefinitions["terran_barracks"]
-	building.Production = []string{"terran_medic"}
+	building.Production = []string{"terran_ghost"}
 	if ValidateTypeDefinitions(unitDefinitions, map[string]BuildingDefinition{building.ID: building}) == nil {
 		t.Fatal("accepted unsupported production")
 	}
