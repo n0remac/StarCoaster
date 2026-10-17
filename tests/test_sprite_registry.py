@@ -87,9 +87,12 @@ class SpriteRegistryTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         image = Image.new("P", (40, 36), 10)
+        module.TYPE_DEFINITIONS["synthetic"] = {
+            "object_id": "starcoaster.scenery_large.synthetic", "display_name": "Synthetic",
+            "width": 2, "height": 2,
+        }
         module.BUILDING_OBJECTS["synthetic"] = {
-            "identifier": "starcoaster.scenery_large.synthetic", "name": "Synthetic",
-            "width": 2, "height": 2, "frame_name": "synthetic",
+            "frame_name": "synthetic",
             "prepare": lambda _: [image],
         }
         with tempfile.TemporaryDirectory() as directory:

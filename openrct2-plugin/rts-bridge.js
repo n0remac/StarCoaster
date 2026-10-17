@@ -23,7 +23,7 @@
         zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
-        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, production: ["terran_marine"], animation: "training_lights" },
+        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, production: ["terran_marine"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
     });
     // END GENERATED STARCRAFT TYPES
     const buildingByObject = {};
@@ -907,7 +907,6 @@
                 }) || (typeof objectManager.load === "function" ? objectManager.load(identifier) : null);
             });
         }
-        const barracksObject = buildingObjects.terran_barracks;
         function targetBuildingID(id, target) {
             if (target && BUILDING_TYPES[target.type]) return target.type;
             return Object.keys(buildingObjects).filter(function (type) {
@@ -986,22 +985,27 @@
         let buildingStates = {};
         let playerResources = {};
         function refreshBuildingAnimations() {
-            if (!barracksObject || !controlSession) return;
-            const prefix = "openrct2:large_scenery:" + barracksObject.index + ":";
-            const tiles = [];
-            Object.keys(buildingStates).forEach(function (id) {
-                const state = buildingStates[id];
-                const target = worldTargetIds[id];
-                if (!id.startsWith(prefix) || !target || !state || state.session !== controlSession
-                    || targetCatalogSession !== controlSession || state.health < 1 || state.queue < 1) return;
-                target.geometry.rects.forEach(function (rect) {
-                    for (let y = rect.y; y < rect.y + rect.height; y += 32)
-                        for (let x = rect.x; x < rect.x + rect.width; x += 32)
-                            tiles.push({ x: x, y: y });
+            if (!controlSession) return;
+            Object.keys(BUILDING_TYPES).forEach(function (type) {
+                const building = BUILDING_TYPES[type], object = buildingObjects[type];
+                if (!object || !building.animation) return;
+                const prefix = "openrct2:large_scenery:" + object.index + ":";
+                const tiles = [];
+                Object.keys(buildingStates).forEach(function (id) {
+                    const state = buildingStates[id], target = worldTargetIds[id];
+                    if (!id.startsWith(prefix) || !target || !state || state.session !== controlSession
+                        || targetCatalogSession !== controlSession || state.health < 1 || state.queue < 1) return;
+                    target.geometry.rects.forEach(function (rect) {
+                        for (let y = rect.y; y < rect.y + rect.height; y += 32)
+                            for (let x = rect.x; x < rect.x + rect.width; x += 32)
+                                tiles.push({ x: x, y: y });
+                    });
                 });
+                rtsBridge.setBuildingAnimations({ session: controlSession,
+                    object: object.index, tiles: tiles, frames: building.animation.frames,
+                    ticks_per_frame: building.animation.ticks_per_frame,
+                    bank_stride: building.width * building.height * 4 });
             });
-            rtsBridge.setBuildingAnimations({ session: controlSession,
-                object: barracksObject.index, tiles: tiles });
         }
         const pendingCommands = {};
         const seenCommandRequests = {};
@@ -1449,7 +1453,8 @@
                 const args = event.args || {};
                 if (network.mode === "server" && event.player !== network.currentPlayer.id)
                     return { error: 1, errorMessage: "Only the server may publish native resources" };
-                return args.session === controlSession
+                return /^[0-9a-f]{32}$/.test(args.session || "")
+                    && (!controlSession || args.session === controlSession)
                     && ["owner", "minerals", "supply_used", "supply_total"].every(function (field) {
                         return Number.isInteger(args[field]) && args[field] >= 0;
                     }) ? {} : { error: 1, errorMessage: "Invalid native resources" };

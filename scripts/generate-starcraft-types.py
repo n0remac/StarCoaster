@@ -38,6 +38,12 @@ def validate(catalog):
         objects.add(item["object_id"])
         if any(unit not in units for unit in item["production"]):
             raise ValueError(f"Unsupported production type: {item['id']}")
+        animation = item.get("animation")
+        if animation is not None and (not isinstance(animation, dict)
+                          or animation.get("trigger") != "training"
+                          or not 1 <= animation.get("frames", 0) <= 32
+                          or not 1 <= animation.get("ticks_per_frame", 0) <= 120):
+            raise ValueError(f"Invalid building animation: {item['id']}")
 
 
 def go_definitions(catalog):
@@ -73,7 +79,7 @@ def javascript_definitions(catalog):
         lines.append(f'        {building["id"]}: {{ name: {quoted(building["display_name"])}, '
                      f'objectID: {quoted(building["object_id"])}, width: {building["width"]}, '
                      f'height: {building["height"]}, production: {json.dumps(building["production"])}, '
-                     f'animation: {quoted(building.get("animation", ""))} }},')
+                     f'animation: {json.dumps(building.get("animation"), separators=(",", ":"))} }},')
     return '\n'.join(lines + ['    });'])
 
 

@@ -35,6 +35,10 @@ class StarcraftTypeCatalogTests(unittest.TestCase):
         invalid["units"].append(copy.deepcopy(invalid["units"][0]))
         with self.assertRaises(ValueError):
             GENERATOR.validate(invalid)
+        invalid = copy.deepcopy(self.catalog)
+        invalid["buildings"][0]["animation"]["ticks_per_frame"] = 0
+        with self.assertRaises(ValueError):
+            GENERATOR.validate(invalid)
 
 
 if __name__ == "__main__":

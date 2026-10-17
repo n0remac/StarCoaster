@@ -342,9 +342,8 @@ def main():
             data_dir = out / name
             (data_dir / "plugin").mkdir(parents=True, exist_ok=True)
             (data_dir / "object").mkdir(exist_ok=True)
-            scenery_name = "starcoaster.scenery_large.terran_barracks.parkobj"
-            shutil.copyfile(DATA / "object/starcoaster/scenery_large" / scenery_name,
-                            data_dir / "object" / scenery_name)
+            for scenery in (DATA / "object/starcoaster/scenery_large").glob("*.parkobj"):
+                shutil.copyfile(scenery, data_dir / "object" / scenery.name)
             source = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
             (data_dir / "plugin/rts-bridge.js").write_text(source)
             if not args.world_256 and scenario_id == "frontier-outpost":

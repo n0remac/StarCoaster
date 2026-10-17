@@ -123,6 +123,9 @@ assert.equal(buildingAction.query({ player: 1, args: nativeState }).error, undef
 buildingAction.execute({ player: 1, args: nativeState });
 assert.equal(buildingAnimations.at(-1).session, nativeState.session);
 assert.equal(buildingAnimations.at(-1).object, barracks.index);
+assert.equal(buildingAnimations.at(-1).frames, 7);
+assert.equal(buildingAnimations.at(-1).ticks_per_frame, 3);
+assert.equal(buildingAnimations.at(-1).bank_stride, 48);
 assert.equal(buildingAnimations.at(-1).tiles.length, 12);
 assert.equal(buildingAnimations.at(-1).tiles[0].x, 64);
 assert.equal(buildingAnimations.at(-1).tiles[0].y, 64);
@@ -142,6 +145,10 @@ assert.equal(orders[0].verb, 'train');
 assert.equal(orders[0].unit_type, 'terran_marine');
 assert.equal(orders[0].target_entity_id, targetID);
 assert.equal(orders[0].unit_ids.length, 0);
+const unsupportedTrain = actions.get('rtsbridge.marineCommand').query({ player: 1,
+    args: { session: 'a'.repeat(32), request: 900, unit_ids: [], verb: 'train',
+        unit_type: 'terran_firebat', target_entity_id: targetID } });
+assert.equal(unsupportedTrain.error, 1);
 const resourcesAction = actions.get('rtsbridge.playerResources');
 const resources = { session: 'a'.repeat(32), owner: 1, minerals: 999,
     supply_used: 12, supply_total: 16 };

@@ -13,8 +13,10 @@ import zipfile
 from PIL import Image
 
 
-IDENTIFIER = "starcoaster.scenery_large.terran_barracks"
 ROOT = Path(__file__).resolve().parent.parent
+TYPE_DEFINITIONS = {item["id"]: item for item in
+                    json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())["buildings"]}
+IDENTIFIER = TYPE_DEFINITIONS["terran_barracks"]["object_id"]
 BARRACKS_RESOURCE = "unit/terran/TBarrack.grp"
 PALETTE_RESOURCE = "Tileset/Badlands.wpe"
 
@@ -88,8 +90,7 @@ def barracks_images(game_dir: Path) -> list[Image.Image]:
 # Visual preparation is building-specific; tile layout and archive assembly are
 # shared. The Barracks' name, image paths, and bank order are save-compatible.
 BUILDING_OBJECTS = {
-    "terran_barracks": {"identifier": IDENTIFIER, "name": "Terran Barracks",
-                        "width": 4, "height": 3, "frame_name": "barracks",
+    "terran_barracks": {"frame_name": "barracks",
                         "prepare": lambda game_dir: barracks_images(game_dir)},
 }
 
@@ -112,19 +113,23 @@ def tile_screen(x: int, y: int, direction: int) -> tuple[int, int]:
 
 
 def install(data_root: Path, game_dir: Path, building_type: str = "terran_barracks") -> Path:
-    if building_type not in BUILDING_OBJECTS:
+    if building_type not in BUILDING_OBJECTS or building_type not in TYPE_DEFINITIONS:
         raise ValueError(f"Unsupported StarCraft building: {building_type}")
     spec = BUILDING_OBJECTS[building_type]
-    width, height = spec["width"], spec["height"]
-    if width < 1 or height < 1 or not spec["identifier"] or not spec["name"]:
+    definition_type = TYPE_DEFINITIONS[building_type]
+    width, height = definition_type["width"], definition_type["height"]
+    if width < 1 or height < 1 or not definition_type["object_id"] or not definition_type["display_name"]:
         raise ValueError(f"Invalid StarCraft building definition: {building_type}")
-    destination = data_root / "object" / "starcoaster" / "scenery_large" / (spec["identifier"] + ".parkobj")
+    destination = data_root / "object" / "starcoaster" / "scenery_large" / (definition_type["object_id"] + ".parkobj")
     destination.parent.mkdir(parents=True, exist_ok=True)
     sprites = spec["prepare"](game_dir)
     if not sprites:
         raise ValueError(f"No sprite frames for {building_type}")
+    animation = definition_type.get("animation")
+    if animation and len(sprites) != animation["frames"] + 1:
+        raise ValueError(f"Animation bank count differs from type catalog: {building_type}")
     sprite = sprites[0]
-    preview = sprite.resize((58, 50), Image.Resampling.NEAREST)
+    preview = sprite.resize(spec.get("preview_size", (58, 50)), Image.Resampling.NEAREST)
     images = []
     tiles = []
     for y in range(height):
@@ -135,7 +140,8 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
     # tile therefore carries the same sprite, aligned to one screen position;
     # the regions join into one full Barracks without changing the 4x3 object.
     for _ in range(4):
-        images.append({"path": "images/preview.png", "x": -29, "y": -16, "palette": "keep"})
+        preview_x, preview_y = spec.get("preview_offset", (-29, -16))
+        images.append({"path": "images/preview.png", "x": preview_x, "y": preview_y, "palette": "keep"})
     origins = []
     for direction in range(4):
         positions = [tile_screen(tx, ty, direction)
@@ -155,12 +161,12 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
                     images.append({"path": f"images/{spec['frame_name']}-{frame}.png",
                                    "x": origin_x - screen_x, "y": origin_y - screen_y,
                                    "palette": "keep"})
-    definition = {"id": spec["identifier"], "authors": ["StarCoaster"], "version": "2.0",
+    definition = {"id": definition_type["object_id"], "authors": ["StarCoaster"], "version": "2.0",
                   "objectType": "scenery_large",
                   "properties": {"price": 1, "removalPrice": 0, "cursor": "CURSOR_STATUE_DOWN",
                                  "tiles": tiles},
                   "images": images,
-                  "strings": {"name": {"en-GB": spec["name"]}}}
+                  "strings": {"name": {"en-GB": definition_type["display_name"]}}}
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("object.json", json.dumps(definition, separators=(",", ":")))
         archive.writestr("images/preview.png", png_bytes(preview))
@@ -173,7 +179,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_root", type=Path)
     parser.add_argument("--building-type", choices=BUILDING_OBJECTS, default="terran_barracks")
+    parser.add_argument("--all", action="store_true", help="install every supported construction object")
     parser.add_argument("--game-dir", type=Path,
                         default=Path(os.environ.get("STARCRAFT_DATA_DIR", str(Path.home() / "games/starcraft"))))
     args = parser.parse_args()
-    print(install(args.data_root, args.game_dir, args.building_type))
+    if args.all:
+        for building_type in BUILDING_OBJECTS:
+            print(install(args.data_root, args.game_dir, building_type))
+    else:
+        print(install(args.data_root, args.game_dir, args.building_type))

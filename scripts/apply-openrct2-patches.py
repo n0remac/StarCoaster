@@ -94,12 +94,23 @@ def ensure_actor_visual_registry(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_building_animation_registry(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0009-building-animation-registry.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected building animation changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
         overlays = [ROOT / "openrct2-patches/0006-barracks-training-animation.patch",
                     ROOT / "openrct2-patches/0007-barracks-light-only.patch",
-                    ROOT / "openrct2-patches/0008-actor-visual-registry.patch"]
+                    ROOT / "openrct2-patches/0008-actor-visual-registry.patch",
+                    ROOT / "openrct2-patches/0009-building-animation-registry.patch"]
         reversed_overlays = []
         for overlay in reversed(overlays):
             if applies(checkout, overlay, reverse=True):
@@ -112,18 +123,22 @@ if __name__ == "__main__":
                 subprocess.run(["git", "-C", str(checkout), "apply", str(overlay)], check=True)
         print("OpenRCT2 native bridge patch " + bridge_status)
         print("StarCraft toolbar patch " + ensure_starcraft_toolbar(checkout))
-        light_overlay = overlays[1]
-        light_applied = applies(checkout, light_overlay, reverse=True)
-        if light_applied:
-            subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(light_overlay)], check=True)
-        try:
-            animation_status = ensure_barracks_animation(checkout)
-        finally:
-            if light_applied:
-                subprocess.run(["git", "-C", str(checkout), "apply", str(light_overlay)], check=True)
-        print("Barracks training animation patch " + animation_status)
-        print("Barracks light-only patch " + ensure_barracks_light_only(checkout))
-        print("Actor visual registry patch " + ensure_actor_visual_registry(checkout))
+        checks = [("Barracks training animation", ensure_barracks_animation),
+                  ("Barracks light-only", ensure_barracks_light_only),
+                  ("Actor visual registry", ensure_actor_visual_registry),
+                  ("Building animation registry", ensure_building_animation_registry)]
+        for index, (label, ensure) in enumerate(checks):
+            removed = []
+            for overlay in reversed(overlays[index + 1:]):
+                if applies(checkout, overlay, reverse=True):
+                    subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(overlay)], check=True)
+                    removed.append(overlay)
+            try:
+                status = ensure(checkout)
+            finally:
+                for overlay in reversed(removed):
+                    subprocess.run(["git", "-C", str(checkout), "apply", str(overlay)], check=True)
+            print(label + " patch " + status)
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)
