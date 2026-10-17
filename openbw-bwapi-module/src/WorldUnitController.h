@@ -6,6 +6,7 @@
 #include "WorldNavigation.h"
 #include "WorldProductionFixture.h"
 #include "WorldFirebatTechProbe.h"
+#include "WorldMedicVultureProbe.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -58,6 +59,7 @@ public:
         if (!startingResourcesApplied_)
             startingResourcesApplied_ = applyWorldProductionFixture(game);
         firebatTechProbe_.onFrame(game);
+        medicVultureProbe_.onFrame(game);
         if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY") && game->getFrameCount() % 120 == 0) {
             for (auto unit : game->getAllUnits())
                 if (unit && unit->exists() && unit->getPlayer() == game->self()
@@ -815,6 +817,7 @@ private:
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
     WorldFirebatTechProbe firebatTechProbe_{true};
+    WorldMedicVultureProbe medicVultureProbe_{true};
     std::map<int, CreationCandidate> creationCandidates_;
     std::map<std::string, json> identities_, publisherBindings_;
     std::set<std::string> ambiguousActors_;
