@@ -65,7 +65,7 @@ wait_for 'scenario spawn request=.*opening-zerg-wave state=ready' "$run_dir/sess
 # The graphical client may still be loading or generating its multiplayer key
 # after the native world is ready. Give that startup its own timeout.
 wait_for '\[Passthrough RTS Bridge\] Started' "$run_dir/client.log" 90
-wait_for 'RTS Bridge apply tick=.*openbw:3005' "$run_dir/client.log" 60
+wait_for 'RTS Bridge apply tick=.*openbw:3004' "$run_dir/client.log" 60
 ffmpeg -loglevel error -y -f x11grab -video_size 1280x800 -i "$DISPLAY" \
   -frames:v 1 "$run_dir/screen.png"
 python3 - "$run_dir" <<'PY'
@@ -81,8 +81,8 @@ client = (root / "client.log").read_text(errors="replace")
 server = (root / "session.log").read_text(errors="replace")
 snapshots = re.findall(r"RTS Bridge apply tick=[^\n]*units=([^\n]+)", client)
 expected = {f"openbw:{n}" for n in range(1000, 1006)}
-expected |= {f"openbw:{n}" for n in range(2000, 2012)}
-expected |= {f"openbw:{n}" for n in range(3001, 3006)}
+expected.add("openbw:2000")
+expected |= {f"openbw:{n}" for n in range(3001, 3005)}
 seen = set()
 for snapshot in snapshots:
     seen.update(re.findall(r"openbw:\d+", snapshot))
@@ -91,8 +91,8 @@ checks = {
         "/* Passthrough RTS Bridge"),
     "native_world_ready": "WORLD_READY" in server and "navigation=native" in server,
     "six_starting_marines_visible": {f"openbw:{n}" for n in range(1000, 1006)} <= seen,
-    "twelve_starting_zerglings_visible": {f"openbw:{n}" for n in range(2000, 2012)} <= seen,
-    "automatic_wave_visible": {f"openbw:{n}" for n in range(3001, 3006)} <= seen,
+    "starting_zergling_visible": "openbw:2000" in seen,
+    "automatic_wave_visible": {f"openbw:{n}" for n in range(3001, 3005)} <= seen,
     "graphical_capture": (root / "screen.png").stat().st_size > 0,
 }
 if os.environ.get("PLAYABLE_FULL_START") == "1":

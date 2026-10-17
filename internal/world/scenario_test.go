@@ -18,7 +18,7 @@ func TestFrontierScenarioRequiresNativeNavigationAndObjective(t *testing.T) {
 	if err := r.Replace("session-a", 1, 64, 64, []Entity{e}, nil); err != nil {
 		t.Fatal(err)
 	}
-	ready := Ready{Navigation: "metadata_only", Marines: 6, Zerglings: 12}
+	ready := Ready{Navigation: "metadata_only", Marines: 6, Zerglings: 1}
 	if err := scenario.CheckReady(r, map[string]string{e.ID: "openbw:7"}, ready); err == nil || !strings.Contains(err.Error(), "native_navigation_unavailable") {
 		t.Fatalf("metadata-only navigation was accepted: %v", err)
 	}

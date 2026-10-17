@@ -125,7 +125,7 @@ def main(directory):
         "input_method": "X11 graphical interface",
     }
     result["demonstration_complete"] = (result["native_navigation_ready"]
-        and result["initial_marines"] == 6 and result["initial_zerglings"] == 12
+        and result["initial_marines"] == 6 and result["initial_zerglings"] == 1
         and full_selection and len(marine_displacement) == 6
         and all(value >= 100 for value in marine_displacement.values())
         and marine_attack > 0 and zerg_damage and bool(death_ids) and carousel_removed

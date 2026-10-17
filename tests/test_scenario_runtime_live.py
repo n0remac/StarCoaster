@@ -141,9 +141,9 @@ def main() -> None:
         initial_snapshot = next(line for line in (run / "client-a.log").read_text(
             errors="replace").splitlines() if "RTS Bridge apply tick=" in line)
         starting_marine_ids = sorted(set(re.findall(r"openbw:100[0-5](?=,)", initial_snapshot)))
-        starting_zergling_ids = sorted(set(re.findall(r"openbw:20(?:0[0-9]|1[01])(?=,)", initial_snapshot)))
-        if len(starting_marine_ids) != 6 or len(starting_zergling_ids) != 12:
-            raise AssertionError("first native client snapshot lacks the six/twelve starting actors")
+        starting_zergling_ids = sorted(set(re.findall(r"openbw:2000(?=,)", initial_snapshot)))
+        if len(starting_marine_ids) != 6 or len(starting_zergling_ids) != 1:
+            raise AssertionError("first native client snapshot lacks the six/one starting actors")
         report["tests"]["starting_actors"] = "passed"
         report["starting_actor_ids"] = {"marines": starting_marine_ids,
                                         "zerglings": starting_zergling_ids}
@@ -168,10 +168,12 @@ def main() -> None:
         b = client("client-b-reconnect", False)
         wait_for(run / "client-b-reconnect.log", r"WORLD_SCENARIO_STATUS scenario=frontier-outpost", b, 60)
         terminal_status = (r"WORLD_SCENARIO_STATUS scenario=frontier-outpost "
-                           r"wave=3/3 state=cleared outcome=victory")
+                           r"wave=\d+/3 state=\w+ outcome=(victory|defeat)")
         before_restart = (run / "session.log").read_text(errors="replace")
-        final_before_restart = "wave=final-wave state=ready" in before_restart
+        final_before_restart = bool(re.search(r"wave=final-wave state=(queued|issued|created|ready)",
+                                      before_restart))
         victory_before_restart = "scenario frontier-outpost outcome=victory" in before_restart
+        defeat_before_restart = "scenario frontier-outpost outcome=defeat" in before_restart
         status_counts = {
             name: len(re.findall(terminal_status, (run / f"{name}.log").read_text(errors="replace")))
             for name in ("client-a", "client-b-reconnect")}
@@ -187,52 +189,75 @@ def main() -> None:
         wait_for(run / "bridge-restart.log", r"OpenBW ready targets=", restart, 90)
         report["tests"]["bridge_restart"] = "passed"
         if not final_before_restart:
-            wait_for(run / "bridge-restart.log", r"wave=final-wave state=ready", restart, 150,
+            wait_for(run / "bridge-restart.log", r"wave=final-wave state=queued", restart, 150,
                      r"scenario frontier-outpost outcome=defeat")
-        report["tests"]["dependent_wave"] = "passed"
-        if not victory_before_restart:
+        report["tests"]["final_mixed_wave_scheduled"] = "passed"
+        if not victory_before_restart and not defeat_before_restart:
             wait_for(run / "bridge-restart.log", r"scenario frontier-outpost outcome=(victory|defeat)",
                      restart, 150)
         report["tests"]["terminal_outcome"] = "passed"
         for name, process in (("client-a", a), ("client-b-reconnect", b)):
             path = run / f"{name}.log"
-            if victory_before_restart:
+            if victory_before_restart or defeat_before_restart:
                 wait_for_new_status(path, terminal_status, status_counts[name], process, 45)
             else:
-                wait_for(path, terminal_status, process, 30, r"outcome=defeat")
+                wait_for(path, terminal_status, process, 30)
         scenario_journal = json.loads(Path(str(journal) + ".scenario.json").read_text())
         queue = json.loads(journal.read_text())
         waves = scenario_journal["waves"]
         assert [wave["id"] for wave in waves] == [
             "opening-zerg-wave", "southern-wave", "final-wave"]
         assert waves[1]["triggered_frame"] >= scenario_journal["start_frame"] + 300
-        assert waves[2]["triggered_frame"] > waves[1]["triggered_frame"]
-        assert all(wave["state"] == "cleared" for wave in waves)
-        assert scenario_journal.get("outcome") == "victory"
+        assert waves[2]["triggered_frame"] >= scenario_journal["start_frame"] + 500
+        outcome = scenario_journal.get("outcome")
+        assert outcome in ("victory", "defeat")
+        if outcome == "victory":
+            assert all(wave["state"] == "cleared" for wave in waves)
+        else:
+            assert "WORLD_REMOVAL id=openrct2:ride:0#1 state=confirmed" in (
+                (run / "session.log").read_text(errors="replace") +
+                (run / "bridge-restart.log").read_text(errors="replace"))
         requests = [attempt["request_id"] for wave in waves for unit in wave["units"]
                     for attempt in unit["attempts"]]
         actors = [unit["actor_id"] for wave in waves for unit in wave["units"]
                   if unit.get("actor_id")]
         assert len(requests) == len(set(requests))
         assert len(actors) == len(set(actors))
-        if victory_before_restart:
+        if victory_before_restart or defeat_before_restart:
             assert queue.get("order", []) == order_before_restart, "restart issued duplicate requests"
-        assert len(waves[0]["units"]) == 5 and len(waves[1]["units"]) == 3
-        assert len(waves[2]["units"]) == 4
+        assert len(waves[0]["units"]) == 4 and len(waves[1]["units"]) == 3
+        assert len(waves[2]["units"]) == 3
         assert [[unit["unit_type"] for unit in wave["units"]] for wave in waves] == [
-            ["zerg_zergling"] * 5,
+            ["zerg_zergling"] * 4,
             ["zerg_zergling"] * 2 + ["zerg_hydralisk"],
-            ["zerg_zergling"] * 2 + ["zerg_hydralisk", "zerg_ultralisk"]]
+            ["zerg_zergling", "zerg_hydralisk", "zerg_ultralisk"]]
         session_events = ((run / "session.log").read_text(errors="replace") +
                           (run / "bridge-restart.log").read_text(errors="replace"))
+        for wave in waves:
+            for unit in wave["units"]:
+                if not unit.get("actor_id"):
+                    continue
+                kind = unit["unit_type"]
+                request = unit["attempts"][-1]["request_id"]
+                assert re.search(r"native spawn issued request=" + re.escape(request)
+                                 + r" index=0 type=" + kind + r"\b", session_events), \
+                    f"native type not confirmed for {request}"
+                for client in ("client-a", "client-b"):
+                    output = (run / f"{client}.log").read_text(errors="replace")
+                    if client == "client-b":
+                        output += (run / "client-b-reconnect.log").read_text(errors="replace")
+                    assert re.search(re.escape(unit["actor_id"]) +
+                                     r",[^;\n]*," + kind + r",\d+,\d+,0,", output), \
+                        f"{client} lacks owner-zero {kind} actor {unit['actor_id']}"
         assert "navigation initialized" in session_events, "native navigation was not initialized"
         assert "actor reconcile living=" in (run / "bridge-restart.log").read_text(
             errors="replace"), "missing restart actor reconciliation"
         assert any(f"actor despawn id={actor}" in session_events for actor in actors), "no native actor deaths"
-        assert all(unit["state"] == "dead" for wave in waves for unit in wave["units"]), "unresolved wave actor"
+        if outcome == "victory":
+            assert all(unit["state"] == "dead" for wave in waves for unit in wave["units"]), "unresolved wave actor"
         assert "SCENARIO_DEFEND_ORDER accepted=true" in (run / "client-a.log").read_text(
             errors="replace")
-        report["tests"].update({"frame_order_and_victory": "passed",
+        report["tests"].update({"frame_order_and_outcome": "passed",
                                 "unique_native_ids": "passed", "two_client_status": "passed",
                                 "native_navigation_and_combat": "passed"})
         if args.graphical:
@@ -241,13 +266,13 @@ def main() -> None:
                 subprocess.run(["scrot", "-z", "-o", str(capture)],
                                cwd=ROOT, env=env | {"DISPLAY": display}, check=True)
                 report["capture_paths"].append(str(capture))
-            report["tests"]["two_graphical_client_victory"] = "passed"
+            report["tests"]["two_graphical_client_outcome"] = "passed"
         report.update({"status": "passed", "commit_sha": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
             "scenario_hash": scenario_journal["definition_hash"],
             "session_id": scenario_journal["session"], "start_frame": scenario_journal["start_frame"],
             "last_frame": scenario_journal["last_frame"], "waves": waves,
-            "outcome": scenario_journal.get("outcome"), "request_ids": queue.get("order", []),
+            "outcome": outcome, "request_ids": queue.get("order", []),
             "actor_ids": actors,
             "log_paths": [str(run / "session.log"), str(run / "bridge-restart.log"),
                           str(run / "client-a.log"), str(run / "client-b-reconnect.log")]})

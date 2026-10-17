@@ -51,8 +51,8 @@ for name in client-a client-b; do
   if [[ "$name" == client-a ]]; then client_a_pid=$!; else client_b_pid=$!; fi
 done
 wait_for 'scenario spawn request=.*state=ready' "$run_dir/session.log" 90
-wait_for 'WORLD_ZERG_ROSTER count=17' "$run_dir/client-a.log" 90
-wait_for 'WORLD_ZERG_ROSTER count=17' "$run_dir/client-b.log" 90
+wait_for 'WORLD_ZERG_ROSTER count=6' "$run_dir/client-a.log" 90
+wait_for 'WORLD_ZERG_ROSTER count=6' "$run_dir/client-b.log" 90
 wait_for 'WORLD_ZERG_MOVED id=openbw:300' "$run_dir/client-a.log" 120
 wait_for 'openbw:3001,[0-9]+,[0-9]+,[0-9]+,attack' "$run_dir/client-a.log" 120
 python3 - "$run_dir" <<'PY'
@@ -65,9 +65,9 @@ expected = {f'openbw:{i}' for i in range(3001, 3006)}
 for client in ('client-a', 'client-b'):
     log = (root / (client + '.log')).read_text(errors='replace')
     rosters = [set(ids.split(',')) for count, ids in re.findall(
-        r'WORLD_ZERG_ROSTER count=(\d+) ids=([a-z0-9:,]+)', log) if int(count) == 17]
-    if not any(expected <= roster and len(roster) == 17 for roster in rosters):
-        raise SystemExit(f'{client} did not display seventeen unique native Zerglings')
+        r'WORLD_ZERG_ROSTER count=(\d+) ids=([a-z0-9:,]+)', log) if int(count) == 6]
+    if not any(expected <= roster and len(roster) == 6 for roster in rosters):
+        raise SystemExit(f'{client} did not display six unique native Zerglings')
 for actor in expected:
     if server.count('actor-spawn id=' + actor) != 1 or not re.search(
             r'actor binding id=' + actor + r' participant=controller native=\d+ active=true', server):

@@ -6,8 +6,7 @@
   "park_size": [64, 64],
   "starting_units": {
     "marines": [[15, 30], [16, 30], [17, 30], [15, 31], [16, 31], [17, 31]],
-    "zerglings": [[47, 57], [48, 57], [49, 57], [50, 57], [47, 58], [48, 58],
-                   [49, 58], [50, 58], [47, 59], [48, 59], [49, 59], [50, 59]]
+    "zerglings": [[47, 57]]
   },
   "objectives": [{ "id": "defend-carousel", "description": "Defend Frontier Carousel",
                    "entity_kind": "ride", "entity_type": "rct2.ride.mgr1",
@@ -20,14 +19,14 @@
   },
   "waves": [
     { "id": "opening-zerg-wave", "trigger": { "type": "on_ready" },
-      "groups": [{ "unit_type": "zerg_zergling", "count": 5, "spawn_zone": "east-entrance" }] },
+      "groups": [{ "unit_type": "zerg_zergling", "count": 4, "spawn_zone": "east-entrance" }] },
     { "id": "southern-wave", "trigger": { "type": "elapsed_frames", "frames": 300 },
       "groups": [{ "unit_type": "zerg_zergling", "count": 2, "spawn_zone": "south-approach" },
                  { "unit_type": "zerg_hydralisk", "count": 1, "spawn_zone": "south-approach" }] },
-    { "id": "final-wave", "trigger": { "type": "wave_cleared", "wave_id": "southern-wave" },
-      "groups": [{ "unit_type": "zerg_zergling", "count": 2, "spawn_zone": "northeast-approach" },
-                 { "unit_type": "zerg_hydralisk", "count": 1, "spawn_zone": "northeast-approach" },
-                 { "unit_type": "zerg_ultralisk", "count": 1, "spawn_zone": "northeast-approach" }] }
+    { "id": "final-wave", "trigger": { "type": "elapsed_frames", "frames": 500 },
+      "groups": [{ "unit_type": "zerg_zergling", "count": 1, "spawn_zone": "south-approach" },
+                 { "unit_type": "zerg_hydralisk", "count": 1, "spawn_zone": "south-approach" },
+                 { "unit_type": "zerg_ultralisk", "count": 1, "spawn_zone": "south-approach" }] }
   ],
   "victory": { "all_waves_cleared": true, "all_zerglings_eliminated": true, "objective_intact": "defend-carousel" },
   "defeat": { "objective_destroyed": "defend-carousel", "all_marines_eliminated": true }

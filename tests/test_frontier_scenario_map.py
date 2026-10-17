@@ -37,17 +37,17 @@ class FrontierScenarioMapTest(unittest.TestCase):
         self.assertEqual(len(scenario["starting_units"]["marines"]), 6)
         self.assertEqual(scenario["version"], 2)
         self.assertEqual(scenario["waves"][0]["id"], "opening-zerg-wave")
-        self.assertEqual(scenario["waves"][0]["groups"][0]["count"], 5)
+        self.assertEqual(scenario["waves"][0]["groups"][0]["count"], 4)
         self.assertEqual(scenario["spawn_zones"]["east-entrance"]["tiles"][0], [44, 56])
         units = [UNIT.unpack(value) for value in scenario_units(ROOT / "scenarios/frontier-outpost/scenario.json")]
-        self.assertEqual(len(units), 18)
-        self.assertEqual([row[3] for row in units[:12]], [37] * 12)
-        self.assertEqual([row[7] for row in units[:12]], [0] * 12)
-        self.assertEqual([row[3] for row in units[12:]], [0] * 6)
-        self.assertEqual([row[7] for row in units[12:]], [1] * 6)
+        self.assertEqual(len(units), 7)
+        self.assertEqual([row[3] for row in units[:1]], [37])
+        self.assertEqual([row[7] for row in units[:1]], [0])
+        self.assertEqual([row[3] for row in units[1:]], [0] * 6)
+        self.assertEqual([row[7] for row in units[1:]], [1] * 6)
         offset = (module.MAP_SIZE - 64) // 2
         self.assertEqual((units[0][1], units[0][2]), ((47 + offset) * 32 + 16, (57 + offset) * 32 + 16))
-        self.assertEqual((units[12][1], units[12][2]), ((15 + offset) * 32 + 16, (30 + offset) * 32 + 16))
+        self.assertEqual((units[1][1], units[1][2]), ((15 + offset) * 32 + 16, (30 + offset) * 32 + 16))
 
     def test_rejects_duplicate_starting_tile(self):
         scenario = json.loads((ROOT / "scenarios/frontier-outpost/scenario.json").read_text())

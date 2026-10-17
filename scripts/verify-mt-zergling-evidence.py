@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 
-ACTOR = re.compile(r"(openbw:\d+),(\d+),(\d+),\d+,([a-z_]+),\d+,(zerg_zergling|terran_marine),")
+ACTOR = re.compile(r"(openbw:\d+),(\d+),(\d+),\d+,([a-z_]+),\d+,(zerg_zergling|zerg_hydralisk|zerg_ultralisk|terran_marine),")
 PATCH = re.compile(r"park patch synchronized id=\S+ revision=(\d+) hash=([0-9a-f]{16}) frame=(\d+)")
 
 
@@ -20,7 +20,7 @@ def verify(directory: Path) -> dict:
     server = (directory / "server.log").read_text(errors="replace")
     client = (directory / "client-a.log").read_text(errors="replace")
     trajectories = defaultdict(list)
-    attacks = {"zerg_zergling": 0, "terran_marine": 0}
+    attacks = {kind: 0 for kind in ("zerg_zergling", "zerg_hydralisk", "zerg_ultralisk", "terran_marine")}
     max_zerglings = 0
     for line in client.splitlines():
         if "RTS Bridge apply tick=" not in line:
@@ -28,7 +28,7 @@ def verify(directory: Path) -> dict:
         rows = ACTOR.findall(line)
         max_zerglings = max(max_zerglings, sum(kind == "zerg_zergling" for _, _, _, _, kind in rows))
         for actor_id, x, y, order, kind in rows:
-            if kind == "zerg_zergling":
+            if kind.startswith("zerg_"):
                 trajectories[actor_id].append((int(x), int(y)))
             if order == "attack":
                 attacks[kind] += 1
@@ -55,7 +55,8 @@ def verify(directory: Path) -> dict:
             and all(right["triggered_frame"] - left["triggered_frame"] == interval
                     for left, right in zip(periodic, periodic[1:])),
         "all_native_actor_identities_unique": len(actor_ids) == len(set(actor_ids))
-            and len(actor_ids) >= len(waves) * scenario["park_defense"]["units_per_wave"],
+            and len(actor_ids) >= sum(sum(group["count"] for group in wave["composition"])
+                                      for wave in waves),
         "construction_confirmed_during_combat": bool(probe) and int(probe.group(1)) > 0
             and "MT_ZERGLING_CONSTRUCTION_BUILD x=110 y=110 accepted=true" in client
             and bool(confirmed_patches),
