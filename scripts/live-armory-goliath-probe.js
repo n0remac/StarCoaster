@@ -4,6 +4,8 @@ registerPlugin({ name: "Armory and Goliath gameplay probe", version: "1.0.0",
     targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         if (network.mode !== "client") return;
+        const combatArmory = typeof STARCOASTER_TEST_ARMORY_COMBAT !== "undefined"
+            && STARCOASTER_TEST_ARMORY_COMBAT;
         let phase = 0, pending = false, since = 0, request = 900;
         const sites = { terran_factory: { x: 112, y: 113 }, terran_armory: { x: 120, y: 113 },
             terran_supply_depot: { x: 128, y: 113 } };
@@ -80,6 +82,17 @@ registerPlugin({ name: "Armory and Goliath gameplay probe", version: "1.0.0",
                 });
             }
             attempt();
+        }
+        function armoryPresent() {
+            const site = locations.terran_armory;
+            if (!site) return false;
+            const tile = map.getTile(site.x / 32, site.y / 32);
+            for (let index = 0; index < tile.numElements; index++) {
+                const element = tile.getElement(index);
+                if (element.type === "large_scenery" && element.object === site.object)
+                    return true;
+            }
+            return false;
         }
         context.subscribe("interval.tick", function () {
             const snapshot = rtsBridge.getActors();
@@ -158,16 +171,29 @@ registerPlugin({ name: "Armory and Goliath gameplay probe", version: "1.0.0",
                     phase = 7; since = Date.now();
                 }
             }
-            if (phase === 7 && (hitLogged || Date.now() - since > 65000) && !armoryRemoved) {
+            if (phase === 7 && (hitLogged || combatArmory && !armoryPresent()
+                || Date.now() - since > 65000) && !armoryRemoved) {
                 armoryRemoved = true;
-                const site = locations.terran_armory;
-                context.executeAction("largesceneryremove", { x: site.x, y: site.y, z: site.z,
-                    direction: 0, tileIndex: 0 }, function (result) {
-                    console.log("GOLIATH_PROBE_REMOVE accepted=" + !result.error);
-                });
+                if (combatArmory) {
+                    if (armoryPresent()) {
+                        const attackers = snapshot.units.filter(function (unit) {
+                            return unit.kind === "terran_marine" && unit.hp > 0;
+                        }).slice(0, 5).map(function (unit) { return unit.id; });
+                        command(attackers, "attack", { target_entity_id: nativeIDs.terran_armory },
+                            "armory_attack");
+                    }
+                } else {
+                    const site = locations.terran_armory;
+                    context.executeAction("largesceneryremove", { x: site.x, y: site.y, z: site.z,
+                        direction: 0, tileIndex: 0 }, function (result) {
+                        console.log("GOLIATH_PROBE_REMOVE accepted=" + !result.error);
+                    });
+                }
                 phase = 8; since = Date.now();
             }
-            if (phase === 8 && Date.now() - since > 7000) {
+            const armoryGone = !combatArmory || !armoryPresent();
+            if (phase === 8 && armoryGone && Date.now() - since > 7000) {
+                if (combatArmory) console.log("GOLIATH_PROBE_ARMORY_COMBAT_REMOVED");
                 train("after_armory_removal");
                 console.log("GOLIATH_PROBE_DONE id=" + goliathID);
                 phase = 9;

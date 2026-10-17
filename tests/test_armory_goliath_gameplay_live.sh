@@ -7,9 +7,22 @@ cd "$project_dir"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
 park_file="$project_dir/run-data/mt-zergling/save/mt-zergling.park"
 test -s "$park_file"
-run_dir="$project_dir/run-data/armory-goliath-gameplay-$(date +%s)"
+combat_armory="${STARCOASTER_TEST_ARMORY_COMBAT:-0}"
+test_building_hp=""
+if [[ "$combat_armory" == 1 ]]; then
+  test_building_hp="terran_armory=35"
+  run_dir="$project_dir/run-data/armory-combat-destruction-$(date +%s)"
+else
+  run_dir="$project_dir/run-data/armory-goliath-gameplay-$(date +%s)"
+fi
 mkdir -p "$run_dir/server/plugin" "$run_dir/client/plugin"
-cp scripts/live-armory-goliath-probe.js openrct2-plugin/rts-bridge.js "$run_dir/client/plugin/"
+cp openrct2-plugin/rts-bridge.js "$run_dir/client/plugin/"
+if [[ "$combat_armory" == 1 ]]; then
+  { printf 'var STARCOASTER_TEST_ARMORY_COMBAT = true;\n';
+    cat scripts/live-armory-goliath-probe.js; } > "$run_dir/client/plugin/live-armory-goliath-probe.js"
+else
+  cp scripts/live-armory-goliath-probe.js "$run_dir/client/plugin/"
+fi
 map_file="$run_dir/mt-zergling.scm"
 python3 scripts/create-world-base-map.py --scenario scenarios/mt-zergling/scenario.json \
   --output "$map_file" >/dev/null
@@ -25,6 +38,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 BRIDGE_MAP_FILE="$map_file" BRIDGE_SCENARIO_CONFIG="$project_dir/scenarios/mt-zergling/scenario.json" \
   BRIDGE_RULES_CONFIG="$project_dir/scenarios/mt-zergling/mapping.json" \
+  BRIDGE_TEST_BUILDING_HP="$test_building_hp" \
   BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_LAUNCH_CLIENT=0 \
   BRIDGE_SERVER_DATA_DIR="$run_dir/server" \
   timeout 210s scripts/run-world-session.sh "$park_file" > "$run_dir/server.log" 2>&1 &
@@ -46,10 +60,11 @@ until grep -q 'GOLIATH_PROBE_DONE' "$run_dir/client.log" 2>/dev/null; do
 done
 sleep 3
 python3 - "$run_dir" <<'PY'
-import json, re, sys
+import json, os, re, sys
 from pathlib import Path
 run = Path(sys.argv[1]); server = (run / 'server.log').read_text(errors='replace')
 client = (run / 'client.log').read_text(errors='replace')
+combat_armory = os.environ.get('STARCOASTER_TEST_ARMORY_COMBAT') == '1'
 commands = dict(re.findall(r'GOLIATH_PROBE_COMMAND label=(\S+) accepted=(\w+)', client))
 actor = re.search(r'GOLIATH_PROBE_ACTOR id=(openbw:\d+) hp=(\d+)', client)
 trains = re.findall(r'\[world-control\] train command=\S+ barracks=\d+ accepted=(\d).*?'
@@ -74,12 +89,18 @@ checks = {
         'actor binding id=' + actor[1] + ' participant=' + role in server
         for role in ('publisher', 'controller')),
     'mixed_move': commands.get('mixed_move') == 'true',
-    'goliath_native_combat': 'GOLIATH_PROBE_WAVE accepted=true' in client
+    ('goliath_attack_order' if combat_armory else 'goliath_native_combat'):
+        'GOLIATH_PROBE_WAVE accepted=true' in client
         and commands.get('goliath_attack') == 'true'
-        and 'GOLIATH_PROBE_ATTACK id=' in client
-        and 'GOLIATH_PROBE_HIT target=' in client,
-    'armory_retired': 'GOLIATH_PROBE_REMOVE accepted=true' in client
-        and 'target retired id=' in server,
+        and (combat_armory or 'GOLIATH_PROBE_ATTACK id=' in client
+             and 'GOLIATH_PROBE_HIT target=' in client),
+    'armory_retired': (
+        ('GOLIATH_PROBE_ARMORY_COMBAT_REMOVED' in client
+         and (commands.get('armory_attack') in (None, 'true'))
+         and bool(re.search(r'native target state id=openrct2:large_scenery:252:[^\s]+ proxy=openbw:\d+ hp=0', server))
+         and 'combat demolition synchronized id=openrct2:large_scenery:252:' in server)
+        if combat_armory else
+        ('GOLIATH_PROBE_REMOVE accepted=true' in client and 'target retired id=' in server)),
     'prerequisite_relocked': 'after_armory_removal' in commands
         and len(trains) >= 3 and trains[-1] == ('0', '400', '200')
         and bool(availability and availability[-1]['reason'] == 'requires_building'),
