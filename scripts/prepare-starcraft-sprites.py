@@ -21,6 +21,9 @@ RESOURCE = "unit/zerg/zergling.grp"
 MARINE_RESOURCE = "unit/terran/marine.grp"
 FIREBAT_RESOURCE = "unit/terran/firebat.grp"
 FIREBAT_DEATH_RESOURCE = "unit/thingy/tBangS.grp"
+MEDIC_RESOURCE = "unit/terran/medic.grp"
+VULTURE_RESOURCE = "unit/terran/Vulture.grp"
+FLAME_RESOURCE = "unit/thingy/flamer.grp"
 PALETTE = "Tileset/Badlands.wpe"
 # Contact-sheet inspection of the local classic Zergling GRP: directional
 # groups 0..10 form the run, while 11..16 crouch/collapse into death art.
@@ -234,6 +237,145 @@ def prepare_firebat_pack(data: bytes, wpe: bytes, output: Path,
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Prepared {len(selected)} Firebat frames in {output} from {archives}")
 
+
+def prepare_medic_pack(data: bytes, wpe: bytes, output: Path,
+                       palette: list[tuple[int, int, int]], archives: dict) -> None:
+    """Medic banks 4-5 carry the classic gold healing-gun effect."""
+    count, width, height = struct.unpack_from("<HHH", data)
+    if (count, width, height) != (230, 64, 64):
+        raise ValueError(f"Unexpected Medic GRP: {count} frames, {width}x{height}")
+    selected, registry = {}, {"terran_medic": {}}
+
+    def save(frame: int, name: str, mirror: bool = False) -> None:
+        image = decode_grp(data, wpe, frame)
+        if mirror:
+            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        bbox = image.getbbox()
+        if bbox is None:
+            raise ValueError(f"Empty Medic frame {frame}")
+        cropped = quantize(image.crop(bbox), palette)
+        cropped.save(output / name)
+        selected[name] = {"source_frame": frame, "mirrored": mirror,
+                          "width": cropped.width, "height": cropped.height,
+                          "x": bbox[0] - width // 2, "y": bbox[1] - height // 2}
+
+    for state, banks in (("idle", (0,)), ("walk", (6, 7)), ("heal", (4, 5, 4))):
+        frames = {}
+        for direction, (facing, mirror) in DIRECTIONS.items():
+            names = []
+            for pose, bank in enumerate(banks):
+                name = f"{state}{pose}_{direction}.png"
+                save(bank * 17 + facing, name, mirror)
+                names.append(name)
+            frames[direction] = names
+        registry["terran_medic"][state] = {"frames": frames,
+                                           "ticks_per_frame": 0 if state == "idle" else 4 if state == "walk" else 2}
+    death = []
+    for pose in range(8):
+        name = f"death{pose}.png"
+        save(222 + pose, name)
+        death.append(name)
+    registry["terran_medic"]["death"] = {"frames": death,
+                                         "ticks_per_frame": 2, "directional": False}
+    (output / "manifest.json").write_text(json.dumps({
+        "unit": "medic", "kind": "terran_medic", "source": MEDIC_RESOURCE,
+        "palette": PALETTE, "archives": archives, "canvas": [width, height],
+        "frame_count": count, "source_sha256": hashlib.sha256(data).hexdigest(),
+        "registry": registry, "frames": selected,
+        "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; west mirrors east",
+        "output_palette": "nearest OpenRCT2 standard palette colour"}, indent=2) + "\n")
+    print(f"Prepared {len(selected)} Medic frames in {output} from {archives}")
+
+
+def prepare_vulture_pack(data: bytes, wpe: bytes, output: Path,
+                         palette: list[tuple[int, int, int]], archives: dict) -> None:
+    """Vulture has one 17-direction body bank; native movement rotates it."""
+    count, width, height = struct.unpack_from("<HHH", data)
+    if (count, width, height) != (17, 100, 100):
+        raise ValueError(f"Unexpected Vulture GRP: {count} frames, {width}x{height}")
+    explosion = (output / ".source/death.grp").read_bytes()
+    if struct.unpack_from("<HHH", explosion) != (9, 128, 128):
+        raise ValueError("Unexpected classic small explosion for Vulture death")
+    selected, frames = {}, {}
+    for direction, (facing, mirror) in DIRECTIONS.items():
+        image = decode_grp(data, wpe, facing)
+        if mirror:
+            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        bbox = image.getbbox()
+        if bbox is None:
+            raise ValueError(f"Empty Vulture frame {facing}")
+        name = f"idle0_{direction}.png"
+        cropped = quantize(image.crop(bbox), palette)
+        cropped.save(output / name)
+        selected[name] = {"source_frame": facing, "source": VULTURE_RESOURCE,
+                          "mirrored": mirror, "width": cropped.width,
+                          "height": cropped.height, "x": bbox[0] - width // 2,
+                          "y": bbox[1] - height // 2}
+        frames[direction] = [name]
+    death = []
+    for pose in range(8):
+        image = decode_grp(explosion, wpe, pose + 1)
+        bbox = image.getbbox()
+        if bbox is None:
+            raise ValueError(f"Empty Vulture death frame {pose}")
+        name = f"death{pose}.png"
+        cropped = quantize(image.crop(bbox), palette)
+        cropped.save(output / name)
+        selected[name] = {"source_frame": pose + 1, "source": FIREBAT_DEATH_RESOURCE,
+                          "width": cropped.width, "height": cropped.height,
+                          "x": bbox[0] - 64, "y": bbox[1] - 64}
+        death.append(name)
+    registry = {"terran_vulture": {"idle": {"frames": frames, "ticks_per_frame": 0},
+                                   "death": {"frames": death, "ticks_per_frame": 2,
+                                             "directional": False}}}
+    (output / "manifest.json").write_text(json.dumps({
+        "unit": "vulture", "kind": "terran_vulture", "source": VULTURE_RESOURCE,
+        "death_source": FIREBAT_DEATH_RESOURCE, "palette": PALETTE,
+        "archives": archives, "canvas": [width, height], "frame_count": count,
+        "source_sha256": hashlib.sha256(data).hexdigest(),
+        "registry": registry, "frames": selected,
+        "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; west mirrors east",
+        "output_palette": "nearest OpenRCT2 standard palette colour"}, indent=2) + "\n")
+    print(f"Prepared {len(selected)} Vulture frames in {output} from {archives}")
+
+
+def prepare_flame_pack(data: bytes, wpe: bytes, output: Path,
+                       palette: list[tuple[int, int, int]], archives: dict) -> None:
+    """Extract the separate directional FlameThrower thingy, not Firebat poses."""
+    count, width, height = struct.unpack_from("<HHH", data)
+    if (count, width, height) != (221, 224, 224):
+        raise ValueError(f"Unexpected FlameThrower GRP: {count} frames, {width}x{height}")
+    selected, frames = {}, {}
+    # Every second 17-direction bank samples the growth and fade of the burst.
+    banks = (0, 2, 4, 6, 8, 10, 12)
+    for direction, (facing, mirror) in DIRECTIONS.items():
+        names = []
+        for pose, bank in enumerate(banks):
+            frame = bank * 17 + facing
+            image = decode_grp(data, wpe, frame)
+            if mirror:
+                image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            bbox = image.getbbox()
+            if bbox is None:
+                raise ValueError(f"Empty FlameThrower frame {frame}")
+            name = f"burst{pose}_{direction}.png"
+            cropped = quantize(image.crop(bbox), palette)
+            cropped.save(output / name)
+            selected[name] = {"source_frame": frame, "mirrored": mirror,
+                              "width": cropped.width, "height": cropped.height,
+                              "x": bbox[0] - width // 2, "y": bbox[1] - height // 2}
+            names.append(name)
+        frames[direction] = names
+    (output / "manifest.json").write_text(json.dumps({
+        "unit": "flame", "kind": "firebat_flame", "source": FLAME_RESOURCE,
+        "palette": PALETTE, "archives": archives, "canvas": [width, height],
+        "frame_count": count, "source_sha256": hashlib.sha256(data).hexdigest(),
+        "registry": {"firebat_flame": {"burst": {"frames": frames, "ticks_per_frame": 2}}},
+        "frames": selected,
+        "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; west mirrors east",
+        "output_palette": "nearest OpenRCT2 standard palette colour"}, indent=2) + "\n")
+    print(f"Prepared {len(selected)} FlameThrower frames in {output} from {archives}")
+
 def prepare_zergling_pack(data: bytes, wpe: bytes, output: Path,
                            palette: list[tuple[int, int, int]], archives: dict) -> None:
     frame_count, canvas_width, canvas_height = struct.unpack_from("<HHH", data)
@@ -286,6 +428,9 @@ def prepare_zergling_pack(data: bytes, wpe: bytes, output: Path,
 UNIT_PROFILES = {
     "marine": {"resource": MARINE_RESOURCE, "prepare": prepare_marine_pack},
     "firebat": {"resource": FIREBAT_RESOURCE, "prepare": prepare_firebat_pack},
+    "medic": {"resource": MEDIC_RESOURCE, "prepare": prepare_medic_pack},
+    "vulture": {"resource": VULTURE_RESOURCE, "prepare": prepare_vulture_pack},
+    "flame": {"resource": FLAME_RESOURCE, "prepare": prepare_flame_pack},
     "zergling": {"resource": RESOURCE, "prepare": prepare_zergling_pack},
 }
 
@@ -308,7 +453,7 @@ def main() -> None:
     grp_path, wpe_path = source / f"{args.unit}.grp", source / "Badlands.wpe"
     archives = {resource: extract(args.game_dir, resource, grp_path),
                 PALETTE: extract(args.game_dir, PALETTE, wpe_path)}
-    if args.unit == "firebat":
+    if args.unit in ("firebat", "vulture"):
         archives[FIREBAT_DEATH_RESOURCE] = extract(
             args.game_dir, FIREBAT_DEATH_RESOURCE, source / "death.grp")
     data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()

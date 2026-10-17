@@ -56,7 +56,7 @@ const sandbox = {
                     payload: { op_id: m.op_id, accepted: true } }) + '\n');
             } }; return socket;
     } },
-    rtsBridge: { version: 5, assetVersion: 3, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, applySnapshot(snapshot) { applied.push(snapshot); },
+    rtsBridge: { version: 5, assetVersion: 4, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, applySnapshot(snapshot) { applied.push(snapshot); },
         actorScreenPosition(id) { return actorScreens.get(id) || null; },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
     ui: { tileSelection: { tiles: [] }, get tool() { return activeTool; }, openWindow(desc) { squadWidgets = desc.widgets;
@@ -205,7 +205,7 @@ assert.equal(registered.get('rtsbridge.marineCommand').query({ player: 1, args: 
 actorScreens.set(runtimeMarine.id, { x: 190, y: 190, scale: 1 });
 selectionTool.onDown({ mapCoords: { x: runtimeMarine.x, y: runtimeMarine.y }, screenCoords: { x: 190, y: 178 } });
 assert.equal(selectionTool.onUp({ mapCoords: { x: 99, y: 99 }, screenCoords: { x: 190, y: 178 } }), true, 'screen hit consumes click despite different terrain projection');
-assert.ok(logs.some(line => line.includes('selected Marines=openbw:3001')),
+assert.ok(logs.some(line => line.includes('selected units=openbw:3001')),
     'native hit testing selects the runtime Marine');
 assert.equal(selectionTool.onHover({ screenCoords: { x: 190, y: 178 } }), true);
 assert.equal(selectionTool.onHover({ screenCoords: { x: 190, y: 178 }, alt: true }), false);

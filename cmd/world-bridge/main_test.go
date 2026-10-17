@@ -221,6 +221,52 @@ func TestRuntimeCommandRequiresConfirmedBindings(t *testing.T) {
 		t.Fatalf("active actor order not forwarded: %+v", message)
 	}
 	delete(s.commands, "command:active")
+	medic := world.ActorIdentity{ID: "openbw:3002", Engine: "openbw", Type: "terran_medic",
+		Owner: 1, Generation: 1, Session: "session-a"}
+	if err := s.actors.Spawn(medic); err != nil {
+		t.Fatal(err)
+	}
+	medicBinding := publisher
+	medicBinding.ID, medicBinding.NativeID = medic.ID, "12"
+	if err := s.actors.Bind(medicBinding); err != nil {
+		t.Fatal(err)
+	}
+	medicBinding.Participant, medicBinding.NativeID = "controller", "99"
+	if err := s.actors.Bind(medicBinding); err != nil {
+		t.Fatal(err)
+	}
+	command = worldCommand{CommandID: "command:medic-attack", PlayerID: 2, RequestID: 2,
+		UnitIDs: []string{medic.ID}, Verb: "unit.attack", TargetID: identity.ID}
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:medic-attack", "openrct2", 1, command))
+	if len(s.commands) != 0 {
+		t.Fatal("Medic attack command was forwarded")
+	}
+	command.CommandID, command.Verb, command.RequestID = "command:medic-heal", "unit.heal", 3
+	forwarded = make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(controllerSide)), &message)
+		forwarded <- message
+	}()
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:medic-heal", "openrct2", 1, command))
+	var heal worldCommand
+	if message := <-forwarded; message.Kind != "combat.command" || message.Decode(&heal) != nil ||
+		heal.TargetProxyID != identity.ID || len(s.commands) != 1 {
+		t.Fatalf("Medic heal command was not forwarded to its confirmed target: %+v", message)
+	}
+	delete(s.commands, command.CommandID)
+	command.CommandID, command.RequestID, command.TargetID = "command:medic-static-heal", 4, "openbw:1000"
+	forwarded = make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(controllerSide)), &message)
+		forwarded <- message
+	}()
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:medic-static-heal", "openrct2", 1, command))
+	if message := <-forwarded; message.Decode(&heal) != nil || heal.TargetProxyID != "openbw:1000" {
+		t.Fatalf("Medic could not heal a static Marine: %+v", message)
+	}
+	delete(s.commands, command.CommandID)
 	if err := s.actors.Despawn(world.ActorDespawn{ID: identity.ID, Session: identity.Session, Generation: 1}); err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +385,7 @@ func TestGeneralizedTrainingCommand(t *testing.T) {
 	if len(s.commands) != 1 {
 		t.Fatal("duplicate training command forwarded")
 	}
-	command.CommandID, command.RequestID, command.UnitType = "session-a:2", 2, "terran_medic"
+	command.CommandID, command.RequestID, command.UnitType = "session-a:2", 2, "terran_ghost"
 	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:train:unsupported", "openrct2", 1, command))
 	if len(s.commands) != 1 {
 		t.Fatal("unsupported unit forwarded")

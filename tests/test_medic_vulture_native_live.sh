@@ -69,6 +69,9 @@ for role in ("controller", "publisher"):
 train = stage("controller", "train")
 checks["native_training_charges"] = "medic=1 vulture=1" in train and "minerals=500->" in train
 checks["native_heal_order"] = "accepted=1" in stage("controller", "heal_order")
+checks["publisher_heal_visual_from_native_hp"] = bool(re.search(
+    r"stage=heal_visual frame=\d+ medic=\d+ target=\d+ hp=([2-9]\d|\d{3,}) energy=\d+",
+    stage("publisher", "heal_visual")))
 (run / "verification.json").write_text(json.dumps({"checks": checks}, indent=2) + "\n")
 print(json.dumps(checks, indent=2))
 print(f"Native evidence: {run}")

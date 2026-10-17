@@ -20,6 +20,14 @@ FIREBAT_NAMES = [f"{state}{pose}_{direction}.png"
                  for state, count in (("idle", 1), ("walk", 2), ("attack", 3))
                  for pose in range(count) for direction in FIREBAT_DIRECTIONS]
 FIREBAT_NAMES += [f"death{pose}.png" for pose in range(8)]
+MEDIC_NAMES = [f"{state}{pose}_{direction}.png"
+               for state, count in (("idle", 1), ("walk", 2), ("heal", 3))
+               for pose in range(count) for direction in MARINE_DIRECTIONS]
+MEDIC_NAMES += [f"death{pose}.png" for pose in range(8)]
+VULTURE_NAMES = [f"idle0_{direction}.png" for direction in MARINE_DIRECTIONS]
+VULTURE_NAMES += [f"death{pose}.png" for pose in range(8)]
+FLAME_NAMES = [f"burst{pose}_{direction}.png" for pose in range(7)
+               for direction in MARINE_DIRECTIONS]
 
 
 def ensure_firebat_g2_entries(contents: str) -> str:
@@ -35,6 +43,84 @@ def ensure_firebat_g2_entries(contents: str) -> str:
         f'    {{\n        "path": "bridge/{name}", "x": {x}, "y": {y}\n    }}'
         for name, x, y in entries)
     return contents.rstrip()[:-1].rstrip() + ",\n" + rendered + "\n]\n"
+
+
+def ensure_next_g2_entries(contents: str) -> str:
+    """Append Medic, Vulture, and flame banks after the existing Firebat IDs."""
+    if '"path": "bridge/medic/idle0_east.png"' in contents:
+        return contents
+    entries = [(f"medic/{name}", -32, -32) for name in MEDIC_NAMES]
+    entries += [(f"health/medic{level}.png", -10, -42) for level in range(11)]
+    entries += [(f"vulture/{name}", -50, -50) for name in VULTURE_NAMES]
+    entries += [(f"health/vulture{level}.png", -10, -28) for level in range(11)]
+    entries += [(f"flame/{name}", -112, -112) for name in FLAME_NAMES]
+    if len(entries) != 150 or not contents.rstrip().endswith("]"):
+        raise SystemExit("Invalid next StarCraft G2 banks")
+    rendered = ",\n".join(
+        f'    {{\n        "path": "bridge/{name}", "x": {x}, "y": {y}\n    }}'
+        for name, x, y in entries)
+    return contents.rstrip()[:-1].rstrip() + ",\n" + rendered + "\n]\n"
+
+
+def placeholder_next(destination: Path, upstream: Path, kind: str, names: list[str]) -> None:
+    """Use local CC0 placeholders when the licensed art is unavailable."""
+    from PIL import ImageDraw
+    marine = destination.parent / "marine"
+    placeholder_marine(marine, upstream)
+    destination.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        target = destination / name
+        if kind == "flame":
+            image = Image.new("RGBA", (32, 32))
+            colour = min(standard_colours(upstream), key=lambda rgb:
+                         sum((rgb[index] - wanted) ** 2
+                             for index, wanted in enumerate((235, 122, 35))))
+            draw = ImageDraw.Draw(image)
+            pose = int(name[5])
+            draw.ellipse((12, 12 - pose // 2, 19 + pose // 2, 19 + pose // 2), fill=colour + (255,))
+            image.crop(image.getbbox()).save(target)
+        else:
+            source_name = name.replace("heal", "attack") if kind == "medic" else name
+            shutil.copyfile(marine / source_name, target)
+
+
+def stage_next_bank(source: Path, pack: str, upstream: Path, contents: str,
+                    colours: set, prepared: list, kind: str, names: list[str],
+                    manifest_kind: str) -> str:
+    local = source.parent / kind
+    if pack == "starcraft-local" and not (local / "manifest.json").is_file():
+        raise SystemExit(f"Missing {kind} manifest: {local / 'manifest.json'}. "
+                         f"Run scripts/prepare-starcraft-sprites.py --unit {kind} first.")
+    if pack != "starcraft-local":
+        local = Path(__file__).resolve().parent.parent / f"run-data/generated-assets/placeholder/{kind}"
+        placeholder_next(local, upstream, kind, names)
+    manifest_path = local / "manifest.json"
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() and pack == "starcraft-local" else None
+    if manifest and (manifest.get("kind") != manifest_kind
+                     or len(manifest.get("frames", {})) != len(names)):
+        raise SystemExit(f"Invalid independent {kind} visual bank")
+    for name in names:
+        path = local / name
+        if not path.is_file():
+            raise SystemExit(f"Missing {kind} frame: {path}")
+        with Image.open(path) as image:
+            image.load()
+            if image.mode != "RGBA" or not (1 <= image.width <= 300 and 1 <= image.height <= 300):
+                raise SystemExit(f"Incompatible {kind} sprite: {path}")
+            if any(alpha not in (0, 255) or (alpha and (red, green, blue) not in colours)
+                   for red, green, blue, alpha in image.getdata()):
+                raise SystemExit(f"Incompatible {kind} palette or alpha: {path}")
+        meta = manifest["frames"].get(name) if manifest else None
+        if manifest and (not meta or (meta["width"], meta["height"]) != image.size):
+            raise SystemExit(f"{kind} sprite/manifest mismatch: {path}")
+        x, y = (meta["x"], meta["y"]) if meta else (-image.width // 2, -image.height)
+        pattern = re.compile(r'(\{\s*"path": "bridge/' + re.escape(kind + "/" + name)
+                             + r'", "x": )-?\d+(, "y": )-?\d+(\s*\})')
+        contents, count = pattern.subn(lambda match: f"{match[1]}{x}{match[2]}{y}{match[3]}", contents)
+        if count != 1:
+            raise SystemExit(f"Missing or duplicate {kind} g2 entry: {name}")
+        prepared.append((path, kind + "/" + name))
+    return contents
 
 
 def placeholder_marine(destination: Path, upstream: Path) -> None:
@@ -209,7 +295,8 @@ def main() -> None:
     parser.add_argument("source", type=Path)
     parser.add_argument("upstream", type=Path)
     parser.add_argument("pack", choices=("starcraft-local", "alien-scout"))
-    parser.add_argument("--only-unit", choices=("zerg_zergling", "terran_marine", "terran_firebat"))
+    parser.add_argument("--only-unit", choices=("zerg_zergling", "terran_marine", "terran_firebat",
+                                                "terran_medic", "terran_vulture", "firebat_flame"))
     args = parser.parse_args()
     only_unit = args.only_unit
     source, upstream, pack = args.source, args.upstream, args.pack
@@ -226,7 +313,7 @@ def main() -> None:
            or len(registry.get("death", {}).get("frames", {}).get("east", [])) != 6:
             raise SystemExit("StarCraft manifest must contain 136 frames including six death poses")
     sprite_list = upstream / "resources/g2/sprites.json"
-    contents = ensure_firebat_g2_entries(sprite_list.read_text())
+    contents = ensure_next_g2_entries(ensure_firebat_g2_entries(sprite_list.read_text()))
     enum_text = (upstream / "src/openrct2/SpriteIds.h").read_text()
     if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_(?:IDLE|WALK[0-9]+)_", enum_text, re.MULTILINE)) != 88:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 88 bridge images")
@@ -234,10 +321,13 @@ def main() -> None:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 56 Marine images")
     if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_DEATH[0-5]_", enum_text, re.MULTILINE)) != 48:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 48 scout death images")
-    if len(re.findall(r"^\s*SPR_BRIDGE_HEALTH_", enum_text, re.MULTILINE)) != 33:
-        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 33 health bar images")
+    if len(re.findall(r"^\s*SPR_BRIDGE_HEALTH_", enum_text, re.MULTILINE)) != 55:
+        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 55 health bar images")
     if len(re.findall(r"^\s*SPR_BRIDGE_FIREBAT_", enum_text, re.MULTILINE)) != 56:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 56 Firebat images")
+    for prefix, expected in (("MEDIC", 56), ("VULTURE", 16), ("FLAME", 56)):
+        if len(re.findall(r"^\s*SPR_BRIDGE_" + prefix + r"_", enum_text, re.MULTILINE)) != expected:
+            raise SystemExit(f"OpenRCT2 sprite ID range must contain exactly {expected} {prefix} images")
     colours = standard_colours(upstream)
     prepared = []
     if only_unit in (None, "zerg_zergling"):
@@ -246,6 +336,13 @@ def main() -> None:
         contents = stage_marine(source, pack, upstream, contents, colours, prepared)
     if only_unit in (None, "terran_firebat"):
         contents = stage_firebat(source, pack, upstream, contents, colours, prepared)
+    for requested, kind, names, manifest_kind in (
+            ("terran_medic", "medic", MEDIC_NAMES, "terran_medic"),
+            ("terran_vulture", "vulture", VULTURE_NAMES, "terran_vulture"),
+            ("firebat_flame", "flame", FLAME_NAMES, "firebat_flame")):
+        if only_unit in (None, requested):
+            contents = stage_next_bank(source, pack, upstream, contents, colours, prepared,
+                                       kind, names, manifest_kind)
     # Small native overlays; each image is an exact-palette health fraction.
     health_source = Path(__file__).resolve().parent.parent / "run-data/generated-assets/bridge-health"
     health_source.mkdir(parents=True, exist_ok=True)
@@ -259,7 +356,8 @@ def main() -> None:
         return min(available, key=lambda value: sum((value[index] - wanted[index]) ** 2 for index in range(3)))
     outline, background = colour((18, 22, 21)), colour((62, 70, 65))
     for faction, wanted in (("marine", (70, 220, 100)), ("zergling", (195, 90, 225)),
-                            ("firebat", (70, 220, 100))):
+                            ("firebat", (70, 220, 100)), ("medic", (70, 220, 100)),
+                            ("vulture", (70, 220, 100))):
         fill = colour(wanted)
         for level in range(11):
             name = f"{faction}{level}.png"
@@ -273,7 +371,7 @@ def main() -> None:
             image.save(path)
             pattern = re.compile(r'(\{\s*"path": "bridge/health/' + re.escape(name)
                                  + r'", "x": )-?\d+(, "y": )-?\d+(\s*\})')
-            y = -42 if faction == "marine" else -28 if faction == "firebat" else -34
+            y = -42 if faction in ("marine", "medic") else -28 if faction in ("firebat", "vulture") else -34
             contents, count = pattern.subn(lambda m: f"{m[1]}-10{m[2]}{y}{m[3]}", contents)
             if count != 1:
                 raise SystemExit(f"Missing or duplicate health g2 entry: {name}")

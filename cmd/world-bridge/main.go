@@ -976,10 +976,24 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			}
 			if s.actors != nil {
 				numeric, _ := strconv.Atoi(id[7:])
-				_, known := s.actors.Lookup(id)
+				record, known := s.actors.Lookup(id)
 				if (numeric >= 3000 || known) && !s.actors.Commandable(id) {
 					s.ack(p, m, false, "actor_not_bound")
 					return
+				}
+				if known {
+					unit, supported := world.SupportedUnit(record.Identity.Type)
+					allowed := false
+					for _, verb := range unit.Commands {
+						if verb == command.Verb {
+							allowed = true
+							break
+						}
+					}
+					if !supported || !allowed {
+						s.ack(p, m, false, "unsupported_unit_command")
+						return
+					}
 				}
 			}
 		}
@@ -1035,6 +1049,17 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				s.ack(p, m, false, "unknown_target")
 				return
 			}
+		case "unit.heal":
+			if len(command.UnitIDs) == 0 || !unitIDPattern.MatchString(command.TargetID) {
+				s.ack(p, m, false, "invalid_heal_target")
+				return
+			}
+			numeric, _ := strconv.Atoi(command.TargetID[7:])
+			if numeric >= 3000 && (s.actors == nil || !s.actors.Commandable(command.TargetID)) {
+				s.ack(p, m, false, "invalid_heal_target")
+				return
+			}
+			command.TargetProxyID = command.TargetID
 		case "unit.hold", "unit.stop":
 			if len(command.UnitIDs) == 0 {
 				s.ack(p, m, false, "missing_units")
@@ -1584,8 +1609,8 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 				Reason      string `json:"reason"`
 				Requirement string `json:"requirement"`
 			} `json:"availability"`
-			SupplyUsed      int    `json:"supply_used"`
-			SupplyTotal     int    `json:"supply_total"`
+			SupplyUsed  int `json:"supply_used"`
+			SupplyTotal int `json:"supply_total"`
 		}
 		if m.Decode(&state) != nil {
 			return

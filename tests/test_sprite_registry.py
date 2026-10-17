@@ -17,9 +17,35 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "run-data/generated-assets/starcraft/zergling/manifest.json"
 MARINE_MANIFEST = ROOT / "run-data/generated-assets/starcraft/marine/manifest.json"
 FIREBAT_MANIFEST = ROOT / "run-data/generated-assets/starcraft/firebat/manifest.json"
+MEDIC_MANIFEST = ROOT / "run-data/generated-assets/starcraft/medic/manifest.json"
+VULTURE_MANIFEST = ROOT / "run-data/generated-assets/starcraft/vulture/manifest.json"
+FLAME_MANIFEST = ROOT / "run-data/generated-assets/starcraft/flame/manifest.json"
 
 
 class SpriteRegistryTests(unittest.TestCase):
+    @unittest.skipUnless(all(path.is_file() for path in
+                             (MEDIC_MANIFEST, VULTURE_MANIFEST, FLAME_MANIFEST)),
+                         "local Medic, Vulture, and flame art has not been prepared")
+    def test_new_native_visual_banks_and_healing_effect(self):
+        medic = json.loads(MEDIC_MANIFEST.read_text())
+        vulture = json.loads(VULTURE_MANIFEST.read_text())
+        flame = json.loads(FLAME_MANIFEST.read_text())
+        self.assertEqual((medic["frame_count"], medic["canvas"], len(medic["frames"])),
+                         (230, [64, 64], 56))
+        self.assertEqual(medic["frames"]["heal0_east.png"]["source_frame"], 4 * 17 + 8)
+        self.assertEqual(medic["frames"]["heal1_east.png"]["source_frame"], 5 * 17 + 8)
+        self.assertEqual(set(medic["registry"]["terran_medic"]),
+                         {"idle", "walk", "heal", "death"})
+        self.assertEqual((vulture["frame_count"], vulture["canvas"], len(vulture["frames"])),
+                         (17, [100, 100], 16))
+        self.assertEqual(set(vulture["registry"]["terran_vulture"]), {"idle", "death"})
+        self.assertEqual((flame["frame_count"], flame["canvas"], len(flame["frames"])),
+                         (221, [224, 224], 56))
+        self.assertEqual(flame["frames"]["burst6_east.png"]["source_frame"], 12 * 17 + 8)
+        with Image.open(FLAME_MANIFEST.parent / "burst0_east.png") as first, \
+                Image.open(FLAME_MANIFEST.parent / "burst3_east.png") as middle:
+            self.assertNotEqual(first.size, middle.size)
+
     @unittest.skipUnless(FIREBAT_MANIFEST.is_file(), "local Firebat art has not been prepared")
     def test_firebat_uses_its_classic_direction_banks_and_death_effect(self):
         manifest = json.loads(FIREBAT_MANIFEST.read_text())
@@ -238,10 +264,10 @@ class SpriteRegistryTests(unittest.TestCase):
         native = (upstream / "src/openrct2/scripting/ScriptEngine.cpp").read_text()
         plugin = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
         self.assertIn('"version", JS_NewInt32(ctx, 5)', native)
-        self.assertIn('"assetVersion", JS_NewInt32(ctx, 3)', native)
+        self.assertIn('"assetVersion", JS_NewInt32(ctx, 4)', native)
         self.assertIn('parsed.kind == "terran_firebat"', native)
         self.assertIn('rtsBridge.version !== 5', plugin)
-        self.assertIn('rtsBridge.assetVersion !== 3', plugin)
+        self.assertIn('rtsBridge.assetVersion !== 4', plugin)
 
     @unittest.skipUnless(MANIFEST.is_file(), "local licensed sprites have not been prepared")
     def test_verified_walk_groups_and_mirror_anchors(self):

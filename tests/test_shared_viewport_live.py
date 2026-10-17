@@ -126,7 +126,7 @@ def main():
         hover(marine["point"])
         marine_cursor = cursor_image()
         click(marine["point"])
-        wait(lambda: "RTS Bridge selected Marines=openbw:1000" in source())
+        wait(lambda: "RTS Bridge selected units=openbw:1000" in source())
         checks["marine_click_selects"] = True
         ride = report("2")
         hover(ride["point"])
@@ -157,10 +157,10 @@ def main():
         checks["active_tool_keeps_click"] = state["toolClicks"] == 1 and state["tool"] == "viewportprobe.construction"
         mouse("key", "--clearmodifiers", "ctrl+shift+u")
         checks["selection_shortcut_cancels_tool"] = report("5")["tool"] is None
-        before = source().count("RTS Bridge selected Marines=")
+        before = source().count("RTS Bridge selected units=")
         marine = report("1")
         click(marine["point"])
-        wait(lambda: source().count("RTS Bridge selected Marines=") > before)
+        wait(lambda: source().count("RTS Bridge selected units=") > before)
         checks["marine_selects_after_park_and_tool"] = True
         mouse("mousemove", "--window", window_id,
               round(marine["point"]["x"] + 80), round(marine["point"]["y"] + 40), "click", "3")

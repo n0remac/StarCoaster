@@ -892,17 +892,19 @@
                 && unit.x >= 0 && unit.y >= 0
                 && unit.x < map.size.x * 32 && unit.y < map.size.y * 32
                 && Number.isInteger(unit.facing) && unit.facing >= 0 && unit.facing <= 255
-                && (unit.motion === "idle" || unit.motion === "walk" || unit.motion === "attack" || unit.motion === "death")
+                && (unit.motion === "idle" || unit.motion === "walk" || unit.motion === "attack"
+                    || unit.motion === "heal" || unit.motion === "death")
                 && (UNIT_TYPES[unit.kind]
                     && Number.isInteger(unit.owner) && unit.owner >= 0 && unit.owner <= 11
                     && Number.isInteger(unit.hp) && unit.hp >= 0
                     && Number.isInteger(unit.max_hp) && unit.max_hp >= unit.hp && unit.max_hp <= 10000
+                    && (unit.energy === undefined || Number.isInteger(unit.energy) && unit.energy >= 0)
                     && Number.isInteger(unit.attack_frames) && unit.attack_frames >= 0);
         });
     }
 
     function main() {
-        if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 3
+        if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 4
             || typeof rtsBridge.applySnapshot !== "function"
             || typeof rtsBridge.invalidateAnimation !== "function"
             || typeof rtsBridge.setBuildingAnimations !== "function"
@@ -1324,7 +1326,7 @@
                 if (!args || args.session !== controlSession || !Number.isSafeInteger(args.request)
                     || args.request < 1 || !Array.isArray(args.unit_ids)
                     || args.unit_ids.length > 32
-                    || !(["move", "attack", "attack_move", "hold", "stop", "train"].includes(args.verb))
+                    || !(["move", "attack", "attack_move", "hold", "stop", "heal", "train"].includes(args.verb))
                     || (args.verb === "train" ? args.unit_ids.length !== 0 : args.unit_ids.length < 1))
                     return { error: 1, errorMessage: "Invalid unit command" };
                 if (seenCommandRequests[args.session + ":" + event.player + ":" + args.request])
@@ -1360,6 +1362,12 @@
                     if ((!target || !UNIT_TYPES[target.kind] || target.owner === terranOwner || target.hp <= 0) && !structure)
                         return { error: 1, errorMessage: "Invalid attack target" };
                 }
+                if (args.verb === "heal") {
+                    const target = controlUnits[args.target_id];
+                    if (!target || !UNIT_TYPES[target.kind] || target.owner !== terranOwner
+                        || target.hp <= 0 || target.hp >= target.max_hp)
+                        return { error: 1, errorMessage: "Invalid heal target" };
+                }
                 if (network.mode === "server" && !(worldCommandSender))
                     return { error: 1, errorMessage: "Terran controller disconnected" };
                 return {};
@@ -1376,7 +1384,7 @@
                     if (args.verb === "train") payload.unit_type = args.unit_type || "terran_marine";
                     if (args.verb === "move" || args.verb === "attack_move") {
                         payload.x = args.x; payload.y = args.y;
-                    } else if (args.verb === "attack" || args.verb === "train")
+                    } else if (args.verb === "attack" || args.verb === "heal" || args.verb === "train")
                         payload.target_id = args.target_entity_id || args.target_id;
                     console.log("WORLD_COMMAND_ACTION id=" + commandId + " request=" + args.request
                         + " units=" + args.unit_ids.length + " verb=" + args.verb);
@@ -1690,7 +1698,7 @@
                     { type: "label", name: "objective", x: 8, y: 57, width: 232, height: 14,
                         text: "Defend Frontier Carousel" },
                     { type: "label", name: "command", x: 8, y: 75, width: 232, height: 14,
-                        text: "Select Marines to issue orders" },
+                        text: "Select units to issue orders" },
                     { type: "dropdown", name: "spawn-count", x: 8, y: 96, width: 72, height: 14,
                         items: ["1 Marine", "2 Marines", "3 Marines", "4 Marines", "5 Marines"],
                         selectedIndex: 4, onChange: function (index) { spawnCount = index + 1; } },
@@ -1790,7 +1798,7 @@
                                 ? " | Wave " + missionStatus.wave_ordinal + "/" + missionStatus.wave_total : ""))
                         : "Waiting for mission status";
                     const command = squadWindow.findWidget("command");
-                    if (command) command.text = commandFeedback || "Select Marines to issue orders";
+                    if (command) command.text = commandFeedback || "Select units to issue orders";
                     const status = squadWindow.findWidget("spawn-status");
                     if (status) status.text = spawnMode ? "Place " + spawnCount + " Marine" + (spawnCount === 1 ? "" : "s")
                         : spawnFeedback || "Call in reinforcements";
@@ -1853,7 +1861,7 @@
                     selected = selected.includes(id) ? selected.filter(function (entry) { return entry !== id; })
                         : selected.concat(id);
                 } else selected = [id];
-                console.log("RTS Bridge selected Marines=" + selected.join(","));
+                console.log("RTS Bridge selected units=" + selected.join(","));
             }
             function chooseRectangle(start, end, shift) {
                 refreshSelection();
@@ -1868,36 +1876,41 @@
                         && screen.y >= top && screen.y <= bottom;
                 });
                 selected = shift ? selected.concat(inside.filter(function (id) { return !selected.includes(id); })) : inside;
-                console.log("RTS Bridge selected Marines=" + selected.join(","));
+                console.log("RTS Bridge selected units=" + selected.join(","));
             }
-            function commandSquad(verb, extras) {
+            function commandSquad(verb, extras, ids) {
                 refreshSelection();
-                for (let index = 0; index < selected.length; index += 32) {
+                const commanded = (ids || selected).filter(function (id) {
+                    const unit = controlUnits[id];
+                    return controllable(unit, terranOwner)
+                        && UNIT_TYPES[unit.kind].commands.includes(verb);
+                });
+                for (let index = 0; index < commanded.length; index += 32) {
                     const args = Object.assign({ session: controlSession, request: ++nextRequest,
-                        unit_ids: selected.slice(index, index + 32), verb: verb }, extras);
+                        unit_ids: commanded.slice(index, index + 32), verb: verb }, extras);
                     context.executeAction(COMMAND_ACTION, args, function (result) {
-                        if (result.error) ui.showError("Marine command", result.errorMessage);
+                        if (result.error) ui.showError("Unit command", result.errorMessage);
                     });
                 }
             }
-            ui.registerShortcut({ id: "starcoaster.select-multiple", text: "Toggle Marine squad selection",
+            ui.registerShortcut({ id: "starcoaster.select-multiple", text: "Toggle squad selection",
                 bindings: ["M"], callback: function () {
                     selectingMultiple = !selectingMultiple;
                     console.log("RTS Bridge multi-select=" + selectingMultiple);
                 } });
-            ui.registerShortcut({ id: "starcoaster.hold-position", text: "Hold Marine positions",
+            ui.registerShortcut({ id: "starcoaster.hold-position", text: "Hold selected positions",
                 bindings: ["H"], callback: function () {
                     commandSquad("hold");
                 } });
-            ui.registerShortcut({ id: "starcoaster.stop", text: "Stop Marines", bindings: ["S"],
+            ui.registerShortcut({ id: "starcoaster.stop", text: "Stop selected units", bindings: ["S"],
                 callback: function () {
                     commandSquad("stop");
                 } });
-            ui.registerShortcut({ id: "starcoaster.attack-move", text: "Marine attack move", bindings: ["A"],
+            ui.registerShortcut({ id: "starcoaster.attack-move", text: "Squad attack move", bindings: ["A"],
                 callback: function () { attackMove = true; } });
-            ui.registerShortcut({ id: "starcoaster.save-group-1", text: "Save Marine group 1", bindings: ["CTRL+1"],
+            ui.registerShortcut({ id: "starcoaster.save-group-1", text: "Save squad group 1", bindings: ["CTRL+1"],
                 callback: function () { refreshSelection(); controlGroups[1] = selected.slice(); } });
-            ui.registerShortcut({ id: "starcoaster.recall-group-1", text: "Select Marine group 1", bindings: ["1"],
+            ui.registerShortcut({ id: "starcoaster.recall-group-1", text: "Select squad group 1", bindings: ["1"],
                 callback: function () { refreshSelection(); selected = (controlGroups[1] || []).filter(function (id) {
                     return controlUnits[id] && controlUnits[id].hp > 0;
                 }); } });
@@ -1912,6 +1925,17 @@
                             && point.x < rect.x + rect.width && point.y < rect.y + rect.height;
                     });
                 })[0];
+                const medics = selected.filter(function (id) {
+                    return controlUnits[id] && controlUnits[id].kind === "terran_medic";
+                });
+                const others = selected.filter(function (id) { return !medics.includes(id); });
+                if (target && target.owner === terranOwner && target.hp > 0
+                    && target.hp < target.max_hp && medics.length) {
+                    commandSquad("heal", { target_id: hit }, medics);
+                    if (others.length) commandSquad("move", { x: point.x, y: point.y }, others);
+                    attackMove = false;
+                    return true;
+                }
                 let verb = target && UNIT_TYPES[target.kind] && target.owner !== terranOwner ? "attack" : "move";
                 const extras = {};
                 if (verb === "attack") extras.target_id = hit;
@@ -1921,7 +1945,10 @@
                     extras.x = point.x; extras.y = point.y;
                 }
                 attackMove = false;
-                commandSquad(verb, extras);
+                if (verb === "attack" && medics.length) {
+                    commandSquad(verb, extras, others);
+                    commandSquad("attack_move", { x: point.x, y: point.y }, medics);
+                } else commandSquad(verb, extras);
                 return true;
             }
             function activateSpawnTool() {

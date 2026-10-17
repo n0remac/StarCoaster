@@ -1,0 +1,284 @@
+diff --git a/src/openrct2/SpriteIds.h b/src/openrct2/SpriteIds.h
+--- a/src/openrct2/SpriteIds.h
++++ b/src/openrct2/SpriteIds.h
+@@ -1498,6 +1498,157 @@
+     SPR_BRIDGE_HEALTH_FIREBAT_9,
+     SPR_BRIDGE_HEALTH_FIREBAT_10,
+ 
++    SPR_BRIDGE_MEDIC_IDLE0_EAST,
++    SPR_BRIDGE_MEDIC_IDLE0_SOUTHEAST,
++    SPR_BRIDGE_MEDIC_IDLE0_SOUTH,
++    SPR_BRIDGE_MEDIC_IDLE0_SOUTHWEST,
++    SPR_BRIDGE_MEDIC_IDLE0_WEST,
++    SPR_BRIDGE_MEDIC_IDLE0_NORTHWEST,
++    SPR_BRIDGE_MEDIC_IDLE0_NORTH,
++    SPR_BRIDGE_MEDIC_IDLE0_NORTHEAST,
++    SPR_BRIDGE_MEDIC_WALK0_EAST,
++    SPR_BRIDGE_MEDIC_WALK0_SOUTHEAST,
++    SPR_BRIDGE_MEDIC_WALK0_SOUTH,
++    SPR_BRIDGE_MEDIC_WALK0_SOUTHWEST,
++    SPR_BRIDGE_MEDIC_WALK0_WEST,
++    SPR_BRIDGE_MEDIC_WALK0_NORTHWEST,
++    SPR_BRIDGE_MEDIC_WALK0_NORTH,
++    SPR_BRIDGE_MEDIC_WALK0_NORTHEAST,
++    SPR_BRIDGE_MEDIC_WALK1_EAST,
++    SPR_BRIDGE_MEDIC_WALK1_SOUTHEAST,
++    SPR_BRIDGE_MEDIC_WALK1_SOUTH,
++    SPR_BRIDGE_MEDIC_WALK1_SOUTHWEST,
++    SPR_BRIDGE_MEDIC_WALK1_WEST,
++    SPR_BRIDGE_MEDIC_WALK1_NORTHWEST,
++    SPR_BRIDGE_MEDIC_WALK1_NORTH,
++    SPR_BRIDGE_MEDIC_WALK1_NORTHEAST,
++    SPR_BRIDGE_MEDIC_HEAL0_EAST,
++    SPR_BRIDGE_MEDIC_HEAL0_SOUTHEAST,
++    SPR_BRIDGE_MEDIC_HEAL0_SOUTH,
++    SPR_BRIDGE_MEDIC_HEAL0_SOUTHWEST,
++    SPR_BRIDGE_MEDIC_HEAL0_WEST,
++    SPR_BRIDGE_MEDIC_HEAL0_NORTHWEST,
++    SPR_BRIDGE_MEDIC_HEAL0_NORTH,
++    SPR_BRIDGE_MEDIC_HEAL0_NORTHEAST,
++    SPR_BRIDGE_MEDIC_HEAL1_EAST,
++    SPR_BRIDGE_MEDIC_HEAL1_SOUTHEAST,
++    SPR_BRIDGE_MEDIC_HEAL1_SOUTH,
++    SPR_BRIDGE_MEDIC_HEAL1_SOUTHWEST,
++    SPR_BRIDGE_MEDIC_HEAL1_WEST,
++    SPR_BRIDGE_MEDIC_HEAL1_NORTHWEST,
++    SPR_BRIDGE_MEDIC_HEAL1_NORTH,
++    SPR_BRIDGE_MEDIC_HEAL1_NORTHEAST,
++    SPR_BRIDGE_MEDIC_HEAL2_EAST,
++    SPR_BRIDGE_MEDIC_HEAL2_SOUTHEAST,
++    SPR_BRIDGE_MEDIC_HEAL2_SOUTH,
++    SPR_BRIDGE_MEDIC_HEAL2_SOUTHWEST,
++    SPR_BRIDGE_MEDIC_HEAL2_WEST,
++    SPR_BRIDGE_MEDIC_HEAL2_NORTHWEST,
++    SPR_BRIDGE_MEDIC_HEAL2_NORTH,
++    SPR_BRIDGE_MEDIC_HEAL2_NORTHEAST,
++    SPR_BRIDGE_MEDIC_DEATH0,
++    SPR_BRIDGE_MEDIC_DEATH1,
++    SPR_BRIDGE_MEDIC_DEATH2,
++    SPR_BRIDGE_MEDIC_DEATH3,
++    SPR_BRIDGE_MEDIC_DEATH4,
++    SPR_BRIDGE_MEDIC_DEATH5,
++    SPR_BRIDGE_MEDIC_DEATH6,
++    SPR_BRIDGE_MEDIC_DEATH7,
++    SPR_BRIDGE_HEALTH_MEDIC_0,
++    SPR_BRIDGE_HEALTH_MEDIC_1,
++    SPR_BRIDGE_HEALTH_MEDIC_2,
++    SPR_BRIDGE_HEALTH_MEDIC_3,
++    SPR_BRIDGE_HEALTH_MEDIC_4,
++    SPR_BRIDGE_HEALTH_MEDIC_5,
++    SPR_BRIDGE_HEALTH_MEDIC_6,
++    SPR_BRIDGE_HEALTH_MEDIC_7,
++    SPR_BRIDGE_HEALTH_MEDIC_8,
++    SPR_BRIDGE_HEALTH_MEDIC_9,
++    SPR_BRIDGE_HEALTH_MEDIC_10,
++    SPR_BRIDGE_VULTURE_IDLE0_EAST,
++    SPR_BRIDGE_VULTURE_IDLE0_SOUTHEAST,
++    SPR_BRIDGE_VULTURE_IDLE0_SOUTH,
++    SPR_BRIDGE_VULTURE_IDLE0_SOUTHWEST,
++    SPR_BRIDGE_VULTURE_IDLE0_WEST,
++    SPR_BRIDGE_VULTURE_IDLE0_NORTHWEST,
++    SPR_BRIDGE_VULTURE_IDLE0_NORTH,
++    SPR_BRIDGE_VULTURE_IDLE0_NORTHEAST,
++    SPR_BRIDGE_VULTURE_DEATH0,
++    SPR_BRIDGE_VULTURE_DEATH1,
++    SPR_BRIDGE_VULTURE_DEATH2,
++    SPR_BRIDGE_VULTURE_DEATH3,
++    SPR_BRIDGE_VULTURE_DEATH4,
++    SPR_BRIDGE_VULTURE_DEATH5,
++    SPR_BRIDGE_VULTURE_DEATH6,
++    SPR_BRIDGE_VULTURE_DEATH7,
++    SPR_BRIDGE_HEALTH_VULTURE_0,
++    SPR_BRIDGE_HEALTH_VULTURE_1,
++    SPR_BRIDGE_HEALTH_VULTURE_2,
++    SPR_BRIDGE_HEALTH_VULTURE_3,
++    SPR_BRIDGE_HEALTH_VULTURE_4,
++    SPR_BRIDGE_HEALTH_VULTURE_5,
++    SPR_BRIDGE_HEALTH_VULTURE_6,
++    SPR_BRIDGE_HEALTH_VULTURE_7,
++    SPR_BRIDGE_HEALTH_VULTURE_8,
++    SPR_BRIDGE_HEALTH_VULTURE_9,
++    SPR_BRIDGE_HEALTH_VULTURE_10,
++    SPR_BRIDGE_FLAME_BURST0_EAST,
++    SPR_BRIDGE_FLAME_BURST0_SOUTHEAST,
++    SPR_BRIDGE_FLAME_BURST0_SOUTH,
++    SPR_BRIDGE_FLAME_BURST0_SOUTHWEST,
++    SPR_BRIDGE_FLAME_BURST0_WEST,
++    SPR_BRIDGE_FLAME_BURST0_NORTHWEST,
++    SPR_BRIDGE_FLAME_BURST0_NORTH,
++    SPR_BRIDGE_FLAME_BURST0_NORTHEAST,
++    SPR_BRIDGE_FLAME_BURST1_EAST,
++    SPR_BRIDGE_FLAME_BURST1_SOUTHEAST,
++    SPR_BRIDGE_FLAME_BURST1_SOUTH,
++    SPR_BRIDGE_FLAME_BURST1_SOUTHWEST,
++    SPR_BRIDGE_FLAME_BURST1_WEST,
++    SPR_BRIDGE_FLAME_BURST1_NORTHWEST,
++    SPR_BRIDGE_FLAME_BURST1_NORTH,
++    SPR_BRIDGE_FLAME_BURST1_NORTHEAST,
++    SPR_BRIDGE_FLAME_BURST2_EAST,
++    SPR_BRIDGE_FLAME_BURST2_SOUTHEAST,
++    SPR_BRIDGE_FLAME_BURST2_SOUTH,
++    SPR_BRIDGE_FLAME_BURST2_SOUTHWEST,
++    SPR_BRIDGE_FLAME_BURST2_WEST,
++    SPR_BRIDGE_FLAME_BURST2_NORTHWEST,
++    SPR_BRIDGE_FLAME_BURST2_NORTH,
++    SPR_BRIDGE_FLAME_BURST2_NORTHEAST,
++    SPR_BRIDGE_FLAME_BURST3_EAST,
++    SPR_BRIDGE_FLAME_BURST3_SOUTHEAST,
++    SPR_BRIDGE_FLAME_BURST3_SOUTH,
++    SPR_BRIDGE_FLAME_BURST3_SOUTHWEST,
++    SPR_BRIDGE_FLAME_BURST3_WEST,
++    SPR_BRIDGE_FLAME_BURST3_NORTHWEST,
++    SPR_BRIDGE_FLAME_BURST3_NORTH,
++    SPR_BRIDGE_FLAME_BURST3_NORTHEAST,
++    SPR_BRIDGE_FLAME_BURST4_EAST,
++    SPR_BRIDGE_FLAME_BURST4_SOUTHEAST,
++    SPR_BRIDGE_FLAME_BURST4_SOUTH,
++    SPR_BRIDGE_FLAME_BURST4_SOUTHWEST,
++    SPR_BRIDGE_FLAME_BURST4_WEST,
++    SPR_BRIDGE_FLAME_BURST4_NORTHWEST,
++    SPR_BRIDGE_FLAME_BURST4_NORTH,
++    SPR_BRIDGE_FLAME_BURST4_NORTHEAST,
++    SPR_BRIDGE_FLAME_BURST5_EAST,
++    SPR_BRIDGE_FLAME_BURST5_SOUTHEAST,
++    SPR_BRIDGE_FLAME_BURST5_SOUTH,
++    SPR_BRIDGE_FLAME_BURST5_SOUTHWEST,
++    SPR_BRIDGE_FLAME_BURST5_WEST,
++    SPR_BRIDGE_FLAME_BURST5_NORTHWEST,
++    SPR_BRIDGE_FLAME_BURST5_NORTH,
++    SPR_BRIDGE_FLAME_BURST5_NORTHEAST,
++    SPR_BRIDGE_FLAME_BURST6_EAST,
++    SPR_BRIDGE_FLAME_BURST6_SOUTHEAST,
++    SPR_BRIDGE_FLAME_BURST6_SOUTH,
++    SPR_BRIDGE_FLAME_BURST6_SOUTHWEST,
++    SPR_BRIDGE_FLAME_BURST6_WEST,
++    SPR_BRIDGE_FLAME_BURST6_NORTHWEST,
++    SPR_BRIDGE_FLAME_BURST6_NORTH,
++    SPR_BRIDGE_FLAME_BURST6_NORTHEAST,
++
+     SPR_G2_END,
+ 
+     // Main palettes
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -107,7 +107,9 @@
+             return;
+         // The image can extend well above the feet and across neighbouring
+         // tiles. Invalidate both the old and new full screen footprints.
+-        ViewportsInvalidate({ actor.x, actor.y, TileElementHeight(position) }, 80, 80, 48, ZoomLevel{ 2 });
++        const int32_t extent = actor.kind == "terran_firebat" ? 120
++            : actor.kind == "terran_vulture" ? 112 : 80;
++        ViewportsInvalidate({ actor.x, actor.y, TileElementHeight(position) }, extent, extent, 100, ZoomLevel{ 2 });
+     }
+ 
+     CoordsXY VisualPosition(const BridgeActor& actor, const BridgeSnapshot::VisualState& state)
+@@ -517,8 +519,14 @@
+             "scout death sprite registry count differs from g2 range");
+         static_assert(SPR_BRIDGE_FIREBAT_IDLE0_EAST - SPR_BRIDGE_HEALTH_MARINE_0 == 22,
+             "existing health sprite registry count differs from g2 range");
+-        static_assert(SPR_G2_END - SPR_BRIDGE_FIREBAT_IDLE0_EAST == 67,
++        static_assert(SPR_BRIDGE_MEDIC_IDLE0_EAST - SPR_BRIDGE_FIREBAT_IDLE0_EAST == 67,
+             "Firebat sprite registry count differs from g2 range");
++        static_assert(SPR_BRIDGE_VULTURE_IDLE0_EAST - SPR_BRIDGE_MEDIC_IDLE0_EAST == 67,
++            "Medic sprite registry count differs from g2 range");
++        static_assert(SPR_BRIDGE_FLAME_BURST0_EAST - SPR_BRIDGE_VULTURE_IDLE0_EAST == 27,
++            "Vulture sprite registry count differs from g2 range");
++        static_assert(SPR_G2_END - SPR_BRIDGE_FLAME_BURST0_EAST == 56,
++            "flame sprite registry count differs from g2 range");
+         constexpr uint32_t walkCardinal[] = { SPR_BRIDGE_SCOUT_WALK0_EAST, SPR_BRIDGE_SCOUT_WALK1_EAST,
+             SPR_BRIDGE_SCOUT_WALK2_EAST, SPR_BRIDGE_SCOUT_WALK3_EAST, SPR_BRIDGE_SCOUT_WALK4_EAST,
+             SPR_BRIDGE_SCOUT_WALK5_EAST, SPR_BRIDGE_SCOUT_WALK6_EAST, SPR_BRIDGE_SCOUT_WALK7_EAST,
+@@ -527,7 +535,7 @@
+             SPR_BRIDGE_SCOUT_WALK2_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK3_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK4_SOUTHEAST,
+             SPR_BRIDGE_SCOUT_WALK5_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK6_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK7_SOUTHEAST,
+             SPR_BRIDGE_SCOUT_WALK8_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK9_SOUTHEAST };
+-        enum class BridgeVisualLayout { Marine, Zergling, Firebat };
++        enum class BridgeVisualLayout { Marine, Zergling, Firebat, Medic, Vulture };
+         struct BridgeVisualType
+         {
+             const char* id;
+@@ -538,6 +546,8 @@
+             { "terran_marine", BridgeVisualLayout::Marine, SPR_BRIDGE_HEALTH_MARINE_0 },
+             { "zerg_zergling", BridgeVisualLayout::Zergling, SPR_BRIDGE_HEALTH_ZERGLING_0 },
+             { "terran_firebat", BridgeVisualLayout::Firebat, SPR_BRIDGE_HEALTH_FIREBAT_0 },
++            { "terran_medic", BridgeVisualLayout::Medic, SPR_BRIDGE_HEALTH_MEDIC_0 },
++            { "terran_vulture", BridgeVisualLayout::Vulture, SPR_BRIDGE_HEALTH_VULTURE_0 },
+         };
+         const BridgeVisualType* visualType = nullptr;
+         for (const auto& candidate : visualTypes)
+@@ -578,6 +588,28 @@
+                 imageId = firebatBases[pose] + direction;
+             }
+         }
++        else if (visualType->layout == BridgeVisualLayout::Medic)
++        {
++            constexpr uint32_t medicBases[] = { SPR_BRIDGE_MEDIC_IDLE0_EAST,
++                SPR_BRIDGE_MEDIC_WALK0_EAST, SPR_BRIDGE_MEDIC_WALK1_EAST,
++                SPR_BRIDGE_MEDIC_HEAL0_EAST, SPR_BRIDGE_MEDIC_HEAL1_EAST,
++                SPR_BRIDGE_MEDIC_HEAL2_EAST };
++            if (actor.motion == "death")
++                imageId = SPR_BRIDGE_MEDIC_DEATH0 + std::min(7u, elapsed / 2);
++            else
++            {
++                uint32_t pose = 0;
++                if (actor.motion == "walk") pose = 1 + (elapsed / 4) % 2;
++                if (actor.motion == "heal") pose = 3 + (elapsed / 2) % 3;
++                imageId = medicBases[pose] + direction;
++            }
++        }
++        else if (visualType->layout == BridgeVisualLayout::Vulture)
++        {
++            imageId = actor.motion == "death"
++                ? SPR_BRIDGE_VULTURE_DEATH0 + std::min(7u, elapsed / 2)
++                : SPR_BRIDGE_VULTURE_IDLE0_EAST + direction;
++        }
+         else
+         {
+             if (actor.motion == "death")
+@@ -593,6 +625,16 @@
+         }
+         const BoundBoxXYZ actorBounds{ { -6, -6, z + 5 }, { 12, 12, 18 } };
+         PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, actorBounds);
++        if (visualType->layout == BridgeVisualLayout::Firebat && actor.motion == "attack"
++            && actor.attackFrames > 0 && elapsed < 14)
++        {
++            constexpr uint32_t flameBases[] = { SPR_BRIDGE_FLAME_BURST0_EAST,
++                SPR_BRIDGE_FLAME_BURST1_EAST, SPR_BRIDGE_FLAME_BURST2_EAST,
++                SPR_BRIDGE_FLAME_BURST3_EAST, SPR_BRIDGE_FLAME_BURST4_EAST,
++                SPR_BRIDGE_FLAME_BURST5_EAST, SPR_BRIDGE_FLAME_BURST6_EAST };
++            PaintAddImageAsChild(session, ImageId(flameBases[elapsed / 2] + direction),
++                { 0, 0, z + 1 }, actorBounds);
++        }
+         if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
+         {
+             const auto level = std::clamp((actor.hp * 10 + actor.maxHp / 2) / actor.maxHp, 0, 10);
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -769,12 +769,14 @@
+             && parsed.id.find_first_not_of("0123456789", 7) == std::string::npos && ids.insert(parsed.id).second
+             && BridgeReadString(ctx, unit, "kind", parsed.kind)
+             && (parsed.kind == "alien_scout" || parsed.kind == "zerg_zergling"
+-                || parsed.kind == "terran_marine" || parsed.kind == "terran_firebat")
++                || parsed.kind == "terran_marine" || parsed.kind == "terran_firebat"
++                || parsed.kind == "terran_medic" || parsed.kind == "terran_vulture")
+             && BridgeReadInt(ctx, unit, "x", parsed.x) && BridgeReadInt(ctx, unit, "y", parsed.y)
+             && parsed.x >= 0 && parsed.y >= 0 && parsed.x < mapSize.x && parsed.y < mapSize.y
+             && BridgeReadInt(ctx, unit, "facing", facing) && facing >= 0 && facing <= 255
+             && BridgeReadString(ctx, unit, "motion", parsed.motion)
+-            && (parsed.motion == "idle" || parsed.motion == "walk" || parsed.motion == "attack" || parsed.motion == "death")
++            && (parsed.motion == "idle" || parsed.motion == "walk" || parsed.motion == "attack"
++                || parsed.motion == "heal" || parsed.motion == "death")
+             && BridgeReadInt(ctx, unit, "owner", owner) && owner >= 0 && owner <= 11
+             && BridgeReadInt(ctx, unit, "hp", hp) && hp >= 0 && hp <= 10000
+             && BridgeReadInt(ctx, unit, "max_hp", maxHp) && maxHp >= hp && maxHp <= 10000
+@@ -926,7 +928,7 @@
+     JSValue glb = JS_GetGlobalObject(ctx);
+     JSValue bridge = JS_NewObject(ctx);
+     JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5));
+-    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 3));
++    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 4));
+     JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
+     JS_SetPropertyStr(ctx, bridge, "invalidateAnimation", JS_NewCFunction(ctx, BridgeInvalidateAnimationJS, "invalidateAnimation", 0));
+     JS_SetPropertyStr(ctx, bridge, "setBuildingAnimations", JS_NewCFunction(ctx, BridgeSetBuildingAnimationsJS, "setBuildingAnimations", 1));

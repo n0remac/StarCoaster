@@ -249,6 +249,21 @@ public:
         for (auto unit:game->getAllUnits()) {
             if (unit && unit->exists() && worldUnitType(unit->getType()) && unit->isAttackFrame())
                 ++attackFrames_[unit->getID()];
+            if (unit && unit->exists() && unit->getType() == BWAPI::UnitTypes::Terran_Medic
+                && unit->getOrder() == BWAPI::Orders::MedicHeal) {
+                auto target = unit->getOrderTarget();
+                if (target && target->exists() && target->isBeingHealed()) {
+                    const bool firstPulse = !lastHealFrame_.count(unit->getID())
+                        || frame - lastHealFrame_[unit->getID()] > 4;
+                    lastHealFrame_[unit->getID()] = frame;
+                    if (firstPulse && std::getenv("BRIDGE_TEST_MEDIC_VULTURE_NATIVE"))
+                        std::cerr << "[next-tech] role=publisher stage=heal_visual"
+                                  << " frame=" << frame << " medic=" << unit->getID()
+                                  << " target=" << target->getID()
+                                  << " hp=" << target->getHitPoints()
+                                  << " energy=" << unit->getEnergy() << std::endl;
+                }
+            }
         }
         if (frame%3==0) publishActors(game,frame);
     }
@@ -1226,12 +1241,16 @@ private:
             std::string targetEntity;
             if (target) for (const auto& [id,combat]:targets_)
                 if (combat.proxyID==target->getID()) { targetEntity=id; break; }
+            const bool healing = type == BWAPI::UnitTypes::Terran_Medic
+                && lastHealFrame_.count(unit->getID())
+                && frame - lastHealFrame_[unit->getID()] <= 4;
             json actor={{"id",actorID},
                 {"kind",definition->id},
                 {"owner",unit->getPlayer()?unit->getPlayer()->getID():0},
                 {"x",position.x},{"y",position.y},{"facing",facing},
-                {"motion",unit->isAttacking()?"attack":unit->isMoving()?"walk":"idle"},
+                {"motion",healing?"heal":unit->isAttacking()?"attack":unit->isMoving()?"walk":"idle"},
                 {"hp",hp},{"max_hp",type.maxHitPoints()},{"alive",true},
+                {"energy",unit->getEnergy()},
                 {"attack_frames",attackFrames_[unit->getID()]},
                 {"target_id",target?json(actorRegistry_.id(target)):json(nullptr)},
                 {"target_entity_id",targetEntity.empty()?json(nullptr):json(targetEntity)}};
@@ -1240,7 +1259,11 @@ private:
         }
         for (auto it=lastActors_.begin();it!=lastActors_.end();) {
             if (observed.count(it->first)) { ++it; continue; }
-            if (frame-it->second.second>16) { attackFrames_.erase(it->first); it=lastActors_.erase(it); continue; }
+            if (frame-it->second.second>16) {
+                attackFrames_.erase(it->first);
+                lastHealFrame_.erase(it->first);
+                it=lastActors_.erase(it); continue;
+            }
             if (units.size()<256) {
                 json dead=it->second.first;
                 dead["motion"]="death"; dead["alive"]=false; dead["hp"]=0;
@@ -1296,5 +1319,6 @@ private:
     std::string liveTargetPatchID_;
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();
     std::map<int,int> attackFrames_;
+    std::map<int,int> lastHealFrame_;
     std::map<int,std::pair<json,int>> lastActors_;
 };

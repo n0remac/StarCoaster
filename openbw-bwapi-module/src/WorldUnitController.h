@@ -634,7 +634,8 @@ private:
             || (verb != "unit.train" && units.empty())
             || (verb == "unit.train" && !units.empty())
             || (verb != "unit.move" && verb != "unit.attack" && verb != "unit.attack_move"
-                && verb != "unit.hold" && verb != "unit.stop" && verb != "unit.train")) {
+                && verb != "unit.hold" && verb != "unit.stop" && verb != "unit.heal"
+                && verb != "unit.train")) {
             accepted = false; reason = "invalid_command";
         } else if (!validCommandSerial(commandID)) {
             accepted = false; reason = "duplicate_command";
@@ -690,6 +691,15 @@ private:
                 accepted = false; reason = "invalid_target";
             }
         }
+        if (accepted && verb == "unit.heal") {
+            const std::string targetID = command.value("target_id", "");
+            target = actorRegistry_.lookup(targetID);
+            if (!target || !target->exists() || target->getPlayer() != game->self()
+                || !target->getType().isOrganic() || target->getType().isBuilding()
+                || target->getHitPoints() >= target->getType().maxHitPoints()) {
+                accepted = false; reason = "invalid_heal_target";
+            }
+        }
         const int x = command.value("x", -1), y = command.value("y", -1);
         if (accepted && (verb == "unit.move" || verb == "unit.attack_move")
             && (x < 0 || y < 0 || x >= game->mapWidth() * 32 || y >= game->mapHeight() * 32)) {
@@ -732,6 +742,9 @@ private:
                 if (verb == "unit.move") applied = unit->move({x, y});
                 else if (verb == "unit.attack_move") applied = unit->attack({x, y});
                 else if (verb == "unit.attack") applied = unit->attack(target);
+                else if (verb == "unit.heal") applied = unit->getType() == BWAPI::UnitTypes::Terran_Medic
+                    && unit->canUseTech(BWAPI::TechTypes::Healing, target)
+                    && unit->useTech(BWAPI::TechTypes::Healing, target);
                 else if (verb == "unit.hold") applied = unit->holdPosition();
                 else if (verb == "unit.stop") applied = unit->stop();
                 if (!applied) { accepted = false; reason = "bwapi_rejected"; }
