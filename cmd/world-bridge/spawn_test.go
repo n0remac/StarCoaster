@@ -28,6 +28,17 @@ func spawnService(t *testing.T) (*service, net.Conn) {
 	return s, native
 }
 
+func TestActiveActorCountIncludesTrainedTypes(t *testing.T) {
+	s := &service{lastMarines: 5, lastZerglings: 3}
+	if got := s.activeActorCount(); got != 8 {
+		t.Fatalf("legacy count before a complete snapshot: %d", got)
+	}
+	s.lastNativeActors = 11 // Includes a Firebat, Medic, and Goliath.
+	if got := s.activeActorCount(); got != 11 {
+		t.Fatalf("trained actors were omitted from spawn capacity: %d", got)
+	}
+}
+
 func TestBridgeSpawnRequestIssuesOnceAndReportsNativeFailure(t *testing.T) {
 	s, native := spawnService(t)
 	request := world.SpawnRequest{RequestID: "session-a:reinforce-1", UnitType: "terran_marine",

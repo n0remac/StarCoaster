@@ -185,7 +185,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 				}
 				continue
 			}
-			if s.spawns.PendingCount() >= 64 || s.lastMarines+s.lastZerglings+s.spawns.PendingCount()+1 > s.actorLimit() {
+			if s.spawns.PendingCount() >= 64 || s.activeActorCount()+s.spawns.PendingCount()+1 > s.actorLimit() {
 				if s.scenario.Mode == "park_defense" {
 					r.Waves[wi].FailureReason = "spawn_capacity_unavailable"
 				}
@@ -198,7 +198,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 				return
 			}
 		}
-		if s.spawns.PendingCount() >= 64 || s.lastMarines+s.lastZerglings+s.spawns.PendingCount()+1 > s.actorLimit() {
+		if s.spawns.PendingCount() >= 64 || s.activeActorCount()+s.spawns.PendingCount()+1 > s.actorLimit() {
 			break
 		}
 		status, err := s.spawns.Submit(s.registry.Session, request)

@@ -77,6 +77,7 @@ type service struct {
 	outcome                   string
 	lastMarines               int
 	lastZerglings             int
+	lastNativeActors          int
 	nativeOccupants           []world.NativeOccupant
 	nativeOccupancyComplete   bool
 	actorReconcileComplete    bool
@@ -765,6 +766,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.startedSession = ""
 			s.lastMarines = 0
 			s.lastZerglings = 0
+			s.lastNativeActors = 0
 			s.lastScenarioStatus = ""
 		}
 		s.navigationMask = world.NavigationMask{}
@@ -1500,6 +1502,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 						}
 					}
 					s.lastMarines, s.lastZerglings = marines, zerglings
+					s.lastNativeActors = len(living)
 					s.nativeOccupants, s.nativeOccupancyComplete = occupants, true
 					if s.runtime != nil {
 						s.advanceScenarioRuntime(snapshot.BWTick, snapshot.Seq, living)

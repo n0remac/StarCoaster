@@ -84,6 +84,16 @@ func (s *service) spawnStatus(status world.SpawnStatus) {
 	_ = s.emit(s.park, "unit.spawn.status", s.registry.Session, s.registry.Revision, status)
 }
 
+func (s *service) activeActorCount() int {
+	// The complete native snapshot includes trained types as well as the
+	// legacy scenario Marines and Zerglings. Keep the latter as a fallback
+	// until the first complete native snapshot arrives.
+	if s.lastNativeActors > s.lastMarines+s.lastZerglings {
+		return s.lastNativeActors
+	}
+	return s.lastMarines + s.lastZerglings
+}
+
 func (s *service) scenarioWaveForRequest(requestID string) string {
 	if s.runtime == nil {
 		return ""
@@ -113,7 +123,7 @@ func (s *service) submitScenarioSpawns() {
 			if limit < 1 || limit > 256 {
 				limit = 240
 			}
-			living := s.lastMarines + s.lastZerglings
+			living := s.activeActorCount()
 			starting := len(s.scenario.StartingUnits.Marines) + len(s.scenario.StartingUnits.Zerglings)
 			if living < starting {
 				living = starting
@@ -239,7 +249,7 @@ func (s *service) parkSpawnMessage(p *peer, m world.Envelope) {
 	if limit < 1 || limit > 256 {
 		limit = 240
 	}
-	if s.lastMarines+s.lastZerglings+s.spawns.PendingCount()+request.Count > limit {
+	if s.activeActorCount()+s.spawns.PendingCount()+request.Count > limit {
 		s.rejectSpawn(p, m, request.RequestID, "live_actor_limit")
 		return
 	}
