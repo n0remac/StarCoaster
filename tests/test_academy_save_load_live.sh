@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Licensed OpenRCT2 save/load and two-participant Academy recovery check.
+set -euo pipefail
+project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$project_dir"
+: "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR}"
+: "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
+map_file="$project_dir/run-data/scenarios/mt-zergling/map/mt-zergling.scm"
+park_file="$project_dir/run-data/mt-zergling/save/mt-zergling.park"
+test -s "$map_file"; test -s "$park_file"
+run_dir="$project_dir/run-data/academy-save-load-live-$(date +%s)"
+mkdir -p "$run_dir/server/plugin" "$run_dir/client/plugin" "$run_dir/reload-server"
+cp scripts/live-academy-save-probe.js "$run_dir/server/plugin/"
+cp openrct2-plugin/rts-bridge.js scripts/live-academy-build-probe.js "$run_dir/client/plugin/"
+session_pid=""; client_pid=""
+cleanup() {
+  for pid in "$client_pid" "$session_pid"; do
+    if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
+  done
+  for pid in "$client_pid" "$session_pid"; do
+    if [[ -n "$pid" ]]; then wait "$pid" 2>/dev/null || true; fi
+  done
+}
+trap cleanup EXIT INT TERM
+wait_for() {
+  local pattern="$1" file="$2" limit="$3" started=$SECONDS
+  while ! grep -Eq "$pattern" "$file" 2>/dev/null; do
+    if (( SECONDS - started >= limit )); then
+      printf 'Timed out waiting for %s in %s\n' "$pattern" "$file" >&2
+      return 1
+    fi
+    if ! kill -0 "$session_pid" 2>/dev/null; then return 1; fi
+    sleep 1
+  done
+}
+BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/mt-zergling/mapping.json" \
+  BRIDGE_TEST_ACADEMY_HP="${ACADEMY_TEST_HEALTH:-372}" \
+  BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_LAUNCH_CLIENT=0 \
+  BRIDGE_SERVER_DATA_DIR="$run_dir/server" \
+  timeout 115s scripts/run-world-session.sh "$park_file" > "$run_dir/build.log" 2>&1 &
+session_pid=$!
+wait_for 'WORLD_READY' "$run_dir/build.log" 75
+openrct2_data="$project_dir/build/openrct2-stage/usr/local/share/openrct2"
+build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
+  --rct2-data-path="$RCT2_DATA_DIR" --openrct2-data-path="$openrct2_data" \
+  --user-data-path="$run_dir/client" > "$run_dir/client.log" 2>&1 &
+client_pid=$!
+wait_for 'ACADEMY_SAVE_PROBE_SAVED' "$run_dir/build.log" 65
+saved="$run_dir/server/save/academy-recovery.park"
+test -s "$saved"
+cleanup
+session_pid=""; client_pid=""
+BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/mt-zergling/mapping.json" \
+  BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_LAUNCH_CLIENT=0 \
+  BRIDGE_SERVER_DATA_DIR="$run_dir/reload-server" \
+  timeout 100s scripts/run-world-session.sh "$saved" > "$run_dir/reload.log" 2>&1 &
+session_pid=$!
+wait_for 'WORLD_READY.*targets=3' "$run_dir/reload.log" 80
+rm "$run_dir/client/plugin/live-academy-build-probe.js"
+cp scripts/live-academy-rebuild-probe.js "$run_dir/client/plugin/"
+build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
+  --rct2-data-path="$RCT2_DATA_DIR" --openrct2-data-path="$openrct2_data" \
+  --user-data-path="$run_dir/client" > "$run_dir/rebuild-client.log" 2>&1 &
+client_pid=$!
+wait_for 'WORLD_PATCH_SYNC revision=3' "$run_dir/reload.log" 60
+python3 - "$run_dir" "${ACADEMY_TEST_HEALTH:-372}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+expected_hp = sys.argv[2]
+build = (directory / 'build.log').read_text(errors='replace')
+reload = (directory / 'reload.log').read_text(errors='replace')
+client = (directory / 'client.log').read_text(errors='replace')
+rebuild_client = (directory / 'rebuild-client.log').read_text(errors='replace')
+pattern = r'native target state id=(openrct2:large_scenery:\d+:3360:3328:1216:0#\d+) .* hp=(\d+)'
+before = re.findall(pattern, build)
+after = re.findall(pattern, reload)
+hashes = (re.findall(r'navigation initialized hash=([0-9a-f]{16})', reload),
+          re.findall(r'park patch synchronized id=\S+ revision=2 hash=([0-9a-f]{16})', build))
+checks = {
+    'placement': 'ACADEMY_BUILD_PROBE_RESULT accepted=true' in client,
+    'confirmed_before_save': 'WORLD_PATCH_SYNC revision=2' in build,
+    'real_park_saved': (directory / 'server/save/academy-recovery.park').stat().st_size > 0,
+    'identity_and_health_preserved': bool(before and after) and before[-1] == after[0],
+    'real_native_academy': bool(before and after) and before[-1][1] == after[0][1] == expected_hp
+        and build.count('type=Terran_Academy hp=600') >= 1
+        and reload.count('type=Terran_Academy') >= 2,
+    'native_mask_preserved': bool(hashes[0] and hashes[1]) and hashes[0][-1] == hashes[1][-1],
+    'two_native_participants_ready': 'WORLD_READY entities=4255 targets=3' in reload,
+    'demolition_and_rebuild': 'ACADEMY_REBUILD_REMOVE accepted=true' in rebuild_client
+        and 'ACADEMY_REBUILD_BUILD accepted=true' in rebuild_client
+        and 'WORLD_PATCH_SYNC revision=3' in reload,
+    'new_generation': bool(after) and any(id.endswith('#2') for id, _hp in after),
+}
+result = {'checks': checks, 'before': before, 'after': after, 'hashes': hashes}
+(directory / 'verification.json').write_text(json.dumps(result, indent=2) + '\n')
+print(json.dumps(result, indent=2))
+if not all(checks.values()): raise SystemExit(1)
+PY
+printf 'Academy save/load logs: %s\n' "$run_dir"
