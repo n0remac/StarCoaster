@@ -205,14 +205,18 @@ A confirmed `terran_barracks` structure keeps its OpenRCT2 scenery ID and
 unit and HP; there is no civilian target proxy. The controller receives the
 same link. `building.state` flows from the controller through Go to the park
 with `id`, `native_id`, `owner`, `health`, `queue`, `remaining_frames`,
-`minerals`, `supply_used`, and `supply_total`. It is observational native
-state, not a second production queue.
+`minerals`, `supply_used`, and `supply_total`. The optional `max_health` field
+reports the native building maximum. It is observational native state, not a
+second production queue. `player.resources` separately reports the native
+owner's minerals and supply, even when no production building exists.
 
 `combat.command` also accepts `verb: "unit.train"` with an empty `unit_ids`
-array and the persistent Barracks `target_id`. OpenRCT2 authenticates the
-commander and deduplicates the session/player/request ID. Go requires a live,
-linked Barracks in the confirmed registry; the controller verifies the native
-owner and building state before invoking BWAPI `Unit::train(Terran_Marine)`.
+array, a supported `unit_type`, and a persistent production building
+`target_id`. Existing world.v1 requests without `unit_type` explicitly default
+to `terran_marine`. OpenRCT2 authenticates the commander and deduplicates the
+session/player/request ID. Go requires a live, linked registered producer in
+the confirmed registry; the controller verifies the native owner, completion,
+and BWAPI `canTrain` before invoking `train` with the requested native type.
 The existing `combat.result` reports acceptance. Native trainee creation is
 withheld from `actor.spawn` and `actor.bind` until completion; the normal actor
 lifecycle then exposes the Marine to both clients. A demolition uses the
