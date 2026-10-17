@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "kind": "unit",
+  "id": "terran_goliath",
+  "registry_order": 50,
+  "native_type": "Terran_Goliath",
+  "race": "terran",
+  "ownership": "player",
+  "display_name": "Goliath",
+  "controllable": true,
+  "movement": "ground",
+  "spawnable": false,
+  "legacy_static_base": 0,
+  "commands": [
+    "unit.move",
+    "unit.attack",
+    "unit.attack_move",
+    "unit.hold",
+    "unit.stop"
+  ],
+  "produced_at": "terran_factory",
+  "visual": {
+    "asset": "goliath",
+    "g2_order": 6,
+    "image": "Goliath_Base",
+    "source": "unit/terran/goliath.grp",
+    "canvas": [
+      76,
+      76
+    ],
+    "frame_count": 170,
+    "stride": 17,
+    "animations": {
+      "idle": {
+        "banks": [
+          0
+        ],
+        "ticks": 0
+      },
+      "walk": {
+        "banks": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "ticks": 3
+      },
+      "attack": {
+        "fallback": "idle"
+      },
+      "death": {
+        "source": "unit/thingy/tBangS.grp",
+        "canvas": [
+          128,
+          128
+        ],
+        "frames": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "ticks": 2
+      }
+    },
+    "attachments": [
+      {
+        "name": "turret",
+        "image": "Goliath_Turret",
+        "source": "unit/terran/goliathT.grp",
+        "canvas": [
+          76,
+          76
+        ],
+        "frame_count": 187,
+        "stride": 17,
+        "facing": "native_target",
+        "layer": "above_body",
+        "animations": {
+          "idle": {
+            "banks": [
+              0
+            ],
+            "ticks": 0
+          },
+          "walk": {
+            "banks": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "ticks": 3
+          },
+          "attack": {
+            "banks": [
+              10,
+              0
+            ],
+            "ticks": 2
+          }
+        }
+      }
+    ],
+    "health_offset": [
+      -10,
+      -42
+    ],
+    "bounds": [
+      12,
+      12,
+      24
+    ]
+  }
+}

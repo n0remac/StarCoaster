@@ -1,75 +1,181 @@
 {
   "units": [
     {
-      "id": "terran_marine", "native_type": "Terran_Marine", "race": "terran",
-      "ownership": "player", "display_name": "Marine", "visual": "terran_marine",
-      "controllable": true, "movement": "ground", "spawnable": true, "legacy_static_base": 1000,
-      "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
+      "id": "terran_marine",
+      "native_type": "Terran_Marine",
+      "race": "terran",
+      "ownership": "player",
+      "display_name": "Marine",
+      "controllable": true,
+      "movement": "ground",
+      "spawnable": true,
+      "legacy_static_base": 1000,
+      "commands": [
+        "unit.move",
+        "unit.attack",
+        "unit.attack_move",
+        "unit.hold",
+        "unit.stop"
+      ],
+      "visual": "terran_marine"
     },
     {
-      "id": "terran_firebat", "native_type": "Terran_Firebat", "race": "terran",
-      "ownership": "player", "display_name": "Firebat", "visual": "terran_firebat",
-      "controllable": true, "movement": "ground", "spawnable": false, "legacy_static_base": 0,
-      "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
+      "id": "terran_firebat",
+      "native_type": "Terran_Firebat",
+      "race": "terran",
+      "ownership": "player",
+      "display_name": "Firebat",
+      "controllable": true,
+      "movement": "ground",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [
+        "unit.move",
+        "unit.attack",
+        "unit.attack_move",
+        "unit.hold",
+        "unit.stop"
+      ],
+      "visual": "terran_firebat"
     },
     {
-      "id": "terran_medic", "native_type": "Terran_Medic", "race": "terran",
-      "ownership": "player", "display_name": "Medic", "visual": "terran_medic",
-      "controllable": true, "movement": "ground", "spawnable": false, "legacy_static_base": 0,
-      "commands": ["unit.move", "unit.attack_move", "unit.hold", "unit.stop", "unit.heal"]
+      "id": "terran_medic",
+      "native_type": "Terran_Medic",
+      "race": "terran",
+      "ownership": "player",
+      "display_name": "Medic",
+      "controllable": true,
+      "movement": "ground",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [
+        "unit.move",
+        "unit.attack_move",
+        "unit.hold",
+        "unit.stop",
+        "unit.heal"
+      ],
+      "visual": "terran_medic"
     },
     {
-      "id": "terran_vulture", "native_type": "Terran_Vulture", "race": "terran",
-      "ownership": "player", "display_name": "Vulture", "visual": "terran_vulture",
-      "controllable": true, "movement": "ground", "spawnable": false, "legacy_static_base": 0,
-      "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
+      "id": "terran_vulture",
+      "native_type": "Terran_Vulture",
+      "race": "terran",
+      "ownership": "player",
+      "display_name": "Vulture",
+      "controllable": true,
+      "movement": "ground",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [
+        "unit.move",
+        "unit.attack",
+        "unit.attack_move",
+        "unit.hold",
+        "unit.stop"
+      ],
+      "visual": "terran_vulture"
     },
     {
-      "id": "terran_goliath", "native_type": "Terran_Goliath", "race": "terran",
-      "ownership": "player", "display_name": "Goliath", "visual": "terran_goliath",
-      "controllable": true, "movement": "ground", "spawnable": false, "legacy_static_base": 0,
-      "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
+      "id": "terran_goliath",
+      "native_type": "Terran_Goliath",
+      "race": "terran",
+      "ownership": "player",
+      "display_name": "Goliath",
+      "controllable": true,
+      "movement": "ground",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [
+        "unit.move",
+        "unit.attack",
+        "unit.attack_move",
+        "unit.hold",
+        "unit.stop"
+      ],
+      "visual": "terran_goliath"
     },
     {
-      "id": "zerg_zergling", "native_type": "Zerg_Zergling", "race": "zerg",
-      "ownership": "enemy", "display_name": "Zergling", "visual": "zerg_zergling",
-      "controllable": false, "movement": "ground", "spawnable": true, "legacy_static_base": 2000,
-      "commands": []
+      "id": "zerg_zergling",
+      "native_type": "Zerg_Zergling",
+      "race": "zerg",
+      "ownership": "enemy",
+      "display_name": "Zergling",
+      "controllable": false,
+      "movement": "ground",
+      "spawnable": true,
+      "legacy_static_base": 2000,
+      "commands": [],
+      "visual": "zerg_zergling"
     }
   ],
   "buildings": [
     {
-      "id": "terran_barracks", "native_type": "Terran_Barracks",
+      "id": "terran_barracks",
+      "native_type": "Terran_Barracks",
       "object_id": "starcoaster.scenery_large.terran_barracks",
-      "display_name": "Terran Barracks", "visual": "terran_barracks",
-      "width": 4, "height": 3, "max_health": 1000,
-      "production": ["terran_marine", "terran_firebat", "terran_medic"],
-      "animation": {"trigger": "training", "frames": 7, "ticks_per_frame": 3}
+      "display_name": "Terran Barracks",
+      "width": 4,
+      "height": 3,
+      "max_health": 1000,
+      "visual": "terran_barracks",
+      "production": [
+        "terran_marine",
+        "terran_firebat",
+        "terran_medic"
+      ],
+      "animation": {
+        "trigger": "training",
+        "frames": 7,
+        "ticks_per_frame": 3
+      }
     },
     {
-      "id": "terran_academy", "native_type": "Terran_Academy",
+      "id": "terran_academy",
+      "native_type": "Terran_Academy",
       "object_id": "starcoaster.scenery_large.terran_academy",
-      "display_name": "Terran Academy", "visual": "terran_academy",
-      "width": 3, "height": 2, "max_health": 600, "production": []
+      "display_name": "Terran Academy",
+      "width": 3,
+      "height": 2,
+      "max_health": 600,
+      "visual": "terran_academy",
+      "production": []
     },
     {
-      "id": "terran_supply_depot", "native_type": "Terran_Supply_Depot",
+      "id": "terran_supply_depot",
+      "native_type": "Terran_Supply_Depot",
       "object_id": "starcoaster.scenery_large.terran_supply_depot",
-      "display_name": "Terran Supply Depot", "visual": "terran_supply_depot",
-      "width": 3, "height": 2, "max_health": 500, "production": []
+      "display_name": "Terran Supply Depot",
+      "width": 3,
+      "height": 2,
+      "max_health": 500,
+      "visual": "terran_supply_depot",
+      "production": []
     },
     {
-      "id": "terran_factory", "native_type": "Terran_Factory",
+      "id": "terran_factory",
+      "native_type": "Terran_Factory",
       "object_id": "starcoaster.scenery_large.terran_factory",
-      "display_name": "Terran Factory", "visual": "terran_factory",
-      "width": 4, "height": 3, "max_health": 1250,
-      "production": ["terran_vulture", "terran_goliath"]
+      "display_name": "Terran Factory",
+      "width": 4,
+      "height": 3,
+      "max_health": 1250,
+      "visual": "terran_factory",
+      "production": [
+        "terran_vulture",
+        "terran_goliath"
+      ]
     },
     {
-      "id": "terran_armory", "native_type": "Terran_Armory",
+      "id": "terran_armory",
+      "native_type": "Terran_Armory",
       "object_id": "starcoaster.scenery_large.terran_armory",
-      "display_name": "Terran Armory", "visual": "terran_armory",
-      "width": 3, "height": 2, "max_health": 750, "production": []
+      "display_name": "Terran Armory",
+      "width": 3,
+      "height": 2,
+      "max_health": 750,
+      "visual": "terran_armory",
+      "production": []
     }
   ]
 }

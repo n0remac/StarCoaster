@@ -8,6 +8,9 @@ command="${1:-help}"
 if (( $# )); then shift; fi
 
 case "$command" in
+    generate)
+        exec python3 scripts/generate-starcraft-types.py "$@"
+        ;;
     start)
         exec scripts/start.sh "$@"
         ;;
@@ -42,6 +45,7 @@ case "$command" in
     test)
         go_bin="$(command -v go || true)"
         go_bin="${go_bin:-/usr/local/go/bin/go}"
+        python3 scripts/generate-starcraft-types.py --check
         "$go_bin" test ./...
         ctest --test-dir build/bridge-module --output-on-failure
         python3 -m unittest discover -s tests -p 'test_*.py'
@@ -80,7 +84,7 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {start|build|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
+Usage: scripts/project.sh {start|build|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
 
 start [--scenario ID] [--headless|--client]  Fetch, build, stage, and play (Frontier default).
 play ID [--plan]                        Play an existing build; --plan only resolves paths.
@@ -88,6 +92,7 @@ park [ID]                               Force-generate a park (Frontier default)
 record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
 validate-scenario ID                    Validate scenario configuration.
 build, test, test-live                   Build and run offline or licensed live tests.
+generate                                 Generate StarCraft catalogs and consumers.
 test-live-construction                  Run licensed live construction regressions.
 
 Set RCT2_DATA_DIR and STARCRAFT_DATA_DIR for native commands.

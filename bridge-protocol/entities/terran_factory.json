@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "kind": "building",
+  "id": "terran_factory",
+  "registry_order": 40,
+  "native_type": "Terran_Factory",
+  "object_id": "starcoaster.scenery_large.terran_factory",
+  "display_name": "Terran Factory",
+  "width": 4,
+  "height": 3,
+  "max_health": 1250,
+  "conventional_training": true,
+  "visual": {
+    "image": "Factory",
+    "asset": "factory",
+    "source_size": [
+      128,
+      160
+    ],
+    "frame_count": 7,
+    "output_size": [
+      189,
+      164
+    ],
+    "art_method": "static"
+  }
+}

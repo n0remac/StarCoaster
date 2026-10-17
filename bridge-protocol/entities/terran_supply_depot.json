@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "building",
+  "id": "terran_supply_depot",
+  "registry_order": 30,
+  "native_type": "Terran_Supply_Depot",
+  "object_id": "starcoaster.scenery_large.terran_supply_depot",
+  "display_name": "Terran Supply Depot",
+  "width": 3,
+  "height": 2,
+  "max_health": 500,
+  "conventional_training": false,
+  "visual": {
+    "image": "Supply_Depot",
+    "asset": "supply_depot",
+    "source_size": [
+      96,
+      128
+    ],
+    "frame_count": 2,
+    "output_size": [
+      140,
+      140
+    ],
+    "preview_size": [
+      52,
+      52
+    ],
+    "preview_offset": [
+      -26,
+      -18
+    ],
+    "art_method": "static"
+  }
+}

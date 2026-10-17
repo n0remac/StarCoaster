@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "building",
+  "id": "terran_armory",
+  "registry_order": 50,
+  "native_type": "Terran_Armory",
+  "object_id": "starcoaster.scenery_large.terran_armory",
+  "display_name": "Terran Armory",
+  "width": 3,
+  "height": 2,
+  "max_health": 750,
+  "conventional_training": false,
+  "visual": {
+    "image": "Armory",
+    "asset": "armory",
+    "source_size": [
+      160,
+      128
+    ],
+    "frame_count": 2,
+    "output_size": [
+      140,
+      140
+    ],
+    "preview_size": [
+      52,
+      52
+    ],
+    "preview_offset": [
+      -26,
+      -18
+    ],
+    "art_method": "static"
+  }
+}

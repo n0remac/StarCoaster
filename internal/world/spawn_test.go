@@ -68,6 +68,14 @@ func TestSpawnQueueValidationCapacityAndUncertainty(t *testing.T) {
 	if _, err := q.Submit("session-a", bad); err == nil {
 		t.Fatal("unsupported type")
 	}
+	bad.UnitType = "terran_firebat"
+	if _, err := q.Submit("session-a", bad); err == nil {
+		t.Fatal("non-spawnable production unit accepted")
+	}
+	bad.UnitType = "zerg_zergling"
+	if _, err := NewSpawnQueue("session-a", 5).Submit("session-a", bad); err != nil {
+		t.Fatal("existing Zergling wave spawn rejected:", err)
+	}
 	if _, err := q.Submit("session-a", spawnRequest("full", 5)); err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "kind": "unit",
+  "id": "zerg_zergling",
+  "registry_order": 60,
+  "native_type": "Zerg_Zergling",
+  "race": "zerg",
+  "ownership": "enemy",
+  "display_name": "Zergling",
+  "controllable": false,
+  "movement": "ground",
+  "spawnable": true,
+  "legacy_static_base": 2000,
+  "commands": [],
+  "visual": {
+    "asset": "zergling",
+    "g2_order": 1,
+    "source": "unit/zerg/zergling.grp",
+    "stride": 17,
+    "minimum_frame_count": 289,
+    "animations": {
+      "idle": {
+        "banks": [
+          0
+        ],
+        "ticks": 0,
+        "name_without_zero": true
+      },
+      "walk": {
+        "banks": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "ticks": 4
+      },
+      "attack": {
+        "fallback": "idle"
+      },
+      "death": {
+        "banks": [
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ],
+        "ticks": 2
+      }
+    },
+    "health_offset": [
+      -10,
+      -28
+    ],
+    "bounds": [
+      12,
+      12,
+      18
+    ]
+  }
+}

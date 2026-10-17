@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "kind": "unit",
+  "id": "terran_medic",
+  "registry_order": 30,
+  "native_type": "Terran_Medic",
+  "race": "terran",
+  "ownership": "player",
+  "display_name": "Medic",
+  "controllable": true,
+  "movement": "ground",
+  "spawnable": false,
+  "legacy_static_base": 0,
+  "commands": [
+    "unit.move",
+    "unit.attack_move",
+    "unit.hold",
+    "unit.stop",
+    "unit.heal"
+  ],
+  "produced_at": "terran_barracks",
+  "visual": {
+    "asset": "medic",
+    "g2_order": 4,
+    "source": "unit/terran/medic.grp",
+    "canvas": [
+      64,
+      64
+    ],
+    "frame_count": 230,
+    "stride": 17,
+    "animations": {
+      "idle": {
+        "banks": [
+          0
+        ],
+        "ticks": 0
+      },
+      "walk": {
+        "banks": [
+          6,
+          7
+        ],
+        "ticks": 4
+      },
+      "heal": {
+        "banks": [
+          4,
+          5,
+          4
+        ],
+        "ticks": 2
+      },
+      "death": {
+        "frames": [
+          222,
+          223,
+          224,
+          225,
+          226,
+          227,
+          228,
+          229
+        ],
+        "ticks": 2
+      }
+    },
+    "health_offset": [
+      -10,
+      -42
+    ],
+    "bounds": [
+      12,
+      12,
+      18
+    ]
+  }
+}

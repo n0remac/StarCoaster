@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "kind": "building",
+  "id": "terran_barracks",
+  "registry_order": 10,
+  "native_type": "Terran_Barracks",
+  "object_id": "starcoaster.scenery_large.terran_barracks",
+  "display_name": "Terran Barracks",
+  "width": 4,
+  "height": 3,
+  "max_health": 1000,
+  "animation": {
+    "trigger": "training",
+    "frames": 7,
+    "ticks_per_frame": 3
+  },
+  "conventional_training": true,
+  "visual": {
+    "image": "Barracks",
+    "asset": "barracks",
+    "source_size": [
+      192,
+      160
+    ],
+    "frame_count": 9,
+    "output_size": [
+      189,
+      164
+    ],
+    "art_method": "barracks_lights"
+  }
+}
