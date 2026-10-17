@@ -60,32 +60,10 @@ def standard_colours(upstream: Path) -> set[tuple[int, int, int]]:
     return {(int(red), int(green), int(blue)) for blue, green, red, _ in entries}
 
 
-def main() -> None:
-    source, upstream, pack = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
-    if not source.is_dir():
-        raise SystemExit(f"Missing {pack} sprite pack: {source}. Run scripts/prepare-starcraft-sprites.py first.")
-    manifest_path = source / "manifest.json"
-    if pack == "starcraft-local" and not manifest_path.is_file():
-        raise SystemExit(f"Missing StarCraft sprite manifest: {manifest_path}")
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
-    if pack == "starcraft-local":
-        registry = manifest.get("registry", {}).get("alien_scout", {})
-        if len(manifest.get("frames", {})) != 136 or len(registry.get("walk", {}).get("frames", {})) != 8 \
-           or len(registry.get("death", {}).get("frames", {}).get("east", [])) != 6:
-            raise SystemExit("StarCraft manifest must contain 136 frames including six death poses")
-    sprite_list = upstream / "resources/g2/sprites.json"
-    contents = sprite_list.read_text()
-    enum_text = (upstream / "src/openrct2/SpriteIds.h").read_text()
-    if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_(?:IDLE|WALK[0-9]+)_", enum_text, re.MULTILINE)) != 88:
-        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 88 bridge images")
-    if len(re.findall(r"^\s*SPR_BRIDGE_MARINE_", enum_text, re.MULTILINE)) != 56:
-        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 56 Marine images")
-    if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_DEATH[0-5]_", enum_text, re.MULTILINE)) != 48:
-        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 48 scout death images")
-    if len(re.findall(r"^\s*SPR_BRIDGE_HEALTH_", enum_text, re.MULTILINE)) != 22:
-        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 22 health bar images")
-    colours = standard_colours(upstream)
-    prepared = []
+def stage_zergling(source: Path, pack: str, manifest: dict, contents: str,
+                    colours: set, prepared: list) -> str:
+    registry = (manifest.get("registry", {}).get("zerg_zergling")
+                or manifest.get("registry", {}).get("alien_scout", {}))
     diagonals = {"southeast": "east", "southwest": "south",
                  "northwest": "west", "northeast": "north"}
     motions = ("idle", *(f"walk{index}" for index in range(10)), *(f"death{index}" for index in range(6)))
@@ -124,6 +102,11 @@ def main() -> None:
             if count != 1:
                 raise SystemExit(f"Missing or duplicate g2 metadata entry: {name}")
             prepared.append((path, name))
+    return contents
+
+
+def stage_marine(source: Path, pack: str, upstream: Path, contents: str,
+                 colours: set, prepared: list) -> str:
     local_marine = source.parent / "marine" if pack == "starcraft-local" else Path("/") / "missing-marine-pack"
     if pack == "starcraft-local" and not (local_marine / "manifest.json").is_file():
         raise SystemExit(f"Missing StarCraft Marine manifest: {local_marine / 'manifest.json'}. "
@@ -157,6 +140,48 @@ def main() -> None:
         if count != 1:
             raise SystemExit(f"Missing or duplicate Marine g2 entry: {name}")
         prepared.append((path, "marine/" + name))
+    return contents
+
+
+def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", type=Path)
+    parser.add_argument("upstream", type=Path)
+    parser.add_argument("pack", choices=("starcraft-local", "alien-scout"))
+    parser.add_argument("--only-unit", choices=("zerg_zergling", "terran_marine"))
+    args = parser.parse_args()
+    only_unit = args.only_unit
+    source, upstream, pack = args.source, args.upstream, args.pack
+    if only_unit in (None, "zerg_zergling") and not source.is_dir():
+        raise SystemExit(f"Missing {pack} sprite pack: {source}. Run scripts/prepare-starcraft-sprites.py first.")
+    manifest_path = source / "manifest.json"
+    if pack == "starcraft-local" and only_unit in (None, "zerg_zergling") and not manifest_path.is_file():
+        raise SystemExit(f"Missing StarCraft sprite manifest: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
+    if pack == "starcraft-local" and only_unit in (None, "zerg_zergling"):
+        registry = (manifest.get("registry", {}).get("zerg_zergling")
+                    or manifest.get("registry", {}).get("alien_scout", {}))
+        if len(manifest.get("frames", {})) != 136 or len(registry.get("walk", {}).get("frames", {})) != 8 \
+           or len(registry.get("death", {}).get("frames", {}).get("east", [])) != 6:
+            raise SystemExit("StarCraft manifest must contain 136 frames including six death poses")
+    sprite_list = upstream / "resources/g2/sprites.json"
+    contents = sprite_list.read_text()
+    enum_text = (upstream / "src/openrct2/SpriteIds.h").read_text()
+    if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_(?:IDLE|WALK[0-9]+)_", enum_text, re.MULTILINE)) != 88:
+        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 88 bridge images")
+    if len(re.findall(r"^\s*SPR_BRIDGE_MARINE_", enum_text, re.MULTILINE)) != 56:
+        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 56 Marine images")
+    if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_DEATH[0-5]_", enum_text, re.MULTILINE)) != 48:
+        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 48 scout death images")
+    if len(re.findall(r"^\s*SPR_BRIDGE_HEALTH_", enum_text, re.MULTILINE)) != 22:
+        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 22 health bar images")
+    colours = standard_colours(upstream)
+    prepared = []
+    if only_unit in (None, "zerg_zergling"):
+        contents = stage_zergling(source, pack, manifest, contents, colours, prepared)
+    if only_unit in (None, "terran_marine"):
+        contents = stage_marine(source, pack, upstream, contents, colours, prepared)
     # Small native overlays; each image is an exact-palette health fraction.
     health_source = Path(__file__).resolve().parent.parent / "run-data/generated-assets/bridge-health"
     health_source.mkdir(parents=True, exist_ok=True)

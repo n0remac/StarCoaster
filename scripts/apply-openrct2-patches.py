@@ -84,11 +84,22 @@ def ensure_barracks_light_only(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_actor_visual_registry(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0008-actor-visual-registry.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected actor renderer changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
         overlays = [ROOT / "openrct2-patches/0006-barracks-training-animation.patch",
-                    ROOT / "openrct2-patches/0007-barracks-light-only.patch"]
+                    ROOT / "openrct2-patches/0007-barracks-light-only.patch",
+                    ROOT / "openrct2-patches/0008-actor-visual-registry.patch"]
         reversed_overlays = []
         for overlay in reversed(overlays):
             if applies(checkout, overlay, reverse=True):
@@ -112,6 +123,7 @@ if __name__ == "__main__":
                 subprocess.run(["git", "-C", str(checkout), "apply", str(light_overlay)], check=True)
         print("Barracks training animation patch " + animation_status)
         print("Barracks light-only patch " + ensure_barracks_light_only(checkout))
+        print("Actor visual registry patch " + ensure_actor_visual_registry(checkout))
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)

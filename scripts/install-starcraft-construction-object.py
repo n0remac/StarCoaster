@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the 4 by 3 Barracks scenery from locally licensed StarCraft art."""
+"""Install a supported StarCraft building object from locally licensed art."""
 
 import argparse
 import io
@@ -85,6 +85,15 @@ def barracks_images(game_dir: Path) -> list[Image.Image]:
     return output_images
 
 
+# Visual preparation is building-specific; tile layout and archive assembly are
+# shared. The Barracks' name, image paths, and bank order are save-compatible.
+BUILDING_OBJECTS = {
+    "terran_barracks": {"identifier": IDENTIFIER, "name": "Terran Barracks",
+                        "width": 4, "height": 3, "frame_name": "barracks",
+                        "prepare": lambda game_dir: barracks_images(game_dir)},
+}
+
+
 def png_bytes(image: Image.Image) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -102,16 +111,24 @@ def tile_screen(x: int, y: int, direction: int) -> tuple[int, int]:
     return y - x, (x + y) // 2
 
 
-def install(data_root: Path, game_dir: Path) -> Path:
-    destination = data_root / "object" / "starcoaster" / "scenery_large" / (IDENTIFIER + ".parkobj")
+def install(data_root: Path, game_dir: Path, building_type: str = "terran_barracks") -> Path:
+    if building_type not in BUILDING_OBJECTS:
+        raise ValueError(f"Unsupported StarCraft building: {building_type}")
+    spec = BUILDING_OBJECTS[building_type]
+    width, height = spec["width"], spec["height"]
+    if width < 1 or height < 1 or not spec["identifier"] or not spec["name"]:
+        raise ValueError(f"Invalid StarCraft building definition: {building_type}")
+    destination = data_root / "object" / "starcoaster" / "scenery_large" / (spec["identifier"] + ".parkobj")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    sprites = barracks_images(game_dir)
+    sprites = spec["prepare"](game_dir)
+    if not sprites:
+        raise ValueError(f"No sprite frames for {building_type}")
     sprite = sprites[0]
     preview = sprite.resize((58, 50), Image.Resampling.NEAREST)
     images = []
     tiles = []
-    for y in range(3):
-        for x in range(4):
+    for y in range(height):
+        for x in range(width):
             tiles.append({"x": x * 32, "y": y * 32, "z": 0, "clearance": 48,
                           "corners": 15, "walls": 0, "hasSupports": False})
     # OpenRCT2 paints each scenery tile through its own viewport region. Each
@@ -122,7 +139,7 @@ def install(data_root: Path, game_dir: Path) -> Path:
     origins = []
     for direction in range(4):
         positions = [tile_screen(tx, ty, direction)
-                     for ty in range(3) for tx in range(4)]
+                     for ty in range(height) for tx in range(width)]
         centre_x = (min(p[0] for p in positions) + max(p[0] for p in positions)) // 2
         origins.append((centre_x - sprite.width // 2,
                         max(p[1] for p in positions) + 16 - sprite.height))
@@ -130,32 +147,33 @@ def install(data_root: Path, game_dir: Path) -> Path:
     # scenery painting. Native painting selects a later 48-image bank only while
     # OpenBW reports a Marine in this Barracks' training queue.
     for frame in range(len(sprites)):
-        for y in range(3):
-            for x in range(4):
+        for y in range(height):
+            for x in range(width):
                 for direction in range(4):
                     origin_x, origin_y = origins[direction]
                     screen_x, screen_y = tile_screen(x, y, direction)
-                    images.append({"path": f"images/barracks-{frame}.png",
+                    images.append({"path": f"images/{spec['frame_name']}-{frame}.png",
                                    "x": origin_x - screen_x, "y": origin_y - screen_y,
                                    "palette": "keep"})
-    definition = {"id": IDENTIFIER, "authors": ["StarCoaster"], "version": "2.0",
+    definition = {"id": spec["identifier"], "authors": ["StarCoaster"], "version": "2.0",
                   "objectType": "scenery_large",
                   "properties": {"price": 1, "removalPrice": 0, "cursor": "CURSOR_STATUE_DOWN",
                                  "tiles": tiles},
                   "images": images,
-                  "strings": {"name": {"en-GB": "Terran Barracks"}}}
+                  "strings": {"name": {"en-GB": spec["name"]}}}
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("object.json", json.dumps(definition, separators=(",", ":")))
         archive.writestr("images/preview.png", png_bytes(preview))
         for frame, frame_sprite in enumerate(sprites):
-            archive.writestr(f"images/barracks-{frame}.png", png_bytes(frame_sprite))
+            archive.writestr(f"images/{spec['frame_name']}-{frame}.png", png_bytes(frame_sprite))
     return destination
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_root", type=Path)
+    parser.add_argument("--building-type", choices=BUILDING_OBJECTS, default="terran_barracks")
     parser.add_argument("--game-dir", type=Path,
                         default=Path(os.environ.get("STARCRAFT_DATA_DIR", str(Path.home() / "games/starcraft"))))
     args = parser.parse_args()
-    print(install(args.data_root, args.game_dir))
+    print(install(args.data_root, args.game_dir, args.building_type))

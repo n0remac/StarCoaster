@@ -1,0 +1,40 @@
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -498,9 +498,25 @@
+             SPR_BRIDGE_SCOUT_WALK2_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK3_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK4_SOUTHEAST,
+             SPR_BRIDGE_SCOUT_WALK5_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK6_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK7_SOUTHEAST,
+             SPR_BRIDGE_SCOUT_WALK8_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK9_SOUTHEAST };
++        enum class BridgeVisualLayout { Marine, Zergling };
++        struct BridgeVisualType
++        {
++            const char* id;
++            BridgeVisualLayout layout;
++            uint32_t healthBase;
++        };
++        static constexpr BridgeVisualType visualTypes[] = {
++            { "terran_marine", BridgeVisualLayout::Marine, SPR_BRIDGE_HEALTH_MARINE_0 },
++            { "zerg_zergling", BridgeVisualLayout::Zergling, SPR_BRIDGE_HEALTH_ZERGLING_0 },
++        };
++        const BridgeVisualType* visualType = nullptr;
++        for (const auto& candidate : visualTypes)
++            if (actor.kind == candidate.id) { visualType = &candidate; break; }
++        if (!visualType)
++            continue;
+         const uint32_t elapsed = getGameState().currentTicks - visual.animationStartTick;
+         uint32_t imageId = 0;
+-        if (actor.kind == "terran_marine")
++        if (visualType->layout == BridgeVisualLayout::Marine)
+         {
+             constexpr uint32_t marineBases[] = { SPR_BRIDGE_MARINE_IDLE0_EAST,
+                 SPR_BRIDGE_MARINE_WALK0_EAST, SPR_BRIDGE_MARINE_WALK1_EAST,
+@@ -534,8 +550,7 @@
+         if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
+         {
+             const auto level = std::clamp((actor.hp * 10 + actor.maxHp / 2) / actor.maxHp, 0, 10);
+-            const auto healthBase = actor.kind == "terran_marine" ? SPR_BRIDGE_HEALTH_MARINE_0 : SPR_BRIDGE_HEALTH_ZERGLING_0;
+-            PaintAddImageAsChild(session, ImageId(healthBase + level), { 0, 0, z }, actorBounds);
++            PaintAddImageAsChild(session, ImageId(visualType->healthBase + level), { 0, 0, z }, actorBounds);
+         }
+     }
+ }

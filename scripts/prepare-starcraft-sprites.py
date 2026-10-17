@@ -158,42 +158,25 @@ def prepare_marine(data: bytes, wpe: bytes, output: Path, palette: list[tuple[in
     return selected, registry, count, width, height
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--game-dir", type=Path,
-                        default=Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft")))
-    parser.add_argument("--unit", choices=["zergling", "marine"], default="zergling")
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args()
-    if shutil.which("smpq") is None:
-        parser.error("smpq is required (Debian package: smpq / StormLib)")
-    output = (args.output or OUTPUT.parent / args.unit).resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    source = output / ".source"
-    source.mkdir(exist_ok=True)
-    resource = MARINE_RESOURCE if args.unit == "marine" else RESOURCE
-    grp_path, wpe_path = source / f"{args.unit}.grp", source / "Badlands.wpe"
-    archives = {resource: extract(args.game_dir, resource, grp_path),
-                PALETTE: extract(args.game_dir, PALETTE, wpe_path)}
-    data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
-    if len(wpe) != 1024:
-        raise ValueError(f"Expected 1024-byte WPE palette, got {len(wpe)}")
+def prepare_marine_pack(data: bytes, wpe: bytes, output: Path,
+                         palette: list[tuple[int, int, int]], archives: dict) -> None:
+    selected, registry, frame_count, canvas_width, canvas_height = prepare_marine(data, wpe, output, palette)
+    manifest = {"unit": "marine", "kind": "terran_marine", "source": MARINE_RESOURCE,
+                "palette": PALETTE, "archives": archives, "canvas": [canvas_width, canvas_height],
+                "frame_count": frame_count, "source_sha256": hashlib.sha256(data).hexdigest(),
+                "registry": registry, "frames": selected,
+                "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
+                "team_colour": "source palette indices 8..15 retained without player remap",
+                "output_palette": "nearest OpenRCT2 standard palette colour, excluding special and primary remap indices"}
+    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"Prepared {len(selected)} Marine frames in {output} from {archives}")
+    return
+
+def prepare_zergling_pack(data: bytes, wpe: bytes, output: Path,
+                           palette: list[tuple[int, int, int]], archives: dict) -> None:
     frame_count, canvas_width, canvas_height = struct.unpack_from("<HHH", data)
-    if args.unit == "zergling" and frame_count < 17 * 17:
+    if frame_count < 17 * 17:
         raise ValueError(f"Expected at least 17 directional groups, got {frame_count} frames")
-    palette = openrct2_palette()
-    if args.unit == "marine":
-        selected, registry, frame_count, canvas_width, canvas_height = prepare_marine(data, wpe, output, palette)
-        manifest = {"unit": args.unit, "kind": "terran_marine", "source": resource,
-                    "palette": PALETTE, "archives": archives, "canvas": [canvas_width, canvas_height],
-                    "frame_count": frame_count, "source_sha256": hashlib.sha256(data).hexdigest(),
-                    "registry": registry, "frames": selected,
-                    "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
-                    "team_colour": "source palette indices 8..15 retained without player remap",
-                    "output_palette": "nearest OpenRCT2 standard palette colour, excluding special and primary remap indices"}
-        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-        print(f"Prepared {len(selected)} Marine frames in {output} from {archives}")
-        return
     selected = {}
     for motion, base in FRAMES.items():
         for direction, (facing, mirror) in DIRECTIONS.items():
@@ -219,13 +202,13 @@ def main() -> None:
                "classification": "idle" if group == 0 else "walk" if group <= 10 else "death" if group <= 16 else "non_locomotion"}
               for group in range((frame_count + 16) // 17)]
     directions = list(DIRECTIONS)
-    registry = {"alien_scout": {"idle": {"frames": {direction: [f"idle_{direction}.png"]
+    registry = {"zerg_zergling": {"idle": {"frames": {direction: [f"idle_{direction}.png"]
                                                    for direction in directions}, "ticks_per_frame": 0},
                                 "walk": {"frames": {direction: [f"walk{pose}_{direction}.png" for pose in range(10)]
                                                     for direction in directions}, "ticks_per_frame": 4},
                                 "death": {"frames": {direction: [f"death{pose}_{direction}.png" for pose in range(6)]
                                                      for direction in directions}, "ticks_per_frame": 3}}}
-    manifest = {"unit": args.unit, "source": RESOURCE, "palette": PALETTE,
+    manifest = {"unit": "zergling", "kind": "zerg_zergling", "source": RESOURCE, "palette": PALETTE,
                 "archives": archives, "canvas": [canvas_width, canvas_height],
                 "frame_count": frame_count, "source_sha256": hashlib.sha256(data).hexdigest(),
                 "source_groups": groups, "registry": registry,
@@ -237,6 +220,35 @@ def main() -> None:
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Prepared {len(selected)} frames in {output} from {archives}")
 
+
+UNIT_PROFILES = {
+    "marine": {"resource": MARINE_RESOURCE, "prepare": prepare_marine_pack},
+    "zergling": {"resource": RESOURCE, "prepare": prepare_zergling_pack},
+}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--game-dir", type=Path,
+                        default=Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft")))
+    parser.add_argument("--unit", choices=UNIT_PROFILES, default="zergling")
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    if shutil.which("smpq") is None:
+        parser.error("smpq is required (Debian package: smpq / StormLib)")
+    output = (args.output or OUTPUT.parent / args.unit).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    source = output / ".source"
+    source.mkdir(exist_ok=True)
+    profile = UNIT_PROFILES[args.unit]
+    resource = profile["resource"]
+    grp_path, wpe_path = source / f"{args.unit}.grp", source / "Badlands.wpe"
+    archives = {resource: extract(args.game_dir, resource, grp_path),
+                PALETTE: extract(args.game_dir, PALETTE, wpe_path)}
+    data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
+    if len(wpe) != 1024:
+        raise ValueError(f"Expected 1024-byte WPE palette, got {len(wpe)}")
+    profile["prepare"](data, wpe, output, openrct2_palette(), archives)
 
 if __name__ == "__main__":
     main()

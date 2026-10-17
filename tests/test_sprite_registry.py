@@ -81,6 +81,25 @@ class SpriteRegistryTests(unittest.TestCase):
                 self.assertEqual(len([name for name in archive.namelist()
                                       if name.startswith("images/barracks-")]), 8)
 
+    def test_construction_object_supports_a_distinct_footprint(self):
+        spec = importlib.util.spec_from_file_location(
+            "starcraft_objects", ROOT / "scripts/install-starcraft-construction-object.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        image = Image.new("P", (40, 36), 10)
+        module.BUILDING_OBJECTS["synthetic"] = {
+            "identifier": "starcoaster.scenery_large.synthetic", "name": "Synthetic",
+            "width": 2, "height": 2, "frame_name": "synthetic",
+            "prepare": lambda _: [image],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = module.install(Path(directory), Path(directory), "synthetic")
+            with zipfile.ZipFile(path) as archive:
+                definition = json.loads(archive.read("object.json"))
+                self.assertEqual(definition["id"], "starcoaster.scenery_large.synthetic")
+                self.assertEqual(len(definition["properties"]["tiles"]), 4)
+                self.assertEqual(len(definition["images"]), 4 + 4 * 4)
+
     def test_extraction_accepts_archive_aliases_and_relative_paths(self):
         spec = importlib.util.spec_from_file_location("starcraft_sprites", ROOT / "scripts/prepare-starcraft-sprites.py")
         module = importlib.util.module_from_spec(spec)
@@ -163,8 +182,9 @@ class SpriteRegistryTests(unittest.TestCase):
         self.assertEqual([group["classification"] for group in manifest["source_groups"][:11]],
                          ["idle"] + ["walk"] * 10)
         self.assertEqual([group["classification"] for group in manifest["source_groups"][11:17]], ["death"] * 6)
-        self.assertEqual(len(manifest["registry"]["alien_scout"]["walk"]["frames"]), 8)
-        self.assertEqual(len(manifest["registry"]["alien_scout"]["death"]["frames"]["east"]), 6)
+        registry = manifest["registry"].get("zerg_zergling") or manifest["registry"]["alien_scout"]
+        self.assertEqual(len(registry["walk"]["frames"]), 8)
+        self.assertEqual(len(registry["death"]["frames"]["east"]), 6)
         for motion in ("idle", *(f"walk{index}" for index in range(10)), *(f"death{index}" for index in range(6))):
             for east, west in (("east", "west"), ("southeast", "southwest"),
                                ("northeast", "northwest")):
