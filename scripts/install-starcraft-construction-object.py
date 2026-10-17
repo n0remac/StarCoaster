@@ -1,70 +1,108 @@
 #!/usr/bin/env python3
-"""Install the original, save-embedded 4 by 3 Barracks scenery object."""
+"""Install the 4 by 3 Barracks scenery from locally licensed StarCraft art."""
 
+import argparse
 import io
 import json
+import os
 from pathlib import Path
-import sys
+import runpy
+import struct
 import zipfile
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 
 IDENTIFIER = "starcoaster.scenery_large.terran_barracks"
+ROOT = Path(__file__).resolve().parent.parent
+BARRACKS_RESOURCE = "unit/terran/TBarrack.grp"
+PALETTE_RESOURCE = "Tileset/Badlands.wpe"
 
-# OpenRCT2's object importer preserves indexed PNG pixels. Arbitrary RGBA
-# colours are treated as transparent by its exact-palette import mode.
-COLOURS = {
-    10: (23, 35, 35), 12: (47, 67, 67), 14: (75, 99, 99),
-    16: (111, 131, 131), 18: (159, 175, 175), 20: (211, 219, 219),
-    52: (215, 167, 19), 62: (127, 27, 27), 65: (179, 79, 79),
-}
+def barracks_image(game_dir: Path) -> Image.Image:
+    source = ROOT / "run-data/generated-assets/starcraft/barracks/.source"
+    source.mkdir(parents=True, exist_ok=True)
+    helpers = runpy.run_path(str(ROOT / "scripts/prepare-starcraft-sprites.py"))
+    grp_path, wpe_path = source / "TBarrack.grp", source / "Badlands.wpe"
+    helpers["extract"](game_dir, BARRACKS_RESOURCE, grp_path)
+    helpers["extract"](game_dir, PALETTE_RESOURCE, wpe_path)
+    data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
+    count, width, height = struct.unpack_from("<HHH", data)
+    if (count, width, height) != (9, 192, 160) or len(wpe) != 1024:
+        raise ValueError("Unexpected classic StarCraft Barracks GRP or Badlands palette")
+    image = helpers["decode_grp"](data, wpe, 0)
+    bounds = image.getbbox()
+    if bounds is None:
+        raise ValueError("Classic StarCraft Barracks frame is empty")
+    image = image.crop(bounds).resize((189, 164), Image.Resampling.NEAREST)
+    palette = helpers["openrct2_palette"]()
+    # Large scenery's palette=keep importer uses index 0 as transparency.
+    output = Image.new("P", image.size, 0)
+    output.putpalette([channel for colour in palette for channel in colour])
+    available = [i for i in range(10, 255) if not 230 <= i <= 239 and not 243 <= i <= 254]
+    cache = {}
+    pixels = []
+    for red, green, blue, alpha in image.getdata():
+        if alpha == 0:
+            pixels.append(0)
+            continue
+        colour = (red, green, blue)
+        if colour not in cache:
+            cache[colour] = min(available, key=lambda i:
+                sum((colour[channel] - palette[i][channel]) ** 2 for channel in range(3)))
+        pixels.append(cache[colour])
+    output.putdata(pixels)
+    return output
 
 
-def tile_image(x: int, y: int) -> bytes:
-    # Simple original industrial roof art. Each piece has its own iso diamond;
-    # OpenRCT2 rotates the full object's positions and selects one of four views.
-    image = Image.new("P", (64, 72), 0)
-    palette = [0] * (256 * 3)
-    for index, colour in COLOURS.items():
-        palette[index * 3:index * 3 + 3] = colour
-    image.putpalette(palette)
-    draw = ImageDraw.Draw(image)
-    draw.polygon([(32, 8), (61, 23), (32, 39), (3, 23)], fill=14, outline=10)
-    draw.polygon([(3, 23), (32, 39), (32, 59), (3, 42)], fill=12, outline=10)
-    draw.polygon([(32, 39), (61, 23), (61, 42), (32, 59)], fill=10, outline=10)
-    draw.line([(9, 23), (32, 11), (55, 23), (32, 35), (9, 23)], fill=18, width=2)
-    draw.line([(32, 11), (32, 35)], fill=16, width=2)
-    if x in (0, 3) or y in (0, 2):
-        draw.line([(11, 22), (32, 12), (53, 22)], fill=65, width=3)
-    if x == 1 and y == 2:
-        draw.polygon([(21, 43), (32, 49), (32, 58), (21, 52)], fill=10)
-        draw.line([(23, 46), (29, 49)], fill=52, width=2)
-    if x == 2 and y == 1:
-        draw.ellipse((26, 17, 38, 28), fill=62, outline=10)
+def png_bytes(image: Image.Image) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
 
 
-def install(data_root: Path) -> Path:
+def tile_screen(x: int, y: int, direction: int) -> tuple[int, int]:
+    x, y = x * 32, y * 32
+    if direction == 1:
+        x, y = y, -x
+    elif direction == 2:
+        x, y = -x, -y
+    elif direction == 3:
+        x, y = -y, x
+    return y - x, (x + y) // 2
+
+
+def install(data_root: Path, game_dir: Path) -> Path:
     destination = data_root / "object" / "starcoaster" / "scenery_large" / (IDENTIFIER + ".parkobj")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    sprite = barracks_image(game_dir)
+    preview = sprite.resize((58, 50), Image.Resampling.NEAREST)
     images = []
     tiles = []
     for y in range(3):
         for x in range(4):
             tiles.append({"x": x * 32, "y": y * 32, "z": 0, "clearance": 48,
                           "corners": 15, "walls": 0, "hasSupports": False})
-    # Four preview images precede four direction images per occupied tile.
+    # OpenRCT2 paints each scenery tile through its own viewport region. Each
+    # tile therefore carries the same sprite, aligned to one screen position;
+    # the regions join into one full Barracks without changing the 4x3 object.
     for _ in range(4):
-        images.append({"path": "images/tile_1_1.png", "x": -32, "y": -56, "palette": "keep"})
+        images.append({"path": "images/preview.png", "x": -29, "y": -16, "palette": "keep"})
+    origins = []
+    for direction in range(4):
+        positions = [tile_screen(tx, ty, direction)
+                     for ty in range(3) for tx in range(4)]
+        centre_x = (min(p[0] for p in positions) + max(p[0] for p in positions)) // 2
+        origins.append((centre_x - sprite.width // 2,
+                        max(p[1] for p in positions) + 16 - sprite.height))
     for y in range(3):
         for x in range(4):
-            for _ in range(4):
-                images.append({"path": f"images/tile_{x}_{y}.png", "x": -32, "y": -56,
+            for direction in range(4):
+                origin_x, origin_y = origins[direction]
+                screen_x, screen_y = tile_screen(x, y, direction)
+                images.append({"path": "images/barracks.png",
+                               "x": origin_x - screen_x, "y": origin_y - screen_y,
                                "palette": "keep"})
-    definition = {"id": IDENTIFIER, "authors": ["StarCoaster"], "version": "1.0",
+    definition = {"id": IDENTIFIER, "authors": ["StarCoaster"], "version": "2.0",
                   "objectType": "scenery_large",
                   "properties": {"price": 1, "removalPrice": 0, "cursor": "CURSOR_STATUE_DOWN",
                                  "tiles": tiles},
@@ -72,13 +110,15 @@ def install(data_root: Path) -> Path:
                   "strings": {"name": {"en-GB": "Terran Barracks"}}}
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("object.json", json.dumps(definition, separators=(",", ":")))
-        for y in range(3):
-            for x in range(4):
-                archive.writestr(f"images/tile_{x}_{y}.png", tile_image(x, y))
+        archive.writestr("images/preview.png", png_bytes(preview))
+        archive.writestr("images/barracks.png", png_bytes(sprite))
     return destination
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: install-starcraft-construction-object.py OPENRCT2_DATA_ROOT")
-    print(install(Path(sys.argv[1])))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("data_root", type=Path)
+    parser.add_argument("--game-dir", type=Path,
+                        default=Path(os.environ.get("STARCRAFT_DATA_DIR", str(Path.home() / "games/starcraft"))))
+    args = parser.parse_args()
+    print(install(args.data_root, args.game_dir))

@@ -12,7 +12,12 @@ test -f "$park_file" || { printf 'Missing park file: %s\n' "$park_file" >&2; exi
 test -f "$openrct2_data/g2.dat" || { printf 'Missing staged OpenRCT2 data; run scripts/install-openrct2-local.sh\n' >&2; exit 1; }
 test -x "$project_dir/build/openrct2/openrct2-cli" || { printf 'Missing OpenRCT2 CLI; run scripts/build-openrct2.sh\n' >&2; exit 1; }
 
-python3 "$project_dir/scripts/install-starcraft-construction-object.py" "$openrct2_data" >/dev/null
+python3 "$project_dir/scripts/install-starcraft-construction-object.py" "$openrct2_data" \
+  --game-dir "$STARCRAFT_DATA_DIR" >/dev/null
+barracks_object="starcoaster.scenery_large.terran_barracks.parkobj"
+mkdir -p "$server_data/object"
+cp "$openrct2_data/object/starcoaster/scenery_large/$barracks_object" \
+  "$server_data/object/$barracks_object"
 
 mkdir -p "$server_data/plugin"
 cp "$project_dir/openrct2-plugin/rts-bridge.js" "$server_data/plugin/rts-bridge.js"
