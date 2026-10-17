@@ -54,6 +54,7 @@ specialized effect renderers; neither implements gameplay damage or healing.
 | `tests/test_armory_bridge_restart_live.sh` | Pass with 427 HP | `run-data/armory-bridge-restart-1792255162/` |
 | Academy save/load and bridge restart regressions | Pass | `run-data/academy-save-load-live-1792256721/`, `run-data/academy-bridge-restart-1792253180/` |
 | `node tests/test_barracks_plugin.js` | Pass | Armory menu and Factory Goliath control assertions |
+| `python3 -m py_compile scripts/record-scenario.py`; `node --check scripts/armory-goliath-camera.js`; `node --check scripts/live-armory-goliath-probe.js`; `node --check scripts/live-firebat-gameplay-probe.js` | Pass | Capture and live-probe syntax |
 | Barracks, Academy, Firebat, Medic/Vulture, and actor lifecycle regressions | Pass after test timing and file-mode fixes | `run-data/type-expansion-regressions/`, `run-data/firebat-production-live-1792255818/`, `run-data/actor-lifecycle-1792256373/` |
 | Firebat zero-gas and native technology probes | Pass | `run-data/firebat-insufficient-gas-1792256565/`, `run-data/firebat-native-tech-1792256623/` |
 | Two-client graphical recording | Pass | `run-data/artifacts/20261017T161643Z-1a7b92f39a4b/` |
