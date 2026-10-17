@@ -4,7 +4,7 @@ registerPlugin({ name: "Firebat gameplay probe", version: "1.0.0", authors: ["St
     main: function () {
         if (network.mode !== "client") return;
         let barracks = "", barracksPlacedAt = 0, placingBarracks = false;
-        let prereqRequestedAt = 0, academyPlacedAt = 0;
+        let prereqRequestedAt = 0, prereqQueryPending = false, academyPlacedAt = 0;
         let trainRequested = false, duplicateRequested = false, secondRequested = false;
         let movedAt = 0, redirected = false, mixedIDs = [];
         let academyRemovedAt = 0, afterRemovalRequested = false;
@@ -63,13 +63,20 @@ registerPlugin({ name: "Firebat gameplay probe", version: "1.0.0", authors: ["St
                 }
                 tryBarracks();
             }
-            if (barracksPlacedAt && !prereqRequestedAt && Date.now() - barracksPlacedAt > 8000) {
-                prereqRequestedAt = Date.now();
-                context.executeAction("rtsbridge.marineCommand", { session: snapshot.session,
+            if (barracksPlacedAt && !prereqRequestedAt && !prereqQueryPending
+                && Date.now() - barracksPlacedAt > 8000) {
+                prereqQueryPending = true;
+                const args = { session: snapshot.session,
                     request: 301, unit_ids: [], verb: "train", unit_type: "terran_firebat",
-                    target_entity_id: barracks }, function (result) {
-                    console.log("FIREBAT_PROBE_BEFORE accepted=" + !result.error
-                        + " reason=" + (result.errorMessage || "ok"));
+                    target_entity_id: barracks };
+                context.queryAction("rtsbridge.marineCommand", args, function (query) {
+                    prereqQueryPending = false;
+                    if (query.error) return;
+                    prereqRequestedAt = Date.now();
+                    context.executeAction("rtsbridge.marineCommand", args, function (result) {
+                        console.log("FIREBAT_PROBE_BEFORE accepted=" + !result.error
+                            + " reason=" + (result.errorMessage || "ok"));
+                    });
                 });
             }
             if (prereqRequestedAt && !academyPlacedAt && !placingAcademy
