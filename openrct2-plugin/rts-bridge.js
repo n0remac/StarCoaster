@@ -1059,7 +1059,9 @@
                 const number = /^openbw:([0-9]+)$/.exec(unit.id);
                 return !number || Number(number[1]) < 3000
                     || (actorLifecycleSession === event.args.session
-                        && activeActorGenerations[unit.id] > 0);
+                        && (activeActorGenerations[unit.id] > 0
+                            || (removedActorGenerations[unit.id] > 0
+                                && unit.motion === "death" && unit.hp === 0)));
             });
             rtsBridge.applySnapshot({ session: event.args.session, seq: event.args.seq, units: visible });
             const sessionChanged = controlSession !== event.args.session;
@@ -1987,6 +1989,12 @@
                 const buildingID = targetBuildingID(barracksInfoID, initial) || point.buildingID;
                 const building = BUILDING_TYPES[buildingID];
                 if (!building) return;
+                function identityText(native) {
+                    if (!native) return "Identity: awaiting native state";
+                    const generation = /#([0-9]+)$/.exec(barracksInfoID || "");
+                    return "Native: " + native.native_id + "  Generation: "
+                        + (generation ? generation[1] : "?");
+                }
                 function availabilityText(unitID, availability) {
                     const name = UNIT_TYPES[unitID].name;
                     if (!availability) return name + ": awaiting native state";
@@ -2019,7 +2027,7 @@
                         const resources = barracksInfoWindow.findWidget("building-resources");
                         const feedback = barracksInfoWindow.findWidget("building-feedback");
                         if (owner) owner.text = "Owner: Terran (player " + (native ? native.owner : terranOwner) + ")";
-                        if (identity) identity.text = barracksInfoID || "Awaiting world identity";
+                        if (identity) identity.text = identityText(native);
                         if (health) health.text = native ? "Health: " + native.health + "/" + (native.max_health || building.maxHealth)
                             : target ? "Health: " + target.health : "Health: awaiting native state";
                         if (status) status.text = target && native ? "Construction: complete"
@@ -2047,7 +2055,7 @@
                         { type: "label", name: "building-owner", x: 8, y: 19, width: 228,
                             height: 14, text: "Owner: Terran" },
                         { type: "label", name: "building-identity", x: 8, y: 37, width: 228,
-                            height: 14, text: barracksInfoID || "Awaiting world identity" },
+                            height: 14, text: "Identity: awaiting native state" },
                         { type: "label", name: "building-health", x: 8, y: 55, width: 228,
                             height: 14, text: "Health: awaiting native state" },
                         { type: "label", name: "building-status", x: 8, y: 73, width: 228,

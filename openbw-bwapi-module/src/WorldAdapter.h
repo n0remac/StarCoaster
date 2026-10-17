@@ -63,7 +63,9 @@ public:
         if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY")
             && unit->getType() == BWAPI::UnitTypes::Terran_Firebat)
             std::cerr << "[firebat-gameplay] role=publisher destroyed native=" << unit->getID()
-                      << " frame=" << frame << " hp=" << unit->getHitPoints() << std::endl;
+                      << " frame=" << frame << " hp=" << unit->getHitPoints()
+                      << " last_snapshot_frame=" << (lastActors_.count(unit->getID())
+                          ? lastActors_.at(unit->getID()).second : -1) << std::endl;
         if (!activeSpawn_.empty()) {
             auto& spawn = nativeSpawns_.at(activeSpawn_);
             if (spawn.candidateID == unit->getID() && spawn.state == "issued") {
@@ -190,6 +192,23 @@ public:
                     game->killUnit(unit);
                     std::cerr << "[world] requested native runtime Marine death id=openbw:3001"
                               << " frame=" << frame << std::endl;
+                }
+            }
+        }
+        const char* firebatKillAfterAttack = std::getenv("BRIDGE_TEST_KILL_FIREBAT_AFTER_ATTACK");
+        if (!testFirebatKillRequested_ && firebatKillAfterAttack && *firebatKillAfterAttack) {
+            char* end = nullptr;
+            const long requestedAttacks = std::strtol(firebatKillAfterAttack, &end, 10);
+            auto unit = actorRegistry_.lookup("openbw:3001");
+            const bool attackReady = unit && requestedAttacks > 0 && end && !*end
+                && attackFrames_[unit->getID()] >= requestedAttacks;
+            if (attackReady) {
+                if (unit && unit->exists() && unit->getType() == BWAPI::UnitTypes::Terran_Firebat) {
+                    testFirebatKillRequested_ = true;
+                    const int attacks = attackFrames_[unit->getID()];
+                    game->killUnit(unit);
+                    std::cerr << "[world] requested native test Firebat death id=openbw:3001"
+                              << " frame=" << frame << " attack_frames=" << attacks << std::endl;
                 }
             }
         }
@@ -1191,6 +1210,8 @@ private:
             const auto type=unit->getType();
             const auto* definition = worldUnitType(type);
             if (!definition) continue;
+            const auto actorID=actorRegistry_.id(unit);
+            if (actorID.empty()) continue;
             ++total;
             observed.insert(unit->getID());
             if (units.size()>=256) continue;
@@ -1198,8 +1219,6 @@ private:
             const double turns=std::fmod(unit->getAngle()/(2.0*3.14159265358979323846)+1.0,1.0);
             const int facing=static_cast<int>(std::lround(turns*256.0))&255;
             const int hp=std::max(0,unit->getHitPoints());
-            const auto actorID=actorRegistry_.id(unit);
-            if (actorID.empty()) continue;
             auto target=unit->getTarget();
             if (!target) target=unit->getOrderTarget();
             std::string targetEntity;
@@ -1223,6 +1242,10 @@ private:
             if (units.size()<256) {
                 json dead=it->second.first;
                 dead["motion"]="death"; dead["alive"]=false; dead["hp"]=0;
+                if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY")
+                    && dead.value("kind", "") == "terran_firebat")
+                    std::cerr << "[firebat-gameplay] role=publisher death_snapshot frame="
+                              << frame << " id=" << dead.value("id", "") << std::endl;
                 units.push_back(std::move(dead));
             }
             ++it;
@@ -1259,6 +1282,7 @@ private:
     int testMarineCanonical_ = 0;
     bool testMarineKillRequested_ = false;
     bool testRuntimeKillRequested_ = false;
+    bool testFirebatKillRequested_ = false;
     bool testSpawnDisconnectInjected_ = false;
     WorldAssaultController assault_;
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();

@@ -266,6 +266,12 @@ assert.equal(actions.filter(a => a.name === 'rtsbridge.marineCommand').length, c
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
     payload: { seq: 5, bw_tick: 15, units: many.concat([runtimeMarine]) } }) + '\n');
 assert.equal(applied.at(-1).units.length, 100, 'despawned runtime Marine is removed');
+const deadRuntimeMarine = { ...runtimeMarine, hp: 0, alive: false, motion: 'death' };
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
+    payload: { seq: 6, bw_tick: 18, units: many.concat([deadRuntimeMarine]) } }) + '\n');
+assert.equal(applied.at(-1).units.length, 101,
+    'a despawned runtime actor retains its terminal visual frame');
+assert.equal(applied.at(-1).units.at(-1).motion, 'death');
 const command = registered.get('rtsbridge.marineCommand');
 assert.ok(command.query({ player: 1, args: { session: sid, request: 1,
     unit_ids: [runtimeMarine.id], verb: 'hold' } }).error,
