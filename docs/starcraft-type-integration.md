@@ -1,84 +1,93 @@
 # StarCraft type integration
 
-The supported type catalog is `bridge-protocol/starcraft-types.json`. It lists
-only types that StarCoaster can synchronize and render. BWAPI's full type
-catalog is broader and does not automatically become playable. Run
-`python3 scripts/generate-starcraft-types.py` after changing the catalog;
-`--check` verifies the generated Go and plugin definitions plus native type
-resolution. Do not put prices, supply costs, build times, or technology rules
-in the catalog. OpenBW owns those rules.
+`bridge-protocol/starcraft-types.json` declares the playable types. Its IDs are
+stable wire IDs; order in the file never determines actor identity. Marine and
+Zergling retain their legacy static identity bases. Runtime units receive
+canonical IDs from native creation events after completion. OpenBW remains
+authoritative for health, costs, supply, prerequisites, queues, movement,
+damage, and abilities.
 
-## Add a building
+`bridge-protocol/starcraft-visuals.json` holds only art and rendering metadata:
+GRP sources, image IDs, directional banks, timings, anchors, optional layers,
+health-bar placement, and building art methods. The generator validates that
+each registered type has a representable profile. Local extraction verifies
+the original GRP against pinned StarCraft image metadata when an image ID is
+declared.
 
-1. Add a stable ID, BWAPI name, scenery object ID, display name, footprint,
-   production list, and optional animation to the catalog. The current
-   constructible types are Barracks, Academy, Supply Depot, and Factory.
-   Academy and Depot have empty production lists; Factory trains Vultures.
-2. Add the native BWAPI mapping in
-   `openbw-bwapi-module/src/WorldStarcraftTypes.h`. The existing target
-   lifecycle creates or recovers the declared native type. Ordinary rides and
-   scenery remain neutral target proxies.
-3. Add an art preparation function and `BUILDING_OBJECTS` entry in
-   `scripts/install-starcraft-construction-object.py`. The shared archive
-   assembler handles tile layout and image banks. Preserve image indexes for
-   existing objects; the Barracks has four preview images followed by 48
-   images per frame and an eight-frame light-only training bank. Optional
-   `animation` metadata declares a training trigger, frame count, and ticks
-   per frame; the native renderer tracks animated tiles by scenery object.
-4. Install the object on both OpenRCT2 clients through the normal local asset
-   workflow. The plugin's construction catalog, placement footprint,
-   recognition, and inspection window read the generated definitions.
+## Add a conventional ground unit
 
-## Add a unit
+1. Add a unit to `starcraft-types.json` with its stable ID, compile-time BWAPI
+   type, race, ownership, visual ID, supported commands, and capabilities.
+   Set `legacy_static_base` to zero for a new runtime actor. Add its ID to the
+   native producer's `production` list. These fields declare support; they do
+   not grant a new gameplay ability or override BWAPI's requirements.
+2. Add a visual profile under `units` in `starcraft-visuals.json`. Provide the
+   source GRP, expected dimensions and frame count, frame banks, animation
+   timing, bounds, and health-bar offset. Idle and death are required. A state
+   can name a deliberate fallback, as Vulture walk does. Independent art,
+   such as Goliath's turret, belongs in `attachments`. `native_target` facing
+   uses the target coordinates reported by OpenBW; without a target it uses
+   the body's facing. Effects such as Firebat flame remain separate profiles.
+   Assign a new, higher `g2_order` to keep earlier sprite banks stable even if
+   catalog entries are rearranged.
+3. Run `python3 scripts/generate-starcraft-types.py` and then `--check`.
+   This updates Go, JavaScript, direct BWAPI C++ mappings, and the supported
+   unit lists in the wire schemas. No handwritten C++ type mapping is needed.
+4. Run `python3 scripts/prepare-starcraft-sprites.py --unit <asset>` with
+   locally licensed StarCraft archives. The profile-driven extractor emits
+   exact-palette PNGs and an ignored manifest under `run-data/generated-assets`.
+   `scripts/install-bridge-sprites.py` adds a deterministic G2 bank, validates
+   the manifest, and generates the OpenRCT2 paint descriptors. It preserves
+   the existing Marine, Firebat, Medic, Vulture, Zergling, and flame IDs.
+5. Build and test. `scripts/project.sh start` discovers every registered unit
+   and effect asset, prepares it, and builds the generated registry. Missing
+   licensed artwork fails explicitly. `BRIDGE_SPRITE_SOURCE=alien-scout` is the
+   explicit placeholder option.
 
-1. Add the stable ID, BWAPI name, race, ownership, visual ID, commands, and
-   display name to the catalog. Marine, Zergling, Firebat, Medic, and Vulture
-   are registered. Firebat and Medic production use the Barracks and OpenBW's
-   Academy requirement. Vultures use the Factory.
-2. Add BWAPI resolution in `WorldStarcraftTypes.h`. Mark the unit controllable
-   only if both the native controller and plugin can issue its intended
-   commands. Runtime actors receive canonical IDs from native creation events
-   after completion. Static Marine and Zergling positional IDs remain stable.
-3. Add a sprite preparation profile in `scripts/prepare-starcraft-sprites.py`.
-   Frame groups, directions, timing, and death poses belong to that profile;
-   they need not match the Marine. Add a bank in
-   `scripts/install-bridge-sprites.py` and a visual mapping in the native
-   OpenRCT2 renderer patch. `--only-unit` stages one existing unit bank without
-   reading the other unit's source images.
-4. If a building produces it, add its ID to that building's production list.
-   The plugin makes a button and sends `unit.train` with `unit_type`.
-   OpenRCT2 checks player authority and request shape, Go checks the confirmed
-   building link and supported producer/unit pair, and OpenBW calls BWAPI
-   `canTrain` and `train`. BWAPI decides costs, supply, requirements, queue
-   capacity, and timing. Missing `unit_type` in world.v1 means Marine for old
-   callers.
+The Factory and Goliath are the worked example: the Factory's production list
+includes `terran_goliath`; OpenBW requires a completed Armory and charges 100
+minerals, 50 gas, and four raw supply units. Goliath has independent body and
+turret GRPs. Its turret uses the reusable target-facing attachment layer and
+the body uses the shared actor lifecycle, controls, and combat snapshot.
 
-Medic `unit.heal` orders pass through the same authenticated command path.
-The native controller checks that the target is friendly, organic, alive,
-and injured, then calls BWAPI Healing. Move and attack-move orders still pass
-through native OpenBW. The combat snapshot reports native energy and `motion: "heal"` only
-when OpenBW reports an actual healing pulse. OpenRCT2 draws the classic Medic
-healing pose for that motion. The Firebat flame bank uses the separate classic
-FlameThrower GRP and its native `ofire.pcx` color remap, baked against a dark
-Badlands palette index because OpenRCT2 does not apply indexed fire blending.
-It starts a burst when a native attack-frame count changes.
-Neither drawing path applies damage or healing.
+## Add a conventional building
 
-## Lifecycle and verification
+1. Add its stable type ID, BWAPI type, scenery object ID, display name,
+   footprint, maximum HP, and production list to `starcraft-types.json`.
+2. Add a matching building-art profile to `starcraft-visuals.json`: native
+   image ID, expected source dimensions and frame count, output size, preview
+   layout, and supported art method. `static` uses the shared object assembler;
+   `barracks_lights` preserves the Barracks' existing training light bank.
+3. Generate definitions, run
+   `scripts/install-starcraft-construction-object.py <data-root> --all`, and
+   build. The toolbar, placement footprint, native building lifecycle,
+   inspection, and production buttons use generated metadata. An empty
+   production list has no Train controls.
 
-The park owns visible scenery and persistent IDs. The bridge links a confirmed
-park structure to a native building and forwards its HP and queue. OpenBW owns
-native creation, combat, production, destruction, and player resources.
-Demolition retires the native building; native destruction follows the ordered
-park removal process. Save/load and bridge reconnection reuse links and
-restore HP. A trainee is not selectable until BWAPI reports completion and
-both native participants bind the actor. Retried commands retain their
-session and command IDs so the same request cannot train twice.
+Terran Armory is the worked example. Its source image resolves through
+`IMAGEID_Armory` to `unit/terran/chemlab.grp`; the shared assembler creates a
+3×2 object from its first static frame. Native BWAPI provides its 750 HP and
+the Factory's Goliath prerequisite. The object ID is stable across saves.
 
-Run `scripts/project.sh test` for every catalog or pipeline change. For a new
-building, add registry, object layout, native lifecycle, overlap, demolition,
-save/load, and bridge restart checks. For a new unit, add sprite layout,
-spawn, actor identity/binding, movement, death, reconciliation, and production
-checks. Run focused licensed live checks and a two-client recording before
-claiming graphical behavior. Local extracted sprites, game data, captures,
-and engine builds remain under ignored paths and must not be committed.
+## Verification and capability limits
+
+Run `python3 scripts/generate-starcraft-types.py --check`,
+`scripts/project.sh test`, and the relevant native tests before a two-client
+graphical capture. `tests/test_goliath_native_live.sh` probes the pinned
+Factory/Armory prerequisite on both OpenBW participants.
+`tests/test_armory_goliath_gameplay_live.sh` drives real park placement,
+training, binding, movement, and combat. Use
+`scripts/project.sh record --scenario mt-zergling --armory-goliath-probe
+--duration 180` for two graphical clients and ignored video and screenshots.
+Inspect the rendered frames and `verification.json` before claiming visual
+success. Never commit extracted graphics, licensed data, builds, or captures.
+
+A genuinely new mechanic still needs a reusable native capability and wire
+contract. The current ground-actor pipeline does not support air navigation,
+transports, siege or morph modes, specialized spells beyond Medic healing,
+resource collection, non-Terran construction economies, or full native
+production-queue persistence after an engine restart. The bridge does not
+simulate any of these StarCraft rules. Packaged starting armies and wave
+objectives still use the Marine/Zergling scenario format; a new scenario
+spawn type needs a backward-compatible scenario format and an explicit
+`spawnable` declaration.
