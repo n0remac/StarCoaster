@@ -16,9 +16,25 @@ from PIL import Image, ImageChops
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "run-data/generated-assets/starcraft/zergling/manifest.json"
 MARINE_MANIFEST = ROOT / "run-data/generated-assets/starcraft/marine/manifest.json"
+FIREBAT_MANIFEST = ROOT / "run-data/generated-assets/starcraft/firebat/manifest.json"
 
 
 class SpriteRegistryTests(unittest.TestCase):
+    @unittest.skipUnless(FIREBAT_MANIFEST.is_file(), "local Firebat art has not been prepared")
+    def test_firebat_uses_its_classic_direction_banks_and_death_effect(self):
+        manifest = json.loads(FIREBAT_MANIFEST.read_text())
+        self.assertEqual(manifest["frame_count"], 170)
+        self.assertEqual(manifest["canvas"], [32, 32])
+        self.assertEqual(len(manifest["frames"]), 56)
+        registry = manifest["registry"]["terran_firebat"]
+        self.assertEqual(set(registry), {"idle", "walk", "attack", "death"})
+        self.assertEqual(len(registry["walk"]["frames"]), 8)
+        self.assertEqual(len(registry["attack"]["frames"]["east"]), 3)
+        self.assertEqual(len(registry["death"]["frames"]), 8)
+        self.assertEqual(manifest["source"], "unit/terran/firebat.grp")
+        self.assertEqual({item["source"] for name, item in manifest["frames"].items()
+                          if name.startswith("death")}, {manifest["death_source"]})
+
     def test_barracks_light_overlay_keeps_structure_pixels(self):
         spec = importlib.util.spec_from_file_location(
             "barracks_object", ROOT / "scripts/install-starcraft-construction-object.py")
@@ -205,6 +221,7 @@ class SpriteRegistryTests(unittest.TestCase):
         plugin = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
         self.assertIn('"version", JS_NewInt32(ctx, 5)', native)
         self.assertIn('"assetVersion", JS_NewInt32(ctx, 3)', native)
+        self.assertIn('parsed.kind == "terran_firebat"', native)
         self.assertIn('rtsBridge.version !== 5', plugin)
         self.assertIn('rtsBridge.assetVersion !== 3', plugin)
 

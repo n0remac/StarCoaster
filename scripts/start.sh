@@ -15,7 +15,7 @@ and play the selected scenario (default: frontier-outpost). Ctrl+C stops it.
 
 Game data defaults to ~/games/rct2 and ~/games/starcraft.
 Override with RCT2_DATA_DIR and STARCRAFT_DATA_DIR for other installations.
-Marine and Zergling sprites are extracted from those local StarCraft archives.
+Marine, Firebat, and Zergling sprites are extracted from those local StarCraft archives.
 BRIDGE_SPRITE_SOURCE defaults to starcraft-local; set it to alien-scout to use
 the original placeholder art.
 BRIDGE_BUILD_JOBS defaults to 2. A graphical client opens when DISPLAY is set;
@@ -94,8 +94,8 @@ fi
 printf 'Fetching pinned upstream sources...\n'
 python3 scripts/fetch-upstream.py
 if [[ "$BRIDGE_SPRITE_SOURCE" == starcraft-local ]]; then
-    printf 'Preparing local StarCraft Marine and Zergling sprites...\n'
-    for unit in marine zergling; do
+    printf 'Preparing local StarCraft Marine, Firebat, and Zergling sprites...\n'
+    for unit in marine firebat zergling; do
         python3 scripts/prepare-starcraft-sprites.py --game-dir "$STARCRAFT_DATA_DIR" --unit "$unit"
     done
 fi

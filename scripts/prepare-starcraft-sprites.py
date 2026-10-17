@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "run-data/generated-assets/starcraft/zergling"
 RESOURCE = "unit/zerg/zergling.grp"
 MARINE_RESOURCE = "unit/terran/marine.grp"
+FIREBAT_RESOURCE = "unit/terran/firebat.grp"
+FIREBAT_DEATH_RESOURCE = "unit/thingy/tBangS.grp"
 PALETTE = "Tileset/Badlands.wpe"
 # Contact-sheet inspection of the local classic Zergling GRP: directional
 # groups 0..10 form the run, while 11..16 crouch/collapse into death art.
@@ -172,6 +174,66 @@ def prepare_marine_pack(data: bytes, wpe: bytes, output: Path,
     print(f"Prepared {len(selected)} Marine frames in {output} from {archives}")
     return
 
+
+def prepare_firebat_pack(data: bytes, wpe: bytes, output: Path,
+                         palette: list[tuple[int, int, int]], archives: dict) -> None:
+    """Classic Firebat has ten 17-direction banks, unlike the Marine GRP."""
+    count, width, height = struct.unpack_from("<HHH", data)
+    if (count, width, height) != (170, 32, 32):
+        raise ValueError(f"Unexpected Firebat GRP: {count} frames, {width}x{height}")
+    death = (output / ".source/death.grp").read_bytes()
+    death_count, death_width, death_height = struct.unpack_from("<HHH", death)
+    if death_count != 9 or (death_width, death_height) != (128, 128):
+        raise ValueError("Unexpected classic small explosion GRP for Firebat death")
+    selected = {}
+    registry = {"terran_firebat": {}}
+
+    def save(source: bytes, frame: int, canvas: tuple[int, int], name: str,
+             mirror: bool = False) -> None:
+        image = decode_grp(source, wpe, frame)
+        if mirror:
+            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        bbox = image.getbbox()
+        if bbox is None:
+            raise ValueError(f"Empty Firebat frame {frame}")
+        cropped = quantize(image.crop(bbox), palette)
+        cropped.save(output / name)
+        selected[name] = {"source_frame": frame, "source": FIREBAT_RESOURCE if source is data
+                          else FIREBAT_DEATH_RESOURCE, "mirrored": mirror,
+                          "width": cropped.width, "height": cropped.height,
+                          "x": bbox[0] - canvas[0] // 2, "y": bbox[1] - canvas[1] // 2,
+                          "visible_pixels": sum(a != 0 for a in cropped.getchannel("A").getdata())}
+
+    # Contact-sheet inspection: bank 0 is standing, banks 1-2 show the
+    # flamethrower attack, and banks 3-9 contain locomotion poses.
+    for state, banks in (("idle", (0,)), ("walk", (3, 5)), ("attack", (1, 2, 1))):
+        frames = {}
+        for direction, (facing, mirror) in DIRECTIONS.items():
+            names = []
+            for pose, bank in enumerate(banks):
+                name = f"{state}{pose}_{direction}.png"
+                save(data, bank * 17 + facing, (width, height), name, mirror)
+                names.append(name)
+            frames[direction] = names
+        registry["terran_firebat"][state] = {"frames": frames,
+                                               "ticks_per_frame": 0 if state == "idle" else 4 if state == "walk" else 2}
+    death_names = []
+    for pose in range(8):
+        name = f"death{pose}.png"
+        save(death, pose + 1, (death_width, death_height), name)
+        death_names.append(name)
+    registry["terran_firebat"]["death"] = {"frames": death_names,
+                                             "ticks_per_frame": 2, "directional": False}
+    manifest = {"unit": "firebat", "kind": "terran_firebat", "source": FIREBAT_RESOURCE,
+                "death_source": FIREBAT_DEATH_RESOURCE, "palette": PALETTE,
+                "archives": archives, "canvas": [width, height], "frame_count": count,
+                "source_sha256": hashlib.sha256(data).hexdigest(),
+                "registry": registry, "frames": selected,
+                "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
+                "output_palette": "nearest OpenRCT2 standard palette colour, excluding special and primary remap indices"}
+    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"Prepared {len(selected)} Firebat frames in {output} from {archives}")
+
 def prepare_zergling_pack(data: bytes, wpe: bytes, output: Path,
                            palette: list[tuple[int, int, int]], archives: dict) -> None:
     frame_count, canvas_width, canvas_height = struct.unpack_from("<HHH", data)
@@ -223,6 +285,7 @@ def prepare_zergling_pack(data: bytes, wpe: bytes, output: Path,
 
 UNIT_PROFILES = {
     "marine": {"resource": MARINE_RESOURCE, "prepare": prepare_marine_pack},
+    "firebat": {"resource": FIREBAT_RESOURCE, "prepare": prepare_firebat_pack},
     "zergling": {"resource": RESOURCE, "prepare": prepare_zergling_pack},
 }
 
@@ -245,6 +308,9 @@ def main() -> None:
     grp_path, wpe_path = source / f"{args.unit}.grp", source / "Badlands.wpe"
     archives = {resource: extract(args.game_dir, resource, grp_path),
                 PALETTE: extract(args.game_dir, PALETTE, wpe_path)}
+    if args.unit == "firebat":
+        archives[FIREBAT_DEATH_RESOURCE] = extract(
+            args.game_dir, FIREBAT_DEATH_RESOURCE, source / "death.grp")
     data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
     if len(wpe) != 1024:
         raise ValueError(f"Expected 1024-byte WPE palette, got {len(wpe)}")

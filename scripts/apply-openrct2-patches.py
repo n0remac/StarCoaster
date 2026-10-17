@@ -104,13 +104,24 @@ def ensure_building_animation_registry(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_firebat_visual_bank(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0010-firebat-visual-bank.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected Firebat renderer changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
         overlays = [ROOT / "openrct2-patches/0006-barracks-training-animation.patch",
                     ROOT / "openrct2-patches/0007-barracks-light-only.patch",
                     ROOT / "openrct2-patches/0008-actor-visual-registry.patch",
-                    ROOT / "openrct2-patches/0009-building-animation-registry.patch"]
+                    ROOT / "openrct2-patches/0009-building-animation-registry.patch",
+                    ROOT / "openrct2-patches/0010-firebat-visual-bank.patch"]
         reversed_overlays = []
         for overlay in reversed(overlays):
             if applies(checkout, overlay, reverse=True):
@@ -126,7 +137,8 @@ if __name__ == "__main__":
         checks = [("Barracks training animation", ensure_barracks_animation),
                   ("Barracks light-only", ensure_barracks_light_only),
                   ("Actor visual registry", ensure_actor_visual_registry),
-                  ("Building animation registry", ensure_building_animation_registry)]
+                  ("Building animation registry", ensure_building_animation_registry),
+                  ("Firebat visual bank", ensure_firebat_visual_bank)]
         for index, (label, ensure) in enumerate(checks):
             removed = []
             for overlay in reversed(overlays[index + 1:]):

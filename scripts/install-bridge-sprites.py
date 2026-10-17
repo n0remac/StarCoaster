@@ -15,6 +15,26 @@ MARINE_NAMES = [f"{state}{pose}_{direction}.png"
                 for state, count in (("idle", 1), ("walk", 2), ("attack", 3))
                 for pose in range(count) for direction in MARINE_DIRECTIONS]
 MARINE_NAMES += [f"death{pose}.png" for pose in range(8)]
+FIREBAT_DIRECTIONS = ("east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast")
+FIREBAT_NAMES = [f"{state}{pose}_{direction}.png"
+                 for state, count in (("idle", 1), ("walk", 2), ("attack", 3))
+                 for pose in range(count) for direction in FIREBAT_DIRECTIONS]
+FIREBAT_NAMES += [f"death{pose}.png" for pose in range(8)]
+
+
+def ensure_firebat_g2_entries(contents: str) -> str:
+    """Append the independent visual bank once, retaining existing sprite IDs."""
+    first = '"path": "bridge/firebat/idle0_east.png"'
+    if first in contents:
+        return contents
+    entries = [(f"firebat/{name}", -16, -16) for name in FIREBAT_NAMES]
+    entries += [(f"health/firebat{level}.png", -10, -28) for level in range(11)]
+    if len(entries) != 67 or not contents.rstrip().endswith("]"):
+        raise SystemExit("Invalid Firebat G2 sprite bank")
+    rendered = ",\n".join(
+        f'    {{\n        "path": "bridge/{name}", "x": {x}, "y": {y}\n    }}'
+        for name, x, y in entries)
+    return contents.rstrip()[:-1].rstrip() + ",\n" + rendered + "\n]\n"
 
 
 def placeholder_marine(destination: Path, upstream: Path) -> None:
@@ -143,13 +163,53 @@ def stage_marine(source: Path, pack: str, upstream: Path, contents: str,
     return contents
 
 
+def stage_firebat(source: Path, pack: str, upstream: Path, contents: str,
+                  colours: set, prepared: list) -> str:
+    local = source.parent / "firebat"
+    if pack == "starcraft-local" and not (local / "manifest.json").is_file():
+        raise SystemExit(f"Missing Firebat manifest: {local / 'manifest.json'}. "
+                         "Run scripts/prepare-starcraft-sprites.py --unit firebat first.")
+    if pack != "starcraft-local":
+        local = Path(__file__).resolve().parent.parent / "run-data/generated-assets/placeholder/firebat"
+        placeholder_marine(local, upstream)
+    manifest_path = local / "manifest.json"
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else None
+    if manifest and (manifest.get("kind") != "terran_firebat"
+                     or len(manifest.get("frames", {})) != len(FIREBAT_NAMES)
+                     or set(manifest.get("registry", {}).get("terran_firebat", {}))
+                     != {"idle", "walk", "attack", "death"}):
+        raise SystemExit("Firebat manifest must contain its independent visual bank")
+    for name in FIREBAT_NAMES:
+        path = local / name
+        if not path.is_file():
+            raise SystemExit(f"Missing Firebat frame: {path}")
+        with Image.open(path) as image:
+            image.load()
+            if image.mode != "RGBA" or not (1 <= image.width <= 300 and 1 <= image.height <= 300):
+                raise SystemExit(f"Incompatible Firebat sprite: {path}")
+            if any(alpha not in (0, 255) or (alpha and (red, green, blue) not in colours)
+                   for red, green, blue, alpha in image.getdata()):
+                raise SystemExit(f"Incompatible Firebat palette or alpha: {path}")
+        meta = manifest["frames"].get(name) if manifest else None
+        if manifest and (not meta or (meta["width"], meta["height"]) != image.size):
+            raise SystemExit(f"Firebat sprite/manifest mismatch: {path}")
+        x, y = (meta["x"], meta["y"]) if meta else (-image.width // 2, -image.height)
+        pattern = re.compile(r'(\{\s*"path": "bridge/firebat/' + re.escape(name)
+                             + r'", "x": )-?\d+(, "y": )-?\d+(\s*\})')
+        contents, count = pattern.subn(lambda m: f"{m[1]}{x}{m[2]}{y}{m[3]}", contents)
+        if count != 1:
+            raise SystemExit(f"Missing or duplicate Firebat g2 entry: {name}")
+        prepared.append((path, "firebat/" + name))
+    return contents
+
+
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("upstream", type=Path)
     parser.add_argument("pack", choices=("starcraft-local", "alien-scout"))
-    parser.add_argument("--only-unit", choices=("zerg_zergling", "terran_marine"))
+    parser.add_argument("--only-unit", choices=("zerg_zergling", "terran_marine", "terran_firebat"))
     args = parser.parse_args()
     only_unit = args.only_unit
     source, upstream, pack = args.source, args.upstream, args.pack
@@ -166,7 +226,7 @@ def main() -> None:
            or len(registry.get("death", {}).get("frames", {}).get("east", [])) != 6:
             raise SystemExit("StarCraft manifest must contain 136 frames including six death poses")
     sprite_list = upstream / "resources/g2/sprites.json"
-    contents = sprite_list.read_text()
+    contents = ensure_firebat_g2_entries(sprite_list.read_text())
     enum_text = (upstream / "src/openrct2/SpriteIds.h").read_text()
     if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_(?:IDLE|WALK[0-9]+)_", enum_text, re.MULTILINE)) != 88:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 88 bridge images")
@@ -174,14 +234,18 @@ def main() -> None:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 56 Marine images")
     if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_DEATH[0-5]_", enum_text, re.MULTILINE)) != 48:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 48 scout death images")
-    if len(re.findall(r"^\s*SPR_BRIDGE_HEALTH_", enum_text, re.MULTILINE)) != 22:
-        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 22 health bar images")
+    if len(re.findall(r"^\s*SPR_BRIDGE_HEALTH_", enum_text, re.MULTILINE)) != 33:
+        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 33 health bar images")
+    if len(re.findall(r"^\s*SPR_BRIDGE_FIREBAT_", enum_text, re.MULTILINE)) != 56:
+        raise SystemExit("OpenRCT2 sprite ID range must contain exactly 56 Firebat images")
     colours = standard_colours(upstream)
     prepared = []
     if only_unit in (None, "zerg_zergling"):
         contents = stage_zergling(source, pack, manifest, contents, colours, prepared)
     if only_unit in (None, "terran_marine"):
         contents = stage_marine(source, pack, upstream, contents, colours, prepared)
+    if only_unit in (None, "terran_firebat"):
+        contents = stage_firebat(source, pack, upstream, contents, colours, prepared)
     # Small native overlays; each image is an exact-palette health fraction.
     health_source = Path(__file__).resolve().parent.parent / "run-data/generated-assets/bridge-health"
     health_source.mkdir(parents=True, exist_ok=True)
@@ -194,7 +258,8 @@ def main() -> None:
     def colour(wanted):
         return min(available, key=lambda value: sum((value[index] - wanted[index]) ** 2 for index in range(3)))
     outline, background = colour((18, 22, 21)), colour((62, 70, 65))
-    for faction, wanted in (("marine", (70, 220, 100)), ("zergling", (195, 90, 225))):
+    for faction, wanted in (("marine", (70, 220, 100)), ("zergling", (195, 90, 225)),
+                            ("firebat", (70, 220, 100))):
         fill = colour(wanted)
         for level in range(11):
             name = f"{faction}{level}.png"
@@ -208,7 +273,7 @@ def main() -> None:
             image.save(path)
             pattern = re.compile(r'(\{\s*"path": "bridge/health/' + re.escape(name)
                                  + r'", "x": )-?\d+(, "y": )-?\d+(\s*\})')
-            y = -42 if faction == "marine" else -34
+            y = -42 if faction == "marine" else -28 if faction == "firebat" else -34
             contents, count = pattern.subn(lambda m: f"{m[1]}-10{m[2]}{y}{m[3]}", contents)
             if count != 1:
                 raise SystemExit(f"Missing or duplicate health g2 entry: {name}")
