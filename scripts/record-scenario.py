@@ -140,6 +140,8 @@ def parse_args(argv=None):
                         help="capture ordinary two-client wall construction and native rerouting")
     parser.add_argument("--mt-zergling-playthrough", action="store_true",
                         help="exercise Mt. Zergling construction and the graphical Spawn Wave button")
+    parser.add_argument("--barracks-production", action="store_true",
+                        help="center both graphical clients on the Barracks construction site")
     parser.add_argument("--marine-screen-probe", action="store_true",
                         help="check Marine drag selection across Mt. Zergling rotations and zoom levels")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
@@ -167,6 +169,8 @@ def parse_args(argv=None):
         parser.error("--live-construction requires two clients")
     if args.mt_zergling_playthrough and scenario_id != "mt-zergling":
         parser.error("--mt-zergling-playthrough requires --scenario mt-zergling")
+    if args.barracks_production and (scenario_id != "mt-zergling" or args.video_layout == "single"):
+        parser.error("--barracks-production requires Mt. Zergling and two clients")
     if args.marine_screen_probe and (scenario_id != "mt-zergling" or args.mt_zergling_playthrough):
         parser.error("--marine-screen-probe requires Mt. Zergling without the playthrough probe")
     if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault
@@ -218,6 +222,7 @@ def main():
                               "ridge_probe": args.ridge_probe, "ridge_assault": args.ridge_assault,
                               "live_construction": args.live_construction,
                               "mt_zergling_playthrough": args.mt_zergling_playthrough,
+                              "barracks_production": args.barracks_production,
                               "navigation_baseline": args.navigation_baseline,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
@@ -346,6 +351,9 @@ def main():
             if args.mt_zergling_playthrough and name == "client-a":
                 (data_dir / "plugin/mt-zergling-construction-probe.js").write_text(
                     (ROOT / "scripts/mt-zergling-construction-probe.js").read_text())
+            if args.barracks_production:
+                (data_dir / "plugin/barracks-production-camera.js").write_text(
+                    (ROOT / "scripts/barracks-production-camera.js").read_text())
             if args.marine_screen_probe and name == "client-a":
                 (data_dir / "plugin/marine-screen-probe.js").write_text(
                     (ROOT / "scripts/marine-screen-probe.js").read_text())
