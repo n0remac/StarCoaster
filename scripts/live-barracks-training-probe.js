@@ -5,11 +5,13 @@ registerPlugin({ name: "Barracks training probe", version: "1.0.0", authors: ["S
         if (network.mode !== "client") return;
         const building = "openrct2:large_scenery:248:3200:3328:1216:0#1";
         let started = 0, requested = false, duplicateRequested = false, lastAttempt = 0, moved = false;
+        const captureUITraining = typeof STARCOASTER_CAPTURE_UI_TRAINING !== "undefined"
+            && STARCOASTER_CAPTURE_UI_TRAINING;
         context.subscribe("interval.tick", function () {
             const snapshot = rtsBridge.getActors();
             if (!snapshot || !/^[0-9a-f]{32}$/.test(snapshot.session)) return;
             if (!started) started = Date.now();
-            if (!requested && Date.now() - started >= 4000 && Date.now() - lastAttempt >= 2000) {
+            if (!captureUITraining && !requested && Date.now() - started >= 4000 && Date.now() - lastAttempt >= 2000) {
                 lastAttempt = Date.now();
                 context.executeAction("rtsbridge.marineCommand", { session: snapshot.session,
                     request: 101, unit_ids: [], verb: "train", target_entity_id: building },
@@ -19,7 +21,7 @@ registerPlugin({ name: "Barracks training probe", version: "1.0.0", authors: ["S
                     if (!result.error) requested = true;
                 });
             }
-            if (requested && !duplicateRequested && Date.now() - lastAttempt >= 1000) {
+            if (!captureUITraining && requested && !duplicateRequested && Date.now() - lastAttempt >= 1000) {
                 duplicateRequested = true;
                 console.log("BARRACKS_TRAIN_PROBE_DUPLICATE_ATTEMPT");
                 context.executeAction("rtsbridge.marineCommand", { session: snapshot.session,

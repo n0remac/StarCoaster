@@ -147,7 +147,7 @@ def parse_args(argv=None):
     parser.add_argument("--barracks-production", action="store_true",
                         help="center both graphical clients on the Barracks construction site")
     parser.add_argument("--barracks-training-probe", action="store_true",
-                        help="test-only automatic Barracks build and native Marine training capture")
+                        help="capture Barracks placement and Marine training through the graphical interface")
     parser.add_argument("--marine-screen-probe", action="store_true",
                         help="check Marine drag selection across Mt. Zergling rotations and zoom levels")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
@@ -181,6 +181,8 @@ def parse_args(argv=None):
         parser.error("--barracks-training-probe requires --barracks-production")
     if args.barracks_training_probe and args.duration < 45:
         parser.error("--barracks-training-probe requires at least 45 seconds")
+    if args.barracks_training_probe and (args.display_width, args.display_height) != (1280, 800):
+        parser.error("--barracks-training-probe requires a 1280x800 display")
     if args.marine_screen_probe and (scenario_id != "mt-zergling" or args.mt_zergling_playthrough):
         parser.error("--marine-screen-probe requires Mt. Zergling without the playthrough probe")
     if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault
@@ -368,8 +370,10 @@ def main():
                 (data_dir / "plugin/barracks-production-camera.js").write_text(
                     (ROOT / "scripts/barracks-production-camera.js").read_text())
             if args.barracks_training_probe and name == "client-a":
-                for probe in ("live-barracks-build-probe.js", "live-barracks-training-probe.js"):
-                    (data_dir / "plugin" / probe).write_text((ROOT / "scripts" / probe).read_text())
+                probe = "live-barracks-training-probe.js"
+                (data_dir / "plugin" / probe).write_text(
+                    "var STARCOASTER_CAPTURE_UI_TRAINING = true;\n"
+                    + (ROOT / "scripts" / probe).read_text())
             if args.marine_screen_probe and name == "client-a":
                 (data_dir / "plugin/marine-screen-probe.js").write_text(
                     (ROOT / "scripts/marine-screen-probe.js").read_text())
@@ -429,6 +433,44 @@ def main():
         if recorder:
             recorder.start()
             recording = True
+        if args.barracks_training_probe:
+            display_env = env | {"DISPLAY": ":91"}
+
+            def click(x, y):
+                subprocess.run(["xdotool", "mousemove", str(x), str(y), "click", "1"],
+                               env=display_env, check=True)
+
+            def screenshot(name):
+                subprocess.run(["scrot", "-z", "-o", str(out / name)],
+                               env=display_env, check=True)
+                if recorder:
+                    recorder.event("barracks_ui_screenshot", client="client-a", filename=name)
+
+            click(1076, 52)  # StarCraft construction toolbar button
+            time.sleep(0.3)
+            screenshot("barracks-construction-menu.png")
+            click(1145, 116)  # Barracks catalog entry
+            subprocess.run(["xdotool", "mousemove", "635", "360"], env=display_env, check=True)
+            time.sleep(0.4)
+            screenshot("barracks-placement-preview.png")
+            click(635, 360)
+            wait_for(out / "server.log",
+                     "native target state id=openrct2:large_scenery:248:3200:3328:1216:0#1",
+                     session, 20)
+            # Building state follows the confirmed park revision on the next
+            # bridge report; the inspection button remains disabled until then.
+            time.sleep(3)
+            screenshot("barracks-placed.png")
+            click(635, 360)
+            time.sleep(0.3)
+            screenshot("barracks-inspection.png")
+            click(120, 658)  # Train Marine in the inspection window
+            wait_for(out / "server.log", "[world-control] train command=", session, 15)
+            screenshot("barracks-training-requested.png")
+            click(236, 525)  # Close inspection so the Marine stays visible
+            click(1272, 77)  # Close construction catalog
+            if recorder:
+                recorder.event("barracks_ui_train", client="client-a")
         if args.marine_screen_probe:
             subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+m"],
                            env=env | {"DISPLAY": ":91"}, check=True)
@@ -448,11 +490,13 @@ def main():
         mt_zoomed = False
         mt_samples = set()
         barracks_samples = set()
+        trained_marine_selected = False
         marine_screen_seen = 0
         rotation_offsets = {name: len(re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
                               (out / f"{name}.log").read_text(errors="replace")))
                             for name, _ in displays}
-        until = time.monotonic() + args.duration
+        until = (recorder.start_monotonic if args.barracks_training_probe and recorder
+                 else time.monotonic()) + args.duration
         while time.monotonic() < until:
             if recorder:
                 recorder.check_alive()
@@ -518,6 +562,31 @@ def main():
                                            second=second, filename=filename)
             if args.barracks_training_probe:
                 elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
+                if not trained_marine_selected and "BARRACKS_TRAIN_PROBE_MOVE accepted=true" in (
+                        out / "client-a.log").read_text(errors="replace"):
+                    # The native move probe puts the completed Marine below the Barracks.
+                    # Select it through the shared viewport and issue a second order.
+                    time.sleep(1)
+                    subprocess.run(["xdotool", "mousemove", "540", "440", "mousedown", "1",
+                                    "mousemove", "--sync", "690", "565", "mouseup", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    time.sleep(0.4)
+                    subprocess.run(["scrot", "-z", "-o", str(out / "trained-marine-selected.png")],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    subprocess.run(["xdotool", "mousemove", "750", "530", "click", "3"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    time.sleep(0.4)
+                    subprocess.run(["xdotool", "mousemove", "1110", "52", "click", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    time.sleep(0.3)
+                    subprocess.run(["scrot", "-z", "-o", str(out / "park-interface-open.png")],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    trained_marine_selected = True
+                    if recorder:
+                        recorder.event("trained_marine_viewport_order", client="client-a",
+                                       filename="trained-marine-selected.png")
+                        recorder.event("park_interface_click", client="client-a",
+                                       filename="park-interface-open.png")
                 # The light is dark for five of seven banks. Subsecond samples
                 # avoid accidentally capturing only the dark phase.
                 for point in (*[round(2 + index * 0.7, 1) for index in range(27)], 24, 32, 40):
@@ -615,11 +684,17 @@ def main():
                         frames.append(hashlib.sha256(pixels).hexdigest()[:12])
                 animation_hashes[name] = frames
             checks = {
-                "park_barracks_built": "BARRACKS_BUILD_PROBE_RESULT accepted=true" in client_logs[0],
-                "native_train_accepted": "BARRACKS_TRAIN_PROBE_ACTION accepted=true" in client_logs[0]
-                    and "[world-control] train command=" in snapshot,
+                "park_barracks_built": "openrct2:large_scenery:248:3200:3328:1216:0#1" in snapshot
+                    and all((out / name).is_file() for name in ("barracks-construction-menu.png",
+                             "barracks-placement-preview.png", "barracks-placed.png")),
+                "native_train_accepted": "[world-control] train command=" in snapshot
+                    and (out / "barracks-inspection.png").is_file()
+                    and (out / "barracks-training-requested.png").is_file(),
                 "marine_completed_and_moved": "BARRACKS_TRAIN_PROBE_MARINE id=" in client_logs[0]
-                    and "BARRACKS_TRAIN_PROBE_MOVE accepted=true" in client_logs[0],
+                    and "BARRACKS_TRAIN_PROBE_MOVE accepted=true" in client_logs[0]
+                    and "selected Marines=openbw:" in client_logs[0]
+                    and (out / "trained-marine-selected.png").is_file()
+                    and (out / "park-interface-open.png").is_file(),
                 "animation_visible_on_both_clients": all(len(set(frames)) >= 2
                                                          for frames in animation_hashes.values()),
             }
