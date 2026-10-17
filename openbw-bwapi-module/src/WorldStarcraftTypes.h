@@ -35,6 +35,7 @@ inline const std::vector<WorldUnitType>& worldUnitTypes() {
         {"terran_firebat", BWAPI::UnitTypes::Terran_Firebat, "terran", "player", true, false, "terran_firebat", 0},
         {"terran_medic", BWAPI::UnitTypes::Terran_Medic, "terran", "player", true, false, "terran_medic", 0},
         {"terran_vulture", BWAPI::UnitTypes::Terran_Vulture, "terran", "player", true, false, "terran_vulture", 0},
+        {"terran_goliath", BWAPI::UnitTypes::Terran_Goliath, "terran", "player", true, false, "terran_goliath", 0},
         {"zerg_zergling", BWAPI::UnitTypes::Zerg_Zergling, "zerg", "enemy", false, true, "zerg_zergling", 2000},
 
         // END GENERATED STARCRAFT UNITS
@@ -58,7 +59,8 @@ inline const std::vector<WorldBuildingType>& worldBuildingTypes() {
         {"terran_barracks", BWAPI::UnitTypes::Terran_Barracks, "starcoaster.scenery_large.terran_barracks", 4, 3, "Terran Barracks", true, {"terran_marine", "terran_firebat", "terran_medic"}},
         {"terran_academy", BWAPI::UnitTypes::Terran_Academy, "starcoaster.scenery_large.terran_academy", 3, 2, "Terran Academy", false, {}},
         {"terran_supply_depot", BWAPI::UnitTypes::Terran_Supply_Depot, "starcoaster.scenery_large.terran_supply_depot", 3, 2, "Terran Supply Depot", false, {}},
-        {"terran_factory", BWAPI::UnitTypes::Terran_Factory, "starcoaster.scenery_large.terran_factory", 4, 3, "Terran Factory", true, {"terran_vulture"}},
+        {"terran_factory", BWAPI::UnitTypes::Terran_Factory, "starcoaster.scenery_large.terran_factory", 4, 3, "Terran Factory", true, {"terran_vulture", "terran_goliath"}},
+        {"terran_armory", BWAPI::UnitTypes::Terran_Armory, "starcoaster.scenery_large.terran_armory", 3, 2, "Terran Armory", false, {}},
 
         // END GENERATED STARCRAFT BUILDINGS
     };

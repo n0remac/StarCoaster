@@ -176,7 +176,8 @@ class SpriteRegistryTests(unittest.TestCase):
         game = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
         for building, image_name, expected_path, tiles, hp in (
                 ("terran_supply_depot", "Supply_Depot", "unit/terran/Depot.grp", 6, 500),
-                ("terran_factory", "Factory", "unit/terran/factory.grp", 12, 1250)):
+                ("terran_factory", "Factory", "unit/terran/factory.grp", 12, 1250),
+                ("terran_armory", "Armory", "unit/terran/chemlab.grp", 6, 750)):
             with self.subTest(building=building), tempfile.TemporaryDirectory() as directory:
                 self.assertEqual(module.image_resource(game, image_name), expected_path)
                 path = module.install(Path(directory), game, building)

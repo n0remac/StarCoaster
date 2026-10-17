@@ -29,6 +29,11 @@ func TestSupportedStarcraftTypes(t *testing.T) {
 	if !ok || !vulture.Controllable || vulture.NativeType != "Terran_Vulture" || vulture.Ownership != "player" {
 		t.Fatal(vulture)
 	}
+	goliath, ok := SupportedUnit("terran_goliath")
+	if !ok || !goliath.Controllable || goliath.NativeType != "Terran_Goliath" || goliath.Ownership != "player" ||
+		len(goliath.Commands) != len(vulture.Commands) {
+		t.Fatal(goliath)
+	}
 	barracks, ok := SupportedBuilding("terran_barracks")
 	if !ok || barracks.Width != 4 || barracks.Height != 3 || barracks.MaxHealth != 1000 ||
 		len(barracks.Production) != 3 || barracks.Production[0] != marine.ID ||
@@ -47,8 +52,14 @@ func TestSupportedStarcraftTypes(t *testing.T) {
 	}
 	factory, ok := SupportedBuilding("terran_factory")
 	if !ok || factory.NativeType != "Terran_Factory" || factory.Width != 4 || factory.Height != 3 ||
-		factory.MaxHealth != 1250 || len(factory.Production) != 1 || factory.Production[0] != vulture.ID {
+		factory.MaxHealth != 1250 || len(factory.Production) != 2 || factory.Production[0] != vulture.ID ||
+		factory.Production[1] != goliath.ID {
 		t.Fatal(factory)
+	}
+	armory, ok := SupportedBuilding("terran_armory")
+	if !ok || armory.NativeType != "Terran_Armory" || armory.Width != 3 || armory.Height != 2 ||
+		armory.MaxHealth != 750 || len(armory.Production) != 0 {
+		t.Fatal(armory)
 	}
 }
 
