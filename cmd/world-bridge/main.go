@@ -77,6 +77,7 @@ type service struct {
 	outcome                   string
 	lastMarines               int
 	lastZerglings             int
+	lastEnemies               int
 	lastNativeActors          int
 	nativeOccupants           []world.NativeOccupant
 	nativeOccupancyComplete   bool
@@ -390,7 +391,7 @@ func (s *service) nativePatchReport(participant string, m world.Envelope) bool {
 				log.Printf("combat demolition synchronized id=%s revision=%d hash=%s frame=%d",
 					result.EntityID, s.registry.Revision, patch.mask.Hash, patch.applyFrame)
 				if result.EntityID == s.objectiveID {
-					s.announceOutcome(s.lastMarines, s.lastZerglings)
+					s.announceOutcome(s.lastMarines, s.lastEnemies)
 				}
 				s.pumpSpawns()
 				return true
@@ -537,12 +538,12 @@ func (s *service) publishReady() {
 	s.pumpSpawns()
 }
 
-func (s *service) announceOutcome(marines, zerglings int) {
+func (s *service) announceOutcome(marines, enemies int) {
 	if s.scenario == nil || s.outcome != "" || s.objectiveID == "" || !s.ready {
 		return
 	}
 	removed := s.runtime != nil && s.runtime.ObjectiveRemoved
-	state := s.scenario.Outcome(s.registry.Destroyed[s.objectiveID] || removed, marines, zerglings)
+	state := s.scenario.Outcome(s.registry.Destroyed[s.objectiveID] || removed, marines, enemies)
 	if s.runtime != nil && state == "victory" {
 		if !s.runtime.AllWavesCleared() || s.spawns == nil || s.spawns.PendingCount() != 0 {
 			state = ""
@@ -560,12 +561,12 @@ func (s *service) announceOutcome(marines, zerglings int) {
 		}
 	}
 	outcome := map[string]any{"scenario_id": s.scenario.ID, "state": state,
-		"objective_id": s.objectiveID, "marines": marines, "zerglings": zerglings}
+		"objective_id": s.objectiveID, "marines": marines, "zerglings": s.lastZerglings, "enemies": enemies}
 	if removed {
 		outcome["reason"] = "objective_removed_manually"
 	}
 	_ = s.emit(s.park, "world.outcome", s.registry.Session, s.registry.Revision, outcome)
-	log.Printf("scenario %s outcome=%s marines=%d zerglings=%d", s.scenario.ID, state, marines, zerglings)
+	log.Printf("scenario %s outcome=%s marines=%d enemies=%d", s.scenario.ID, state, marines, enemies)
 	s.publishScenarioStatus(true)
 }
 
@@ -766,6 +767,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.startedSession = ""
 			s.lastMarines = 0
 			s.lastZerglings = 0
+			s.lastEnemies = 0
 			s.lastNativeActors = 0
 			s.lastScenarioStatus = ""
 		}
@@ -1378,7 +1380,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			log.Printf("scenario objective removed manually id=%s revision=%d", s.objectiveID, s.registry.Revision)
 		}
 		if patch.objectiveRemoved {
-			s.announceOutcome(s.lastMarines, s.lastZerglings)
+			s.announceOutcome(s.lastMarines, s.lastEnemies)
 		}
 		_ = s.emit(s.park, "world.patch.status", s.registry.Session, s.registry.Revision,
 			map[string]any{"patch_id": patch.id, "state": "synchronized",
@@ -1479,7 +1481,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			if m.Decode(&snapshot) == nil {
 				s.nativeOccupancyComplete = false
 				if s.scenario != nil && snapshot.UnitOmitted == 0 && snapshot.UnitTotal <= len(snapshot.Units) {
-					marines, zerglings := 0, 0
+					marines, zerglings, enemies := 0, 0, 0
 					occupants := make([]world.NativeOccupant, 0, snapshot.UnitTotal)
 					living := map[string]bool{}
 					for _, unit := range snapshot.Units {
@@ -1500,14 +1502,17 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 						case "zerg_zergling":
 							zerglings++
 						}
+						if kind, ok := unit["kind"].(string); ok && world.SupportedEnemyWaveUnit(kind) {
+							enemies++
+						}
 					}
-					s.lastMarines, s.lastZerglings = marines, zerglings
+					s.lastMarines, s.lastZerglings, s.lastEnemies = marines, zerglings, enemies
 					s.lastNativeActors = len(living)
 					s.nativeOccupants, s.nativeOccupancyComplete = occupants, true
 					if s.runtime != nil {
 						s.advanceScenarioRuntime(snapshot.BWTick, snapshot.Seq, living)
 					}
-					s.announceOutcome(marines, zerglings)
+					s.announceOutcome(marines, enemies)
 					s.publishScenarioStatus(false)
 				}
 				visible := make([]map[string]any, 0, len(snapshot.Units))

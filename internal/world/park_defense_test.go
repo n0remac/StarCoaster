@@ -173,3 +173,84 @@ func TestBlockedManualPlacementDoesNotStopScheduledWave(t *testing.T) {
 		t.Fatalf("automatic wave could not dispatch around blocked manual zone: %d %v", wi, ok)
 	}
 }
+
+func TestParkDefenseTierSelectionUsesDurableSequence(t *testing.T) {
+	s := parkDefenseScenario(t)
+	s.ParkDefense.UnitsPerWave = 0
+	s.ParkDefense.WaveTiers = []WaveTier{
+		{FromWave: 1, Groups: []WaveTierGroup{{UnitType: "zerg_zergling", Count: 2}}},
+		{FromWave: 3, Groups: []WaveTierGroup{{UnitType: "zerg_hydralisk", Count: 1}, {UnitType: "zerg_ultralisk", Count: 1}}},
+	}
+	r := NewScenarioRuntime(s, "session")
+	if err := r.AcceptFrame(100, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	r.Trigger(s)
+	if err := r.AcceptFrame(2980, 2, true); err != nil {
+		t.Fatal(err)
+	}
+	r.Trigger(s)
+	deadline := r.NextAutomaticFrame
+	if _, err := r.RequestManual(s, "manual-1", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if r.NextAutomaticFrame != deadline {
+		t.Fatal("manual wave changed timer")
+	}
+	if err := r.AcceptFrame(deadline, 3, true); err != nil {
+		t.Fatal(err)
+	}
+	r.Waves[0].State = "active"
+	r.Trigger(s)
+	if len(r.Waves) != 3 || r.Waves[2].Sequence != 3 || len(r.Waves[2].Composition) != 2 {
+		t.Fatalf("wrong durable tier: %+v", r.Waves)
+	}
+	if r.Waves[2].Units[0].UnitType != "zerg_hydralisk" || r.Waves[2].Units[1].UnitType != "zerg_ultralisk" {
+		t.Fatalf("wrong mixed composition: %+v", r.Waves[2].Units)
+	}
+	if err := r.Validate(s, "session"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParkDefenseTierValidation(t *testing.T) {
+	base := parkDefenseScenario(t)
+	base.ParkDefense.UnitsPerWave = 0
+	base.ParkDefense.WaveTiers = []WaveTier{
+		{FromWave: 1, Groups: []WaveTierGroup{{UnitType: "zerg_zergling", Count: 8}}},
+		{FromWave: 3, Groups: []WaveTierGroup{{UnitType: "zerg_hydralisk", Count: 2}}},
+	}
+	load := func(s *Scenario) error {
+		data, err := json.Marshal(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "park.json")
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, err = LoadScenario(path)
+		return err
+	}
+	if err := load(base); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*Scenario){
+		"legacy count mixed":  func(s *Scenario) { s.ParkDefense.UnitsPerWave = 8 },
+		"first tier late":     func(s *Scenario) { s.ParkDefense.WaveTiers[0].FromWave = 2 },
+		"duplicate threshold": func(s *Scenario) { s.ParkDefense.WaveTiers[1].FromWave = 1 },
+		"oversized":           func(s *Scenario) { s.ParkDefense.WaveTiers[1].Groups[0].Count = 65 },
+		"player unit":         func(s *Scenario) { s.ParkDefense.WaveTiers[1].Groups[0].UnitType = "terran_marine" },
+	} {
+		s := parkDefenseScenario(t)
+		s.ParkDefense.UnitsPerWave = 0
+		s.ParkDefense.WaveTiers = []WaveTier{
+			{FromWave: 1, Groups: []WaveTierGroup{{UnitType: "zerg_zergling", Count: 8}}},
+			{FromWave: 3, Groups: []WaveTierGroup{{UnitType: "zerg_hydralisk", Count: 2}}},
+		}
+		change(s)
+		if err := load(s); err == nil {
+			t.Fatalf("accepted %s", name)
+		}
+	}
+}

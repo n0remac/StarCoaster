@@ -25,6 +25,8 @@
         terran_vulture: { name: "Vulture", visual: "terran_vulture", race: "terran", controllable: true, movement: "ground", spawnable: false, commands: ["move", "attack", "attack_move", "hold", "stop"] },
         terran_goliath: { name: "Goliath", visual: "terran_goliath", race: "terran", controllable: true, movement: "ground", spawnable: false, commands: ["move", "attack", "attack_move", "hold", "stop"] },
         zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, movement: "ground", spawnable: true, commands: [] },
+        zerg_hydralisk: { name: "Hydralisk", visual: "zerg_hydralisk", race: "zerg", controllable: false, movement: "ground", spawnable: true, commands: [] },
+        zerg_ultralisk: { name: "Ultralisk", visual: "zerg_ultralisk", race: "zerg", controllable: false, movement: "ground", spawnable: true, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
         terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat", "terran_medic"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
@@ -1249,6 +1251,8 @@
                         !Number.isInteger(args.total_triggered) || args.total_triggered < 0 || args.total_triggered > 1000000000
                         || !Number.isInteger(args.next_wave_seconds) || args.next_wave_seconds < 0 || args.next_wave_seconds > 1000000000
                         || !Number.isInteger(args.active_zerglings) || args.active_zerglings < 0 || args.active_zerglings > 256
+                        || (args.active_enemies !== undefined && (!Number.isInteger(args.active_enemies)
+                            || args.active_enemies < 0 || args.active_enemies > 256))
                         || !Number.isInteger(args.manual_cooldown_seconds) || args.manual_cooldown_seconds < 0 || args.manual_cooldown_seconds > 1000000000
                         || typeof args.manual_eligible !== "boolean"))
                     || !["", "pending", "triggered", "spawning", "active", "cleared", "failed"].includes(args.wave_state)
@@ -1794,7 +1798,8 @@
                     if (objective) objective.text = missionStatus && missionStatus.session === controlSession
                         ? (missionStatus.mode === "park_defense"
                             ? "Park defense | " + missionStatus.total_triggered + " waves | "
-                                + missionStatus.active_zerglings + " Zerglings"
+                                + (missionStatus.active_enemies === undefined
+                                    ? missionStatus.active_zerglings : missionStatus.active_enemies) + " enemies"
                             : missionStatus.error ? "Wave error: " + missionStatus.error
                             : missionStatus.outcome === "victory" ? "Victory: " + missionStatus.objective
                             : missionStatus.outcome === "defeat" ? "Defeat: " + missionStatus.objective

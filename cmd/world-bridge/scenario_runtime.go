@@ -133,10 +133,22 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 					continue
 				}
 				attempt := unit.Attempts[len(unit.Attempts)-1]
-				if _, ok := s.spawns.Request(attempt.RequestID); ok {
+				if existing, ok := s.spawns.Request(attempt.RequestID); ok {
+					unitType := unit.UnitType
+					if unitType == "" {
+						unitType = "zerg_zergling"
+					}
+					if existing.UnitType != unitType || existing.X != attempt.X || existing.Y != attempt.Y {
+						s.scenarioRuntimeError(fmt.Errorf("scenario_spawn_journal_mismatch: %s", attempt.RequestID))
+						return
+					}
 					continue
 				}
-				request = world.SpawnRequest{RequestID: attempt.RequestID, UnitType: "zerg_zergling", Count: 1,
+				unitType := unit.UnitType
+				if unitType == "" {
+					unitType = "zerg_zergling"
+				} // validated legacy journal
+				request = world.SpawnRequest{RequestID: attempt.RequestID, UnitType: unitType, Count: 1,
 					X: attempt.X, Y: attempt.Y, Formation: "compact", PlayerID: 0}
 				found = true
 				break
@@ -158,7 +170,9 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 			}
 			excluded := make([]world.Point, 0, len(unit.Attempts))
 			for _, attempt := range unit.Attempts {
-				excluded = append(excluded, world.Point{X: attempt.X, Y: attempt.Y})
+				if attempt.Reason != "occupied" || r.LastFrame-attempt.Frame < 24 {
+					excluded = append(excluded, world.Point{X: attempt.X, Y: attempt.Y})
+				}
 			}
 			var position world.Point
 			ok = false
@@ -169,10 +183,34 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 			}
 			if !ok {
 				if s.scenario.Mode == "park_defense" {
+					permanent := len(unit.Attempts) > 0
+					for _, attempt := range unit.Attempts {
+						if attempt.Reason != "invalid_native_position" && attempt.Reason != "native_unwalkable_position" {
+							permanent = false
+						}
+					}
+					if permanent && s.nativeOccupancyComplete {
+						remaining := false
+						for _, zone := range zones {
+							if _, possible := world.SelectZonePosition(zone, s.navigationMask, s.transform, nil, excluded); possible {
+								remaining = true
+								break
+							}
+						}
+						if !remaining {
+							unit.State = "failed"
+							r.Waves[wi].FailureReason = "no_valid_native_spawn_position"
+							if !s.saveScenarioRuntime() {
+								s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+								return
+							}
+							continue
+						}
+					}
 					if !s.nativeOccupancyComplete || s.navigationMask.Width == 0 {
 						r.Waves[wi].FailureReason = "native_occupancy_unavailable"
 					} else {
-						r.Waves[wi].FailureReason = "spawn_zones_temporarily_blocked"
+						r.Waves[wi].FailureReason = "spawn_zones_temporarily_blocked_or_invalid"
 					}
 					blocked[[2]int{wi, ui}] = true
 					continue

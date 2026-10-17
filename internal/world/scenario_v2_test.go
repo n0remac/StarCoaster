@@ -77,6 +77,24 @@ func TestV2ScenarioValidation(t *testing.T) {
 	}
 }
 
+func TestV2MixedEnemyWaveValidation(t *testing.T) {
+	s := validV2(t)
+	s.Waves[0].Groups = []WaveGroup{
+		{UnitType: "zerg_zergling", Count: 2, SpawnZone: "east"},
+		{UnitType: "zerg_hydralisk", Count: 1, SpawnZone: "east"},
+		{UnitType: "zerg_ultralisk", Count: 1, SpawnZone: "east"},
+	}
+	if err := loadV2ForTest(t, s); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"terran_marine", "terran_firebat", "missing"} {
+		s.Waves[0].Groups[1].UnitType = kind
+		if err := loadV2ForTest(t, s); err == nil {
+			t.Fatalf("accepted unsupported wave unit %s", kind)
+		}
+	}
+}
+
 func TestV2RejectsUnknownFields(t *testing.T) {
 	s := validV2(t)
 	data, _ := json.Marshal(s)

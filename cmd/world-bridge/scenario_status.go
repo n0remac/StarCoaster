@@ -18,6 +18,7 @@ type scenarioStatus struct {
 	TotalTriggered        int    `json:"total_triggered"`
 	NextWaveSeconds       int    `json:"next_wave_seconds"`
 	ActiveZerglings       int    `json:"active_zerglings"`
+	ActiveEnemies         int    `json:"active_enemies"`
 	ManualCooldownSeconds int    `json:"manual_cooldown_seconds"`
 	ManualEligible        bool   `json:"manual_eligible"`
 }
@@ -25,7 +26,7 @@ type scenarioStatus struct {
 func (s *service) currentScenarioStatus() scenarioStatus {
 	status := scenarioStatus{Session: s.registry.Session, ScenarioID: s.scenario.ID,
 		DisplayName: s.scenario.DisplayName, Mode: s.scenario.Mode,
-		Outcome: s.outcome, ActiveZerglings: s.lastZerglings}
+		Outcome: s.outcome, ActiveZerglings: s.lastZerglings, ActiveEnemies: s.lastEnemies}
 	if s.scenario.Mode == "park_defense" {
 		status.Objective = "Manage and defend the park"
 		if s.runtime != nil {

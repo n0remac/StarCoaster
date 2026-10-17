@@ -57,7 +57,14 @@
   "park_defense": {
     "initial_delay_frames": 2880,
     "interval_frames": 2880,
-    "units_per_wave": 8,
+    "wave_tiers": [
+      { "from_wave": 1, "groups": [{ "unit_type": "zerg_zergling", "count": 8 }] },
+      { "from_wave": 3, "groups": [{ "unit_type": "zerg_zergling", "count": 7 },
+                                     { "unit_type": "zerg_hydralisk", "count": 2 }] },
+      { "from_wave": 6, "groups": [{ "unit_type": "zerg_zergling", "count": 7 },
+                                     { "unit_type": "zerg_hydralisk", "count": 2 },
+                                     { "unit_type": "zerg_ultralisk", "count": 1 }] }
+    ],
     "manual_cooldown_frames": 360,
     "spawn_zones": ["north", "south", "east", "west"]
   },

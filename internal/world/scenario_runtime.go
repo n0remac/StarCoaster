@@ -33,21 +33,23 @@ type ScenarioRuntime struct {
 	Error              string            `json:"error,omitempty"`
 }
 type RuntimeWave struct {
-	ID             string        `json:"id"`
-	TemplateID     string        `json:"template_id,omitempty"`
-	Origin         string        `json:"origin,omitempty"`
-	Sequence       int           `json:"sequence,omitempty"`
-	SpawnZone      string        `json:"spawn_zone,omitempty"`
-	State          string        `json:"state"`
-	TriggeredFrame int           `json:"triggered_frame,omitempty"`
-	Units          []RuntimeUnit `json:"units,omitempty"`
-	Submitted      int           `json:"submitted"`
-	Shortfall      int           `json:"shortfall,omitempty"`
-	FailureReason  string        `json:"failure_reason,omitempty"`
+	ID             string          `json:"id"`
+	TemplateID     string          `json:"template_id,omitempty"`
+	Origin         string          `json:"origin,omitempty"`
+	Sequence       int             `json:"sequence,omitempty"`
+	SpawnZone      string          `json:"spawn_zone,omitempty"`
+	Composition    []WaveTierGroup `json:"composition,omitempty"`
+	State          string          `json:"state"`
+	TriggeredFrame int             `json:"triggered_frame,omitempty"`
+	Units          []RuntimeUnit   `json:"units,omitempty"`
+	Submitted      int             `json:"submitted"`
+	Shortfall      int             `json:"shortfall,omitempty"`
+	FailureReason  string          `json:"failure_reason,omitempty"`
 }
 type RuntimeUnit struct {
 	GroupIndex int              `json:"group_index"`
 	UnitIndex  int              `json:"unit_index"`
+	UnitType   string           `json:"unit_type,omitempty"`
 	State      string           `json:"state"`
 	ActorID    string           `json:"actor_id,omitempty"`
 	Attempts   []RuntimeAttempt `json:"attempts,omitempty"`
@@ -56,6 +58,7 @@ type RuntimeAttempt struct {
 	RequestID string `json:"request_id"`
 	X         int    `json:"x"`
 	Y         int    `json:"y"`
+	Frame     int    `json:"frame,omitempty"`
 	Reason    string `json:"reason,omitempty"`
 }
 
@@ -85,11 +88,17 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 		if r.NextWaveSequence < 1 || r.TotalTriggered < 0 {
 			return errors.New("scenario_journal_sequence_invalid")
 		}
-		for _, wave := range r.Waves {
+		for i := range r.Waves {
+			wave := &r.Waves[i]
 			if wave.TemplateID != "park-defense" || wave.Sequence < 1 ||
 				(wave.Origin != "periodic" && wave.Origin != "manual") || s.SpawnZones[wave.SpawnZone].Tiles == nil {
 				return errors.New("scenario_journal_wave_mismatch")
 			}
+			groups := s.ParkDefense.GroupsForWave(wave.Sequence)
+			if err := validateRuntimeUnits(*wave, groups, r.Session); err != nil {
+				return err
+			}
+			normalizeLegacyWave(wave, groups)
 		}
 		return nil
 	}
@@ -99,6 +108,74 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 	for i := range r.Waves {
 		if r.Waves[i].ID != s.Waves[i].ID {
 			return errors.New("scenario_journal_wave_mismatch")
+		}
+		groups := make([]WaveTierGroup, 0, len(s.Waves[i].Groups))
+		for _, group := range s.Waves[i].Groups {
+			groups = append(groups, WaveTierGroup{UnitType: group.UnitType, Count: group.Count})
+		}
+		if err := validateRuntimeUnits(r.Waves[i], groups, r.Session); err != nil {
+			return err
+		}
+		normalizeLegacyWave(&r.Waves[i], groups)
+	}
+	return nil
+}
+
+func normalizeLegacyWave(wave *RuntimeWave, groups []WaveTierGroup) {
+	if len(wave.Composition) == 0 && len(wave.Units) > 0 {
+		wave.Composition = append([]WaveTierGroup(nil), groups...)
+	}
+	for i := range wave.Units {
+		if wave.Units[i].UnitType == "" {
+			wave.Units[i].UnitType = groups[wave.Units[i].GroupIndex].UnitType
+		}
+	}
+}
+
+func validateRuntimeUnits(wave RuntimeWave, groups []WaveTierGroup, session string) error {
+	expectedCount := 0
+	for _, group := range groups {
+		expectedCount += group.Count
+	}
+	if wave.State != "pending" && len(wave.Units) != expectedCount || wave.State == "pending" && len(wave.Units) != 0 {
+		return errors.New("scenario_journal_unit_count_mismatch")
+	}
+	if len(wave.Composition) > 0 {
+		if len(wave.Composition) != len(groups) {
+			return errors.New("scenario_journal_composition_mismatch")
+		}
+		for i := range groups {
+			if wave.Composition[i] != groups[i] {
+				return errors.New("scenario_journal_composition_mismatch")
+			}
+		}
+	} else if len(wave.Units) > 0 {
+		// Old journals were exclusively Zergling. A missing composition in a
+		// mixed scenario cannot be reconstructed without changing intent.
+		for _, group := range groups {
+			if group.UnitType != "zerg_zergling" {
+				return errors.New("scenario_journal_composition_missing")
+			}
+		}
+	}
+	seen := map[[2]int]bool{}
+	for _, unit := range wave.Units {
+		if unit.GroupIndex < 0 || unit.GroupIndex >= len(groups) || unit.UnitIndex < 0 || unit.UnitIndex >= groups[unit.GroupIndex].Count {
+			return errors.New("scenario_journal_unit_mismatch")
+		}
+		key := [2]int{unit.GroupIndex, unit.UnitIndex}
+		if seen[key] {
+			return errors.New("scenario_journal_unit_duplicate")
+		}
+		seen[key] = true
+		want := groups[unit.GroupIndex].UnitType
+		if unit.UnitType != "" && unit.UnitType != want || unit.UnitType == "" && want != "zerg_zergling" {
+			return errors.New("scenario_journal_unit_type_mismatch")
+		}
+		for index, attempt := range unit.Attempts {
+			if attempt.RequestID != runtimeRequestID(wave.ID, unit.GroupIndex, unit.UnitIndex, index, session) {
+				return errors.New("scenario_journal_request_identity_mismatch")
+			}
 		}
 	}
 	return nil
@@ -173,8 +250,9 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 		}
 		entry.State, entry.TriggeredFrame = "triggered", r.LastFrame
 		for gi, group := range wave.Groups {
+			entry.Composition = append(entry.Composition, WaveTierGroup{UnitType: group.UnitType, Count: group.Count})
 			for ui := 0; ui < group.Count; ui++ {
-				entry.Units = append(entry.Units, RuntimeUnit{GroupIndex: gi, UnitIndex: ui, State: "planned"})
+				entry.Units = append(entry.Units, RuntimeUnit{GroupIndex: gi, UnitIndex: ui, UnitType: group.UnitType, State: "planned"})
 			}
 		}
 		changed = true
@@ -190,8 +268,11 @@ func (r *ScenarioRuntime) newParkDefenseWave(s *Scenario, origin string) string 
 	zone := s.ParkDefense.SpawnZones[(sequence-1)%len(s.ParkDefense.SpawnZones)]
 	wave := RuntimeWave{ID: id, TemplateID: "park-defense", Origin: origin,
 		Sequence: sequence, SpawnZone: zone, State: "triggered", TriggeredFrame: r.LastFrame}
-	for index := 0; index < s.ParkDefense.UnitsPerWave; index++ {
-		wave.Units = append(wave.Units, RuntimeUnit{GroupIndex: 0, UnitIndex: index, State: "planned"})
+	for gi, group := range s.ParkDefense.GroupsForWave(sequence) {
+		wave.Composition = append(wave.Composition, group)
+		for index := 0; index < group.Count; index++ {
+			wave.Units = append(wave.Units, RuntimeUnit{GroupIndex: gi, UnitIndex: index, UnitType: group.UnitType, State: "planned"})
+		}
 	}
 	r.Waves = append(r.Waves, wave)
 	return id
@@ -242,7 +323,11 @@ func (r *ScenarioRuntime) WaveZone(s *Scenario, wi, group int) (SpawnZone, bool)
 	instance := r.Waves[wi]
 	if s.Mode == "park_defense" {
 		zone, ok := s.SpawnZones[instance.SpawnZone]
-		return zone, ok && group == 0
+		groups := instance.Composition
+		if len(groups) == 0 {
+			groups = s.ParkDefense.GroupsForWave(instance.Sequence) // validated Zergling-only legacy journal
+		}
+		return zone, ok && group >= 0 && group < len(groups)
 	}
 	if wi >= len(s.Waves) || group < 0 || group >= len(s.Waves[wi].Groups) {
 		return SpawnZone{}, false
@@ -335,14 +420,22 @@ func (r *ScenarioRuntime) Intent(wi, ui int, position Point) SpawnRequest {
 	wave := &r.Waves[wi]
 	unit := &wave.Units[ui]
 	attempt := len(unit.Attempts)
-	key := fmt.Sprintf("%s/%s/%d/%d/%d", r.Session, wave.ID, unit.GroupIndex, unit.UnitIndex, attempt)
-	sum := sha256.Sum256([]byte(key))
-	id := "scenario:" + hex.EncodeToString(sum[:16])
-	unit.Attempts = append(unit.Attempts, RuntimeAttempt{RequestID: id, X: position.X, Y: position.Y})
+	id := runtimeRequestID(wave.ID, unit.GroupIndex, unit.UnitIndex, attempt, r.Session)
+	unit.Attempts = append(unit.Attempts, RuntimeAttempt{RequestID: id, X: position.X, Y: position.Y, Frame: r.LastFrame})
 	unit.State, wave.State = "submitted", "spawning"
 	wave.Submitted++
-	return SpawnRequest{RequestID: id, UnitType: "zerg_zergling", Count: 1,
+	unitType := unit.UnitType
+	if unitType == "" {
+		unitType = "zerg_zergling"
+	} // validated legacy journal
+	return SpawnRequest{RequestID: id, UnitType: unitType, Count: 1,
 		X: position.X, Y: position.Y, Formation: "compact", PlayerID: 0}
+}
+
+func runtimeRequestID(wave string, group, unit, attempt int, session string) string {
+	key := fmt.Sprintf("%s/%s/%d/%d/%d", session, wave, group, unit, attempt)
+	sum := sha256.Sum256([]byte(key))
+	return "scenario:" + hex.EncodeToString(sum[:16])
 }
 
 // Reconcile never interprets a missing snapshot actor as dead on its own.
@@ -435,7 +528,8 @@ func (r *ScenarioRuntime) Reconcile(queue *SpawnQueue, living map[string]bool, r
 }
 
 func retryablePlacement(reason string) bool {
-	return reason == "invalid_or_occupied_native_position" || reason == "native_unwalkable_position" || reason == "occupied"
+	return reason == "invalid_or_occupied_native_position" || reason == "invalid_native_position" ||
+		reason == "native_unwalkable_position" || reason == "occupied"
 }
 
 func (r *ScenarioRuntime) AllWavesCleared() bool {

@@ -22,9 +22,12 @@
     { "id": "opening-zerg-wave", "trigger": { "type": "on_ready" },
       "groups": [{ "unit_type": "zerg_zergling", "count": 5, "spawn_zone": "east-entrance" }] },
     { "id": "southern-wave", "trigger": { "type": "elapsed_frames", "frames": 300 },
-      "groups": [{ "unit_type": "zerg_zergling", "count": 2, "spawn_zone": "south-approach" }] },
+      "groups": [{ "unit_type": "zerg_zergling", "count": 2, "spawn_zone": "south-approach" },
+                 { "unit_type": "zerg_hydralisk", "count": 1, "spawn_zone": "south-approach" }] },
     { "id": "final-wave", "trigger": { "type": "wave_cleared", "wave_id": "southern-wave" },
-      "groups": [{ "unit_type": "zerg_zergling", "count": 3, "spawn_zone": "northeast-approach" }] }
+      "groups": [{ "unit_type": "zerg_zergling", "count": 2, "spawn_zone": "northeast-approach" },
+                 { "unit_type": "zerg_hydralisk", "count": 1, "spawn_zone": "northeast-approach" },
+                 { "unit_type": "zerg_ultralisk", "count": 1, "spawn_zone": "northeast-approach" }] }
   ],
   "victory": { "all_waves_cleared": true, "all_zerglings_eliminated": true, "objective_intact": "defend-carousel" },
   "defeat": { "objective_destroyed": "defend-carousel", "all_marines_eliminated": true }

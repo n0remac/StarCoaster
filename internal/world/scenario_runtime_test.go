@@ -1,6 +1,9 @@
 package world
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func runtimeFixture(t *testing.T) (*Scenario, *ScenarioRuntime) {
 	t.Helper()
@@ -172,5 +175,89 @@ func TestScenarioRuntimePartialAndTotalFailureOutcomes(t *testing.T) {
 	allFailed.Reconcile(NewSpawnQueue("session-a", 64), nil, nil)
 	if allFailed.Waves[0].State != "failed" || allFailed.AllWavesCleared() {
 		t.Fatal("zero-success wave allowed victory")
+	}
+}
+
+func TestMixedWaveIntentRecoveryAndDeath(t *testing.T) {
+	s, r := runtimeFixture(t)
+	s.Waves = s.Waves[:1]
+	s.Waves[0].Groups = []WaveGroup{
+		{UnitType: "zerg_zergling", Count: 1, SpawnZone: "east-entrance"},
+		{UnitType: "zerg_hydralisk", Count: 1, SpawnZone: "east-entrance"},
+		{UnitType: "zerg_ultralisk", Count: 1, SpawnZone: "east-entrance"},
+	}
+	r = NewScenarioRuntime(s, "session-a")
+	if err := r.AcceptFrame(100, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	r.Trigger(s)
+	q := NewSpawnQueue("session-a", 64)
+	for i, kind := range []string{"zerg_zergling", "zerg_hydralisk", "zerg_ultralisk"} {
+		request := r.Intent(0, i, Point{X: 100 + i*32, Y: 100})
+		if request.UnitType != kind {
+			t.Fatalf("intent %d: %s", i, request.UnitType)
+		}
+		if _, err := q.Submit("session-a", request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recovered ScenarioRuntime
+	if err := json.Unmarshal(data, &recovered); err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.Validate(s, "session-a"); err != nil {
+		t.Fatal(err)
+	}
+	for i, kind := range []string{"zerg_zergling", "zerg_hydralisk", "zerg_ultralisk"} {
+		unit := recovered.Waves[0].Units[i]
+		if unit.UnitType != kind || unit.Attempts[0].RequestID == "" {
+			t.Fatalf("lost intent: %+v", unit)
+		}
+	}
+	first, _ := q.Next()
+	if err := q.Issue(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Fail(first.RequestID, 0, "invalid_native_position"); err != nil {
+		t.Fatal(err)
+	}
+	recovered.Reconcile(q, nil, nil)
+	if retry := recovered.Intent(0, 0, Point{X: 200, Y: 100}); retry.UnitType != "zerg_zergling" || retry.RequestID == first.RequestID {
+		t.Fatalf("retry changed identity: %+v", retry)
+	}
+	for i := 1; i < 3; i++ {
+		req := recovered.Waves[0].Units[i].Attempts[0]
+		for {
+			next, ok := q.Next()
+			if !ok {
+				t.Fatal("missing queued request")
+			}
+			if err := q.Issue(next); err != nil {
+				t.Fatal(err)
+			}
+			if next.RequestID == req.RequestID {
+				actor := "openbw:" + string(rune('1'+i))
+				if err := q.Created(req.RequestID, 0, actor, req.X, req.Y); err != nil {
+					t.Fatal(err)
+				}
+				if err := q.Ready(req.RequestID, 0, actor); err != nil {
+					t.Fatal(err)
+				}
+				break
+			}
+		}
+	}
+	recovered.Reconcile(q, map[string]bool{"openbw:2": true, "openbw:3": true}, nil)
+	if recovered.Waves[0].State == "cleared" {
+		t.Fatal("living mixed enemies cleared wave")
+	}
+	// A missing unit type can only be recovered from an unchanged Zergling group.
+	recovered.Waves[0].Units[1].UnitType = ""
+	if err := recovered.Validate(s, "session-a"); err == nil {
+		t.Fatal("ambiguous legacy type accepted")
 	}
 }

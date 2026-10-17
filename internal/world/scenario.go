@@ -50,11 +50,41 @@ type Scenario struct {
 // ParkDefenseWaves is one recurring attack template. Frames follow the
 // authoritative OpenBW simulation clock (42 ms per frame at normal speed).
 type ParkDefenseWaves struct {
-	InitialDelayFrames   int      `json:"initial_delay_frames"`
-	IntervalFrames       int      `json:"interval_frames"`
-	UnitsPerWave         int      `json:"units_per_wave"`
-	ManualCooldownFrames int      `json:"manual_cooldown_frames"`
-	SpawnZones           []string `json:"spawn_zones"`
+	InitialDelayFrames   int        `json:"initial_delay_frames"`
+	IntervalFrames       int        `json:"interval_frames"`
+	UnitsPerWave         int        `json:"units_per_wave"`
+	ManualCooldownFrames int        `json:"manual_cooldown_frames"`
+	SpawnZones           []string   `json:"spawn_zones"`
+	WaveTiers            []WaveTier `json:"wave_tiers,omitempty"`
+}
+
+type WaveTier struct {
+	FromWave int             `json:"from_wave"`
+	Groups   []WaveTierGroup `json:"groups"`
+}
+
+type WaveTierGroup struct {
+	UnitType string `json:"unit_type"`
+	Count    int    `json:"count"`
+}
+
+func SupportedEnemyWaveUnit(id string) bool {
+	unit, ok := SupportedUnit(id)
+	return ok && unit.Race == "zerg" && unit.Ownership == "enemy" && unit.Movement == "ground" && unit.Spawnable
+}
+
+func (p *ParkDefenseWaves) GroupsForWave(sequence int) []WaveTierGroup {
+	if len(p.WaveTiers) == 0 {
+		return []WaveTierGroup{{UnitType: "zerg_zergling", Count: p.UnitsPerWave}}
+	}
+	selected := p.WaveTiers[0].Groups
+	for _, tier := range p.WaveTiers {
+		if tier.FromWave > sequence {
+			break
+		}
+		selected = tier.Groups
+	}
+	return selected
 }
 
 // Description is player-facing metadata. It is never evaluated as a script.
@@ -218,9 +248,28 @@ func (s *Scenario) validateV2() error {
 	}
 	if s.Mode == "park_defense" {
 		p := s.ParkDefense
-		if p.InitialDelayFrames < 1 || p.IntervalFrames < 1 || p.UnitsPerWave < 1 || p.UnitsPerWave > 64 ||
+		if p.InitialDelayFrames < 1 || p.IntervalFrames < 1 ||
+			(len(p.WaveTiers) == 0 && (p.UnitsPerWave < 1 || p.UnitsPerWave > 64)) ||
+			(len(p.WaveTiers) > 0 && p.UnitsPerWave != 0) ||
 			p.ManualCooldownFrames < 0 || len(p.SpawnZones) < 2 {
 			return fmt.Errorf("invalid park defense wave template")
+		}
+		previous := 0
+		for _, tier := range p.WaveTiers {
+			if (previous == 0 && tier.FromWave != 1) || tier.FromWave <= previous || len(tier.Groups) == 0 {
+				return fmt.Errorf("invalid park defense wave tier threshold")
+			}
+			previous = tier.FromWave
+			total := 0
+			for _, group := range tier.Groups {
+				if !SupportedEnemyWaveUnit(group.UnitType) || group.Count < 1 || group.Count > 64 {
+					return fmt.Errorf("invalid park defense wave tier group")
+				}
+				total += group.Count
+			}
+			if total > 64 {
+				return fmt.Errorf("park defense wave exceeds queue capacity")
+			}
 		}
 		seen := map[string]bool{}
 		for _, id := range p.SpawnZones {
@@ -239,7 +288,7 @@ func (s *Scenario) validateV2() error {
 		waves[wave.ID] = wave
 		total := 0
 		for _, group := range wave.Groups {
-			if group.UnitType != "zerg_zergling" || group.Count < 1 || group.Count > 64 || s.SpawnZones[group.SpawnZone].Tiles == nil {
+			if !SupportedEnemyWaveUnit(group.UnitType) || group.Count < 1 || group.Count > 64 || s.SpawnZones[group.SpawnZone].Tiles == nil {
 				return fmt.Errorf("invalid group in wave: %s", wave.ID)
 			}
 			total += group.Count
@@ -299,14 +348,14 @@ func (s *Scenario) validTile(tile [2]int) bool {
 }
 
 // Outcome uses only confirmed park demolition and complete OpenBW actor counts.
-func (s *Scenario) Outcome(objectiveDestroyed bool, marines, zerglings int) string {
+func (s *Scenario) Outcome(objectiveDestroyed bool, marines, enemies int) string {
 	if s.Mode == "park_defense" {
 		return ""
 	}
 	if objectiveDestroyed || marines == 0 {
 		return "defeat"
 	}
-	if zerglings == 0 {
+	if enemies == 0 {
 		return "victory"
 	}
 	return ""

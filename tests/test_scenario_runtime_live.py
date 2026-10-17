@@ -217,8 +217,12 @@ def main() -> None:
         assert len(actors) == len(set(actors))
         if victory_before_restart:
             assert queue.get("order", []) == order_before_restart, "restart issued duplicate requests"
-        assert len(waves[0]["units"]) == 5 and len(waves[1]["units"]) == 2
-        assert len(waves[2]["units"]) == 3
+        assert len(waves[0]["units"]) == 5 and len(waves[1]["units"]) == 3
+        assert len(waves[2]["units"]) == 4
+        assert [[unit["unit_type"] for unit in wave["units"]] for wave in waves] == [
+            ["zerg_zergling"] * 5,
+            ["zerg_zergling"] * 2 + ["zerg_hydralisk"],
+            ["zerg_zergling"] * 2 + ["zerg_hydralisk", "zerg_ultralisk"]]
         session_events = ((run / "session.log").read_text(errors="replace") +
                           (run / "bridge-restart.log").read_text(errors="replace"))
         assert "navigation initialized" in session_events, "native navigation was not initialized"
