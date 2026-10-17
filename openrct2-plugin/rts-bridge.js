@@ -19,11 +19,11 @@
     // Supported integration types only. Native rules remain in OpenBW.
     // BEGIN GENERATED STARCRAFT TYPES
     const UNIT_TYPES = Object.freeze({
-        terran_marine: { name: "Marine", visual: "terran_marine", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
-        terran_firebat: { name: "Firebat", visual: "terran_firebat", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
-        terran_medic: { name: "Medic", visual: "terran_medic", race: "terran", controllable: true, commands: ["move", "attack_move", "hold", "stop", "heal"] },
-        terran_vulture: { name: "Vulture", visual: "terran_vulture", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
-        zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, commands: [] },
+        terran_marine: { name: "Marine", visual: "terran_marine", race: "terran", controllable: true, movement: "ground", spawnable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
+        terran_firebat: { name: "Firebat", visual: "terran_firebat", race: "terran", controllable: true, movement: "ground", spawnable: false, commands: ["move", "attack", "attack_move", "hold", "stop"] },
+        terran_medic: { name: "Medic", visual: "terran_medic", race: "terran", controllable: true, movement: "ground", spawnable: false, commands: ["move", "attack_move", "hold", "stop", "heal"] },
+        terran_vulture: { name: "Vulture", visual: "terran_vulture", race: "terran", controllable: true, movement: "ground", spawnable: false, commands: ["move", "attack", "attack_move", "hold", "stop"] },
+        zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, movement: "ground", spawnable: true, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
         terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat", "terran_medic"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },

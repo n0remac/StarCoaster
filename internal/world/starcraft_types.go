@@ -5,9 +5,10 @@ import "fmt"
 // These are the StarCoaster integration types, not the complete BWAPI catalog.
 // Native BWAPI type resolution lives in WorldStarcraftTypes.h.
 type UnitDefinition struct {
-	ID, NativeType, Race, Ownership, DisplayName, Visual string
-	Controllable                                         bool
-	Commands                                             []string
+	ID, NativeType, Race, Ownership, DisplayName, Visual, Movement string
+	Controllable, Spawnable                                      bool
+	LegacyStaticBase                                             int
+	Commands                                                     []string
 }
 
 type BuildingDefinition struct {
@@ -18,11 +19,11 @@ type BuildingDefinition struct {
 
 // BEGIN GENERATED STARCRAFT TYPES
 var unitDefinitions = map[string]UnitDefinition{
-	"terran_marine": {ID: "terran_marine", NativeType: "Terran_Marine", Race: "terran", Ownership: "player", DisplayName: "Marine", Visual: "terran_marine", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
-	"terran_firebat": {ID: "terran_firebat", NativeType: "Terran_Firebat", Race: "terran", Ownership: "player", DisplayName: "Firebat", Visual: "terran_firebat", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
-	"terran_medic": {ID: "terran_medic", NativeType: "Terran_Medic", Race: "terran", Ownership: "player", DisplayName: "Medic", Visual: "terran_medic", Controllable: true, Commands: []string{"unit.move", "unit.attack_move", "unit.hold", "unit.stop", "unit.heal"}},
-	"terran_vulture": {ID: "terran_vulture", NativeType: "Terran_Vulture", Race: "terran", Ownership: "player", DisplayName: "Vulture", Visual: "terran_vulture", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
-	"zerg_zergling": {ID: "zerg_zergling", NativeType: "Zerg_Zergling", Race: "zerg", Ownership: "enemy", DisplayName: "Zergling", Visual: "zerg_zergling", Controllable: false, Commands: []string{}},
+	"terran_marine": {ID: "terran_marine", NativeType: "Terran_Marine", Race: "terran", Ownership: "player", DisplayName: "Marine", Visual: "terran_marine", Movement: "ground", Controllable: true, Spawnable: true, LegacyStaticBase: 1000, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
+	"terran_firebat": {ID: "terran_firebat", NativeType: "Terran_Firebat", Race: "terran", Ownership: "player", DisplayName: "Firebat", Visual: "terran_firebat", Movement: "ground", Controllable: true, Spawnable: false, LegacyStaticBase: 0, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
+	"terran_medic": {ID: "terran_medic", NativeType: "Terran_Medic", Race: "terran", Ownership: "player", DisplayName: "Medic", Visual: "terran_medic", Movement: "ground", Controllable: true, Spawnable: false, LegacyStaticBase: 0, Commands: []string{"unit.move", "unit.attack_move", "unit.hold", "unit.stop", "unit.heal"}},
+	"terran_vulture": {ID: "terran_vulture", NativeType: "Terran_Vulture", Race: "terran", Ownership: "player", DisplayName: "Vulture", Visual: "terran_vulture", Movement: "ground", Controllable: true, Spawnable: false, LegacyStaticBase: 0, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
+	"zerg_zergling": {ID: "zerg_zergling", NativeType: "Zerg_Zergling", Race: "zerg", Ownership: "enemy", DisplayName: "Zergling", Visual: "zerg_zergling", Movement: "ground", Controllable: false, Spawnable: true, LegacyStaticBase: 2000, Commands: []string{}},
 }
 
 var buildingDefinitions = map[string]BuildingDefinition{

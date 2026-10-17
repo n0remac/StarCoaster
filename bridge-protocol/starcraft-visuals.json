@@ -1,0 +1,81 @@
+{
+  "directions": {
+    "east": [8, false], "southeast": [12, false],
+    "south": [16, false], "southwest": [12, true],
+    "west": [8, true], "northwest": [4, true],
+    "north": [0, false], "northeast": [4, false]
+  },
+  "units": {
+    "terran_marine": {
+      "asset": "marine", "source": "unit/terran/marine.grp",
+      "canvas": [64, 64], "frame_count": 229, "stride": 17,
+      "animations": {
+        "idle": {"banks": [0], "ticks": 0},
+        "walk": {"banks": [1, 2], "ticks": 4},
+        "attack": {"banks": [3, 4, 5], "ticks": 2},
+        "death": {"frames": [221, 222, 223, 224, 225, 226, 227, 228], "ticks": 2}
+      },
+      "health_offset": [-10, -28], "bounds": [12, 12, 18]
+    },
+    "terran_firebat": {
+      "asset": "firebat", "source": "unit/terran/firebat.grp",
+      "canvas": [32, 32], "frame_count": 170, "stride": 17,
+      "animations": {
+        "idle": {"banks": [0], "ticks": 0},
+        "walk": {"banks": [3, 5], "ticks": 4},
+        "attack": {"banks": [1, 2, 1], "ticks": 2},
+        "death": {"source": "unit/thingy/tBangS.grp", "canvas": [128, 128],
+                  "frames": [1, 2, 3, 4, 5, 6, 7, 8], "ticks": 2}
+      },
+      "health_offset": [-10, -28], "bounds": [12, 12, 18],
+      "effect": "firebat_flame"
+    },
+    "terran_medic": {
+      "asset": "medic", "source": "unit/terran/medic.grp",
+      "canvas": [64, 64], "frame_count": 230, "stride": 17,
+      "animations": {
+        "idle": {"banks": [0], "ticks": 0},
+        "walk": {"banks": [6, 7], "ticks": 4},
+        "heal": {"banks": [4, 5, 4], "ticks": 2},
+        "death": {"frames": [222, 223, 224, 225, 226, 227, 228, 229], "ticks": 2}
+      },
+      "health_offset": [-10, -42], "bounds": [12, 12, 18]
+    },
+    "terran_vulture": {
+      "asset": "vulture", "source": "unit/terran/Vulture.grp",
+      "canvas": [100, 100], "frame_count": 17, "stride": 17,
+      "animations": {
+        "idle": {"banks": [0], "ticks": 0},
+        "walk": {"fallback": "idle"}, "attack": {"fallback": "idle"},
+        "death": {"source": "unit/thingy/tBangS.grp", "canvas": [128, 128],
+                  "frames": [1, 2, 3, 4, 5, 6, 7, 8], "ticks": 2}
+      },
+      "health_offset": [-10, -28], "bounds": [12, 12, 18]
+    },
+    "zerg_zergling": {
+      "asset": "zergling", "source": "unit/zerg/zergling.grp",
+      "stride": 17, "minimum_frame_count": 289,
+      "animations": {
+        "idle": {"banks": [0], "ticks": 0},
+        "walk": {"banks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "ticks": 4},
+        "attack": {"fallback": "idle"},
+        "death": {"banks": [11, 12, 13, 14, 15, 16], "ticks": 2}
+      },
+      "health_offset": [-10, -28], "bounds": [12, 12, 18]
+    }
+  },
+  "effects": {
+    "firebat_flame": {
+      "asset": "flame", "source": "unit/thingy/flamer.grp",
+      "canvas": [224, 224], "frame_count": 221, "stride": 17,
+      "banks": [0, 2, 4, 6, 8, 10, 12], "ticks": 2,
+      "palette_remap": "Tileset/Badlands/ofire.pcx"
+    }
+  },
+  "buildings": {
+    "terran_barracks": {"image": "Barracks", "asset": "barracks", "source_size": [192, 160], "frame_count": 9, "output_size": [189, 164], "art_method": "barracks_lights"},
+    "terran_academy": {"image": "Terran_Academy", "asset": "academy", "source_size": [96, 128], "frame_count": 2, "output_size": [140, 140], "preview_size": [52, 52], "preview_offset": [-26, -18], "art_method": "static"},
+    "terran_supply_depot": {"image": "Supply_Depot", "asset": "supply_depot", "source_size": [96, 128], "frame_count": 2, "output_size": [140, 140], "preview_size": [52, 52], "preview_offset": [-26, -18], "art_method": "static"},
+    "terran_factory": {"image": "Factory", "asset": "factory", "source_size": [128, 160], "frame_count": 7, "output_size": [189, 164], "art_method": "static"}
+  }
+}

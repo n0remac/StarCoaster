@@ -25,6 +25,10 @@ class StarcraftTypeCatalogTests(unittest.TestCase):
         GENERATOR.replace_block(ROOT / "openrct2-plugin/rts-bridge.js",
                                 GENERATOR.javascript_definitions(self.catalog), True)
         GENERATOR.check_native(self.catalog)
+        for path, rendered in GENERATOR.schema_definitions(self.catalog).items():
+            GENERATOR.write_generated(path, rendered, True)
+        self.assertEqual(self.catalog["units"][0]["legacy_static_base"], 1000)
+        self.assertEqual(self.catalog["units"][-1]["legacy_static_base"], 2000)
 
     def test_rejects_invalid_extensions(self):
         invalid = copy.deepcopy(self.catalog)
@@ -39,6 +43,21 @@ class StarcraftTypeCatalogTests(unittest.TestCase):
         invalid["buildings"][0]["animation"]["ticks_per_frame"] = 0
         with self.assertRaises(ValueError):
             GENERATOR.validate(invalid)
+        changes = (
+            ("unknown native", lambda data: data["units"][0].update(native_type="Terran_Unknown")),
+            ("missing visual", lambda data: data["units"][0].update(visual="missing_visual")),
+            ("duplicate object", lambda data: data["buildings"][1].update(
+                object_id=data["buildings"][0]["object_id"])),
+            ("bad command", lambda data: data["units"][0]["commands"].append("unit.cloak")),
+            ("duplicate legacy base", lambda data: data["units"][1].update(legacy_static_base=1000)),
+            ("unsupported movement", lambda data: data["units"][0].update(movement="air")),
+        )
+        for label, change in changes:
+            with self.subTest(label=label):
+                invalid = copy.deepcopy(self.catalog)
+                change(invalid)
+                with self.assertRaises(ValueError):
+                    GENERATOR.validate(invalid)
 
 
 if __name__ == "__main__":

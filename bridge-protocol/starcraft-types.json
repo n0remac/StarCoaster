@@ -3,31 +3,32 @@
     {
       "id": "terran_marine", "native_type": "Terran_Marine", "race": "terran",
       "ownership": "player", "display_name": "Marine", "visual": "terran_marine",
-      "controllable": true,
+      "controllable": true, "movement": "ground", "spawnable": true, "legacy_static_base": 1000,
       "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
     },
     {
       "id": "terran_firebat", "native_type": "Terran_Firebat", "race": "terran",
       "ownership": "player", "display_name": "Firebat", "visual": "terran_firebat",
-      "controllable": true,
+      "controllable": true, "movement": "ground", "spawnable": false, "legacy_static_base": 0,
       "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
     },
     {
       "id": "terran_medic", "native_type": "Terran_Medic", "race": "terran",
       "ownership": "player", "display_name": "Medic", "visual": "terran_medic",
-      "controllable": true,
+      "controllable": true, "movement": "ground", "spawnable": false, "legacy_static_base": 0,
       "commands": ["unit.move", "unit.attack_move", "unit.hold", "unit.stop", "unit.heal"]
     },
     {
       "id": "terran_vulture", "native_type": "Terran_Vulture", "race": "terran",
       "ownership": "player", "display_name": "Vulture", "visual": "terran_vulture",
-      "controllable": true,
+      "controllable": true, "movement": "ground", "spawnable": false, "legacy_static_base": 0,
       "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
     },
     {
       "id": "zerg_zergling", "native_type": "Zerg_Zergling", "race": "zerg",
       "ownership": "enemy", "display_name": "Zergling", "visual": "zerg_zergling",
-      "controllable": false, "commands": []
+      "controllable": false, "movement": "ground", "spawnable": true, "legacy_static_base": 2000,
+      "commands": []
     }
   ],
   "buildings": [
