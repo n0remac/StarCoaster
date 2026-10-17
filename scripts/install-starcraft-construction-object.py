@@ -17,6 +17,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 TYPE_DEFINITIONS = {item["id"]: item for item in
                     json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())["buildings"]}
+BUILDING_OBJECTS = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())["buildings"]
 PALETTE_RESOURCE = "Tileset/Badlands.wpe"
 
 
@@ -156,32 +157,15 @@ def static_building_images(game_dir: Path, kind: str, image_name: str,
     return [output]
 
 
-def academy_images(game_dir: Path) -> list[Image.Image]:
-    return static_building_images(game_dir, "academy", "Terran_Academy",
-                                  (2, 96, 128), (140, 140))
-
-
-def supply_depot_images(game_dir: Path) -> list[Image.Image]:
-    return static_building_images(game_dir, "supply_depot", "Supply_Depot",
-                                  (2, 96, 128), (140, 140))
-
-
-def factory_images(game_dir: Path) -> list[Image.Image]:
-    return static_building_images(game_dir, "factory", "Factory",
-                                  (7, 128, 160), (189, 164))
-
-
-# Visual preparation is building-specific; tile layout and archive assembly are
-# shared. The Barracks' name, image paths, and bank order are save-compatible.
-BUILDING_OBJECTS = {
-    "terran_barracks": {"frame_name": "barracks",
-                        "prepare": lambda game_dir: barracks_images(game_dir)},
-    "terran_academy": {"frame_name": "academy", "prepare": academy_images,
-                        "preview_size": (52, 52), "preview_offset": (-26, -18)},
-    "terran_supply_depot": {"frame_name": "supply_depot", "prepare": supply_depot_images,
-                            "preview_size": (52, 52), "preview_offset": (-26, -18)},
-    "terran_factory": {"frame_name": "factory", "prepare": factory_images},
-}
+def building_images(game_dir: Path, profile: dict) -> list[Image.Image]:
+    method = profile["art_method"]
+    if method == "barracks_lights":
+        return barracks_images(game_dir)
+    if method == "static":
+        return static_building_images(
+            game_dir, profile["asset"], profile["image"],
+            (profile["frame_count"], *profile["source_size"]), tuple(profile["output_size"]))
+    raise ValueError(f"Unsupported building art method: {method}")
 
 
 def png_bytes(image: Image.Image) -> bytes:
@@ -211,7 +195,7 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
         raise ValueError(f"Invalid StarCraft building definition: {building_type}")
     destination = data_root / "object" / "starcoaster" / "scenery_large" / (definition_type["object_id"] + ".parkobj")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    sprites = spec["prepare"](game_dir)
+    sprites = building_images(game_dir, spec)
     if not sprites:
         raise ValueError(f"No sprite frames for {building_type}")
     animation = definition_type.get("animation")
@@ -247,7 +231,7 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
                 for direction in range(4):
                     origin_x, origin_y = origins[direction]
                     screen_x, screen_y = tile_screen(x, y, direction)
-                    images.append({"path": f"images/{spec['frame_name']}-{frame}.png",
+                    images.append({"path": f"images/{spec['asset']}-{frame}.png",
                                    "x": origin_x - screen_x, "y": origin_y - screen_y,
                                    "palette": "keep"})
     definition = {"id": definition_type["object_id"], "authors": ["StarCoaster"], "version": "2.0",
@@ -260,7 +244,7 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
         archive.writestr("object.json", json.dumps(definition, separators=(",", ":")))
         archive.writestr("images/preview.png", png_bytes(preview))
         for frame, frame_sprite in enumerate(sprites):
-            archive.writestr(f"images/{spec['frame_name']}-{frame}.png", png_bytes(frame_sprite))
+            archive.writestr(f"images/{spec['asset']}-{frame}.png", png_bytes(frame_sprite))
     return destination
 
 

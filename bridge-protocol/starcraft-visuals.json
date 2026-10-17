@@ -52,11 +52,34 @@
       },
       "health_offset": [-10, -28], "bounds": [12, 12, 18]
     },
+    "terran_goliath": {
+      "asset": "goliath", "image": "Goliath_Base",
+      "source": "unit/terran/goliath.grp",
+      "canvas": [76, 76], "frame_count": 170, "stride": 17,
+      "animations": {
+        "idle": {"banks": [0], "ticks": 0},
+        "walk": {"banks": [1, 2, 3, 4, 5, 6, 7, 8, 9], "ticks": 3},
+        "attack": {"fallback": "idle"},
+        "death": {"source": "unit/thingy/tBangS.grp", "canvas": [128, 128],
+                  "frames": [1, 2, 3, 4, 5, 6, 7, 8], "ticks": 2}
+      },
+      "attachments": [{
+        "name": "turret", "image": "Goliath_Turret",
+        "source": "unit/terran/goliathT.grp", "canvas": [76, 76],
+        "frame_count": 187, "stride": 17, "facing": "native_target",
+        "layer": "above_body", "animations": {
+          "idle": {"banks": [0], "ticks": 0},
+          "walk": {"banks": [1, 2, 3, 4, 5, 6, 7, 8, 9], "ticks": 3},
+          "attack": {"banks": [10, 0], "ticks": 2}
+        }
+      }],
+      "health_offset": [-10, -42], "bounds": [12, 12, 24]
+    },
     "zerg_zergling": {
       "asset": "zergling", "source": "unit/zerg/zergling.grp",
       "stride": 17, "minimum_frame_count": 289,
       "animations": {
-        "idle": {"banks": [0], "ticks": 0},
+        "idle": {"banks": [0], "ticks": 0, "name_without_zero": true},
         "walk": {"banks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "ticks": 4},
         "attack": {"fallback": "idle"},
         "death": {"banks": [11, 12, 13, 14, 15, 16], "ticks": 2}
@@ -76,6 +99,7 @@
     "terran_barracks": {"image": "Barracks", "asset": "barracks", "source_size": [192, 160], "frame_count": 9, "output_size": [189, 164], "art_method": "barracks_lights"},
     "terran_academy": {"image": "Terran_Academy", "asset": "academy", "source_size": [96, 128], "frame_count": 2, "output_size": [140, 140], "preview_size": [52, 52], "preview_offset": [-26, -18], "art_method": "static"},
     "terran_supply_depot": {"image": "Supply_Depot", "asset": "supply_depot", "source_size": [96, 128], "frame_count": 2, "output_size": [140, 140], "preview_size": [52, 52], "preview_offset": [-26, -18], "art_method": "static"},
-    "terran_factory": {"image": "Factory", "asset": "factory", "source_size": [128, 160], "frame_count": 7, "output_size": [189, 164], "art_method": "static"}
+    "terran_factory": {"image": "Factory", "asset": "factory", "source_size": [128, 160], "frame_count": 7, "output_size": [189, 164], "art_method": "static"},
+    "terran_armory": {"image": "Armory", "asset": "armory", "source_size": [160, 128], "frame_count": 2, "output_size": [140, 140], "preview_size": [52, 52], "preview_offset": [-26, -18], "art_method": "static"}
   }
 }

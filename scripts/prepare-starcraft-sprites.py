@@ -449,51 +449,172 @@ def prepare_zergling_pack(data: bytes, wpe: bytes, output: Path,
     print(f"Prepared {len(selected)} frames in {output} from {archives}")
 
 
-UNIT_PROFILES = {
-    "marine": {"resource": MARINE_RESOURCE, "prepare": prepare_marine_pack},
-    "firebat": {"resource": FIREBAT_RESOURCE, "prepare": prepare_firebat_pack},
-    "medic": {"resource": MEDIC_RESOURCE, "prepare": prepare_medic_pack},
-    "vulture": {"resource": VULTURE_RESOURCE, "prepare": prepare_vulture_pack},
-    "flame": {"resource": FLAME_RESOURCE, "prepare": prepare_flame_pack},
-    "zergling": {"resource": RESOURCE, "prepare": prepare_zergling_pack},
-}
+def visual_profiles() -> dict:
+    return json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())
+
+
+def prepare_profile_pack(kind: str, profile: dict, game_dir: Path, output: Path) -> None:
+    """Extract a conventional directional GRP from declarative frame groups."""
+    directions = visual_profiles()["directions"]
+    source = output / ".source"
+    source.mkdir(exist_ok=True)
+    palette_path = source / "Badlands.wpe"
+    archives = {PALETTE: extract(game_dir, PALETTE, palette_path)}
+    wpe = palette_path.read_bytes()
+    if len(wpe) != 1024:
+        raise ValueError("Expected a 1024-byte Badlands palette")
+    sources = {}
+
+    def load(resource: str, name: str, image_name: str | None = None) -> bytes:
+        if image_name:
+            import runpy
+            resolved = runpy.run_path(str(ROOT / "scripts/install-starcraft-construction-object.py"))[
+                "image_resource"](game_dir, image_name, {"extract": extract})
+            if resolved.lower() != resource.lower():
+                raise ValueError(f"{image_name} resolves to {resolved}, expected {resource}")
+        if resource not in sources:
+            path = source / name
+            archives[resource] = extract(game_dir, resource, path)
+            sources[resource] = path.read_bytes()
+        return sources[resource]
+
+    primary = load(profile["source"], kind + ".grp", profile.get("image"))
+    count, width, height = struct.unpack_from("<HHH", primary)
+    expected = profile.get("frame_count")
+    if (expected is not None and count != expected) or count < profile.get("minimum_frame_count", 0):
+        raise ValueError(f"Unexpected {kind} GRP frame count: {count}")
+    if "canvas" in profile and (width, height) != tuple(profile["canvas"]):
+        raise ValueError(f"Unexpected {kind} GRP canvas: {width}x{height}")
+    canvas = [width, height]
+    selected, registry = {}, {kind: {}}
+    palette = openrct2_palette()
+
+    def frame_image(data: bytes, resource: str, frame: int, frame_canvas: tuple[int, int],
+                    filename: str, mirror: bool) -> None:
+        image = decode_grp(data, wpe, frame)
+        if mirror:
+            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        bbox = image.getbbox()
+        if bbox is None:
+            raise ValueError(f"Empty {kind} frame {frame} ({filename})")
+        cropped = quantize(image.crop(bbox), palette)
+        cropped.save(output / filename)
+        selected[filename] = {"source_frame": frame, "source": resource,
+                              "source_group": frame // profile["stride"], "mirrored": mirror,
+                              "width": cropped.width, "height": cropped.height,
+                              "x": bbox[0] - frame_canvas[0] // 2,
+                              "y": bbox[1] - frame_canvas[1] // 2,
+                              "visible_pixels": sum(cropped.getchannel("A").getdata()) // 255}
+
+    def prepare_groups(groups: dict, prefix: str, primary_resource: str,
+                       default_source: bytes, default_canvas: tuple[int, int], stride: int) -> dict:
+        results = {}
+        for state, animation in groups.items():
+            if "fallback" in animation:
+                continue
+            resource = animation.get("source", primary_resource)
+            data = default_source if resource == primary_resource else load(resource, prefix + state + ".grp")
+            frame_canvas = tuple(animation.get("canvas", default_canvas))
+            actual_count, actual_width, actual_height = struct.unpack_from("<HHH", data)
+            if (actual_width, actual_height) != frame_canvas:
+                raise ValueError(f"Unexpected {kind} {state} source canvas")
+            if "banks" in animation:
+                frames = {}
+                for direction, (facing, mirror) in directions.items():
+                    names = []
+                    for pose, bank in enumerate(animation["banks"]):
+                        frame = bank * stride + facing
+                        if frame >= actual_count:
+                            raise ValueError(f"Invalid {kind} {state} source frame {frame}")
+                        label = state if animation.get("name_without_zero") else f"{state}{pose}"
+                        filename = f"{prefix}{label}_{direction}.png"
+                        frame_image(data, resource, frame, frame_canvas, filename, mirror)
+                        names.append(filename)
+                    frames[direction] = names
+                results[state] = {"frames": frames, "ticks_per_frame": animation["ticks"]}
+            else:
+                names = []
+                for pose, frame in enumerate(animation["frames"]):
+                    if frame >= actual_count:
+                        raise ValueError(f"Invalid {kind} {state} source frame {frame}")
+                    filename = f"{prefix}{state}{pose}.png"
+                    frame_image(data, resource, frame, frame_canvas, filename, False)
+                    names.append(filename)
+                results[state] = {"frames": names, "ticks_per_frame": animation["ticks"],
+                                  "directional": False}
+        return results
+
+    registry[kind].update(prepare_groups(profile["animations"], "", profile["source"],
+                                         primary, (width, height), profile["stride"]))
+    attachments = {}
+    for attachment in profile.get("attachments", []):
+        name = attachment["name"]
+        data = load(attachment["source"], name + ".grp", attachment.get("image"))
+        if struct.unpack_from("<HHH", data) != (attachment["frame_count"], *attachment["canvas"]):
+            raise ValueError(f"Unexpected {kind} {name} attachment GRP")
+        attachments[name] = prepare_groups(attachment["animations"], name + "_",
+                                           attachment["source"], data,
+                                           tuple(attachment["canvas"]), attachment["stride"])
+    if attachments:
+        registry[kind]["attachments"] = attachments
+    manifest = {"unit": profile["asset"], "kind": kind, "source": profile["source"],
+                "palette": PALETTE, "archives": archives, "canvas": canvas,
+                "frame_count": count, "source_sha256": hashlib.sha256(primary).hexdigest(),
+                "registry": registry, "frames": selected,
+                "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
+                "output_palette": "nearest OpenRCT2 standard palette colour"}
+    death_source = profile["animations"].get("death", {}).get("source")
+    if death_source:
+        manifest["death_source"] = death_source
+    if profile["asset"] == "zergling":
+        manifest["source_groups"] = [
+            {"group": group, "first_frame": group * profile["stride"],
+             "last_frame": min(count - 1, (group + 1) * profile["stride"] - 1),
+             "classification": "idle" if group == 0 else "walk" if group <= 10
+                               else "death" if group <= 16 else "non_locomotion"}
+            for group in range((count + profile["stride"] - 1) // profile["stride"])]
+    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"Prepared {len(selected)} {kind} frames in {output}")
+
+
+def registered_profiles() -> dict:
+    catalog = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
+    visuals = visual_profiles()
+    units = {unit["visual"]: visuals["units"][unit["visual"]] for unit in catalog["units"]}
+    return {profile["asset"]: (kind, profile) for kind, profile in units.items()}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--game-dir", type=Path,
                         default=Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft")))
-    parser.add_argument("--unit", choices=UNIT_PROFILES, default="zergling")
+    profiles = registered_profiles()
+    effects = visual_profiles()["effects"]
+    parser.add_argument("--unit", choices=sorted(set(profiles) | {item["asset"] for item in effects.values()}),
+                        default="zergling")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if shutil.which("smpq") is None:
         parser.error("smpq is required (Debian package: smpq / StormLib)")
     output = (args.output or OUTPUT.parent / args.unit).resolve()
     output.mkdir(parents=True, exist_ok=True)
+    if args.unit in profiles:
+        kind, profile = profiles[args.unit]
+        prepare_profile_pack(kind, profile, args.game_dir, output)
+        return
+    # The Firebat flame uses a source palette remap. Keep that format-specific
+    # decoder until another effect needs the same layout.
+    effect = next(item for item in effects.values() if item["asset"] == args.unit)
     source = output / ".source"
     source.mkdir(exist_ok=True)
-    profile = UNIT_PROFILES[args.unit]
-    resource = profile["resource"]
     grp_path, wpe_path = source / f"{args.unit}.grp", source / "Badlands.wpe"
-    archives = {resource: extract(args.game_dir, resource, grp_path),
-                PALETTE: extract(args.game_dir, PALETTE, wpe_path)}
-    if args.unit in ("firebat", "vulture"):
-        archives[FIREBAT_DEATH_RESOURCE] = extract(
-            args.game_dir, FIREBAT_DEATH_RESOURCE, source / "death.grp")
-    if args.unit == "flame":
-        archives[FLAME_LIGHT_RESOURCE] = extract(
-            args.game_dir, FLAME_LIGHT_RESOURCE, source / "ofire.pcx")
-        archives["arr/images.dat"] = extract(
-            args.game_dir, "arr/images.dat", source / "images.dat")
-    data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
-    if len(wpe) != 1024:
-        raise ValueError(f"Expected 1024-byte WPE palette, got {len(wpe)}")
-    if args.unit == "flame":
-        profile["prepare"](data, wpe, output, openrct2_palette(), archives,
-                           (source / "ofire.pcx").read_bytes(),
-                           (source / "images.dat").read_bytes())
-    else:
-        profile["prepare"](data, wpe, output, openrct2_palette(), archives)
+    archives = {effect["source"]: extract(args.game_dir, effect["source"], grp_path),
+                PALETTE: extract(args.game_dir, PALETTE, wpe_path),
+                effect["palette_remap"]: extract(args.game_dir, effect["palette_remap"], source / "ofire.pcx"),
+                "arr/images.dat": extract(args.game_dir, "arr/images.dat", source / "images.dat")}
+    prepare_flame_pack(grp_path.read_bytes(), wpe_path.read_bytes(), output,
+                       openrct2_palette(), archives, (source / "ofire.pcx").read_bytes(),
+                       (source / "images.dat").read_bytes())
 
 if __name__ == "__main__":
     main()

@@ -139,10 +139,11 @@ class SpriteRegistryTests(unittest.TestCase):
             "width": 2, "height": 2,
         }
         module.BUILDING_OBJECTS["synthetic"] = {
-            "frame_name": "synthetic",
-            "prepare": lambda _: [image],
+            "asset": "synthetic", "art_method": "static", "image": "Synthetic",
+            "frame_count": 1, "source_size": [40, 36], "output_size": [40, 36],
         }
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+                module, "building_images", return_value=[image]):
             path = module.install(Path(directory), Path(directory), "synthetic")
             with zipfile.ZipFile(path) as archive:
                 definition = json.loads(archive.read("object.json"))
@@ -157,8 +158,7 @@ class SpriteRegistryTests(unittest.TestCase):
         spec.loader.exec_module(module)
         image = Image.new("P", (140, 140), 10)
         with tempfile.TemporaryDirectory() as directory, patch.object(
-                module, "academy_images", return_value=[image]):
-            module.BUILDING_OBJECTS["terran_academy"]["prepare"] = module.academy_images
+                module, "building_images", return_value=[image]):
             path = module.install(Path(directory), Path(directory), "terran_academy")
             with zipfile.ZipFile(path) as archive:
                 definition = json.loads(archive.read("object.json"))
@@ -196,7 +196,7 @@ class SpriteRegistryTests(unittest.TestCase):
         game = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
         self.assertEqual(module.image_resource(game, "Terran_Academy"),
                          "unit/terran/Academy.grp")
-        self.assertEqual(len(module.academy_images(game)), 1)
+        self.assertEqual(len(module.building_images(game, module.BUILDING_OBJECTS["terran_academy"])), 1)
 
     def test_extraction_accepts_archive_aliases_and_relative_paths(self):
         spec = importlib.util.spec_from_file_location("starcraft_sprites", ROOT / "scripts/prepare-starcraft-sprites.py")
