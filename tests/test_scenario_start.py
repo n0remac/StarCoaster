@@ -37,7 +37,8 @@ class ScenarioStartTest(unittest.TestCase):
             (scripts / "project.sh").write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$TEST_CALLS\"\n")
             (scripts / "project.sh").chmod(0o755)
             (scripts / "play-scenario.py").write_text("import sys\nassert sys.argv[-1] == '--plan'\n")
-            for name in ("fetch-upstream.py", "prepare-starcraft-sprites.py"):
+            for name in ("fetch-upstream.py", "prepare-starcraft-sprites.py",
+                         "generate-starcraft-types.py"):
                 (scripts / name).write_text("")
             (scripts / "install-openrct2-local.sh").write_text("#!/bin/sh\nexit 0\n")
             (scripts / "install-openrct2-local.sh").chmod(0o755)

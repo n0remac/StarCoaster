@@ -15,7 +15,7 @@ and play the selected scenario (default: frontier-outpost). Ctrl+C stops it.
 
 Game data defaults to ~/games/rct2 and ~/games/starcraft.
 Override with RCT2_DATA_DIR and STARCRAFT_DATA_DIR for other installations.
-Marine, Firebat, and Zergling sprites are extracted from those local StarCraft archives.
+Registered StarCraft sprites and building objects are extracted from those local archives.
 BRIDGE_SPRITE_SOURCE defaults to starcraft-local; set it to alien-scout to use
 the original placeholder art.
 BRIDGE_BUILD_JOBS defaults to 2. A graphical client opens when DISPLAY is set;
@@ -93,9 +93,23 @@ fi
 
 printf 'Fetching pinned upstream sources...\n'
 python3 scripts/fetch-upstream.py
+python3 scripts/generate-starcraft-types.py
+python3 scripts/generate-starcraft-types.py --check
 if [[ "$BRIDGE_SPRITE_SOURCE" == starcraft-local ]]; then
-    printf 'Preparing local StarCraft Marine, Firebat, and Zergling sprites...\n'
-    for unit in marine firebat zergling; do
+    printf 'Preparing registered local StarCraft sprites...\n'
+    mapfile -t required_assets < <(python3 - <<'PY'
+import json
+from pathlib import Path
+root = Path('bridge-protocol')
+catalog = json.loads((root / 'starcraft-types.json').read_text())
+visuals = json.loads((root / 'starcraft-visuals.json').read_text())
+assets = [visuals['units'][item['visual']]['asset'] for item in catalog['units']]
+assets += [visuals['effects'][key]['asset'] for key in visuals['effects']
+           if key in {visuals['units'][item['visual']].get('effect') for item in catalog['units']}]
+print('\n'.join(dict.fromkeys(assets)))
+PY
+)
+    for unit in "${required_assets[@]}"; do
         python3 scripts/prepare-starcraft-sprites.py --game-dir "$STARCRAFT_DATA_DIR" --unit "$unit"
     done
 fi
@@ -103,5 +117,9 @@ printf 'Building engines and world bridge...\n'
 scripts/project.sh build
 printf 'Staging OpenRCT2 assets locally...\n'
 scripts/install-openrct2-local.sh
+if [[ "$BRIDGE_SPRITE_SOURCE" == starcraft-local ]]; then
+    python3 scripts/install-starcraft-construction-object.py \
+        build/openrct2-stage/usr/local/share/openrct2 --game-dir "$STARCRAFT_DATA_DIR" --all
+fi
 printf 'Starting %s (Ctrl+C to stop)...\n' "$scenario"
 exec scripts/project.sh play "$scenario"

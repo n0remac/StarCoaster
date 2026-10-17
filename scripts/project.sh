@@ -14,6 +14,8 @@ case "$command" in
     build)
         go_bin="$(command -v go || true)"
         go_bin="${go_bin:-/usr/local/go/bin/go}"
+        python3 scripts/generate-starcraft-types.py
+        python3 scripts/generate-starcraft-types.py --check
         scripts/build-bwapi.sh
         scripts/build-openrct2.sh
         scripts/build-bridge-module.sh
