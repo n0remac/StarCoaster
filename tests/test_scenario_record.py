@@ -29,6 +29,20 @@ world256 = load("verify_world256", "verify-world-256-capture.py")
 
 
 class ScenarioRecordTest(unittest.TestCase):
+    def test_goliath_combat_from_native_visual_snapshot(self):
+        def actor(kind, motion, hp, maximum):
+            return f"openbw:3001,3204,486,197,{motion},419,{kind},{hp},{maximum},1,2"
+        prefix = "BridgeApplySnapshot units="
+        self.assertTrue(record.goliath_damage_in_visual_snapshots(
+            prefix + actor("terran_goliath", "attack", 125, 125) + ";"
+            + actor("zerg_zergling", "death", 24, 35)))
+        self.assertFalse(record.goliath_damage_in_visual_snapshots(
+            prefix + actor("terran_goliath", "idle", 125, 125) + ";"
+            + actor("zerg_zergling", "death", 24, 35)))
+        self.assertFalse(record.goliath_damage_in_visual_snapshots(
+            prefix + actor("terran_goliath", "attack", 125, 125) + ";"
+            + actor("zerg_zergling", "idle", 35, 35)))
+
     def test_modes_and_package_resolution(self):
         for args in (("--scenario", "example-defense", "--world-256"),
                      ("--scenario", "example-defense", "--ridge-probe"),

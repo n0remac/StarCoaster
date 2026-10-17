@@ -25,6 +25,22 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "build/openrct2-stage/usr/local/share/openrct2"
 
 
+def goliath_damage_in_visual_snapshots(log):
+    """Detect native enemy HP loss while a Goliath attacks between probe ticks."""
+    for line in log.splitlines():
+        if "BridgeApplySnapshot" not in line or " units=" not in line:
+            continue
+        units = [row.split(",") for row in line.split(" units=", 1)[1].split(";")]
+        attacking = any(len(row) >= 9 and row[4] == "attack" and row[6] == "terran_goliath"
+                        for row in units)
+        damaged = any(len(row) >= 9 and row[6] == "zerg_zergling"
+                      and row[7].isdigit() and row[8].isdigit() and int(row[7]) < int(row[8])
+                      for row in units)
+        if attacking and damaged:
+            return True
+    return False
+
+
 def process_memory(root_pid):
     """Read resident memory of the launched server and its native children."""
     rows, pending, seen = [], [root_pid], set()
@@ -1061,7 +1077,8 @@ def main():
                     and commands.get("mixed_move") == "true",
                 "native_goliath_combat": commands.get("goliath_attack") == "true"
                     and "GOLIATH_PROBE_ATTACK id=" in driver
-                    and "GOLIATH_PROBE_HIT target=" in driver,
+                    and ("GOLIATH_PROBE_HIT target=" in driver
+                         or goliath_damage_in_visual_snapshots(driver)),
                 "two_clients_rendered": all("terran_goliath" in text for text in client_logs),
                 "two_client_screenshots": len(goliath_samples) == 11 and all(
                     (out / f"client-{letter}-armory-goliath-t{point}.png").is_file()
