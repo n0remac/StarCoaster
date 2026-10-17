@@ -3,6 +3,8 @@
 #include <BWAPI.h>
 #include <cstdlib>
 #include <iostream>
+#include <map>
+#include <vector>
 
 // Test-only native experiment. The controller issues synchronized OpenBW
 // actions; both participants independently report the resulting BWAPI state.
@@ -112,10 +114,61 @@ public:
                       << " firebats=" << firebats << " minerals=" << terran->minerals()
                       << " gas=" << terran->gas() << std::endl;
         }
+        if (std::getenv("BRIDGE_TEST_FIREBAT_SPLASH"))
+            testSplash(game, terran);
     }
 
 private:
     const char* role() const { return controller_ ? "controller" : "publisher"; }
+    void testSplash(BWAPI::Game* game, BWAPI::Player terran) {
+        BWAPI::Unit firebat = nullptr;
+        BWAPI::Player zerg = nullptr;
+        for (auto player : game->getPlayers())
+            if (player && player->getRace() == BWAPI::Races::Zerg) zerg = player;
+        for (auto unit : game->getAllUnits())
+            if (unit && unit->exists() && unit->getPlayer() == terran
+                && unit->getType() == BWAPI::UnitTypes::Terran_Firebat && unit->isCompleted())
+                firebat = unit;
+        if (!firebat || !zerg) return;
+        if (controller_ && !splashCreated_) {
+            splashCreated_ = true;
+            const auto at = firebat->getPosition();
+            for (int offset : {48, 68}) {
+                const auto unit = game->createUnit(zerg, BWAPI::UnitTypes::Zerg_Zergling,
+                                                   {at.x + offset, at.y});
+                std::cerr << "[firebat-splash] role=controller stage=create offset=" << offset
+                          << " native=" << (unit ? unit->getID() : -1) << std::endl;
+            }
+        }
+        std::vector<BWAPI::Unit> nearby;
+        const auto at = firebat->getPosition();
+        for (auto unit : game->getAllUnits())
+            if (unit && unit->exists() && unit->getPlayer() == zerg
+                && unit->getType() == BWAPI::UnitTypes::Zerg_Zergling
+                && unit->getPosition().getDistance(at) < 140)
+                nearby.push_back(unit);
+        if (nearby.size() < 2) return;
+        if (controller_ && !splashAttackIssued_) {
+            splashAttackIssued_ = true;
+            const bool accepted = firebat->attack(nearby[0]);
+            std::cerr << "[firebat-splash] role=controller stage=attack accepted=" << accepted
+                      << " target=" << nearby[0]->getID() << std::endl;
+        }
+        int damagedThisFrame = 0;
+        for (auto unit : nearby) {
+            const int id = unit->getID(), hp = unit->getHitPoints();
+            const auto previous = splashHP_.find(id);
+            if (previous != splashHP_.end() && hp < previous->second) ++damagedThisFrame;
+            splashHP_[id] = hp;
+        }
+        if (!splashReported_ && damagedThisFrame >= 2) {
+            splashReported_ = true;
+            std::cerr << "[firebat-splash] role=" << role() << " stage=splash frame="
+                      << game->getFrameCount() << " damaged=" << damagedThisFrame
+                      << " hp=" << nearby[0]->getHitPoints() << ","
+                      << nearby[1]->getHitPoints() << std::endl;
+        }
+    }
     void create(BWAPI::Game* game, BWAPI::Player owner, BWAPI::UnitType type) {
         const int firstX = type == BWAPI::UnitTypes::Terran_Academy ? 150 : 96;
         for (int y = 100; y < 180; y += 3)
@@ -135,4 +188,6 @@ private:
     bool beforeReported_ = false, afterReported_ = false, trainIssued_ = false;
     bool completedReported_ = false, removedIssued_ = false, removedReported_ = false;
     bool queueReported_ = false;
+    bool splashCreated_ = false, splashAttackIssued_ = false, splashReported_ = false;
+    std::map<int, int> splashHP_;
 };
