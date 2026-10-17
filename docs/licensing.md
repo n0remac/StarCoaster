@@ -10,7 +10,7 @@ This inventory records what the current checkout contains. It is not a determina
 | StarCraft MPQs and maps | User-supplied game data required by the [BWAPI fork](https://github.com/OpenBW/bwapi/blob/develop-openbw/README.md) | Never commit or bundle game data |
 | RCT2 or RCT Classic assets | [Required by OpenRCT2 for gameplay](https://docs.openrct2.io/en/latest/faq/installing.html) | Never commit or bundle game data |
 | Alien scout art | [Original source and 12 generated sprites](../assets/alien-scout/README.md), released under CC0 1.0 | Use as the OpenRCT2-side stand-in; no StarCraft sprite pixels are included |
-| Barracks scenery art | [Original indexed-palette generator](../scripts/install-starcraft-construction-object.py) | Generate and stage locally; no extracted StarCraft graphics are used |
+| Barracks scenery art | [Local classic GRP installer](../scripts/install-starcraft-construction-object.py) extracts `unit/terran/TBarrack.grp` and a palette from the user's StarCraft MPQs | Keep the generated `.parkobj` and extracted images in ignored local directories; do not commit or bundle them |
 | Local StarCraft Zergling art | Extracted from the user's own classic MPQs by [the opt-in script](../scripts/prepare-starcraft-sprites.py) | Keep extracted GRPs, generated PNGs, and any `g2.dat` containing them in ignored local directories; do not distribute without permission |
 
 The `.gitignore` excludes the local `upstream/`, `build/`, and `run-data/` directories and common MPQ files. Check any new asset path before committing or packaging it.

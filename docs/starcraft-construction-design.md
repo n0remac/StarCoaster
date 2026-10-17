@@ -36,6 +36,9 @@ Baseline: `1dc8526` (pinned OpenRCT2 and OpenBW checkouts).
 
 ## Vertical slice
 
+This section records the initial construction milestone. The later local
+StarCraft art update is described in `docs/barracks-starcraft-art.md`.
+
 1. Add a narrowly scoped native toolbar callback and dedicated button next to
    ride construction. Keep the window and tool in the plugin.
 2. Package an original Barracks large-scenery object with 12 occupied tiles and

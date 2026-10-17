@@ -1,5 +1,8 @@
 # StarCraft construction vertical slice
 
+This records the original construction milestone. The subsequent classic
+StarCraft Barracks appearance is verified in `docs/barracks-starcraft-art.md`.
+
 The first construction option is a Terran Barracks. The OpenRCT2 toolbar patch
 adds one button beside ride construction and invokes the plugin's registered
 menu item. The plugin owns the RCT2-style window, active placement tool,
