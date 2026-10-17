@@ -131,8 +131,10 @@ def rosters(filename):
 for filename in ('client-a.log', 'client-b-before-reconnect.log'
                  if (root / 'client-b-before-reconnect.log').exists() else 'client-b.log'):
     found = rosters(filename)
-    if expected_start not in found or expected_seven not in found:
-        raise SystemExit(f'{filename} did not progress from six to seven Marines: {found}')
+    # Client B can finish joining after the native test Marine has spawned.
+    # Its reconnect log below still has to observe seven and then six.
+    if expected_seven not in found or (filename == 'client-a.log' and expected_start not in found):
+        raise SystemExit(f'{filename} did not observe the runtime Marine: {found}')
 for filename in ('client-a.log', 'client-b.log'):
     found = rosters(filename)
     if expected_start not in found or expected_seven not in found:
