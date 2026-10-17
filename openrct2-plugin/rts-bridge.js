@@ -6,6 +6,7 @@
     const COMMAND_ACTION = "rtsbridge.marineCommand";
     const RESULT_ACTION = "rtsbridge.commandResult";
     const BUILDING_ACTION = "rtsbridge.buildingState";
+    const RESOURCE_ACTION = "rtsbridge.playerResources";
     const OUTCOME_ACTION = "rtsbridge.worldOutcome";
     const SCENARIO_STATUS_ACTION = "rtsbridge.scenarioStatus";
     const TARGET_ACTION = "rtsbridge.targetCatalog";
@@ -16,6 +17,30 @@
     const WAVE_ACTION = "rtsbridge.requestWave";
     const WAVE_STATUS_ACTION = "rtsbridge.waveStatus";
     const BARRACKS_OBJECT = "starcoaster.scenery_large.terran_barracks";
+    // Supported integration types only. Native rules remain in OpenBW.
+    const UNIT_TYPES = Object.freeze({
+        terran_marine: { name: "Marine", visual: "terran_marine", race: "terran", controllable: true,
+            commands: ["move", "attack", "attack_move", "hold", "stop"] },
+        zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false,
+            commands: [] }
+    });
+    const BUILDING_TYPES = Object.freeze({
+        terran_barracks: { name: "Terran Barracks", objectID: BARRACKS_OBJECT,
+            width: 4, height: 3, production: ["terran_marine"], animation: "training_lights" }
+    });
+    const buildingByObject = {};
+    Object.keys(BUILDING_TYPES).forEach(function (id) {
+        const definition = BUILDING_TYPES[id];
+        if (!definition.objectID || definition.width < 1 || definition.height < 1
+            || buildingByObject[definition.objectID]
+            || definition.production.some(function (unit) { return !UNIT_TYPES[unit]; }))
+            throw new Error("Invalid StarCraft building definition: " + id);
+        buildingByObject[definition.objectID] = id;
+    });
+    function controllable(unit, owner) {
+        return !!unit && !!UNIT_TYPES[unit.kind] && UNIT_TYPES[unit.kind].controllable
+            && unit.owner === owner && unit.hp > 0;
+    }
     let terranOwner = 1, markOwnerChange = function () {};
 
     function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor,
@@ -250,11 +275,12 @@
                             : kind === "wall" ? { action: "wallremove", args: { x: x * 32, y: y * 32, z: z, direction: direction } }
                             : { action: "footpathremove", args: { x: x * 32, y: y * 32, z: z } };
                         const identifier = (names[kind] && names[kind][object]) || String(object);
-                        const barracks = kind === "large_scenery" && identifier === BARRACKS_OBJECT;
-                        grouped[key] = { key: key, kind: barracks ? "structure" : kind === "footpath" ? "path" : kind,
-                            type: barracks ? "terran_barracks" : kind === "footpath" ? String(element.surfaceObject || object)
+                        const buildingID = kind === "large_scenery" ? buildingByObject[identifier] : null;
+                        const building = buildingID && BUILDING_TYPES[buildingID];
+                        grouped[key] = { key: key, kind: building ? "structure" : kind === "footpath" ? "path" : kind,
+                            type: building ? buildingID : kind === "footpath" ? String(element.surfaceObject || object)
                                 : identifier,
-                            name: barracks ? "Terran Barracks" : "",
+                            name: building ? building.name : "",
                             x: anchorX, y: anchorY, z: anchorZ, direction: direction,
                             cells: [], rects: [], volumes: [], removal: removal };
                     }
@@ -393,7 +419,7 @@
             onTargets(session, Object.keys(entities).filter(function (id) {
                 return entities[id].activeTarget === true;
             }).sort().map(function (id) {
-                return { id: id, rects: entities[id].entity.geometry.rects,
+                return { id: id, type: entities[id].entity.type, rects: entities[id].entity.geometry.rects,
                     health: entities[id].health === undefined ? entities[id].entity.combat.health : entities[id].health };
             }));
         }
@@ -477,7 +503,7 @@
             }
             patchInFlight = { id: payload.patch_id, base: revision, current: batch.current,
                 additions: payload.additions.filter(function (entity) {
-                    return entity.kind === "structure" && entity.type === "terran_barracks";
+                    return entity.kind === "structure" && !!BUILDING_TYPES[entity.type];
                 }) };
             console.log("WORLD_PATCH_METRIC patch=" + payload.patch_id
                 + " action_to_detection_ms=" + (batch.actionAt ? batch.detectedAt - batch.actionAt : -1)
@@ -712,6 +738,11 @@
                     function (result) {
                         if (result.error) console.log("WORLD_BUILDING_STATE_ERROR " + result.errorMessage);
                     });
+            else if (message.kind === "player.resources" && message.payload)
+                context.executeAction(RESOURCE_ACTION, Object.assign({ session: session }, message.payload),
+                    function (result) {
+                        if (result.error) console.log("WORLD_PLAYER_RESOURCES_ERROR " + result.errorMessage);
+                    });
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
             else if (message.kind === "combat.snapshot") {
@@ -731,7 +762,7 @@
                 lastCombatSeq = 0;
                 const targets = (message.payload.target_ids || []).map(function (id) {
                     const item = entities[id];
-                    return item ? { id: id, rects: item.entity.geometry.rects,
+                    return item ? { id: id, type: item.entity.type, rects: item.entity.geometry.rects,
                         health: item.health === undefined ? item.entity.combat.health : item.health } : null;
                 }).filter(function (item) { return item !== null; });
                 Object.keys(entities).forEach(function (id) { entities[id].activeTarget = false; });
@@ -852,7 +883,7 @@
                 && unit.x < map.size.x * 32 && unit.y < map.size.y * 32
                 && Number.isInteger(unit.facing) && unit.facing >= 0 && unit.facing <= 255
                 && (unit.motion === "idle" || unit.motion === "walk" || unit.motion === "attack" || unit.motion === "death")
-                && ((unit.kind === "zerg_zergling" || unit.kind === "terran_marine")
+                && (UNIT_TYPES[unit.kind]
                     && Number.isInteger(unit.owner) && unit.owner >= 0 && unit.owner <= 11
                     && Number.isInteger(unit.hp) && unit.hp >= 0
                     && Number.isInteger(unit.max_hp) && unit.max_hp >= unit.hp && unit.max_hp <= 10000
@@ -869,11 +900,22 @@
             throw new Error("RTS Bridge needs the matching native OpenRCT2 build and asset pack");
         }
 
-        let barracksObject = null;
+        const buildingObjects = {};
         if (typeof objectManager === "object") {
-            barracksObject = objectManager.getAllObjects("large_scenery").find(function (entry) {
-                return entry.identifier === BARRACKS_OBJECT;
-            }) || (typeof objectManager.load === "function" ? objectManager.load(BARRACKS_OBJECT) : null);
+            Object.keys(BUILDING_TYPES).forEach(function (id) {
+                const identifier = BUILDING_TYPES[id].objectID;
+                buildingObjects[id] = objectManager.getAllObjects("large_scenery").find(function (entry) {
+                    return entry.identifier === identifier;
+                }) || (typeof objectManager.load === "function" ? objectManager.load(identifier) : null);
+            });
+        }
+        const barracksObject = buildingObjects.terran_barracks;
+        function targetBuildingID(id, target) {
+            if (target && BUILDING_TYPES[target.type]) return target.type;
+            return Object.keys(buildingObjects).filter(function (type) {
+                const object = buildingObjects[type];
+                return object && id.startsWith("openrct2:large_scenery:" + object.index + ":");
+            })[0] || "";
         }
 
         let controlSession = "";
@@ -944,6 +986,7 @@
         let commandFeedback = "";
         let productionFeedback = "";
         let buildingStates = {};
+        let playerResources = {};
         function refreshBuildingAnimations() {
             if (!barracksObject || !controlSession) return;
             const prefix = "openrct2:large_scenery:" + barracksObject.index + ":";
@@ -1016,14 +1059,17 @@
                 if (missionStatus && missionStatus.session !== event.args.session) missionStatus = null;
             }
             controlSession = event.args.session;
+            if (sessionChanged) playerResources = {};
             if (sessionChanged) refreshBuildingAnimations();
             controlUnits = {};
             visible.forEach(function (unit) { controlUnits[unit.id] = unit; });
             occupancyUnits = {};
             event.args.units.forEach(function (unit) { occupancyUnits[unit.id] = unit; });
-            const marine = event.args.units.filter(function (unit) { return unit.kind === "terran_marine"; })[0];
-            if (marine && terranOwner !== marine.owner) {
-                terranOwner = marine.owner;
+            const playerUnit = event.args.units.filter(function (unit) {
+                return UNIT_TYPES[unit.kind] && UNIT_TYPES[unit.kind].controllable;
+            })[0];
+            if (playerUnit && terranOwner !== playerUnit.owner) {
+                terranOwner = playerUnit.owner;
                 if (network.mode === "server") markOwnerChange();
             }
             return {};
@@ -1091,6 +1137,7 @@
                     || !args.targets.every(function (item) {
                         return item && typeof item.id === "string" && item.id.length <= 256
                             && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(item.id)
+                            && (item.type === undefined || typeof item.type === "string")
                             && (item.health === undefined || (Number.isInteger(item.health)
                                 && item.health >= 0 && item.health <= 1000000))
                             && Array.isArray(item.rects) && item.rects.length > 0 && item.rects.length <= 8192
@@ -1135,7 +1182,7 @@
                         chunks: args.chunks, next: 0, targets: {} };
                 }
                 args.targets.forEach(function (item) {
-                    pendingTargetCatalog.targets[item.id] = { geometry: { rects: item.rects },
+                    pendingTargetCatalog.targets[item.id] = { type: item.type || "", geometry: { rects: item.rects },
                         health: item.health === undefined ? 100 : item.health };
                 });
                 pendingTargetCatalog.next++;
@@ -1255,32 +1302,35 @@
                         commanderPlayer = clients.length ? clients[0] : network.currentPlayer.id;
                     }
                     if (event.player !== commanderPlayer)
-                        return { error: 1, errorMessage: "Only the Terran commander may order Marines" };
+                        return { error: 1, errorMessage: "Only the Terran commander may order units" };
                 }
                 if (!args || args.session !== controlSession || !Number.isSafeInteger(args.request)
                     || args.request < 1 || !Array.isArray(args.unit_ids)
                     || args.unit_ids.length > 32
                     || !(["move", "attack", "attack_move", "hold", "stop", "train"].includes(args.verb))
                     || (args.verb === "train" ? args.unit_ids.length !== 0 : args.unit_ids.length < 1))
-                    return { error: 1, errorMessage: "Invalid Marine command" };
+                    return { error: 1, errorMessage: "Invalid unit command" };
                 if (seenCommandRequests[args.session + ":" + event.player + ":" + args.request])
                     return { error: 1, errorMessage: "Duplicate command request" };
                 if (args.verb === "train") {
                     const id = args.target_entity_id;
+                    const building = BUILDING_TYPES[targetBuildingID(id, worldTargetIds[id])];
+                    const requested = args.unit_type || "terran_marine";
                     if (typeof id !== "string" || !/^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(id)
                         || targetCatalogSession !== args.session || !worldTargetIds[id]
+                        || !building || !building.production.includes(requested) || !UNIT_TYPES[requested]
                         || !buildingStates[id] || buildingStates[id].owner !== terranOwner
                         || buildingStates[id].health < 1)
-                        return { error: 1, errorMessage: "Barracks is unavailable" };
+                        return { error: 1, errorMessage: "Production building is unavailable" };
                 }
                 const unique = {};
                 if (!args.unit_ids.every(function (id) {
                     const unit = controlUnits[id];
-                    if (!unit || unique[id] || unit.kind !== "terran_marine"
-                        || unit.owner !== terranOwner || unit.hp <= 0) return false;
+                    if (!controllable(unit, terranOwner) || unique[id]
+                        || !UNIT_TYPES[unit.kind].commands.includes(args.verb)) return false;
                     unique[id] = true;
                     return true;
-                })) return { error: 1, errorMessage: "Marine is unavailable" };
+                })) return { error: 1, errorMessage: "Unit is unavailable" };
                 if ((args.verb === "move" || args.verb === "attack_move")
                     && (!Number.isInteger(args.x) || !Number.isInteger(args.y)
                     || args.x < 0 || args.y < 0 || args.x >= map.size.x * 32 || args.y >= map.size.y * 32))
@@ -1290,7 +1340,7 @@
                     const structure = typeof args.target_entity_id === "string"
                         && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.target_entity_id)
                         && targetCatalogSession === args.session && worldTargetIds[args.target_entity_id];
-                    if ((!target || target.kind !== "zerg_zergling" || target.hp <= 0) && !structure)
+                    if ((!target || !UNIT_TYPES[target.kind] || target.owner === terranOwner || target.hp <= 0) && !structure)
                         return { error: 1, errorMessage: "Invalid attack target" };
                 }
                 if (network.mode === "server" && !(worldCommandSender))
@@ -1306,6 +1356,7 @@
                         unit: args.verb === "train" ? args.target_entity_id : args.unit_ids[0] };
                     const payload = { command_id: commandId, player_id: event.player,
                         request_id: args.request, unit_ids: args.unit_ids.slice(), verb: "unit." + args.verb };
+                    if (args.verb === "train") payload.unit_type = args.unit_type || "terran_marine";
                     if (args.verb === "move" || args.verb === "attack_move") {
                         payload.x = args.x; payload.y = args.y;
                     } else if (args.verb === "attack" || args.verb === "train")
@@ -1386,11 +1437,26 @@
                     && ["owner", "health", "queue", "remaining_frames", "minerals",
                         "supply_used", "supply_total"].every(function (field) {
                         return Number.isInteger(args[field]) && args[field] >= 0;
-                    }) && args.health <= 1000 && args.queue <= 5
+                    }) && args.health <= 1000000
+                    && (args.max_health === undefined || (Number.isInteger(args.max_health)
+                        && args.max_health >= args.health && args.max_health <= 1000000))
+                    && args.queue <= 5
                     ? {} : { error: 1, errorMessage: "Invalid native building state" };
             }, function (event) {
                 buildingStates[event.args.id] = event.args;
                 refreshBuildingAnimations();
+                return {};
+            });
+            context.registerAction(RESOURCE_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may publish native resources" };
+                return args.session === controlSession
+                    && ["owner", "minerals", "supply_used", "supply_total"].every(function (field) {
+                        return Number.isInteger(args[field]) && args[field] >= 0;
+                    }) ? {} : { error: 1, errorMessage: "Invalid native resources" };
+            }, function (event) {
+                playerResources[event.args.owner] = event.args;
                 return {};
             });
 
@@ -1450,13 +1516,21 @@
             let barracksPreview = null;
             let barracksPreviewStatus = "Select Barracks to place";
             let barracksQuery = 0;
+            let selectedBuildingID = "terran_barracks";
+            function selectedBuilding() { return BUILDING_TYPES[selectedBuildingID]; }
+            function selectedObject() { return buildingObjects[selectedBuildingID]; }
+            function placementToolID() { return selectedBuildingID === "terran_barracks"
+                ? "starcoaster.place-barracks" : "starcoaster.place-" + selectedBuildingID.replace(/_/g, "-"); }
+            function usingBuildingTool() { return !!ui.tool && ui.tool.id.startsWith("starcoaster.place-"); }
             const controlGroups = {};
             function footprintAt(point) {
                 if (!point) return null;
                 const x = Math.floor(point.x / 32), y = Math.floor(point.y / 32);
-                if (x < 1 || y < 1 || x + 4 >= map.size.x || y + 3 >= map.size.y) return null;
-                return { x: x, y: y, tiles: Array.from({ length: 12 }, function (_, index) {
-                    return { x: x + index % 4, y: y + Math.floor(index / 4) };
+                const building = selectedBuilding();
+                if (x < 1 || y < 1 || x + building.width >= map.size.x
+                    || y + building.height >= map.size.y) return null;
+                return { x: x, y: y, tiles: Array.from({ length: building.width * building.height }, function (_, index) {
+                    return { x: x + index % building.width, y: y + Math.floor(index / building.width) };
                 }) };
             }
             function footprintReason(footprint) {
@@ -1482,8 +1556,8 @@
                     const margin = 16;
                     return unit.hp > 0 && unit.x + margin > footprint.x * 32
                         && unit.y + margin > footprint.y * 32
-                        && unit.x - margin < (footprint.x + 4) * 32
-                        && unit.y - margin < (footprint.y + 3) * 32;
+                        && unit.x - margin < (footprint.x + selectedBuilding().width) * 32
+                        && unit.y - margin < (footprint.y + selectedBuilding().height) * 32;
                 })) return "A unit occupies this site";
                 return "";
             }
@@ -1495,7 +1569,7 @@
                 }
                 return { x: footprint.x * 32, y: footprint.y * 32,
                     z: Number.isInteger(surface.baseZ) ? surface.baseZ : surface.baseHeight * 8,
-                    direction: 0, object: barracksObject.index,
+                    direction: 0, object: selectedObject().index,
                     primaryColour: 0, secondaryColour: 0, tertiaryColour: 0 };
             }
             function updateConstructionStatus() {
@@ -1518,11 +1592,11 @@
                 });
             }
             function activateBarracksTool() {
-                if (!barracksObject || typeof context.queryAction !== "function") {
-                    ui.showError("Terran Barracks", "Barracks object is unavailable");
+                if (!selectedObject() || typeof context.queryAction !== "function") {
+                    ui.showError(selectedBuilding().name, "Construction object is unavailable");
                     return;
                 }
-                ui.activateTool({ id: "starcoaster.place-barracks", cursor: "cross_hair",
+                ui.activateTool({ id: placementToolID(), cursor: "cross_hair",
                     filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
                     onMove: previewBarracks,
                     onDown: function (event) {
@@ -1541,9 +1615,9 @@
                                     barracksPreviewStatus = result.errorMessage || "Construction failed";
                                     updateConstructionStatus();
                                 } else {
-                                    barracksPreviewStatus = "Barracks constructed";
+                                    barracksPreviewStatus = selectedBuilding().name + " constructed";
                                     updateConstructionStatus();
-                                    if (ui.tool && ui.tool.id === "starcoaster.place-barracks") ui.tool.cancel();
+                                    if (usingBuildingTool()) ui.tool.cancel();
                                 }
                             });
                         });
@@ -1556,25 +1630,31 @@
             }
             function openConstructionWindow() {
                 if (constructionWindow) { constructionWindow.bringToFront(); return; }
+                const catalog = Object.keys(BUILDING_TYPES);
+                const extraHeight = Math.max(0, catalog.length - 1) * 29;
                 constructionWindow = ui.openWindow({ classification: "starcoaster-construction",
-                    width: 238, height: 134, title: "StarCraft Construction",
+                    width: 238, height: 134 + extraHeight, title: "StarCraft Construction",
                     onClose: function () {
                         constructionWindow = null;
-                        if (ui.tool && ui.tool.id === "starcoaster.place-barracks") ui.tool.cancel();
+                        if (usingBuildingTool()) ui.tool.cancel();
                     }, widgets: [
                         { type: "label", x: 8, y: 19, width: 220, height: 14, text: "Terran" },
-                        { type: "button", x: 8, y: 35, width: 220, height: 26,
-                            text: "Barracks  |  4 x 3 tiles", onClick: activateBarracksTool },
-                        { type: "label", x: 8, y: 68, width: 220, height: 14,
-                            text: "Zerg and Protoss buildings coming later" },
-                        { type: "label", name: "barracks-status", x: 8, y: 93, width: 220, height: 28,
+                    ].concat(catalog.map(function (id, index) {
+                        const building = BUILDING_TYPES[id];
+                        return { type: "button", x: 8, y: 35 + index * 29, width: 220, height: 26,
+                            text: building.name.replace(/^(Terran|Zerg|Protoss) /, "") + "  |  "
+                                + building.width + " x " + building.height + " tiles",
+                            onClick: function () { selectedBuildingID = id; activateBarracksTool(); } };
+                    }), [
+                        { type: "label", name: "barracks-status", x: 8,
+                            y: 93 + extraHeight, width: 220, height: 28,
                             text: barracksPreviewStatus }
-                    ] });
+                    ]) });
             }
             if (typeof ui.registerMenuItem === "function")
                 ui.registerMenuItem("StarCraft Construction", openConstructionWindow);
             const squadWindow = ui.openWindow({ classification: "starcoaster-squad",
-                width: 248, height: 211, title: "Frontier Outpost", widgets: [
+                width: 248, height: 231, title: "Frontier Outpost", widgets: [
                     { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
                         text: "Waiting for battlefield" },
                     { type: "label", x: 8, y: 38, width: 232, height: 14,
@@ -1599,6 +1679,8 @@
                     { type: "label", name: "wave-countdown", x: 100, y: 167, width: 140, height: 14,
                         text: "Waiting for wave status" },
                     { type: "label", name: "wave-feedback", x: 8, y: 188, width: 232, height: 14,
+                        text: "" },
+                    { type: "label", name: "player-resources", x: 8, y: 207, width: 232, height: 14,
                         text: "" }
                 ] });
             function requestWave() {
@@ -1631,23 +1713,23 @@
                 }
                 selected = selected.filter(function (id) {
                     const unit = controlUnits[id];
-                    return unit && unit.kind === "terran_marine" && unit.hp > 0;
+                    return controllable(unit, terranOwner);
                 });
                 Object.keys(controlGroups).forEach(function (number) {
                     controlGroups[number] = controlGroups[number].filter(function (id) {
                         const unit = controlUnits[id];
-                        return unit && unit.kind === "terran_marine" && unit.hp > 0;
+                        return controllable(unit, terranOwner);
                     });
                 });
 
-                    const tiles = ui.tool && ui.tool.id === "starcoaster.place-barracks" && barracksPreview
+                    const tiles = usingBuildingTool() && barracksPreview
                         ? barracksPreview.tiles.map(function (tile) { return { x: tile.x * 32, y: tile.y * 32 }; })
                         : spawnMode && spawnPreview ? [spawnPreview] : selected.map(function (id) {
                         const unit = controlUnits[id];
                         return { x: Math.floor(unit.x / 32) * 32, y: Math.floor(unit.y / 32) * 32 };
                     });
                     const key = JSON.stringify(tiles);
-                    if (ui.tool && !spawnMode && ui.tool.id !== "starcoaster.place-barracks") highlightedTiles = "";
+                    if (ui.tool && !spawnMode && !usingBuildingTool()) highlightedTiles = "";
                     else if (key !== highlightedTiles) {
                         ui.tileSelection.tiles = tiles;
                         highlightedTiles = key;
@@ -1658,8 +1740,15 @@
                     if (missionStatus && missionStatus.session === controlSession)
                         squadWindow.title = missionStatus.display_name;
                     const info = squadWindow.findWidget("selection");
-                    if (info) info.text = selected.length + " Marine" + (selected.length === 1 ? "" : "s")
+                    const selectionName = selected.length && selected.every(function (id) {
+                        return controlUnits[id].kind === controlUnits[selected[0]].kind;
+                    }) ? UNIT_TYPES[controlUnits[selected[0]].kind].name : "Unit";
+                    if (info) info.text = selected.length + " " + selectionName + (selected.length === 1 ? "" : "s")
                         + " selected" + (selected.length === 1 ? " | HP " + controlUnits[selected[0]].hp : "");
+                    const resources = squadWindow.findWidget("player-resources");
+                    const report = playerResources[terranOwner];
+                    if (resources) resources.text = report ? "Minerals: " + report.minerals
+                        + "  Supply: " + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
                     const objective = squadWindow.findWidget("objective");
                     if (objective) objective.text = missionStatus && missionStatus.session === controlSession
                         ? (missionStatus.mode === "park_defense"
@@ -1715,8 +1804,8 @@
                 let closest = null, best = Infinity;
                 Object.keys(controlUnits).forEach(function (id) {
                     const unit = controlUnits[id];
-                    if (unit.hp <= 0 || (ownedOnly
-                        && (unit.kind !== "terran_marine" || unit.owner !== terranOwner))) return;
+                    if (unit.hp <= 0 || !UNIT_TYPES[unit.kind]
+                        || (ownedOnly && !controllable(unit, terranOwner))) return;
                     const screen = rtsBridge.actorScreenPosition(id);
                     if (!screen) return;
                     const scale = screen.scale || 1;
@@ -1743,7 +1832,7 @@
                 const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
                 const inside = Object.keys(controlUnits).filter(function (id) {
                     const unit = controlUnits[id];
-                    if (unit.kind !== "terran_marine" || unit.hp <= 0 || unit.owner !== terranOwner)
+                    if (!controllable(unit, terranOwner))
                         return false;
                     const screen = rtsBridge.actorScreenPosition(id);
                     return screen && screen.x >= left && screen.x <= right
@@ -1794,7 +1883,7 @@
                             && point.x < rect.x + rect.width && point.y < rect.y + rect.height;
                     });
                 })[0];
-                let verb = target && target.kind === "zerg_zergling" ? "attack" : "move";
+                let verb = target && UNIT_TYPES[target.kind] && target.owner !== terranOwner ? "attack" : "move";
                 const extras = {};
                 if (verb === "attack") extras.target_id = hit;
                 else if (structure) { verb = "attack"; extras.target_entity_id = structure; }
@@ -1847,22 +1936,26 @@
                 ui.tileSelection.range = null;
             }
             function barracksAt(event) {
-                if (!barracksObject || !event || !event.mapCoords || event.alt) return null;
+                if (!event || !event.mapCoords || event.alt) return null;
                 const point = event.mapCoords;
                 const x = Math.floor(point.x / 32), y = Math.floor(point.y / 32);
                 if (x < 0 || y < 0 || x >= map.size.x || y >= map.size.y) return null;
                 const tile = map.getTile(x, y);
                 for (let index = 0; index < tile.numElements; index++) {
                     const element = tile.getElement(index);
-                    if (element.type === "large_scenery" && !element.isGhost
-                        && element.object === barracksObject.index) return point;
+                    if (element.type === "large_scenery" && !element.isGhost) {
+                        const id = Object.keys(buildingObjects).filter(function (type) {
+                            return buildingObjects[type] && buildingObjects[type].index === element.object;
+                        })[0];
+                        if (id) return { x: point.x, y: point.y, buildingID: id };
+                    }
                 }
                 return null;
             }
             function barracksTargetAt(point) {
-                const prefix = "openrct2:large_scenery:" + barracksObject.index + ":";
                 return Object.keys(worldTargetIds).filter(function (id) {
-                    return id.startsWith(prefix) && worldTargetIds[id].geometry.rects.some(function (rect) {
+                    return !!targetBuildingID(id, worldTargetIds[id])
+                        && worldTargetIds[id].geometry.rects.some(function (rect) {
                         return point.x >= rect.x && point.x < rect.x + rect.width
                             && point.y >= rect.y && point.y < rect.y + rect.height;
                     });
@@ -1870,9 +1963,15 @@
             }
             function openBarracksInfo(point) {
                 barracksInfoID = barracksTargetAt(point);
+                const initial = worldTargetIds[barracksInfoID];
+                const buildingID = targetBuildingID(barracksInfoID, initial) || point.buildingID;
+                const building = BUILDING_TYPES[buildingID];
+                if (!building) return;
                 if (barracksInfoWindow) barracksInfoWindow.close();
-                barracksInfoWindow = ui.openWindow({ classification: "starcoaster-barracks-info",
-                    width: 244, height: 190, title: "Terran Barracks",
+                barracksInfoWindow = ui.openWindow({ classification: buildingID === "terran_barracks"
+                    ? "starcoaster-barracks-info" : "starcoaster-building-info",
+                    width: 244, height: 168 + building.production.length * 26,
+                    title: building.name,
                     onClose: function () { barracksInfoWindow = null; },
                     onUpdate: function () {
                         if (!barracksInfoWindow) return;
@@ -1886,21 +1985,25 @@
                         const queue = barracksInfoWindow.findWidget("building-queue");
                         const resources = barracksInfoWindow.findWidget("building-resources");
                         const feedback = barracksInfoWindow.findWidget("building-feedback");
-                        const train = barracksInfoWindow.findWidget("building-train");
                         if (owner) owner.text = "Owner: Terran (player " + (native ? native.owner : terranOwner) + ")";
                         if (identity) identity.text = barracksInfoID || "Awaiting world identity";
-                        if (health) health.text = native ? "Health: " + native.health + "/1000"
+                        if (health) health.text = native ? "Health: " + native.health + "/" + (native.max_health || 1000)
                             : target ? "Health: " + target.health : "Health: awaiting native state";
                         if (status) status.text = target && native ? "Construction: complete"
                             : "Construction: synchronizing";
                         if (queue) queue.text = native ? "Queue: " + native.queue
                             + (native.queue ? " (" + Math.ceil(native.remaining_frames / 24) + "s remaining)" : "")
                             : "Queue: awaiting native state";
-                        if (resources) resources.text = native ? "Minerals: " + native.minerals
-                            + "  Supply: " + (native.supply_used / 2) + "/" + (native.supply_total / 2) : "";
+                        const report = playerResources[terranOwner] || native;
+                        if (resources) resources.text = report ? "Minerals: " + report.minerals
+                            + "  Supply: " + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
                         if (feedback) feedback.text = productionFeedback;
-                        if (train) train.isDisabled = !target || !native || native.health < 1
-                            || native.queue >= 5 || native.owner !== terranOwner;
+                        building.production.forEach(function (unitID) {
+                            const button = barracksInfoWindow.findWidget(unitID === "terran_marine"
+                                ? "building-train" : "building-train-" + unitID);
+                            if (button) button.isDisabled = !target || !native || native.health < 1
+                                || native.queue >= 5 || native.owner !== terranOwner;
+                        });
                     }, widgets: [
                         { type: "label", name: "building-owner", x: 8, y: 19, width: 228,
                             height: 14, text: "Owner: Terran" },
@@ -1914,20 +2017,26 @@
                             height: 14, text: "Queue: awaiting native state" },
                         { type: "label", name: "building-resources", x: 8, y: 109, width: 228,
                             height: 14, text: "" },
-                        { type: "button", name: "building-train", x: 8, y: 130, width: 228, height: 22,
-                            text: "Train Marine", isDisabled: true,
+                    ].concat(building.production.map(function (unitID, index) {
+                        return { type: "button", name: unitID === "terran_marine"
+                            ? "building-train" : "building-train-" + unitID,
+                            x: 8, y: 130 + index * 26, width: 228, height: 22,
+                            text: "Train " + UNIT_TYPES[unitID].name, isDisabled: true,
                             onClick: function () {
                                 if (!barracksInfoID) return;
-                                productionFeedback = "Requesting Marine training...";
+                                productionFeedback = "Requesting " + UNIT_TYPES[unitID].name + " training...";
                                 context.executeAction(COMMAND_ACTION, { session: controlSession,
                                     request: ++nextRequest, unit_ids: [], verb: "train",
+                                    unit_type: unitID,
                                     target_entity_id: barracksInfoID }, function (result) {
                                     if (result.error) productionFeedback = result.errorMessage;
                                 });
-                            } },
-                        { type: "label", name: "building-feedback", x: 8, y: 158, width: 228,
+                            } };
+                    }), [
+                        { type: "label", name: "building-feedback", x: 8,
+                            y: 158 + Math.max(0, building.production.length - 1) * 26, width: 228,
                             height: 24, text: "" }
-                    ] });
+                    ]) });
             }
             if (typeof ui.registerViewportInteraction !== "function")
                 throw new Error("RTS Bridge needs the native shared viewport input build");

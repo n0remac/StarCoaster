@@ -96,6 +96,7 @@ public:
                         {{"id", id}, {"native_id", link.proxyID},
                          {"owner", unit->getPlayer()->getID()},
                          {"health", unit->getHitPoints()},
+                         {"max_health", unit->getType().maxHitPoints()},
                          {"queue", unit->getTrainingQueue().size()},
                          {"remaining_frames", unit->getRemainingTrainTime()},
                          {"minerals", unit->getPlayer()->minerals()},

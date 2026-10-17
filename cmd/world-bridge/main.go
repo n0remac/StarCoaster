@@ -1568,6 +1568,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			NativeID        string `json:"native_id"`
 			Owner           int    `json:"owner"`
 			Health          int    `json:"health"`
+			MaxHealth       int    `json:"max_health"`
 			Queue           int    `json:"queue"`
 			RemainingFrames int    `json:"remaining_frames"`
 			Minerals        int    `json:"minerals"`
@@ -1581,7 +1582,8 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		if m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
 			!exists || entity.Kind != "structure" || !supportedProductionBuilding(entity.Type) ||
 			s.registry.Destroyed[state.ID] || s.proxies[state.ID] != state.NativeID ||
-			entity.Owner != state.Owner || state.Health < 0 || state.Health > 1000 ||
+			entity.Owner != state.Owner || state.Health < 0 || state.Health > 1000000 ||
+			(state.MaxHealth != 0 && (state.MaxHealth < state.Health || state.MaxHealth > 1000000)) ||
 			state.Queue < 0 || state.Queue > 5 || state.RemainingFrames < 0 ||
 			state.Minerals < 0 || state.SupplyUsed < 0 || state.SupplyTotal < 0 {
 			return

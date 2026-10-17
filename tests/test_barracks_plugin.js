@@ -139,8 +139,16 @@ assert.equal(info.findWidget('building-train').isDisabled, false);
 info.findWidget('building-train').onClick();
 assert.equal(orders.length, 1);
 assert.equal(orders[0].verb, 'train');
+assert.equal(orders[0].unit_type, 'terran_marine');
 assert.equal(orders[0].target_entity_id, targetID);
 assert.equal(orders[0].unit_ids.length, 0);
+const resourcesAction = actions.get('rtsbridge.playerResources');
+const resources = { session: 'a'.repeat(32), owner: 1, minerals: 999,
+    supply_used: 12, supply_total: 16 };
+assert.equal(resourcesAction.query({ player: 1, args: resources }).error, undefined);
+resourcesAction.execute({ player: 1, args: resources });
+info.desc.onUpdate();
+assert.match(info.findWidget('building-resources').text, /Minerals: 999/);
 passive.onDown(event);
 assert.equal(passive.onUp(event), true);
 assert.equal(closedWindows, 1, 'opening an existing Barracks closes its earlier info window');
