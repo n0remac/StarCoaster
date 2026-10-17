@@ -37,6 +37,8 @@ inline const std::vector<WorldUnitType>& worldUnitTypes() {
         {"terran_vulture", BWAPI::UnitTypes::Terran_Vulture, "terran", "player", true, false, "terran_vulture", 0},
         {"terran_goliath", BWAPI::UnitTypes::Terran_Goliath, "terran", "player", true, false, "terran_goliath", 0},
         {"zerg_zergling", BWAPI::UnitTypes::Zerg_Zergling, "zerg", "enemy", false, true, "zerg_zergling", 2000},
+        {"zerg_hydralisk", BWAPI::UnitTypes::Zerg_Hydralisk, "zerg", "enemy", false, true, "zerg_hydralisk", 0},
+        {"zerg_ultralisk", BWAPI::UnitTypes::Zerg_Ultralisk, "zerg", "enemy", false, true, "zerg_ultralisk", 0},
 
         // END GENERATED STARCRAFT UNITS
     };

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "kind": "unit",
+  "id": "zerg_hydralisk",
+  "registry_order": 70,
+  "native_type": "Zerg_Hydralisk",
+  "race": "zerg",
+  "ownership": "enemy",
+  "display_name": "Hydralisk",
+  "controllable": false,
+  "movement": "ground",
+  "spawnable": true,
+  "legacy_static_base": 0,
+  "commands": [],
+  "visual": {
+    "asset": "hydralisk",
+    "g2_order": 7,
+    "image": "Hydralisk",
+    "source": "unit/zerg/hydra.grp",
+    "canvas": [128, 128],
+    "frame_count": 297,
+    "stride": 17,
+    "animations": {
+      "idle": {"banks": [0], "ticks": 0},
+      "walk": {"banks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "ticks": 4},
+      "attack": {"banks": [11, 12, 13, 14, 15], "ticks": 2},
+      "death": {"banks": [15, 16], "ticks": 3}
+    },
+    "health_offset": [-10, -35],
+    "bounds": [15, 15, 24]
+  }
+}

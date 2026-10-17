@@ -107,6 +107,32 @@
       "legacy_static_base": 2000,
       "commands": [],
       "visual": "zerg_zergling"
+    },
+    {
+      "id": "zerg_hydralisk",
+      "native_type": "Zerg_Hydralisk",
+      "race": "zerg",
+      "ownership": "enemy",
+      "display_name": "Hydralisk",
+      "controllable": false,
+      "movement": "ground",
+      "spawnable": true,
+      "legacy_static_base": 0,
+      "commands": [],
+      "visual": "zerg_hydralisk"
+    },
+    {
+      "id": "zerg_ultralisk",
+      "native_type": "Zerg_Ultralisk",
+      "race": "zerg",
+      "ownership": "enemy",
+      "display_name": "Ultralisk",
+      "controllable": false,
+      "movement": "ground",
+      "spawnable": true,
+      "legacy_static_base": 0,
+      "commands": [],
+      "visual": "zerg_ultralisk"
     }
   ],
   "buildings": [

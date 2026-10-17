@@ -62,16 +62,23 @@ class EntityDeclarationTests(unittest.TestCase):
 
     def ghost(self):
         ghost = json.loads(self.entity("terran_marine").read_text())
+        declarations = [json.loads(path.read_text()) for path in
+                        (self.root / "bridge-protocol/entities").glob("*.json")]
+        unit_order = max(item["registry_order"] for item in declarations if item["kind"] == "unit")
+        bank_order = max(item["visual"]["g2_order"] for item in declarations if item["kind"] == "unit")
         ghost.update(id="terran_ghost", native_type="Terran_Ghost", display_name="Ghost",
-                     registry_order=70, spawnable=False, legacy_static_base=0,
+                     registry_order=unit_order + 10, spawnable=False, legacy_static_base=0,
                      produced_at="terran_barracks")
-        ghost["visual"].update(asset="ghost", g2_order=7, source="unit/terran/ghost.grp")
+        ghost["visual"].update(asset="ghost", g2_order=bank_order + 1, source="unit/terran/ghost.grp")
         return ghost
 
     def starport(self):
         building = json.loads(self.entity("terran_academy").read_text())
+        building_order = max(json.loads(path.read_text())["registry_order"] for path in
+                             (self.root / "bridge-protocol/entities").glob("*.json")
+                             if json.loads(path.read_text())["kind"] == "building")
         building.update(id="terran_starport", native_type="Terran_Starport",
-                        display_name="Terran Starport", registry_order=60,
+                        display_name="Terran Starport", registry_order=building_order + 10,
                         object_id="starcoaster.scenery_large.terran_starport",
                         width=4, height=3, max_health=1300)
         building["visual"].update(image="Starport", asset="starport")
@@ -92,8 +99,8 @@ class EntityDeclarationTests(unittest.TestCase):
         barracks = next(building for building in catalog["buildings"] if building["id"] == "terran_barracks")
         self.assertEqual(barracks["production"],
                          ["terran_marine", "terran_firebat", "terran_medic", "terran_ghost"])
-        self.assertEqual([unit for unit in catalog["units"] if unit["id"] != "terran_ghost"],
-                         BASELINE["catalogs"]["starcraft-types.json"]["units"])
+        established = BASELINE["catalogs"]["starcraft-types.json"]["units"]
+        self.assertEqual(catalog["units"][:len(established)], established)
         self.assertIn('"terran_ghost": {ID: "terran_ghost", NativeType: "Terran_Ghost"',
                       (self.root / "internal/world/starcraft_types.go").read_text())
         self.assertIn('BWAPI::UnitTypes::Terran_Ghost',
@@ -120,8 +127,8 @@ class EntityDeclarationTests(unittest.TestCase):
         g2.write_text(extended)
         paths = [entry["path"] for entry in json.loads(extended)]
         self.assertEqual(paths[:len(BASELINE["sprite_paths"])], BASELINE["sprite_paths"])
-        self.assertEqual(paths.index("bridge/ghost/idle0_east.png"), len(BASELINE["sprite_paths"]))
-        self.assertEqual(len(paths) - len(BASELINE["sprite_paths"]), 67)
+        self.assertGreaterEqual(paths.index("bridge/ghost/idle0_east.png"), len(BASELINE["sprite_paths"]))
+        self.assertEqual(len(paths) - paths.index("bridge/ghost/idle0_east.png"), 67)
         registry = module(self.root / "scripts/generate-starcraft-visual-registry.py", "fixture_registry")
         paint = self.root / "upstream/openrct2/src/openrct2/paint"
         paint.mkdir(parents=True)

@@ -421,6 +421,135 @@
         12,
         18
       ]
+    },
+    "zerg_hydralisk": {
+      "asset": "hydralisk",
+      "g2_order": 7,
+      "image": "Hydralisk",
+      "source": "unit/zerg/hydra.grp",
+      "canvas": [
+        128,
+        128
+      ],
+      "frame_count": 297,
+      "stride": 17,
+      "animations": {
+        "idle": {
+          "banks": [
+            0
+          ],
+          "ticks": 0
+        },
+        "walk": {
+          "banks": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "ticks": 4
+        },
+        "attack": {
+          "banks": [
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "ticks": 2
+        },
+        "death": {
+          "banks": [
+            15,
+            16
+          ],
+          "ticks": 3
+        }
+      },
+      "health_offset": [
+        -10,
+        -35
+      ],
+      "bounds": [
+        15,
+        15,
+        24
+      ]
+    },
+    "zerg_ultralisk": {
+      "asset": "ultralisk",
+      "g2_order": 8,
+      "image": "Ultralisk",
+      "source": "unit/zerg/ultra.grp",
+      "canvas": [
+        128,
+        128
+      ],
+      "frame_count": 265,
+      "stride": 17,
+      "animations": {
+        "idle": {
+          "banks": [
+            0
+          ],
+          "ticks": 0
+        },
+        "walk": {
+          "banks": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "ticks": 4
+        },
+        "attack": {
+          "banks": [
+            10,
+            11,
+            12,
+            13,
+            14
+          ],
+          "ticks": 2
+        },
+        "death": {
+          "frames": [
+            255,
+            256,
+            257,
+            258,
+            259,
+            260,
+            261,
+            262,
+            263,
+            264
+          ],
+          "ticks": 2
+        }
+      },
+      "health_offset": [
+        -12,
+        -53
+      ],
+      "bounds": [
+        24,
+        24,
+        36
+      ]
     }
   },
   "effects": {

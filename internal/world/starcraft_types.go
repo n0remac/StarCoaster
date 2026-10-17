@@ -25,6 +25,8 @@ var unitDefinitions = map[string]UnitDefinition{
 	"terran_vulture": {ID: "terran_vulture", NativeType: "Terran_Vulture", Race: "terran", Ownership: "player", DisplayName: "Vulture", Visual: "terran_vulture", Movement: "ground", Controllable: true, Spawnable: false, LegacyStaticBase: 0, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
 	"terran_goliath": {ID: "terran_goliath", NativeType: "Terran_Goliath", Race: "terran", Ownership: "player", DisplayName: "Goliath", Visual: "terran_goliath", Movement: "ground", Controllable: true, Spawnable: false, LegacyStaticBase: 0, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
 	"zerg_zergling": {ID: "zerg_zergling", NativeType: "Zerg_Zergling", Race: "zerg", Ownership: "enemy", DisplayName: "Zergling", Visual: "zerg_zergling", Movement: "ground", Controllable: false, Spawnable: true, LegacyStaticBase: 2000, Commands: []string{}},
+	"zerg_hydralisk": {ID: "zerg_hydralisk", NativeType: "Zerg_Hydralisk", Race: "zerg", Ownership: "enemy", DisplayName: "Hydralisk", Visual: "zerg_hydralisk", Movement: "ground", Controllable: false, Spawnable: true, LegacyStaticBase: 0, Commands: []string{}},
+	"zerg_ultralisk": {ID: "zerg_ultralisk", NativeType: "Zerg_Ultralisk", Race: "zerg", Ownership: "enemy", DisplayName: "Ultralisk", Visual: "zerg_ultralisk", Movement: "ground", Controllable: false, Spawnable: true, LegacyStaticBase: 0, Commands: []string{}},
 }
 
 var buildingDefinitions = map[string]BuildingDefinition{

@@ -20,7 +20,7 @@
         "required": ["id", "kind", "owner", "x", "y", "facing", "motion", "hp", "max_hp", "alive", "attack_frames", "target_id"],
         "properties": {
           "id": { "$ref": "#/$defs/unitId" },
-          "kind": { "enum": ["terran_marine", "terran_firebat", "terran_medic", "terran_vulture", "terran_goliath", "zerg_zergling"] },
+          "kind": { "enum": ["terran_marine", "terran_firebat", "terran_medic", "terran_vulture", "terran_goliath", "zerg_zergling", "zerg_hydralisk", "zerg_ultralisk"] },
           "owner": { "type": "integer", "minimum": 0, "maximum": 11 },
           "x": { "type": "integer", "minimum": 0 },
           "y": { "type": "integer", "minimum": 0 },

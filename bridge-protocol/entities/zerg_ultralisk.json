@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "kind": "unit",
+  "id": "zerg_ultralisk",
+  "registry_order": 80,
+  "native_type": "Zerg_Ultralisk",
+  "race": "zerg",
+  "ownership": "enemy",
+  "display_name": "Ultralisk",
+  "controllable": false,
+  "movement": "ground",
+  "spawnable": true,
+  "legacy_static_base": 0,
+  "commands": [],
+  "visual": {
+    "asset": "ultralisk",
+    "g2_order": 8,
+    "image": "Ultralisk",
+    "source": "unit/zerg/ultra.grp",
+    "canvas": [128, 128],
+    "frame_count": 265,
+    "stride": 17,
+    "animations": {
+      "idle": {"banks": [0], "ticks": 0},
+      "walk": {"banks": [1, 2, 3, 4, 5, 6, 7, 8, 9], "ticks": 4},
+      "attack": {"banks": [10, 11, 12, 13, 14], "ticks": 2},
+      "death": {"frames": [255, 256, 257, 258, 259, 260, 261, 262, 263, 264], "ticks": 2}
+    },
+    "health_offset": [-12, -53],
+    "bounds": [24, 24, 36]
+  }
+}
