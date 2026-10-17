@@ -154,6 +154,8 @@ def parse_args(argv=None):
                         help="native frame delay (Mt. Zergling defaults to normal 42 ms; other captures use 70 ms)")
     parser.add_argument("--no-video", action="store_true", help="capture screenshots and logs without FFmpeg")
     parser.add_argument("--cycle-rotations", action="store_true", help="save screenshots from all four park views")
+    parser.add_argument("--mixed-zerg-camera", action="store_true",
+                        help="follow the Frontier mixed wave from two camera angles")
     parser.add_argument("--ridge-probe", action="store_true", help="run the test-only cliff, slope and combat driver on client A")
     parser.add_argument("--ridge-assault", action="store_true", help="test native Zergling approach from below the saved ridge")
     parser.add_argument("--live-construction", action="store_true",
@@ -228,6 +230,9 @@ def parse_args(argv=None):
     if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault
                                              or args.cycle_rotations or args.live_construction):
         parser.error("Frontier visual probes require --scenario frontier-outpost")
+    if args.mixed_zerg_camera and (scenario_id != "frontier-outpost" or args.video_layout == "single"
+                                  or args.cycle_rotations):
+        parser.error("--mixed-zerg-camera requires Frontier and two clients without --cycle-rotations")
     if not args.world_256:
         try:
             args.plan = resolve(scenario_id)
@@ -279,7 +284,8 @@ def main():
                               "medic_vulture_probe": args.medic_vulture_probe,
                               "armory_goliath_probe": args.armory_goliath_probe,
                               "navigation_baseline": args.navigation_baseline,
-                              "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
+                              "world_256": args.world_256, "cycle_rotations": args.cycle_rotations,
+                              "mixed_zerg_camera": args.mixed_zerg_camera})
     out = run.output
     if args.live_construction or args.navigation_baseline:
         server_plugins = out / "server-data/plugin"
@@ -324,7 +330,8 @@ def main():
     startup_seconds = None
     ready_memory = None
     try:
-        if not args.world_256 and not args.ridge_assault and not args.navigation_baseline:
+        if not args.world_256 and not args.ridge_assault and not args.navigation_baseline \
+                and not args.mixed_zerg_camera:
             packaged_command, native_map = prepare_packaged_session(args.plan, out, env)
             run.manifest["capture_config"]["native_map"] = str(native_map)
         for name, display in displays:
@@ -361,6 +368,35 @@ def main():
             session_command = [str(ROOT / "scripts/run-world-session.sh"),
                                str(ROOT / "run-data/layered-navigation/layered-navigation.park")]
             run.manifest["capture_config"].update(native_map=str(test_map), park=session_command[-1])
+        elif args.mixed_zerg_camera:
+            scenario = json.loads((ROOT / "scenarios/frontier-outpost/scenario.json").read_text())
+            scenario.update(scenario_id="frontier-mixed-capture",
+                            display_name="Frontier Mixed Zerg Capture", mode="park_defense",
+                            objectives=[], waves=[], victory={}, defeat={},
+                            initial_ai={"strategy": "park_defense", "delay_frames": 0},
+                            park_defense={"initial_delay_frames": 500,
+                                          "interval_frames": 2880,
+                                          "manual_cooldown_frames": 360,
+                                          "spawn_zones": ["south-approach", "east-entrance"],
+                                          "wave_tiers": [{"from_wave": 1, "groups": [
+                                              {"unit_type": "zerg_zergling", "count": 4},
+                                              {"unit_type": "zerg_hydralisk", "count": 2},
+                                              {"unit_type": "zerg_ultralisk", "count": 1}]}]})
+            scenario["starting_units"]["marines"] += [
+                [33, 47], [34, 47], [33, 48], [34, 48]]
+            scenario["starting_units"]["zerglings"] = []
+            test_scenario = out / "mixed-zerg-capture-scenario.json"
+            test_scenario.write_text(json.dumps(scenario, indent=2) + "\n")
+            test_map = out / "mixed-zerg-capture.scm"
+            subprocess.run(["python3", str(ROOT / "scripts/create-world-base-map.py"),
+                            "--scenario", str(test_scenario), "--output", str(test_map)],
+                           cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+            env.update(BRIDGE_MAP_FILE=str(test_map), BRIDGE_SCENARIO_CONFIG=str(test_scenario),
+                       BRIDGE_RULES_CONFIG=str(ROOT / "scenarios/frontier-outpost/mapping.json"))
+            session_command = [str(ROOT / "scripts/run-world-session.sh"),
+                               str(ROOT / "run-data/frontier-playable/save/frontier-outpost-playable.park")]
+            run.manifest["capture_config"].update(native_map=str(test_map),
+                                                   scenario_fixture=str(test_scenario))
         elif args.ridge_assault:
             scenario = json.loads((ROOT / "scenarios/frontier-outpost/scenario.json").read_text())
             scenario["starting_units"]["zerglings"] = [
@@ -465,6 +501,11 @@ def main():
             if args.cycle_rotations:
                 (data_dir / "plugin/frontier-camera.js").write_text(
                     (ROOT / "scripts/frontier-camera.js").read_text())
+            if args.mixed_zerg_camera:
+                source = (ROOT / "scripts/mixed-zerg-camera.js").read_text()
+                if name == "client-b":
+                    source = "var STARCOASTER_MIXED_SECOND_ANGLE = true;\n" + source
+                (data_dir / "plugin/mixed-zerg-camera.js").write_text(source)
             command = [str(ROOT / "build/openrct2/openrct2"), "join", "127.0.0.1",
                        "--port=11753", f"--rct2-data-path={rct2}",
                        f"--openrct2-data-path={DATA}", f"--user-data-path={data_dir}"]
@@ -947,13 +988,18 @@ def main():
         (out / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
         (out / "scenario-config.json").write_text((ROOT / "scenarios/world-256-scale-map.json"
             if args.world_256 else ROOT / "tests/fixtures/navigation-occlusion-baseline.json"
-            if args.navigation_baseline else Path(args.plan["scenario"])).read_text())
+            if args.navigation_baseline else out / "mixed-zerg-capture-scenario.json"
+            if args.mixed_zerg_camera else Path(args.plan["scenario"])).read_text())
         verifier = ("verify-world-256-capture.py" if args.world_256 else
                     "verify-frontier-capture.py" if scenario_id == "frontier-outpost" else
                     "verify-scenario-capture.py")
         subprocess.run(["python3", str(ROOT / "scripts" / verifier), str(out)],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         detailed = json.loads((out / "verification.json").read_text())
+        if args.mixed_zerg_camera:
+            subprocess.run(["python3", str(ROOT / "scripts/verify-mixed-zerg-capture.py"),
+                            str(out)], cwd=ROOT, check=False, stdout=subprocess.DEVNULL)
+            detailed = json.loads((out / "verification.json").read_text())
         if args.barracks_training_probe:
             animation_hashes = {}
             for name, _ in displays:
