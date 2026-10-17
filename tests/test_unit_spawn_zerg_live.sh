@@ -72,7 +72,9 @@ for actor in expected:
     if server.count('actor-spawn id=' + actor) != 1 or not re.search(
             r'actor binding id=' + actor + r' participant=controller native=\d+ active=true', server):
         raise SystemExit(f'missing unique native Zergling binding for {actor}')
-if len(re.findall(r'native spawn issued request=[^ ]+ index=[0-4] type=zerg_zergling', server)) != 5:
+# OpenRCT2 and OpenBW share this log stream; their writes can interleave in
+# the request prefix. The native index/type suffix remains the evidence here.
+if len(re.findall(r'index=[0-4] type=zerg_zergling x=\d+', server)) != 5:
     raise SystemExit('five sequential native Zergling creations were not issued')
 combat = (root / 'client-a.log').read_text(errors='replace')
 if not re.search(r'openbw:3001,\d+,\d+,\d+,attack,\d+,zerg_zergling,\d+,35,0,[1-9]\d*', combat):
