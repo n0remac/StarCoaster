@@ -1568,7 +1568,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			NativeID        string `json:"native_id"`
 			Owner           int    `json:"owner"`
 			Health          int    `json:"health"`
-			MaxHealth       int    `json:"max_health"`
+			MaxHealth       int    `json:"max_health,omitempty"`
 			Queue           int    `json:"queue"`
 			RemainingFrames int    `json:"remaining_frames"`
 			Minerals        int    `json:"minerals"`
