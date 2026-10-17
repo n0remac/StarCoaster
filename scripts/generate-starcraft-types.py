@@ -28,6 +28,38 @@ def native_names():
     return set(re.findall(r"constexpr UnitType\s+([A-Za-z0-9_]+)\{Enum::", BWAPI_TYPES.read_text()))
 
 
+def validate_animation(profile, label, required_death=True):
+    if (not isinstance(profile.get("source"), str) or not profile["source"].lower().endswith(".grp")
+            or not isinstance(profile.get("asset"), str) or not TYPE_ID.fullmatch(profile["asset"])
+            or not isinstance(profile.get("stride"), int) or profile["stride"] < 1
+            or not isinstance(profile.get("frame_count", profile.get("minimum_frame_count")), int)
+            or not isinstance(profile.get("canvas", [32, 32]), list)):
+        raise ValueError(f"Invalid visual source: {label}")
+    animations = profile.get("animations")
+    if not isinstance(animations, dict) or "idle" not in animations or (required_death and "death" not in animations):
+        raise ValueError(f"Missing required visual state: {label}")
+    for state, animation in animations.items():
+        if state not in {"idle", "walk", "attack", "heal", "death"} or not isinstance(animation, dict):
+            raise ValueError(f"Unsupported visual state: {label}.{state}")
+        if "fallback" in animation:
+            if animation["fallback"] not in animations or "fallback" in animations[animation["fallback"]]:
+                raise ValueError(f"Invalid visual fallback: {label}.{state}")
+            continue
+        frames = animation.get("banks", animation.get("frames"))
+        if (not isinstance(frames, list) or not 1 <= len(frames) <= 10
+                or any(not isinstance(frame, int) or frame < 0 for frame in frames)
+                or not isinstance(animation.get("ticks"), int) or not 0 <= animation["ticks"] <= 120
+                or ("banks" in animation and any(frame * profile["stride"] + 16 >=
+                    profile.get("frame_count", profile.get("minimum_frame_count", 0)) for frame in frames)
+                    and "source" not in animation)):
+            raise ValueError(f"Invalid visual frames: {label}.{state}")
+    for attachment in profile.get("attachments", []):
+        if attachment.get("facing") not in {"body", "native_target"} or attachment.get("layer") != "above_body":
+            raise ValueError(f"Unsupported visual attachment: {label}")
+        validate_animation({**attachment, "asset": attachment["name"]},
+                           label + "." + attachment["name"], required_death=False)
+
+
 def validate(catalog, visuals=None):
     visuals = visuals if visuals is not None else json.loads(VISUALS.read_text())
     names = native_names()
@@ -68,6 +100,10 @@ def validate(catalog, visuals=None):
             legacy_bases.add(base)
         if item["visual"] not in visuals.get("units", {}):
             raise ValueError(f"Missing unit visual profile: {item['id']}")
+        profile = visuals["units"][item["visual"]]
+        validate_animation(profile, item["id"])
+        if profile.get("effect") and profile["effect"] not in visuals.get("effects", {}):
+            raise ValueError(f"Missing visual effect: {item['id']}")
     for item in catalog["buildings"]:
         if (not TYPE_ID.fullmatch(item["id"])
                 or item.get("native_type") not in names or item["native_type"] in native_types
@@ -77,6 +113,13 @@ def validate(catalog, visuals=None):
                 or not 1 <= item.get("max_health", 0) <= 100000
                 or item.get("visual") not in visuals.get("buildings", {})):
             raise ValueError(f"Invalid building definition: {item['id']}")
+        art = visuals["buildings"][item["visual"]]
+        if (art.get("art_method") not in {"static", "barracks_lights"}
+                or not art.get("image") or not art.get("asset")
+                or any(not isinstance(value, int) or value < 1 for key in ("source_size", "output_size")
+                       for value in art.get(key, []))
+                or not 1 <= art.get("frame_count", 0) <= 256):
+            raise ValueError(f"Invalid building visual profile: {item['id']}")
         native_types.add(item["native_type"])
         objects.add(item["object_id"])
         if any(unit not in units for unit in item["production"]):

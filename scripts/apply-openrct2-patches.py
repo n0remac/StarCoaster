@@ -2,6 +2,8 @@
 """Verify the native bridge patch and upgrade existing screen-selection builds."""
 
 from pathlib import Path
+import os
+import re
 import runpy
 import subprocess
 import sys
@@ -124,6 +126,36 @@ def ensure_medic_vulture_effects(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_generic_visual_registry(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0012-generic-visual-registry.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected actor renderer changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
+def ensure_generic_actor_validation(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0013-generic-actor-validation.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected actor validation changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
+def ensure_target_facing_attachments(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0014-target-facing-attachments.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected actor renderer changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
@@ -132,7 +164,19 @@ if __name__ == "__main__":
                     ROOT / "openrct2-patches/0008-actor-visual-registry.patch",
                     ROOT / "openrct2-patches/0009-building-animation-registry.patch",
                     ROOT / "openrct2-patches/0010-firebat-visual-bank.patch",
-                    ROOT / "openrct2-patches/0011-medic-vulture-effects.patch"]
+                    ROOT / "openrct2-patches/0011-medic-vulture-effects.patch",
+                    ROOT / "openrct2-patches/0012-generic-visual-registry.patch",
+                    ROOT / "openrct2-patches/0013-generic-actor-validation.patch",
+                    ROOT / "openrct2-patches/0014-target-facing-attachments.patch"]
+        # Reconciliation temporarily reverses and reapplies overlays. Keep
+        # unchanged file mtimes so an ordinary rebuild does not recompile all
+        # SpriteIds.h dependents merely because the check ran.
+        patch_paths = [ROOT / "openrct2-patches/0001-native-bridge.patch",
+                       ROOT / "openrct2-patches/0005-starcraft-construction-toolbar.patch", *overlays]
+        touched = {checkout / name for patch in patch_paths for name in
+                   re.findall(r"^diff --git a/\S+ b/(\S+)$", patch.read_text(), re.M)}
+        original = {path: (path.read_bytes(), path.stat().st_atime_ns, path.stat().st_mtime_ns)
+                    for path in touched if path.is_file()}
         reversed_overlays = []
         for overlay in reversed(overlays):
             if applies(checkout, overlay, reverse=True):
@@ -150,7 +194,10 @@ if __name__ == "__main__":
                   ("Actor visual registry", ensure_actor_visual_registry),
                   ("Building animation registry", ensure_building_animation_registry),
                   ("Firebat visual bank", ensure_firebat_visual_bank),
-                  ("Medic, Vulture, and effects", ensure_medic_vulture_effects)]
+                  ("Medic, Vulture, and effects", ensure_medic_vulture_effects),
+                  ("Generic visual registry", ensure_generic_visual_registry),
+                  ("Generic actor validation", ensure_generic_actor_validation),
+                  ("Target-facing attachments", ensure_target_facing_attachments)]
         for index, (label, ensure) in enumerate(checks):
             removed = []
             for overlay in reversed(overlays[index + 1:]):
@@ -163,6 +210,9 @@ if __name__ == "__main__":
                 for overlay in reversed(removed):
                     subprocess.run(["git", "-C", str(checkout), "apply", str(overlay)], check=True)
             print(label + " patch " + status)
+        for path, (contents, atime, mtime) in original.items():
+            if path.is_file() and path.read_bytes() == contents:
+                os.utime(path, ns=(atime, mtime))
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)

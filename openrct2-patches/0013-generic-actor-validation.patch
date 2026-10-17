@@ -1,0 +1,42 @@
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -36,6 +36,7 @@
+
+ void EntityPaintSetup(PaintSession& session, const CoordsXY& pos);
+ void PaintBridgeActors(PaintSession& session, const CoordsXY& pos);
++bool BridgeSupportsActorType(const std::string& kind);
+ void BridgeApplySnapshot(std::string session, uint64_t seq, std::vector<BridgeActor> actors);
+ void BridgeInvalidateAnimation();
+ void BridgeSetBuildingAnimations(std::string session, int32_t objectIndex, std::set<std::pair<int32_t, int32_t>> tiles,
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -473,6 +473,13 @@
+     }
+ }
+
++bool BridgeSupportsActorType(const std::string& kind)
++{
++    for (const auto& candidate : kBridgeVisualTypes)
++        if (kind == candidate.id) return true;
++    return false;
++}
++
+ void PaintBridgeActors(PaintSession& session, const CoordsXY& pos)
+ {
+     auto snapshot = std::atomic_load(&gBridgeSnapshot);
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -768,9 +768,7 @@
+             && parsed.id.size() > 7 && parsed.id.size() <= 32 && parsed.id.compare(0, 7, "openbw:") == 0
+             && parsed.id.find_first_not_of("0123456789", 7) == std::string::npos && ids.insert(parsed.id).second
+             && BridgeReadString(ctx, unit, "kind", parsed.kind)
+-            && (parsed.kind == "alien_scout" || parsed.kind == "zerg_zergling"
+-                || parsed.kind == "terran_marine" || parsed.kind == "terran_firebat"
+-                || parsed.kind == "terran_medic" || parsed.kind == "terran_vulture")
++            && BridgeSupportsActorType(parsed.kind)
+             && BridgeReadInt(ctx, unit, "x", parsed.x) && BridgeReadInt(ctx, unit, "y", parsed.y)
+             && parsed.x >= 0 && parsed.y >= 0 && parsed.x < mapSize.x && parsed.y < mapSize.y
+             && BridgeReadInt(ctx, unit, "facing", facing) && facing >= 0 && facing <= 255

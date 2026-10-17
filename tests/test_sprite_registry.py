@@ -187,6 +187,38 @@ class SpriteRegistryTests(unittest.TestCase):
                     self.assertEqual(len(definition["images"]), 4 + tiles * 4)
                     self.assertEqual(module.TYPE_DEFINITIONS[building]["max_health"], hp)
 
+    @unittest.skipUnless((ROOT / "run-data/generated-assets/starcraft/goliath/manifest.json").is_file(),
+                         "local licensed Goliath art has not been extracted")
+    def test_goliath_body_turret_and_stable_g2_registry(self):
+        manifest = json.loads((ROOT / "run-data/generated-assets/starcraft/goliath/manifest.json").read_text())
+        self.assertEqual((manifest["frame_count"], manifest["canvas"]), (170, [76, 76]))
+        self.assertEqual(len(manifest["frames"]), 184)
+        self.assertEqual(len(manifest["registry"]["terran_goliath"]["attachments"]["turret"]["attack"]["frames"]), 8)
+        entries = json.loads((ROOT / "upstream/openrct2/resources/g2/sprites.json").read_text())
+        paths = [entry["path"] for entry in entries]
+        self.assertEqual(paths[600], "bridge/flame/burst6_northeast.png")
+        self.assertEqual(paths[601], "bridge/goliath/idle0_east.png")
+        self.assertEqual(len(paths), len(set(paths)))
+        generator = importlib.util.spec_from_file_location(
+            "visual_registry", ROOT / "scripts/generate-starcraft-visual-registry.py")
+        module = importlib.util.module_from_spec(generator)
+        generator.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            upstream = Path(directory)
+            target = upstream / "resources/g2/sprites.json"
+            target.parent.mkdir(parents=True)
+            target.write_text(json.dumps(entries))
+            (upstream / "src/openrct2/paint").mkdir(parents=True)
+            module.generate(upstream)
+            registry = (upstream / "src/openrct2/paint/BridgeVisualRegistry.h").read_bytes()
+            ids = (upstream / "src/openrct2/BridgeVisualSpriteIds.inc").read_bytes()
+            self.assertIn(b"kBridge_goliath_turret", registry)
+            self.assertIn(b"true }", registry)
+            self.assertEqual(ids.count(b"SPR_BRIDGE_GENERATED_"), len(paths) - 601)
+            module.generate(upstream)
+            self.assertEqual(registry, (upstream / "src/openrct2/paint/BridgeVisualRegistry.h").read_bytes())
+            self.assertEqual(ids, (upstream / "src/openrct2/BridgeVisualSpriteIds.inc").read_bytes())
+
     @unittest.skipUnless((ROOT / "run-data/generated-assets/starcraft/academy/.source/Academy.grp").is_file(),
                          "local licensed Academy art has not been extracted")
     def test_academy_art_resolves_from_classic_image_metadata(self):
@@ -227,7 +259,7 @@ class SpriteRegistryTests(unittest.TestCase):
                 self.assertEqual(target.read_bytes(), b"fixture sprite")
 
     @unittest.skipUnless(MANIFEST.is_file(), "local licensed sprites have not been prepared")
-    def test_starcraft_pack_requires_marine_art(self):
+    def test_starcraft_pack_requires_registered_art(self):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
             source = temporary / "zergling"
@@ -244,7 +276,7 @@ class SpriteRegistryTests(unittest.TestCase):
                                      str(source), str(upstream), "starcraft-local"],
                                     capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Missing StarCraft Marine manifest", result.stderr)
+            self.assertIn("Missing goliath manifest", result.stderr)
             self.assertFalse((upstream / "resources/g2/bridge").exists())
 
     @unittest.skipUnless((ROOT / "upstream/openrct2/src/openrct2/drawing/ImageImporter.h").is_file(),
@@ -271,7 +303,7 @@ class SpriteRegistryTests(unittest.TestCase):
         plugin = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
         self.assertIn('"version", JS_NewInt32(ctx, 5)', native)
         self.assertIn('"assetVersion", JS_NewInt32(ctx, 4)', native)
-        self.assertIn('parsed.kind == "terran_firebat"', native)
+        self.assertIn('BridgeSupportsActorType(parsed.kind)', native)
         self.assertIn('rtsBridge.version !== 5', plugin)
         self.assertIn('rtsBridge.assetVersion !== 4', plugin)
 

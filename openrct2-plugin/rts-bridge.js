@@ -894,6 +894,8 @@
                 && unit.x >= 0 && unit.y >= 0
                 && unit.x < map.size.x * 32 && unit.y < map.size.y * 32
                 && Number.isInteger(unit.facing) && unit.facing >= 0 && unit.facing <= 255
+                && (unit.aim_facing === undefined || Number.isInteger(unit.aim_facing)
+                    && unit.aim_facing >= 0 && unit.aim_facing <= 255)
                 && (unit.motion === "idle" || unit.motion === "walk" || unit.motion === "attack"
                     || unit.motion === "heal" || unit.motion === "death")
                 && (UNIT_TYPES[unit.kind]

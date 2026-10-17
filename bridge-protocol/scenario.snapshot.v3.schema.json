@@ -25,6 +25,7 @@
           "x": { "type": "integer", "minimum": 0 },
           "y": { "type": "integer", "minimum": 0 },
           "facing": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "aim_facing": { "type": "integer", "minimum": 0, "maximum": 255 },
           "motion": { "enum": ["idle", "walk", "attack", "heal", "death"] },
           "hp": { "type": "integer", "minimum": 0 },
           "max_hp": { "type": "integer", "minimum": 1, "maximum": 10000 },

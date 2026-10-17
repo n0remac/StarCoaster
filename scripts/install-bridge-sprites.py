@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 import re
+import runpy
 import shutil
 import sys
 
@@ -28,6 +29,112 @@ VULTURE_NAMES = [f"idle0_{direction}.png" for direction in MARINE_DIRECTIONS]
 VULTURE_NAMES += [f"death{pose}.png" for pose in range(8)]
 FLAME_NAMES = [f"burst{pose}_{direction}.png" for pose in range(7)
                for direction in MARINE_DIRECTIONS]
+ROOT = Path(__file__).resolve().parents[1]
+LEGACY_ASSETS = {"marine", "firebat", "medic", "vulture", "zergling"}
+
+
+def registered_units() -> list[tuple[str, dict]]:
+    catalog = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
+    visuals = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())["units"]
+    return [(unit["id"], visuals[unit["visual"]]) for unit in catalog["units"]]
+
+
+def ensure_registered_banks(contents: str, source: Path, pack: str) -> str:
+    """Append new visual banks in catalog order without renumbering older G2 IDs."""
+    entries = json.loads(contents)
+    existing = {entry["path"] for entry in entries}
+    additions = []
+    for kind, profile in registered_units():
+        asset = profile["asset"]
+        if asset in LEGACY_ASSETS:
+            continue
+        local = source.parent / asset
+        manifest_path = local / "manifest.json"
+        if not manifest_path.is_file() and pack == "starcraft-local":
+            raise SystemExit(f"Missing {asset} manifest: {manifest_path}. "
+                             f"Run scripts/prepare-starcraft-sprites.py --unit {asset} first.")
+        if manifest_path.is_file():
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get("kind") != kind:
+                raise SystemExit(f"Invalid {asset} sprite manifest")
+            names = list(manifest["frames"])
+        else:
+            # Explicit placeholder mode can build without licensed artwork.
+            names = []
+            for layer, prefix in [(profile, ""), *[(item, item["name"] + "_")
+                                                for item in profile.get("attachments", [])]]:
+                for state, animation in layer["animations"].items():
+                    if "fallback" in animation:
+                        continue
+                    if "banks" in animation:
+                        names.extend(f"{prefix}{state}{pose}_{direction}.png"
+                                     for direction in MARINE_DIRECTIONS for pose in range(len(animation["banks"])))
+                    else:
+                        names.extend(f"{prefix}{state}{pose}.png" for pose in range(len(animation["frames"])))
+        for name in names:
+            path = f"bridge/{asset}/{name}"
+            if path not in existing:
+                additions.append({"path": path, "x": -profile.get("canvas", [64])[0] // 2,
+                                  "y": -profile.get("canvas", [64, 64])[1] // 2})
+                existing.add(path)
+        for level in range(11):
+            path = f"bridge/health/{asset}{level}.png"
+            if path not in existing:
+                x, y = profile["health_offset"]
+                additions.append({"path": path, "x": x, "y": y})
+                existing.add(path)
+    if not additions:
+        return contents
+    rendered = ",\n".join(f'    {{\n        "path": "{item["path"]}", "x": {item["x"]}, "y": {item["y"]}\n    }}'
+                           for item in additions)
+    return contents.rstrip()[:-1].rstrip() + ",\n" + rendered + "\n]\n"
+
+
+def stage_registered_banks(source: Path, pack: str, upstream: Path, contents: str,
+                           colours: set, prepared: list) -> str:
+    from PIL import ImageDraw
+    for kind, profile in registered_units():
+        asset = profile["asset"]
+        if asset in LEGACY_ASSETS:
+            continue
+        local = source.parent / asset
+        manifest_path = local / "manifest.json"
+        manifest = json.loads(manifest_path.read_text()) if pack == "starcraft-local" and manifest_path.is_file() else None
+        if pack == "starcraft-local" and (not manifest or manifest.get("kind") != kind):
+            raise SystemExit(f"Missing or invalid {asset} manifest: {manifest_path}")
+        if manifest is None:
+            names = [entry["path"].split(f"bridge/{asset}/", 1)[1]
+                     for entry in json.loads(contents) if entry["path"].startswith(f"bridge/{asset}/")]
+            local = ROOT / f"run-data/generated-assets/placeholder/{asset}"
+            local.mkdir(parents=True, exist_ok=True)
+            colour = min(colours, key=lambda rgb: sum((rgb[index] - wanted) ** 2
+                           for index, wanted in enumerate((117, 140, 154))))
+            for name in names:
+                image = Image.new("RGBA", (24, 30))
+                draw = ImageDraw.Draw(image)
+                draw.rectangle((5, 2, 18, 27), fill=colour + (255,))
+                image.save(local / name)
+            frame_data = {name: {"x": -12, "y": -25, "width": 24, "height": 30} for name in names}
+        else:
+            frame_data = manifest["frames"]
+        for name, meta in frame_data.items():
+            path = local / name
+            if not path.is_file():
+                raise SystemExit(f"Missing {asset} sprite: {path}")
+            with Image.open(path) as image:
+                image.load()
+                if image.mode != "RGBA" or image.size != (meta["width"], meta["height"]) or any(
+                        alpha not in (0, 255) or (alpha and (red, green, blue) not in colours)
+                        for red, green, blue, alpha in image.getdata()):
+                    raise SystemExit(f"Incompatible {asset} sprite: {path}")
+            g2path = f"bridge/{asset}/{name}"
+            pattern = re.compile(r'(\{\s*"path": "' + re.escape(g2path)
+                                 + r'",\s*"x": )-?\d+(,\s*"y": )-?\d+(\s*\})')
+            contents, count = pattern.subn(lambda match: f'{match[1]}{meta["x"]}{match[2]}{meta["y"]}{match[3]}', contents)
+            if count != 1:
+                raise SystemExit(f"Missing or duplicate G2 entry: {g2path}")
+            prepared.append((path, f"{asset}/{name}"))
+    return contents
 
 
 def ensure_firebat_g2_entries(contents: str) -> str:
@@ -295,8 +402,7 @@ def main() -> None:
     parser.add_argument("source", type=Path)
     parser.add_argument("upstream", type=Path)
     parser.add_argument("pack", choices=("starcraft-local", "alien-scout"))
-    parser.add_argument("--only-unit", choices=("zerg_zergling", "terran_marine", "terran_firebat",
-                                                "terran_medic", "terran_vulture", "firebat_flame"))
+    parser.add_argument("--only-unit", choices=[kind for kind, _ in registered_units()] + ["firebat_flame"])
     args = parser.parse_args()
     only_unit = args.only_unit
     source, upstream, pack = args.source, args.upstream, args.pack
@@ -313,7 +419,8 @@ def main() -> None:
            or len(registry.get("death", {}).get("frames", {}).get("east", [])) != 6:
             raise SystemExit("StarCraft manifest must contain 136 frames including six death poses")
     sprite_list = upstream / "resources/g2/sprites.json"
-    contents = ensure_next_g2_entries(ensure_firebat_g2_entries(sprite_list.read_text()))
+    contents = ensure_registered_banks(
+        ensure_next_g2_entries(ensure_firebat_g2_entries(sprite_list.read_text())), source, pack)
     enum_text = (upstream / "src/openrct2/SpriteIds.h").read_text()
     if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_(?:IDLE|WALK[0-9]+)_", enum_text, re.MULTILINE)) != 88:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 88 bridge images")
@@ -343,6 +450,9 @@ def main() -> None:
         if only_unit in (None, requested):
             contents = stage_next_bank(source, pack, upstream, contents, colours, prepared,
                                        kind, names, manifest_kind)
+    if only_unit is None or only_unit not in {"zerg_zergling", "terran_marine", "terran_firebat",
+                                                "terran_medic", "terran_vulture", "firebat_flame"}:
+        contents = stage_registered_banks(source, pack, upstream, contents, colours, prepared)
     # Small native overlays; each image is an exact-palette health fraction.
     health_source = Path(__file__).resolve().parent.parent / "run-data/generated-assets/bridge-health"
     health_source.mkdir(parents=True, exist_ok=True)
@@ -355,9 +465,9 @@ def main() -> None:
     def colour(wanted):
         return min(available, key=lambda value: sum((value[index] - wanted[index]) ** 2 for index in range(3)))
     outline, background = colour((18, 22, 21)), colour((62, 70, 65))
-    for faction, wanted in (("marine", (70, 220, 100)), ("zergling", (195, 90, 225)),
-                            ("firebat", (70, 220, 100)), ("medic", (70, 220, 100)),
-                            ("vulture", (70, 220, 100))):
+    for _, profile in registered_units():
+        faction = profile["asset"]
+        wanted = (195, 90, 225) if faction == "zergling" else (70, 220, 100)
         fill = colour(wanted)
         for level in range(11):
             name = f"{faction}{level}.png"
@@ -371,8 +481,8 @@ def main() -> None:
             image.save(path)
             pattern = re.compile(r'(\{\s*"path": "bridge/health/' + re.escape(name)
                                  + r'", "x": )-?\d+(, "y": )-?\d+(\s*\})')
-            y = -42 if faction in ("marine", "medic") else -28 if faction in ("firebat", "vulture") else -34
-            contents, count = pattern.subn(lambda m: f"{m[1]}-10{m[2]}{y}{m[3]}", contents)
+            x, y = profile["health_offset"]
+            contents, count = pattern.subn(lambda m: f"{m[1]}{x}{m[2]}{y}{m[3]}", contents)
             if count != 1:
                 raise SystemExit(f"Missing or duplicate health g2 entry: {name}")
             prepared.append((path, "health/" + name))
@@ -388,6 +498,7 @@ def main() -> None:
     if sprite_list.read_text() != contents:
         sprite_list.write_text(contents)
         changed = True
+    runpy.run_path(str(ROOT / "scripts/generate-starcraft-visual-registry.py"))["generate"](upstream)
     # CMake tracks resource contents through CONFIGURE_DEPENDS; force a rebuild
     # when a selected source's bytes change while its filenames remain fixed.
     if changed:

@@ -1,0 +1,96 @@
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -27,6 +27,7 @@
+     int32_t x;
+     int32_t y;
+     uint8_t facing;
++    uint8_t aimFacing;
+     int32_t hp = 0;
+     int32_t maxHp = 0;
+     int32_t owner = -1;
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -510,21 +510,25 @@
+         // the same isometric transform as the actor's feet before selecting a
+         // screen-facing GRP frame. A world-west shot, for example, points
+         // northeast on the unrotated park viewport.
+-        const double heading = static_cast<double>(actor.facing) * (2.0 * 3.14159265358979323846 / 256.0);
+-        const double worldDx = std::cos(heading);
+-        const double worldDy = std::sin(heading);
+-        double rotatedDx = worldDx;
+-        double rotatedDy = worldDy;
+-        switch (session.CurrentRotation & 3)
+-        {
+-            case 1: rotatedDx = worldDy; rotatedDy = -worldDx; break;
+-            case 2: rotatedDx = -worldDx; rotatedDy = -worldDy; break;
+-            case 3: rotatedDx = -worldDy; rotatedDy = worldDx; break;
+-        }
+-        const double screenDx = rotatedDy - rotatedDx;
+-        const double screenDy = (rotatedDx + rotatedDy) / 2.0;
+-        const uint32_t direction = static_cast<uint32_t>(
+-            std::lround(std::atan2(screenDy, screenDx) * (4.0 / 3.14159265358979323846)) + 8) & 7;
++        const auto projectedDirection = [&](uint8_t facing) -> uint32_t {
++            const double heading = static_cast<double>(facing) * (2.0 * 3.14159265358979323846 / 256.0);
++            const double worldDx = std::cos(heading);
++            const double worldDy = std::sin(heading);
++            double rotatedDx = worldDx;
++            double rotatedDy = worldDy;
++            switch (session.CurrentRotation & 3)
++            {
++                case 1: rotatedDx = worldDy; rotatedDy = -worldDx; break;
++                case 2: rotatedDx = -worldDx; rotatedDy = -worldDy; break;
++                case 3: rotatedDx = -worldDy; rotatedDy = worldDx; break;
++            }
++            const double screenDx = rotatedDy - rotatedDx;
++            const double screenDy = (rotatedDx + rotatedDy) / 2.0;
++            return static_cast<uint32_t>(
++                std::lround(std::atan2(screenDy, screenDx) * (4.0 / 3.14159265358979323846)) + 8) & 7;
++        };
++        const uint32_t direction = projectedDirection(actor.facing);
++        const uint32_t targetDirection = projectedDirection(actor.aimFacing);
+         const BridgeVisualType* visualType = nullptr;
+         for (const auto& candidate : kBridgeVisualTypes)
+             if (actor.kind == candidate.id) { visualType = &candidate; break; }
+@@ -560,7 +564,7 @@
+             const uint32_t pose = actor.motion == "death"
+                 ? std::min<uint32_t>(animation->count - 1, elapsed / std::max<uint32_t>(1, animation->ticks))
+                 : (elapsed / std::max<uint32_t>(1, animation->ticks)) % animation->count;
+-            PaintAddImageAsParent(session, ImageId(animation->images[pose][direction]), { 0, 0, z }, actorBounds);
++            PaintAddImageAsParent(session, ImageId(animation->images[pose][layer.targetFacing ? targetDirection : direction]), { 0, 0, z }, actorBounds);
+         }
+         if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
+         {
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -779,13 +779,19 @@
+             && BridgeReadInt(ctx, unit, "hp", hp) && hp >= 0 && hp <= 10000
+             && BridgeReadInt(ctx, unit, "max_hp", maxHp) && maxHp >= hp && maxHp <= 10000
+             && BridgeReadInt(ctx, unit, "attack_frames", attackFrames) && attackFrames >= 0;
++        int32_t aimFacing = facing;
++        JSValue aimValue = JS_IsObject(unit) ? JS_GetPropertyStr(ctx, unit, "aim_facing") : JS_UNDEFINED;
++        const bool aimValid = JS_IsUndefined(aimValue)
++            || (JS_ToInt32(ctx, &aimFacing, aimValue) == 0 && aimFacing >= 0 && aimFacing <= 255);
++        JS_FreeValue(ctx, aimValue);
+         JS_FreeValue(ctx, unit);
+-        if (!valid)
++        if (!valid || !aimValid)
+         {
+             JS_FreeValue(ctx, units);
+             return JS_ThrowTypeError(ctx, "invalid bridge unit");
+         }
+         parsed.facing = static_cast<uint8_t>(facing);
++        parsed.aimFacing = static_cast<uint8_t>(aimFacing);
+         parsed.owner = owner;
+         parsed.hp = hp;
+         parsed.maxHp = maxHp;
+@@ -893,6 +899,7 @@
+         JS_SetPropertyStr(ctx, unit, "id", JS_NewString(ctx, actor.id.c_str()));
+         JS_SetPropertyStr(ctx, unit, "kind", JS_NewString(ctx, actor.kind.c_str()));
+         JS_SetPropertyStr(ctx, unit, "x", JS_NewInt32(ctx, actor.x));
++        JS_SetPropertyStr(ctx, unit, "aim_facing", JS_NewInt32(ctx, actor.aimFacing));
+         JS_SetPropertyStr(ctx, unit, "y", JS_NewInt32(ctx, actor.y));
+         JS_SetPropertyStr(ctx, unit, "hp", JS_NewInt32(ctx, actor.hp));
+         JS_SetPropertyStr(ctx, unit, "max_hp", JS_NewInt32(ctx, actor.maxHp));

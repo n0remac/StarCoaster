@@ -18,24 +18,10 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "run-data/generated-assets/starcraft/zergling"
-RESOURCE = "unit/zerg/zergling.grp"
-MARINE_RESOURCE = "unit/terran/marine.grp"
-FIREBAT_RESOURCE = "unit/terran/firebat.grp"
-FIREBAT_DEATH_RESOURCE = "unit/thingy/tBangS.grp"
-MEDIC_RESOURCE = "unit/terran/medic.grp"
-VULTURE_RESOURCE = "unit/terran/Vulture.grp"
 FLAME_RESOURCE = "unit/thingy/flamer.grp"
 FLAME_LIGHT_RESOURCE = "Tileset/Badlands/ofire.pcx"
 PALETTE = "Tileset/Badlands.wpe"
-# Contact-sheet inspection of the local classic Zergling GRP: directional
-# groups 0..10 form the run, while 11..16 crouch/collapse into death art.
-# Each complete directional group has 17 frames (north through south via east).
-FRAMES = {"idle": 0, **{f"walk{pose}": 17 * (pose + 1) for pose in range(10)},
-          **{f"death{pose}": 17 * (pose + 11) for pose in range(6)}}
-DIRECTIONS = {"east": (8, False), "south": (16, False),
-              "west": (8, True), "north": (0, False),
-              "southeast": (12, False), "southwest": (12, True),
-              "northwest": (4, True), "northeast": (4, False)}
+DIRECTIONS = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())["directions"]
 
 
 def openrct2_palette() -> list[tuple[int, int, int]]:
@@ -120,233 +106,13 @@ def decode_grp(data: bytes, wpe: bytes, index: int) -> Image.Image:
     return image
 
 
-def prepare_marine(data: bytes, wpe: bytes, output: Path, palette: list[tuple[int, int, int]]):
-    """The classic Marine GRP has 13 directional groups and eight death frames."""
-    count, width, height = struct.unpack_from("<HHH", data)
-    if count != 229 or (width, height) != (64, 64):
-        raise ValueError(f"Unexpected Marine GRP: {count} frames, {width}x{height}")
-    directions = list(DIRECTIONS)
-    states = {"idle": [0], "walk": [17, 34], "attack": [51, 68, 85]}
-    selected = {}
-    registry = {"terran_marine": {}}
-
-    def save(frame: int, filename: str, mirror: bool = False):
-        image = decode_grp(data, wpe, frame)
-        if mirror:
-            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        bbox = image.getbbox()
-        if bbox is None:
-            raise ValueError(f"Empty Marine frame {frame}")
-        cropped = quantize(image.crop(bbox), palette)
-        cropped.save(output / filename)
-        selected[filename] = {"source_frame": frame, "source_group": frame // 17,
-                              "mirrored": mirror, "width": cropped.width, "height": cropped.height,
-                              "x": bbox[0] - width // 2, "y": bbox[1] - height // 2,
-                              "visible_pixels": sum(a != 0 for a in cropped.getchannel("A").getdata())}
-
-    for state, bases in states.items():
-        frames = {}
-        for direction, (direction_frame, mirror) in DIRECTIONS.items():
-            names = []
-            for pose, base in enumerate(bases):
-                filename = f"{state}{pose}_{direction}.png"
-                save(base + direction_frame, filename, mirror)
-                names.append(filename)
-            frames[direction] = names
-        registry["terran_marine"][state] = {"frames": frames,
-                                            "ticks_per_frame": 0 if state == "idle" else 4 if state == "walk" else 2}
-    death = []
-    for pose in range(8):
-        filename = f"death{pose}.png"
-        save(221 + pose, filename)
-        death.append(filename)
-    registry["terran_marine"]["death"] = {"frames": death, "ticks_per_frame": 2,
-                                            "directional": False}
-    return selected, registry, count, width, height
-
-
-def prepare_marine_pack(data: bytes, wpe: bytes, output: Path,
-                         palette: list[tuple[int, int, int]], archives: dict) -> None:
-    selected, registry, frame_count, canvas_width, canvas_height = prepare_marine(data, wpe, output, palette)
-    manifest = {"unit": "marine", "kind": "terran_marine", "source": MARINE_RESOURCE,
-                "palette": PALETTE, "archives": archives, "canvas": [canvas_width, canvas_height],
-                "frame_count": frame_count, "source_sha256": hashlib.sha256(data).hexdigest(),
-                "registry": registry, "frames": selected,
-                "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
-                "team_colour": "source palette indices 8..15 retained without player remap",
-                "output_palette": "nearest OpenRCT2 standard palette colour, excluding special and primary remap indices"}
-    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(f"Prepared {len(selected)} Marine frames in {output} from {archives}")
-    return
-
-
-def prepare_firebat_pack(data: bytes, wpe: bytes, output: Path,
-                         palette: list[tuple[int, int, int]], archives: dict) -> None:
-    """Classic Firebat has ten 17-direction banks, unlike the Marine GRP."""
-    count, width, height = struct.unpack_from("<HHH", data)
-    if (count, width, height) != (170, 32, 32):
-        raise ValueError(f"Unexpected Firebat GRP: {count} frames, {width}x{height}")
-    death = (output / ".source/death.grp").read_bytes()
-    death_count, death_width, death_height = struct.unpack_from("<HHH", death)
-    if death_count != 9 or (death_width, death_height) != (128, 128):
-        raise ValueError("Unexpected classic small explosion GRP for Firebat death")
-    selected = {}
-    registry = {"terran_firebat": {}}
-
-    def save(source: bytes, frame: int, canvas: tuple[int, int], name: str,
-             mirror: bool = False) -> None:
-        image = decode_grp(source, wpe, frame)
-        if mirror:
-            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        bbox = image.getbbox()
-        if bbox is None:
-            raise ValueError(f"Empty Firebat frame {frame}")
-        cropped = quantize(image.crop(bbox), palette)
-        cropped.save(output / name)
-        selected[name] = {"source_frame": frame, "source": FIREBAT_RESOURCE if source is data
-                          else FIREBAT_DEATH_RESOURCE, "mirrored": mirror,
-                          "width": cropped.width, "height": cropped.height,
-                          "x": bbox[0] - canvas[0] // 2, "y": bbox[1] - canvas[1] // 2,
-                          "visible_pixels": sum(a != 0 for a in cropped.getchannel("A").getdata())}
-
-    # Contact-sheet inspection: bank 0 is standing, banks 1-2 show the
-    # flamethrower attack, and banks 3-9 contain locomotion poses.
-    for state, banks in (("idle", (0,)), ("walk", (3, 5)), ("attack", (1, 2, 1))):
-        frames = {}
-        for direction, (facing, mirror) in DIRECTIONS.items():
-            names = []
-            for pose, bank in enumerate(banks):
-                name = f"{state}{pose}_{direction}.png"
-                save(data, bank * 17 + facing, (width, height), name, mirror)
-                names.append(name)
-            frames[direction] = names
-        registry["terran_firebat"][state] = {"frames": frames,
-                                               "ticks_per_frame": 0 if state == "idle" else 4 if state == "walk" else 2}
-    death_names = []
-    for pose in range(8):
-        name = f"death{pose}.png"
-        save(death, pose + 1, (death_width, death_height), name)
-        death_names.append(name)
-    registry["terran_firebat"]["death"] = {"frames": death_names,
-                                             "ticks_per_frame": 2, "directional": False}
-    manifest = {"unit": "firebat", "kind": "terran_firebat", "source": FIREBAT_RESOURCE,
-                "death_source": FIREBAT_DEATH_RESOURCE, "palette": PALETTE,
-                "archives": archives, "canvas": [width, height], "frame_count": count,
-                "source_sha256": hashlib.sha256(data).hexdigest(),
-                "registry": registry, "frames": selected,
-                "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
-                "output_palette": "nearest OpenRCT2 standard palette colour, excluding special and primary remap indices"}
-    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(f"Prepared {len(selected)} Firebat frames in {output} from {archives}")
-
-
-def prepare_medic_pack(data: bytes, wpe: bytes, output: Path,
-                       palette: list[tuple[int, int, int]], archives: dict) -> None:
-    """Medic banks 4-5 carry the classic gold healing-gun effect."""
-    count, width, height = struct.unpack_from("<HHH", data)
-    if (count, width, height) != (230, 64, 64):
-        raise ValueError(f"Unexpected Medic GRP: {count} frames, {width}x{height}")
-    selected, registry = {}, {"terran_medic": {}}
-
-    def save(frame: int, name: str, mirror: bool = False) -> None:
-        image = decode_grp(data, wpe, frame)
-        if mirror:
-            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        bbox = image.getbbox()
-        if bbox is None:
-            raise ValueError(f"Empty Medic frame {frame}")
-        cropped = quantize(image.crop(bbox), palette)
-        cropped.save(output / name)
-        selected[name] = {"source_frame": frame, "mirrored": mirror,
-                          "width": cropped.width, "height": cropped.height,
-                          "x": bbox[0] - width // 2, "y": bbox[1] - height // 2}
-
-    for state, banks in (("idle", (0,)), ("walk", (6, 7)), ("heal", (4, 5, 4))):
-        frames = {}
-        for direction, (facing, mirror) in DIRECTIONS.items():
-            names = []
-            for pose, bank in enumerate(banks):
-                name = f"{state}{pose}_{direction}.png"
-                save(bank * 17 + facing, name, mirror)
-                names.append(name)
-            frames[direction] = names
-        registry["terran_medic"][state] = {"frames": frames,
-                                           "ticks_per_frame": 0 if state == "idle" else 4 if state == "walk" else 2}
-    death = []
-    for pose in range(8):
-        name = f"death{pose}.png"
-        save(222 + pose, name)
-        death.append(name)
-    registry["terran_medic"]["death"] = {"frames": death,
-                                         "ticks_per_frame": 2, "directional": False}
-    (output / "manifest.json").write_text(json.dumps({
-        "unit": "medic", "kind": "terran_medic", "source": MEDIC_RESOURCE,
-        "palette": PALETTE, "archives": archives, "canvas": [width, height],
-        "frame_count": count, "source_sha256": hashlib.sha256(data).hexdigest(),
-        "registry": registry, "frames": selected,
-        "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; west mirrors east",
-        "output_palette": "nearest OpenRCT2 standard palette colour"}, indent=2) + "\n")
-    print(f"Prepared {len(selected)} Medic frames in {output} from {archives}")
-
-
-def prepare_vulture_pack(data: bytes, wpe: bytes, output: Path,
-                         palette: list[tuple[int, int, int]], archives: dict) -> None:
-    """Vulture has one 17-direction body bank; native movement rotates it."""
-    count, width, height = struct.unpack_from("<HHH", data)
-    if (count, width, height) != (17, 100, 100):
-        raise ValueError(f"Unexpected Vulture GRP: {count} frames, {width}x{height}")
-    explosion = (output / ".source/death.grp").read_bytes()
-    if struct.unpack_from("<HHH", explosion) != (9, 128, 128):
-        raise ValueError("Unexpected classic small explosion for Vulture death")
-    selected, frames = {}, {}
-    for direction, (facing, mirror) in DIRECTIONS.items():
-        image = decode_grp(data, wpe, facing)
-        if mirror:
-            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        bbox = image.getbbox()
-        if bbox is None:
-            raise ValueError(f"Empty Vulture frame {facing}")
-        name = f"idle0_{direction}.png"
-        cropped = quantize(image.crop(bbox), palette)
-        cropped.save(output / name)
-        selected[name] = {"source_frame": facing, "source": VULTURE_RESOURCE,
-                          "mirrored": mirror, "width": cropped.width,
-                          "height": cropped.height, "x": bbox[0] - width // 2,
-                          "y": bbox[1] - height // 2}
-        frames[direction] = [name]
-    death = []
-    for pose in range(8):
-        image = decode_grp(explosion, wpe, pose + 1)
-        bbox = image.getbbox()
-        if bbox is None:
-            raise ValueError(f"Empty Vulture death frame {pose}")
-        name = f"death{pose}.png"
-        cropped = quantize(image.crop(bbox), palette)
-        cropped.save(output / name)
-        selected[name] = {"source_frame": pose + 1, "source": FIREBAT_DEATH_RESOURCE,
-                          "width": cropped.width, "height": cropped.height,
-                          "x": bbox[0] - 64, "y": bbox[1] - 64}
-        death.append(name)
-    registry = {"terran_vulture": {"idle": {"frames": frames, "ticks_per_frame": 0},
-                                   "death": {"frames": death, "ticks_per_frame": 2,
-                                             "directional": False}}}
-    (output / "manifest.json").write_text(json.dumps({
-        "unit": "vulture", "kind": "terran_vulture", "source": VULTURE_RESOURCE,
-        "death_source": FIREBAT_DEATH_RESOURCE, "palette": PALETTE,
-        "archives": archives, "canvas": [width, height], "frame_count": count,
-        "source_sha256": hashlib.sha256(data).hexdigest(),
-        "registry": registry, "frames": selected,
-        "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; west mirrors east",
-        "output_palette": "nearest OpenRCT2 standard palette colour"}, indent=2) + "\n")
-    print(f"Prepared {len(selected)} Vulture frames in {output} from {archives}")
-
-
 def prepare_flame_pack(data: bytes, wpe: bytes, output: Path,
                        palette: list[tuple[int, int, int]], archives: dict,
                        light_data: bytes, image_data: bytes) -> None:
     """Extract FlameThrower using the native image's orange fire remap."""
+    profile = visual_profiles()["effects"]["firebat_flame"]
     count, width, height = struct.unpack_from("<HHH", data)
-    if (count, width, height) != (221, 224, 224):
+    if (count, width, height) != (profile["frame_count"], *profile["canvas"]):
         raise ValueError(f"Unexpected FlameThrower GRP: {count} frames, {width}x{height}")
     enum_source = (ROOT / "upstream/openbw/bwenums.h").read_text()
     image_names = re.findall(r"\bIMAGEID_[A-Za-z0-9_]+\b",
@@ -369,11 +135,11 @@ def prepare_flame_pack(data: bytes, wpe: bytes, output: Path,
         remapped[source_index * 4:source_index * 4 + 4] = wpe[result_index * 4:result_index * 4 + 4]
     selected, frames = {}, {}
     # Every second 17-direction bank samples the growth and fade of the burst.
-    banks = (0, 2, 4, 6, 8, 10, 12)
+    banks = profile["banks"]
     for direction, (facing, mirror) in DIRECTIONS.items():
         names = []
         for pose, bank in enumerate(banks):
-            frame = bank * 17 + facing
+            frame = bank * profile["stride"] + facing
             image = decode_grp(data, remapped, frame)
             if mirror:
                 image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
@@ -392,62 +158,13 @@ def prepare_flame_pack(data: bytes, wpe: bytes, output: Path,
         "unit": "flame", "kind": "firebat_flame", "source": FLAME_RESOURCE,
         "palette": PALETTE, "archives": archives, "canvas": [width, height],
         "frame_count": count, "source_sha256": hashlib.sha256(data).hexdigest(),
-        "registry": {"firebat_flame": {"burst": {"frames": frames, "ticks_per_frame": 2}}},
+        "registry": {"firebat_flame": {"burst": {"frames": frames, "ticks_per_frame": profile["ticks"]}}},
         "frames": selected,
         "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; west mirrors east",
         "fire_remap": {"source": FLAME_LIGHT_RESOURCE, "background_index": background_index,
                         "modifier": 9, "color_shift": 1},
         "output_palette": "nearest OpenRCT2 standard palette colour"}, indent=2) + "\n")
     print(f"Prepared {len(selected)} FlameThrower frames in {output} from {archives}")
-
-def prepare_zergling_pack(data: bytes, wpe: bytes, output: Path,
-                           palette: list[tuple[int, int, int]], archives: dict) -> None:
-    frame_count, canvas_width, canvas_height = struct.unpack_from("<HHH", data)
-    if frame_count < 17 * 17:
-        raise ValueError(f"Expected at least 17 directional groups, got {frame_count} frames")
-    selected = {}
-    for motion, base in FRAMES.items():
-        for direction, (facing, mirror) in DIRECTIONS.items():
-            frame = base + facing
-            image = decode_grp(data, wpe, frame)
-            if mirror:
-                image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-            bbox = image.getbbox()
-            if bbox is None:
-                raise ValueError(f"Selected frame {frame} is empty")
-            # Crop while retaining the GRP canvas centre as the render origin.
-            cropped = quantize(image.crop(bbox), palette)
-            filename = f"{motion}_{direction}.png"
-            cropped.save(output / filename)
-            selected[filename] = {"source_frame": frame, "source_group": base // 17,
-                                  "source_direction": facing, "mirrored": mirror,
-                                  "width": cropped.width, "height": cropped.height,
-                                  "x": bbox[0] - canvas_width // 2,
-                                  "y": bbox[1] - canvas_height // 2,
-                                  "visible_pixels": sum(a != 0 for a in cropped.getchannel("A").getdata())}
-    groups = [{"group": group, "first_frame": group * 17,
-               "last_frame": min(frame_count - 1, group * 17 + 16),
-               "classification": "idle" if group == 0 else "walk" if group <= 10 else "death" if group <= 16 else "non_locomotion"}
-              for group in range((frame_count + 16) // 17)]
-    directions = list(DIRECTIONS)
-    registry = {"zerg_zergling": {"idle": {"frames": {direction: [f"idle_{direction}.png"]
-                                                   for direction in directions}, "ticks_per_frame": 0},
-                                "walk": {"frames": {direction: [f"walk{pose}_{direction}.png" for pose in range(10)]
-                                                    for direction in directions}, "ticks_per_frame": 4},
-                                "death": {"frames": {direction: [f"death{pose}_{direction}.png" for pose in range(6)]
-                                                     for direction in directions}, "ticks_per_frame": 3}}}
-    manifest = {"unit": "zergling", "kind": "zerg_zergling", "source": RESOURCE, "palette": PALETTE,
-                "archives": archives, "canvas": [canvas_width, canvas_height],
-                "frame_count": frame_count, "source_sha256": hashlib.sha256(data).hexdigest(),
-                "source_groups": groups, "registry": registry,
-                "direction_convention": "N=0 NE=4 E=8 SE=12 S=16; western directions mirror eastern counterparts",
-                "team_colour": "source palette indices 8..15 retained without player remap",
-                "shadow": "separate StarCraft shadow artwork omitted",
-                "output_palette": "nearest OpenRCT2 standard palette colour, excluding special and primary remap indices",
-                "frames": selected}
-    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(f"Prepared {len(selected)} frames in {output} from {archives}")
-
 
 def visual_profiles() -> dict:
     return json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())

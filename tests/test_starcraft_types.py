@@ -59,6 +59,21 @@ class StarcraftTypeCatalogTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     GENERATOR.validate(invalid)
 
+    def test_rejects_visual_profiles_without_supported_layouts(self):
+        visuals = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())
+        invalid = copy.deepcopy(visuals)
+        invalid["units"]["terran_goliath"]["attachments"][0]["facing"] = "unsupported"
+        with self.assertRaises(ValueError):
+            GENERATOR.validate(self.catalog, invalid)
+        invalid = copy.deepcopy(visuals)
+        del invalid["units"]["terran_goliath"]["animations"]["death"]
+        with self.assertRaises(ValueError):
+            GENERATOR.validate(self.catalog, invalid)
+        invalid = copy.deepcopy(visuals)
+        invalid["buildings"]["terran_armory"]["art_method"] = "unimplemented"
+        with self.assertRaises(ValueError):
+            GENERATOR.validate(self.catalog, invalid)
+
 
 if __name__ == "__main__":
     unittest.main()

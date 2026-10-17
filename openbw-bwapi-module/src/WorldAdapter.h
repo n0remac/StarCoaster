@@ -1241,6 +1241,14 @@ private:
             const int hp=std::max(0,unit->getHitPoints());
             auto target=unit->getTarget();
             if (!target) target=unit->getOrderTarget();
+            int aimFacing=facing;
+            if (target) {
+                const auto targetPosition=target->getPosition();
+                if (targetPosition.x!=position.x || targetPosition.y!=position.y) {
+                    const double aim=std::atan2(targetPosition.y-position.y,targetPosition.x-position.x);
+                    aimFacing=static_cast<int>(std::lround(aim*128.0/3.14159265358979323846))&255;
+                }
+            }
             std::string targetEntity;
             if (target) for (const auto& [id,combat]:targets_)
                 if (combat.proxyID==target->getID()) { targetEntity=id; break; }
@@ -1250,7 +1258,7 @@ private:
             json actor={{"id",actorID},
                 {"kind",definition->id},
                 {"owner",unit->getPlayer()?unit->getPlayer()->getID():0},
-                {"x",position.x},{"y",position.y},{"facing",facing},
+                {"x",position.x},{"y",position.y},{"facing",facing},{"aim_facing",aimFacing},
                 {"motion",healing?"heal":unit->isAttacking()?"attack":unit->isMoving()?"walk":"idle"},
                 {"hp",hp},{"max_hp",type.maxHitPoints()},{"alive",true},
                 {"energy",unit->getEnergy()},
