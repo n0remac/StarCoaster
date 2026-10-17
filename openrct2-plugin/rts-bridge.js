@@ -20,10 +20,11 @@
     // BEGIN GENERATED STARCRAFT TYPES
     const UNIT_TYPES = Object.freeze({
         terran_marine: { name: "Marine", visual: "terran_marine", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
+        terran_firebat: { name: "Firebat", visual: "terran_firebat", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
         zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
-        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
+        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
         terran_academy: { name: "Terran Academy", objectID: "starcoaster.scenery_large.terran_academy", width: 3, height: 2, maxHealth: 600, production: [], animation: null },
     });
     // END GENERATED STARCRAFT TYPES
@@ -1450,6 +1451,14 @@
                     && (args.max_health === undefined || (Number.isInteger(args.max_health)
                         && args.max_health >= args.health && args.max_health <= 1000000))
                     && args.queue <= 5
+                    && args.availability && typeof args.availability === "object"
+                    && Object.keys(args.availability).every(function (unitID) {
+                        const status = args.availability[unitID];
+                        return !!UNIT_TYPES[unitID] && status && typeof status.ready === "boolean"
+                            && typeof status.reason === "string" && status.reason.length > 0
+                            && status.reason.length <= 64 && typeof status.requirement === "string"
+                            && status.requirement.length <= 64;
+                    })
                     ? {} : { error: 1, errorMessage: "Invalid native building state" };
             }, function (event) {
                 buildingStates[event.args.id] = event.args;
@@ -1978,6 +1987,19 @@
                 const buildingID = targetBuildingID(barracksInfoID, initial) || point.buildingID;
                 const building = BUILDING_TYPES[buildingID];
                 if (!building) return;
+                function availabilityText(unitID, availability) {
+                    const name = UNIT_TYPES[unitID].name;
+                    if (!availability) return name + ": awaiting native state";
+                    if (availability.ready) return "Train " + name + " (ready)";
+                    const labels = { building_unavailable: "Building unavailable",
+                        insufficient_minerals: "Insufficient minerals",
+                        insufficient_gas: "Insufficient gas", supply_limit: "Supply limit reached",
+                        queue_full: "Production queue full", native_unavailable: "Unavailable" };
+                    const reason = availability.reason === "requires_building"
+                        ? "Requires " + availability.requirement.replace(/_/g, " ").replace(/^Terran /, "")
+                        : labels[availability.reason] || "Unavailable";
+                    return name + ": " + reason;
+                }
                 if (barracksInfoWindow) barracksInfoWindow.close();
                 barracksInfoWindow = ui.openWindow({ classification: buildingID === "terran_barracks"
                     ? "starcoaster-barracks-info" : "starcoaster-building-info",
@@ -2013,8 +2035,13 @@
                         building.production.forEach(function (unitID) {
                             const button = barracksInfoWindow.findWidget(unitID === "terran_marine"
                                 ? "building-train" : "building-train-" + unitID);
-                            if (button) button.isDisabled = !target || !native || native.health < 1
-                                || native.queue >= 5 || native.owner !== terranOwner;
+                            const availability = native && native.availability
+                                ? native.availability[unitID] : null;
+                            if (button) {
+                                button.isDisabled = !target || !native || native.health < 1
+                                    || native.owner !== terranOwner || !availability || !availability.ready;
+                                button.text = availabilityText(unitID, availability);
+                            }
                         });
                     }, widgets: [
                         { type: "label", name: "building-owner", x: 8, y: 19, width: 228,

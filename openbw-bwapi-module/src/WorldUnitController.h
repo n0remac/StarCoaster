@@ -32,6 +32,10 @@ public:
     ~WorldUnitController() { closeSocket(); }
     void onUnitCreate(BWAPI::Unit unit, int frame) {
         firebatTechProbe_.onUnitCreate(unit);
+        if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY") && unit
+            && unit->getType() == BWAPI::UnitTypes::Terran_Firebat)
+            std::cerr << "[firebat-gameplay] role=controller created native=" << unit->getID()
+                      << " frame=" << frame << " completed=" << unit->isCompleted() << std::endl;
         if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
         if (!worldUnitType(type)) return;
@@ -42,6 +46,11 @@ public:
     }
     void onUnitDestroy(BWAPI::Unit unit) {
         if (!unit) return;
+        if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY")
+            && unit->getType() == BWAPI::UnitTypes::Terran_Firebat)
+            std::cerr << "[firebat-gameplay] role=controller destroyed native=" << unit->getID()
+                      << " frame=" << BWAPI::Broodwar->getFrameCount()
+                      << " hp=" << unit->getHitPoints() << std::endl;
         creationCandidates_.erase(unit->getID());
         actorRegistry_.forget(unit);
     }
@@ -49,6 +58,18 @@ public:
         if (!startingResourcesApplied_)
             startingResourcesApplied_ = applyWorldProductionFixture(game);
         firebatTechProbe_.onFrame(game);
+        if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY") && game->getFrameCount() % 120 == 0) {
+            for (auto unit : game->getAllUnits())
+                if (unit && unit->exists() && unit->getPlayer() == game->self()
+                    && (unit->getType() == BWAPI::UnitTypes::Terran_Barracks
+                        || unit->getType() == BWAPI::UnitTypes::Terran_Firebat))
+                    std::cerr << "[firebat-gameplay] role=controller frame=" << game->getFrameCount()
+                              << " type=" << unit->getType().getName()
+                              << " native=" << unit->getID()
+                              << " completed=" << unit->isCompleted()
+                              << " queue=" << unit->getTrainingQueue().size()
+                              << " remaining=" << unit->getRemainingTrainTime() << std::endl;
+        }
         std::set<int> candidateIDs;
         for (const auto& [id, candidate] : creationCandidates_) candidateIDs.insert(id);
         actorRegistry_.prepare(game, candidateIDs);
@@ -96,6 +117,16 @@ public:
                     if (!unit || !unit->exists()
                         || !worldBuildingType(unit->getType())
                         || "openbw:" + std::to_string(unit->getID()) != link.proxyID) continue;
+                    const auto* building = worldBuildingType(unit->getType());
+                    const auto availability = productionAvailability(game, unit, *building);
+                    const std::string availabilityKey = availability.dump();
+                    if (lastAvailability_[id] != availabilityKey) {
+                        lastAvailability_[id] = availabilityKey;
+                        std::cerr << "[world-control] production id=" << id
+                                  << " availability=" << availabilityKey
+                                  << " minerals=" << unit->getPlayer()->minerals()
+                                  << " gas=" << unit->getPlayer()->gas() << std::endl;
+                    }
                     send("building.state", session_, revision_ ? revision_ : 1,
                         {{"id", id}, {"native_id", link.proxyID},
                          {"owner", unit->getPlayer()->getID()},
@@ -105,6 +136,7 @@ public:
                          {"remaining_frames", unit->getRemainingTrainTime()},
                          {"minerals", unit->getPlayer()->minerals()},
                          {"gas", unit->getPlayer()->gas()},
+                         {"availability", availability},
                          {"supply_used", unit->getPlayer()->supplyUsed()},
                          {"supply_total", unit->getPlayer()->supplyTotal()}},
                         game->getFrameCount());
@@ -115,6 +147,50 @@ public:
         flush();
     }
 private:
+    json productionAvailability(BWAPI::Game* game, BWAPI::Unit producer,
+                                const WorldBuildingType& building) const {
+        json result = json::object();
+        const auto owner = producer->getPlayer();
+        for (const auto& unitID : building.trainable) {
+            const auto* requested = worldUnitType(unitID);
+            if (!requested) continue;
+            const bool ready = producer->isCompleted() && producer->getHitPoints() > 0
+                && producer->canTrain(requested->native);
+            std::string reason = ready ? "ready" : "native_unavailable";
+            std::string requirement;
+            if (!ready) {
+                if (!producer->isCompleted() || producer->getHitPoints() < 1)
+                    reason = "building_unavailable";
+                else {
+                    for (const auto& [required, count] : requested->native.requiredUnits()) {
+                        int completed = 0;
+                        for (auto candidate : game->getAllUnits())
+                            if (candidate && candidate->exists() && candidate->isCompleted()
+                                && candidate->getPlayer() == owner
+                                && candidate->getType() == required) ++completed;
+                        if (completed < count) {
+                            reason = "requires_building";
+                            requirement = required.getName();
+                            break;
+                        }
+                    }
+                    if (reason == "native_unavailable") {
+                        if (owner->minerals() < requested->native.mineralPrice())
+                            reason = "insufficient_minerals";
+                        else if (owner->gas() < requested->native.gasPrice())
+                            reason = "insufficient_gas";
+                        else if (owner->supplyUsed() + requested->native.supplyRequired()
+                            > owner->supplyTotal()) reason = "supply_limit";
+                        else if (producer->getTrainingQueue().size() >= 5)
+                            reason = "queue_full";
+                    }
+                }
+            }
+            result[unitID] = {{"ready", ready}, {"reason", reason},
+                              {"requirement", requirement}};
+        }
+        return result;
+    }
     void probeNativeBarracks(BWAPI::Game* game) {
         const char* requested = std::getenv("BRIDGE_TEST_NATIVE_BARRACKS_POSITION");
         if (!requested || !*requested || appliedMaskHash_.empty() || !game->self()) return;
@@ -643,7 +719,9 @@ private:
                           << " minerals=" << game->self()->minerals()
                           << " supply=" << game->self()->supplyUsed()
                           << "/" << game->self()->supplyTotal()
-                          << " frame=" << game->getFrameCount() << std::endl;
+                          << " frame=" << game->getFrameCount()
+                          << " unit_type=" << command.value("unit_type", "terran_marine")
+                          << " gas=" << game->self()->gas() << std::endl;
             }
             for (const auto& idValue : units) {
                 auto unit = actorRegistry_.lookup(idValue.get<std::string>());
@@ -733,6 +811,7 @@ private:
     uint64_t sequence_ = 0, revision_ = 0, lastCommandSerial_ = 0;
     std::string session_, incoming_, outgoing_;
     std::map<std::string, TargetLink> targetLinks_;
+    std::map<std::string, std::string> lastAvailability_;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
     WorldFirebatTechProbe firebatTechProbe_{true};

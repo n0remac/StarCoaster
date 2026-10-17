@@ -32,12 +32,16 @@ class StarcraftProtocolSchemaTests(unittest.TestCase):
         command["unit_type"] = "terran_marine"
         self.validator.validate(self.envelope("combat.command", command))
         command["unit_type"] = "terran_firebat"
+        self.validator.validate(self.envelope("combat.command", command))
+        command["unit_type"] = "terran_medic"
         self.assertFalse(self.validator.is_valid(self.envelope("combat.command", command)))
 
     def test_building_and_player_reports(self):
         building = {"id": "building:1", "native_id": "openbw:8", "owner": 1,
                     "health": 1000, "max_health": 1000, "queue": 1,
-                    "remaining_frames": 240}
+                    "remaining_frames": 240,
+                    "availability": {"terran_firebat": {"ready": False,
+                        "reason": "requires_building", "requirement": "Terran Academy"}}}
         self.validator.validate(self.envelope("building.state", building, "bridge"))
         building["native_id"] = "not-native"
         self.assertFalse(self.validator.is_valid(self.envelope("building.state", building, "bridge")))
@@ -51,6 +55,11 @@ class StarcraftProtocolSchemaTests(unittest.TestCase):
         resources["gas"] = 250
         resources["minerals"] = -1
         self.assertFalse(self.validator.is_valid(self.envelope("player.resources", resources, "bridge")))
+
+    def test_firebat_actor_identity(self):
+        actor = {"id": "openbw:3001", "engine": "openbw", "type": "terran_firebat",
+                 "owner": 1, "generation": 7, "session": "session-a"}
+        self.validator.validate(self.envelope("actor.spawn", actor, "openbw"))
 
 
 if __name__ == "__main__":

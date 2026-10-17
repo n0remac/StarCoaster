@@ -28,7 +28,7 @@ class StarcraftTypeCatalogTests(unittest.TestCase):
 
     def test_rejects_invalid_extensions(self):
         invalid = copy.deepcopy(self.catalog)
-        invalid["buildings"][0]["production"] = ["terran_firebat"]
+        invalid["buildings"][0]["production"] = ["terran_ghost"]
         with self.assertRaises(ValueError):
             GENERATOR.validate(invalid)
         invalid = copy.deepcopy(self.catalog)

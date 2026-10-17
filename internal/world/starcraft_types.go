@@ -19,11 +19,12 @@ type BuildingDefinition struct {
 // BEGIN GENERATED STARCRAFT TYPES
 var unitDefinitions = map[string]UnitDefinition{
 	"terran_marine": {ID: "terran_marine", NativeType: "Terran_Marine", Race: "terran", Ownership: "player", DisplayName: "Marine", Visual: "terran_marine", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
+	"terran_firebat": {ID: "terran_firebat", NativeType: "Terran_Firebat", Race: "terran", Ownership: "player", DisplayName: "Firebat", Visual: "terran_firebat", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
 	"zerg_zergling": {ID: "zerg_zergling", NativeType: "Zerg_Zergling", Race: "zerg", Ownership: "enemy", DisplayName: "Zergling", Visual: "zerg_zergling", Controllable: false, Commands: []string{}},
 }
 
 var buildingDefinitions = map[string]BuildingDefinition{
-	"terran_barracks": {ID: "terran_barracks", NativeType: "Terran_Barracks", ObjectID: "starcoaster.scenery_large.terran_barracks", DisplayName: "Terran Barracks", Visual: "terran_barracks", Width: 4, Height: 3, MaxHealth: 1000, Production: []string{"terran_marine"}},
+	"terran_barracks": {ID: "terran_barracks", NativeType: "Terran_Barracks", ObjectID: "starcoaster.scenery_large.terran_barracks", DisplayName: "Terran Barracks", Visual: "terran_barracks", Width: 4, Height: 3, MaxHealth: 1000, Production: []string{"terran_marine", "terran_firebat"}},
 	"terran_academy": {ID: "terran_academy", NativeType: "Terran_Academy", ObjectID: "starcoaster.scenery_large.terran_academy", DisplayName: "Terran Academy", Visual: "terran_academy", Width: 3, Height: 2, MaxHealth: 600, Production: []string{}},
 }
 

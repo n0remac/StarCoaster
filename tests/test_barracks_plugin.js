@@ -120,7 +120,9 @@ info.desc.onUpdate();
 assert.equal(info.findWidget('building-health').text, 'Health: 43');
 const nativeState = { session: 'a'.repeat(32), id: targetID, native_id: 'openbw:8',
     owner: 1, health: 1000, queue: 1, remaining_frames: 240, minerals: 450, gas: 250,
-    supply_used: 12, supply_total: 16 };
+    supply_used: 12, supply_total: 16,
+    availability: { terran_marine: { ready: true, reason: 'ready', requirement: '' },
+        terran_firebat: { ready: false, reason: 'requires_building', requirement: 'Terran_Academy' } } };
 const buildingAction = actions.get('rtsbridge.buildingState');
 assert.equal(buildingAction.query({ player: 1, args: nativeState }).error, undefined);
 buildingAction.execute({ player: 1, args: nativeState });
@@ -142,6 +144,8 @@ info.desc.onUpdate();
 assert.equal(info.findWidget('building-health').text, 'Health: 1000/1000');
 assert.match(info.findWidget('building-queue').text, /Queue: 1/);
 assert.equal(info.findWidget('building-train').isDisabled, false);
+assert.equal(info.findWidget('building-train-terran_firebat').isDisabled, true);
+assert.match(info.findWidget('building-train-terran_firebat').text, /Requires Academy/);
 info.findWidget('building-train').onClick();
 assert.equal(orders.length, 1);
 assert.equal(orders[0].verb, 'train');
@@ -150,7 +154,7 @@ assert.equal(orders[0].target_entity_id, targetID);
 assert.equal(orders[0].unit_ids.length, 0);
 const unsupportedTrain = actions.get('rtsbridge.marineCommand').query({ player: 1,
     args: { session: 'a'.repeat(32), request: 900, unit_ids: [], verb: 'train',
-        unit_type: 'terran_firebat', target_entity_id: targetID } });
+        unit_type: 'terran_medic', target_entity_id: targetID } });
 assert.equal(unsupportedTrain.error, 1);
 const resourcesAction = actions.get('rtsbridge.playerResources');
 const resources = { session: 'a'.repeat(32), owner: 1, minerals: 999, gas: 250,
@@ -216,7 +220,8 @@ assert.equal(passive.onUp(academyEvent), true);
 const academyInfo = windows.get('starcoaster-building-info');
 assert.ok(academyInfo);
 buildingAction.execute({ player: 1, args: { ...nativeState, id: academyID,
-    native_id: 'openbw:9', health: 600, max_health: 600, queue: 0, remaining_frames: 0 } });
+    native_id: 'openbw:9', health: 600, max_health: 600, queue: 0,
+    remaining_frames: 0, availability: {} } });
 academyInfo.desc.onUpdate();
 assert.equal(academyInfo.findWidget('building-health').text, 'Health: 600/600');
 assert.equal(academyInfo.findWidget('building-identity').text, academyID);

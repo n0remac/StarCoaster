@@ -1579,6 +1579,11 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			RemainingFrames int    `json:"remaining_frames"`
 			Minerals        int    `json:"minerals"`
 			Gas             *int   `json:"gas"`
+			Availability    map[string]struct {
+				Ready       bool   `json:"ready"`
+				Reason      string `json:"reason"`
+				Requirement string `json:"requirement"`
+			} `json:"availability"`
 			SupplyUsed      int    `json:"supply_used"`
 			SupplyTotal     int    `json:"supply_total"`
 		}
@@ -1595,6 +1600,18 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			state.Minerals < 0 || state.Gas == nil || *state.Gas < 0 ||
 			state.SupplyUsed < 0 || state.SupplyTotal < 0 {
 			return
+		}
+		building, _ := world.SupportedBuilding(entity.Type)
+		if (state.MaxHealth != 0 && state.MaxHealth != building.MaxHealth) ||
+			len(state.Availability) != len(building.Production) {
+			return
+		}
+		for _, unitID := range building.Production {
+			availability, ok := state.Availability[unitID]
+			if !ok || availability.Reason == "" || len(availability.Reason) > 64 ||
+				len(availability.Requirement) > 64 {
+				return
+			}
 		}
 		_ = s.emit(s.park, "building.state", m.Session, m.Revision, state)
 	case "player.resources":

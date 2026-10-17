@@ -339,7 +339,7 @@ func TestGeneralizedTrainingCommand(t *testing.T) {
 	if len(s.commands) != 1 {
 		t.Fatal("duplicate training command forwarded")
 	}
-	command.CommandID, command.RequestID, command.UnitType = "session-a:2", 2, "terran_firebat"
+	command.CommandID, command.RequestID, command.UnitType = "session-a:2", 2, "terran_medic"
 	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:train:unsupported", "openrct2", 1, command))
 	if len(s.commands) != 1 {
 		t.Fatal("unsupported unit forwarded")

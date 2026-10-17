@@ -49,6 +49,10 @@ public:
     ~WorldAdapter() { if (socket_ >= 0) ::close(socket_); }
     void onUnitCreate(BWAPI::Unit unit, int frame) {
         firebatTechProbe_.onUnitCreate(unit);
+        if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY") && unit
+            && unit->getType() == BWAPI::UnitTypes::Terran_Firebat)
+            std::cerr << "[firebat-gameplay] role=publisher created native=" << unit->getID()
+                      << " frame=" << frame << " completed=" << unit->isCompleted() << std::endl;
         if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
         if (!worldUnitType(type)) return;
@@ -56,6 +60,10 @@ public:
     }
     void onUnitDestroy(BWAPI::Unit unit, int frame) {
         if (!unit) return;
+        if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY")
+            && unit->getType() == BWAPI::UnitTypes::Terran_Firebat)
+            std::cerr << "[firebat-gameplay] role=publisher destroyed native=" << unit->getID()
+                      << " frame=" << frame << " hp=" << unit->getHitPoints() << std::endl;
         if (!activeSpawn_.empty()) {
             auto& spawn = nativeSpawns_.at(activeSpawn_);
             if (spawn.candidateID == unit->getID() && spawn.state == "issued") {
@@ -186,16 +194,19 @@ public:
             }
         }
         for (auto& [id,target] : targets_) {
-            const char* testBarracksHP = std::getenv("BRIDGE_TEST_BARRACKS_HP");
-            if (!testBarracksDamageApplied_ && testBarracksHP && *testBarracksHP
-                && target.unit && target.unit->exists()
-                && target.unit->getType() == BWAPI::UnitTypes::Terran_Barracks) {
+            const auto type = target.unit && target.unit->exists() ? target.unit->getType()
+                : BWAPI::UnitTypes::None;
+            const char* testHealth = type == BWAPI::UnitTypes::Terran_Barracks
+                ? std::getenv("BRIDGE_TEST_BARRACKS_HP")
+                : type == BWAPI::UnitTypes::Terran_Academy
+                    ? std::getenv("BRIDGE_TEST_ACADEMY_HP") : nullptr;
+            if (!testBuildingDamageApplied_.count(id) && testHealth && *testHealth) {
                 char* end = nullptr;
-                const long requested = std::strtol(testBarracksHP, &end, 10);
-                if (end && !*end && requested > 0 && requested < 1000) {
-                    testBarracksDamageApplied_ = true;
+                const long requested = std::strtol(testHealth, &end, 10);
+                if (end && !*end && requested > 0 && requested < type.maxHitPoints()) {
+                    testBuildingDamageApplied_.insert(id);
                     target.unit->setHitPoints(static_cast<int>(requested));
-                    std::cerr << "[world] test Barracks HP requested id=" << id
+                    std::cerr << "[world] test building HP requested id=" << id
                               << " hp=" << requested << " frame=" << frame << std::endl;
                 }
             }
@@ -1253,7 +1264,7 @@ private:
     std::vector<PendingTarget> pending_; std::set<int> usedUnits_; json unsupported_=json::array();
     std::map<std::string,int> preservedHP_;
     bool startingResourcesApplied_ = false;
-    bool testBarracksDamageApplied_ = false;
+    std::set<std::string> testBuildingDamageApplied_;
     bool liveTargetsResolving_=false;
     std::string liveTargetPatchID_;
     int unsupportedTotal_=0; json unsupportedReasons_=json::object();
