@@ -5,9 +5,10 @@ registerPlugin({ name: "Barracks overlap probe", version: "1.0.0", authors: ["St
         if (network.mode !== "client") return;
         const building = typeof STARCOASTER_OVERLAP_BUILDING === "string"
             ? STARCOASTER_OVERLAP_BUILDING : "terran_barracks";
-        const label = building === "terran_academy" ? "ACADEMY" : "BARRACKS";
-        const footprint = building === "terran_academy" ? { width: 96, height: 64 }
-            : { width: 128, height: 96 };
+        const label = ({ terran_barracks: "BARRACKS", terran_academy: "ACADEMY",
+            terran_supply_depot: "SUPPLY_DEPOT", terran_factory: "FACTORY" })[building];
+        const footprint = building === "terran_academy" || building === "terran_supply_depot"
+            ? { width: 96, height: 64 } : { width: 128, height: 96 };
         const marineID = "openbw:1003";
         let started = 0, placed = false;
         context.subscribe("interval.tick", function () {

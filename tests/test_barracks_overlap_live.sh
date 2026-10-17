@@ -9,6 +9,8 @@ overlap_building="${OVERLAP_BUILDING:-terran_barracks}"
 case "$overlap_building" in
   terran_barracks) overlap_label="BARRACKS" ;;
   terran_academy) overlap_label="ACADEMY" ;;
+  terran_supply_depot) overlap_label="SUPPLY_DEPOT" ;;
+  terran_factory) overlap_label="FACTORY" ;;
   *) printf 'Unsupported overlap building: %s\n' "$overlap_building" >&2; exit 2 ;;
 esac
 map_file="$project_dir/run-data/scenarios/mt-zergling/map/mt-zergling.scm"
