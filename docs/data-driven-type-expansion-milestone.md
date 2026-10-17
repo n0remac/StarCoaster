@@ -29,6 +29,16 @@ specialized effect renderers; neither implements gameplay damage or healing.
   reusable target-facing attachment layer. Existing sprite IDs remain stable;
   its additional banks are appended in catalog-defined `g2_order`.
 
+## Implementation commits
+
+| Phase | Commits | Main files |
+| --- | --- | --- |
+| Catalog and native feasibility | `fd4d4a6`, `5344c98` | `starcraft-types.json`, type generator, generated Go/C++/JS and schemas, native prerequisite probe |
+| Declarative art and rendering | `0c1fd3d`, `886c17d`, `2ae7678` | `starcraft-visuals.json`, sprite preparation and installer, building-object assembler, OpenRCT2 visual registry patches |
+| Armory/Goliath and startup | `95d602b`, `9e80847`, `020c16c` | type catalog, `start.sh`, `project.sh`, native actor-capacity handling |
+| Live gameplay, recovery, and capture | `80ebebf`, `77da546`, `db0fbf7`, `3450319`, `02465db`, `2a034ff` | live probes, save/load and bridge-restart tests, recorder, UI test, generic native HP fixture |
+| Regression fixes and documentation | `437acb3`, `4ecbc14`, `643eb28`, `24fde1b`, `5747767`, `f06aecf` | Firebat and actor test timing, Medic/Vulture script mode, workflow and milestone reports |
+
 ## Verification evidence
 
 | Check | Result | Local evidence |
