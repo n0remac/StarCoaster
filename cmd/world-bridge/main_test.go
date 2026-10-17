@@ -344,6 +344,12 @@ func TestGeneralizedTrainingCommand(t *testing.T) {
 	if len(s.commands) != 1 {
 		t.Fatal("unsupported unit forwarded")
 	}
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:train:empty", "openrct2", 1,
+		map[string]any{"command_id": "session-a:empty", "player_id": 2, "request_id": 4,
+			"unit_ids": []string{}, "verb": "unit.train", "unit_type": "", "target_id": e.ID}))
+	if len(s.commands) != 1 {
+		t.Fatal("explicit empty unit type used legacy default")
+	}
 	command.CommandID, command.RequestID, command.UnitType = "session-a:3", 3, "zerg_zergling"
 	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:train:wrong-producer", "openrct2", 1, command))
 	if len(s.commands) != 1 {

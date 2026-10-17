@@ -686,7 +686,7 @@ private:
         if (!activeSpawn_.empty()) { spawnError_ = "native_spawn_busy"; return false; }
         if (nativeSpawns_.size() >= 4096) { spawnError_ = "native_spawn_history_full"; return false; }
         const auto type = worldUnitType(kind)->native;
-        int& ownerID = kind == "terran_marine" ? marineOwnerID_ : zergOwnerID_;
+        int& ownerID = spawnOwnerIDs_.try_emplace(kind, -1).first->second;
         // Resolve the native owner once from the starting roster. Later units
         // of the same type may belong to another player; they do not change
         // the authority of an already accepted spawn request stream.
@@ -700,9 +700,21 @@ private:
                 ownerID = observed;
             }
         }
+        // A newly supported type may be absent from the starting roster.
+        // Reuse an unambiguous owner of another supported unit of its race.
+        if (ownerID < 0) for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists() || !unit->getPlayer()) continue;
+            const auto* observedType = worldUnitType(unit->getType());
+            if (!observedType || std::string(observedType->race) != worldUnitType(kind)->race) continue;
+            const int observed = unit->getPlayer()->getID();
+            if (ownerID >= 0 && observed != ownerID) {
+                spawnError_ = "ambiguous_native_owner"; return false;
+            }
+            ownerID = observed;
+        }
         // Continuous defense starts with no Zerglings. The publisher owns the
         // Zerg player slot even before its first native unit is created.
-        if (ownerID < 0 && kind == "zerg_zergling" && game->self())
+        if (ownerID < 0 && std::string(worldUnitType(kind)->race) == "zerg" && game->self())
             ownerID = game->self()->getID();
         BWAPI::Player owner = nullptr;
         for (auto player : game->getPlayers())
@@ -872,6 +884,9 @@ private:
             const auto& entity = entities_.at(id);
             const auto* building = entity.value("kind", "") == "structure"
                 ? worldBuildingType(entity.value("type", "")) : nullptr;
+            if (entity.value("kind", "") == "structure" && !building) {
+                reportUnsupported(id, "unsupported_native_building_type"); continue;
+            }
             if (!entity.value("destructible", false)) continue;
             if (!entity.at("combat").value("targetable", false)) {
                 reportUnsupported(id, "not_targetable"); continue;
@@ -1223,7 +1238,7 @@ private:
     std::set<int> publishedActors_;
     std::map<std::string, NativeSpawn> nativeSpawns_;
     std::string activeSpawn_, spawnError_;
-    int marineOwnerID_ = -1, zergOwnerID_ = -1;
+    std::map<std::string, int> spawnOwnerIDs_;
     int runtimeSerial_ = 0;
     bool testMarineSpawnRequested_ = false;
     int testMarineCanonical_ = 0;

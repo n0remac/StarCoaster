@@ -184,8 +184,9 @@ func (q *SpawnQueue) Submit(session string, request SpawnRequest) (SpawnStatus, 
 		}
 		return prior.Status, nil
 	}
+	_, supportedUnit := SupportedUnit(request.UnitType)
 	if !identifier.MatchString(request.RequestID) || request.Count < 1 || request.Count > 5 ||
-		(request.UnitType != "terran_marine" && request.UnitType != "zerg_zergling") ||
+		!supportedUnit ||
 		request.Formation != "compact" || request.PlayerID < 0 || request.PlayerID > 255 {
 		return SpawnStatus{}, errors.New("invalid_spawn_request")
 	}

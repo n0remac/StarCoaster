@@ -988,6 +988,12 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			entity, exists := s.registry.Entities[command.TargetID]
 			building, supported := world.SupportedBuilding(entity.Type)
 			if command.UnitType == "" {
+				var request map[string]json.RawMessage
+				_ = json.Unmarshal(m.Payload, &request)
+				if _, explicit := request["unit_type"]; explicit {
+					s.ack(p, m, false, "unsupported_unit_type")
+					return
+				}
 				command.UnitType = "terran_marine"
 			} // world.v1 legacy default
 			_, supportedUnit := world.SupportedUnit(command.UnitType)

@@ -24,21 +24,23 @@ public:
     bool prepare(BWAPI::Game* game, const std::set<int>& runtimeCandidates = {}) {
         if (prepared_) return true;
         if (!game || game->getFrameCount() < 2) return false;
-        std::vector<BWAPI::Unit> marines, zerglings;
+        std::map<int, std::vector<BWAPI::Unit>> legacyGroups;
+        std::vector<std::pair<std::string, BWAPI::Unit>> otherActors;
         for (auto unit : game->getAllUnits()) {
             if (!unit || !unit->exists() || runtimeCandidates.count(unit->getID())) continue;
             const auto* type = worldUnitType(unit->getType());
             if (!type) continue;
-            // Preserve the original positional identity groups for saved games.
-            if (std::string(type->id) == "terran_marine") marines.push_back(unit);
-            else if (std::string(type->id) == "zerg_zergling") zerglings.push_back(unit);
+            if (type->legacyStaticBase) legacyGroups[type->legacyStaticBase].push_back(unit);
+            else otherActors.emplace_back(type->id, unit);
         }
         const auto byPosition = [](BWAPI::Unit a, BWAPI::Unit b) {
             const auto x = a->getPosition(), y = b->getPosition();
             return std::tie(x.x, x.y) < std::tie(y.x, y.y);
         };
-        std::sort(marines.begin(), marines.end(), byPosition);
-        std::sort(zerglings.begin(), zerglings.end(), byPosition);
+        for (auto& [base, group] : legacyGroups) std::sort(group.begin(), group.end(), byPosition);
+        std::sort(otherActors.begin(), otherActors.end(), [&](const auto& a, const auto& b) {
+            return a.first != b.first ? a.first < b.first : byPosition(a.second, b.second);
+        });
         auto assign = [&](const std::vector<BWAPI::Unit>& group, int base) {
             for (size_t i = 0; i < group.size(); ++i) {
                 if (i > 0 && group[i]->getPosition() == group[i - 1]->getPosition()) return false;
@@ -48,7 +50,21 @@ public:
             }
             return true;
         };
-        if (!assign(marines, 1000) || !assign(zerglings, 2000)) {
+        bool assigned = true;
+        for (const auto& [base, group] : legacyGroups) assigned = assign(group, base) && assigned;
+        // No type is inferred from these IDs. New starting units are ordered
+        // by declared type and position across both native participants.
+        if (otherActors.size() > 500) assigned = false;
+        for (size_t i = 0; i < otherActors.size() && assigned; ++i) {
+            if (i > 0 && otherActors[i].first == otherActors[i - 1].first
+                && otherActors[i].second->getPosition() == otherActors[i - 1].second->getPosition()) {
+                assigned = false; break;
+            }
+            const int canonical = 2500 + static_cast<int>(i);
+            canonicalToUnit_[canonical] = otherActors[i].second;
+            localToCanonical_[otherActors[i].second->getID()] = canonical;
+        }
+        if (!assigned) {
             canonicalToUnit_.clear(); localToCanonical_.clear();
             return false;
         }
