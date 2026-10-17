@@ -5,13 +5,26 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
-run_dir="$project_dir/run-data/academy-bridge-restart-$(date +%s)"
+building_kind="${STARCOASTER_BUILDING_TYPE:-academy}"
+case "$building_kind" in academy) object_index=249; expected_hp=372 ;;
+                          armory) object_index=252; expected_hp=750 ;;
+                          *) printf 'Unsupported building bridge restart probe: %s\n' "$building_kind" >&2; exit 2 ;;
+esac
+marker="${building_kind^^}"
+run_dir="$project_dir/run-data/${building_kind}-bridge-restart-$(date +%s)"
 mkdir -p "$run_dir/server/plugin" "$run_dir/client/plugin"
 map_file="$run_dir/mt-zergling.scm"
 python3 scripts/create-world-base-map.py --scenario scenarios/mt-zergling/scenario.json --output "$map_file" >/dev/null
 park_file="$project_dir/run-data/mt-zergling/save/mt-zergling.park"
 test -s "$park_file"
-cp scripts/live-academy-build-probe.js openrct2-plugin/rts-bridge.js "$run_dir/client/plugin/"
+cp openrct2-plugin/rts-bridge.js "$run_dir/client/plugin/"
+if [[ "$building_kind" == academy ]]; then
+  cp scripts/live-academy-build-probe.js "$run_dir/client/plugin/"
+else
+  sed -e 's/Academy/Armory/g' -e 's/ACADEMY/ARMORY/g' \
+    -e 's/academy/armory/g' scripts/live-academy-build-probe.js \
+    > "$run_dir/client/plugin/live-armory-build-probe.js"
+fi
 session_pid=""; client_pid=""; bridge_pid=""
 cleanup() {
   for pid in "$client_pid" "$bridge_pid" "$session_pid"; do
@@ -52,23 +65,24 @@ build/world-bridge --scenario "$project_dir/scenarios/mt-zergling/scenario.json"
 bridge_pid=$!
 wait_for 'park snapshot session=' "$run_dir/restart.log" 55
 wait_for 'OpenBW ready targets=3' "$run_dir/restart.log" 55
-python3 - "$run_dir" <<'PY'
+python3 - "$run_dir" "$object_index" "$expected_hp" "$marker" <<'PY'
 import json, re, sys
 from pathlib import Path
 p=Path(sys.argv[1]); first=(p/'server.log').read_text(errors='replace'); restart=(p/'restart.log').read_text(errors='replace')
-target=r'openrct2:large_scenery:249:3360:3328:1216:0#1'
+object_index, expected_hp, marker = sys.argv[2:]
+target=rf'openrct2:large_scenery:{object_index}:3360:3328:1216:0#1'
 linked_before=re.findall(r'native target state id='+target+r' proxy=(openbw:\d+) hp=(\d+)', first)
 linked_after=re.findall(r'native target state id='+target+r' proxy=(openbw:\d+) hp=(\d+)', restart)
 first_session=re.search(r'park snapshot session=([0-9a-f]{32}) revision=1',first)
 restarted_session=re.search(r'park snapshot session=([0-9a-f]{32}) revision=2',restart)
 checks={
-  'constructed': 'ACADEMY_BUILD_PROBE_RESULT accepted=true' in (p/'client.log').read_text(errors='replace'),
+  'constructed': f'{marker}_BUILD_PROBE_RESULT accepted=true' in (p/'client.log').read_text(errors='replace'),
   'confirmed_patch': 'WORLD_PATCH_SYNC revision=2' in first,
   'same_session_reconciled': bool(first_session and restarted_session)
       and first_session.group(1)==restarted_session.group(1),
   'same_native_identity_and_health': bool(linked_before and linked_after)
-      and linked_before[-1]==linked_after[-1] and linked_after[-1][1]=='372',
-  'no_duplicate_native_academy': len(re.findall(r'\[world\] target id='+target+r' proxy=', first+restart))==1,
+      and linked_before[-1]==linked_after[-1] and linked_after[-1][1]==expected_hp,
+  'no_duplicate_native_building': len(re.findall(r'\[world\] target id='+target+r' proxy=', first+restart))==1,
   'both_participants_ready': 'OpenBW ready targets=3' in restart,
 }
 (p/'verification.json').write_text(json.dumps({'checks':checks,'before':linked_before,
@@ -76,4 +90,4 @@ checks={
 print(json.dumps({'checks':checks,'before':linked_before,'after':linked_after},indent=2))
 if not all(checks.values()): raise SystemExit(1)
 PY
-printf 'Academy bridge restart logs: %s\n' "$run_dir"
+printf '%s bridge restart logs: %s\n' "$building_kind" "$run_dir"

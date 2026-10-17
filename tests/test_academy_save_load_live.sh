@@ -5,13 +5,30 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
+building_kind="${STARCOASTER_BUILDING_TYPE:-academy}"
+case "$building_kind" in academy) native_type=Terran_Academy; expected_max=600; expected_hp="${ACADEMY_TEST_HEALTH:-372}" ;;
+                          armory) native_type=Terran_Armory; expected_max=750; expected_hp=750 ;;
+                          *) printf 'Unsupported building save/load probe: %s\n' "$building_kind" >&2; exit 2 ;;
+esac
+marker="${building_kind^^}"
 map_file="$project_dir/run-data/scenarios/mt-zergling/map/mt-zergling.scm"
 park_file="$project_dir/run-data/mt-zergling/save/mt-zergling.park"
 test -s "$map_file"; test -s "$park_file"
-run_dir="$project_dir/run-data/academy-save-load-live-$(date +%s)"
+run_dir="$project_dir/run-data/${building_kind}-save-load-live-$(date +%s)"
 mkdir -p "$run_dir/server/plugin" "$run_dir/client/plugin" "$run_dir/reload-server"
-cp scripts/live-academy-save-probe.js "$run_dir/server/plugin/"
-cp openrct2-plugin/rts-bridge.js scripts/live-academy-build-probe.js "$run_dir/client/plugin/"
+cp openrct2-plugin/rts-bridge.js "$run_dir/client/plugin/"
+for probe in save build rebuild; do
+  source_file="scripts/live-academy-${probe}-probe.js"
+  target_dir="$run_dir/client/plugin"
+  if [[ "$probe" == save ]]; then target_dir="$run_dir/server/plugin"; fi
+  if [[ "$building_kind" == academy ]]; then
+    cp "$source_file" "$target_dir/"
+  else
+    sed -e 's/Academy/Armory/g' -e 's/ACADEMY/ARMORY/g' \
+      -e 's/academy/armory/g' "$source_file" > "$target_dir/live-armory-${probe}-probe.js"
+  fi
+done
+rm "$run_dir/client/plugin/live-${building_kind}-rebuild-probe.js"
 session_pid=""; client_pid=""
 cleanup() {
   for pid in "$client_pid" "$session_pid"; do
@@ -45,8 +62,8 @@ build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
   --rct2-data-path="$RCT2_DATA_DIR" --openrct2-data-path="$openrct2_data" \
   --user-data-path="$run_dir/client" > "$run_dir/client.log" 2>&1 &
 client_pid=$!
-wait_for 'ACADEMY_SAVE_PROBE_SAVED' "$run_dir/build.log" 65
-saved="$run_dir/server/save/academy-recovery.park"
+wait_for "${marker}_SAVE_PROBE_SAVED" "$run_dir/build.log" 65
+saved="$run_dir/server/save/${building_kind}-recovery.park"
 test -s "$saved"
 cleanup
 session_pid=""; client_pid=""
@@ -56,14 +73,20 @@ BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/mt-zergl
   timeout 100s scripts/run-world-session.sh "$saved" > "$run_dir/reload.log" 2>&1 &
 session_pid=$!
 wait_for 'WORLD_READY.*targets=3' "$run_dir/reload.log" 80
-rm "$run_dir/client/plugin/live-academy-build-probe.js"
-cp scripts/live-academy-rebuild-probe.js "$run_dir/client/plugin/"
+rm "$run_dir/client/plugin/live-${building_kind}-build-probe.js"
+if [[ "$building_kind" == academy ]]; then
+  cp scripts/live-academy-rebuild-probe.js "$run_dir/client/plugin/"
+else
+  sed -e 's/Academy/Armory/g' -e 's/ACADEMY/ARMORY/g' \
+    -e 's/academy/armory/g' scripts/live-academy-rebuild-probe.js \
+    > "$run_dir/client/plugin/live-armory-rebuild-probe.js"
+fi
 build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
   --rct2-data-path="$RCT2_DATA_DIR" --openrct2-data-path="$openrct2_data" \
   --user-data-path="$run_dir/client" > "$run_dir/rebuild-client.log" 2>&1 &
 client_pid=$!
 wait_for 'WORLD_PATCH_SYNC revision=3' "$run_dir/reload.log" 60
-python3 - "$run_dir" "${ACADEMY_TEST_HEALTH:-372}" <<'PY'
+python3 - "$run_dir" "$expected_hp" "$expected_max" "$native_type" "$marker" "$building_kind" <<'PY'
 import json
 import re
 import sys
@@ -71,6 +94,7 @@ from pathlib import Path
 
 directory = Path(sys.argv[1])
 expected_hp = sys.argv[2]
+expected_max, native_type, marker, building_kind = sys.argv[3:]
 build = (directory / 'build.log').read_text(errors='replace')
 reload = (directory / 'reload.log').read_text(errors='replace')
 client = (directory / 'client.log').read_text(errors='replace')
@@ -81,17 +105,17 @@ after = re.findall(pattern, reload)
 hashes = (re.findall(r'navigation initialized hash=([0-9a-f]{16})', reload),
           re.findall(r'park patch synchronized id=\S+ revision=2 hash=([0-9a-f]{16})', build))
 checks = {
-    'placement': 'ACADEMY_BUILD_PROBE_RESULT accepted=true' in client,
+    'placement': f'{marker}_BUILD_PROBE_RESULT accepted=true' in client,
     'confirmed_before_save': 'WORLD_PATCH_SYNC revision=2' in build,
-    'real_park_saved': (directory / 'server/save/academy-recovery.park').stat().st_size > 0,
+    'real_park_saved': (directory / f'server/save/{building_kind}-recovery.park').stat().st_size > 0,
     'identity_and_health_preserved': bool(before and after) and before[-1] == after[0],
-    'real_native_academy': bool(before and after) and before[-1][1] == after[0][1] == expected_hp
-        and build.count('type=Terran_Academy hp=600') >= 1
-        and reload.count('type=Terran_Academy') >= 2,
+    'real_native_building': bool(before and after) and before[-1][1] == after[0][1] == expected_hp
+        and build.count(f'type={native_type} hp={expected_max}') >= 1
+        and reload.count(f'type={native_type}') >= 2,
     'native_mask_preserved': bool(hashes[0] and hashes[1]) and hashes[0][-1] == hashes[1][-1],
     'two_native_participants_ready': 'WORLD_READY entities=4255 targets=3' in reload,
-    'demolition_and_rebuild': 'ACADEMY_REBUILD_REMOVE accepted=true' in rebuild_client
-        and 'ACADEMY_REBUILD_BUILD accepted=true' in rebuild_client
+    'demolition_and_rebuild': f'{marker}_REBUILD_REMOVE accepted=true' in rebuild_client
+        and f'{marker}_REBUILD_BUILD accepted=true' in rebuild_client
         and 'WORLD_PATCH_SYNC revision=3' in reload,
     'new_generation': bool(after) and any(id.endswith('#2') for id, _hp in after),
 }
@@ -100,4 +124,4 @@ result = {'checks': checks, 'before': before, 'after': after, 'hashes': hashes}
 print(json.dumps(result, indent=2))
 if not all(checks.values()): raise SystemExit(1)
 PY
-printf 'Academy save/load logs: %s\n' "$run_dir"
+printf '%s save/load logs: %s\n' "$native_type" "$run_dir"
