@@ -38,6 +38,9 @@ const ui = {
 const barracks = { index: 7, identifier: 'starcoaster.scenery_large.terran_barracks',
     tiles: Array.from({ length: 12 }, (_, i) => ({ offset: { x: i % 4 * 32,
         y: Math.floor(i / 4) * 32, z: 0 } })) };
+const academy = { index: 8, identifier: 'starcoaster.scenery_large.terran_academy',
+    tiles: Array.from({ length: 6 }, (_, i) => ({ offset: { x: i % 3 * 32,
+        y: Math.floor(i / 3) * 32, z: 0 } })) };
 const context = {
     registerAction(name, query, execute) { actions.set(name, { query, execute }); },
     subscribe() {},
@@ -65,7 +68,7 @@ const context = {
 };
 const sandbox = {
     map: { size: { x: 16, y: 16 }, rides: [], getTile: tile },
-    objectManager: { getAllObjects(kind) { return kind === 'large_scenery' ? [barracks] : []; } },
+    objectManager: { getAllObjects(kind) { return kind === 'large_scenery' ? [barracks, academy] : []; } },
     network: { mode: 'client', currentPlayer: { id: 1 }, players: [{ id: 1 }] },
     rtsBridge: { version: 5, assetVersion: 3, applySnapshot() {},
         invalidateAnimation() {}, setBuildingAnimations(state) { buildingAnimations.push(state); },
@@ -196,6 +199,30 @@ tool.onMove(blocked);
 assert.match(construction.findWidget('barracks-status').text, /unit occupies/,
     'unbound native actors overlapping the edge still occupy construction sites');
 assert.equal(passive.onHover({ ...event, alt: true }), false);
+
+// A completed non-production building has native identity and health, without
+// Barracks queue controls.
+assert.ok(construction.desc.widgets.some(widget => widget.text === 'Academy  |  3 x 2 tiles'));
+for (let y = 10; y < 12; y++) for (let x = 10; x < 13; x++)
+    tile(x, y).elements.push({ type: 'large_scenery', object: academy.index,
+        baseHeight: 14, baseZ: 112, sequence: (y - 10) * 3 + x - 10 });
+const academyID = 'openrct2:large_scenery:8:320:320:112:0#1';
+action.execute({ player: 1, args: { ...catalog, version: 5,
+    targets: [catalog.targets[0], { id: academyID,
+        rects: [{ x: 320, y: 320, width: 96, height: 64 }], health: 600 }] } });
+const academyEvent = { mapCoords: { x: 320, y: 320 }, screenCoords: { x: 450, y: 400 } };
+passive.onDown(academyEvent);
+assert.equal(passive.onUp(academyEvent), true);
+const academyInfo = windows.get('starcoaster-building-info');
+assert.ok(academyInfo);
+buildingAction.execute({ player: 1, args: { ...nativeState, id: academyID,
+    native_id: 'openbw:9', health: 600, max_health: 600, queue: 0, remaining_frames: 0 } });
+academyInfo.desc.onUpdate();
+assert.equal(academyInfo.findWidget('building-health').text, 'Health: 600/600');
+assert.equal(academyInfo.findWidget('building-identity').text, academyID);
+assert.equal(academyInfo.findWidget('building-status').text, 'Construction: complete');
+assert.equal(academyInfo.findWidget('building-queue'), undefined);
+assert.equal(academyInfo.findWidget('building-train'), undefined);
 
 // Park storage keeps the structure ID stable when the plugin restarts on a saved park.
 let savedStorage = {};

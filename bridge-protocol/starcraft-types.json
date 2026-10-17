@@ -17,8 +17,14 @@
       "id": "terran_barracks", "native_type": "Terran_Barracks",
       "object_id": "starcoaster.scenery_large.terran_barracks",
       "display_name": "Terran Barracks", "visual": "terran_barracks",
-      "width": 4, "height": 3, "production": ["terran_marine"],
+      "width": 4, "height": 3, "max_health": 1000, "production": ["terran_marine"],
       "animation": {"trigger": "training", "frames": 7, "ticks_per_frame": 3}
+    },
+    {
+      "id": "terran_academy", "native_type": "Terran_Academy",
+      "object_id": "starcoaster.scenery_large.terran_academy",
+      "display_name": "Terran Academy", "visual": "terran_academy",
+      "width": 3, "height": 2, "max_health": 600, "production": []
     }
   ]
 }

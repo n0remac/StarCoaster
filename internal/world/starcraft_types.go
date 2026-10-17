@@ -12,7 +12,7 @@ type UnitDefinition struct {
 
 type BuildingDefinition struct {
 	ID, NativeType, ObjectID, DisplayName, Visual string
-	Width, Height                                 int
+	Width, Height, MaxHealth                      int
 	Production                                    []string
 }
 
@@ -23,7 +23,8 @@ var unitDefinitions = map[string]UnitDefinition{
 }
 
 var buildingDefinitions = map[string]BuildingDefinition{
-	"terran_barracks": {ID: "terran_barracks", NativeType: "Terran_Barracks", ObjectID: "starcoaster.scenery_large.terran_barracks", DisplayName: "Terran Barracks", Visual: "terran_barracks", Width: 4, Height: 3, Production: []string{"terran_marine"}},
+	"terran_barracks": {ID: "terran_barracks", NativeType: "Terran_Barracks", ObjectID: "starcoaster.scenery_large.terran_barracks", DisplayName: "Terran Barracks", Visual: "terran_barracks", Width: 4, Height: 3, MaxHealth: 1000, Production: []string{"terran_marine"}},
+	"terran_academy": {ID: "terran_academy", NativeType: "Terran_Academy", ObjectID: "starcoaster.scenery_large.terran_academy", DisplayName: "Terran Academy", Visual: "terran_academy", Width: 3, Height: 2, MaxHealth: 600, Production: []string{}},
 }
 
 // END GENERATED STARCRAFT TYPES
@@ -48,7 +49,7 @@ func ValidateTypeDefinitions(units map[string]UnitDefinition, buildings map[stri
 		}
 	}
 	for key, building := range buildings {
-		if key == "" || key != building.ID || building.NativeType == "" || building.ObjectID == "" || building.DisplayName == "" || building.Width < 1 || building.Height < 1 || objects[building.ObjectID] {
+		if key == "" || key != building.ID || building.NativeType == "" || building.ObjectID == "" || building.DisplayName == "" || building.Width < 1 || building.Height < 1 || building.MaxHealth < 1 || objects[building.ObjectID] {
 			return fmt.Errorf("invalid building definition %q", key)
 		}
 		objects[building.ObjectID] = true

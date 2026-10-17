@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 import struct
 import zipfile
@@ -16,9 +17,41 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 TYPE_DEFINITIONS = {item["id"]: item for item in
                     json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())["buildings"]}
-IDENTIFIER = TYPE_DEFINITIONS["terran_barracks"]["object_id"]
-BARRACKS_RESOURCE = "unit/terran/TBarrack.grp"
 PALETTE_RESOURCE = "Tileset/Badlands.wpe"
+
+
+def image_resource(game_dir: Path, image_name: str, helpers=None) -> str:
+    """Resolve the pinned image ID through classic images.dat and images.tbl."""
+    helpers = helpers or runpy.run_path(str(ROOT / "scripts/prepare-starcraft-sprites.py"))
+    source = ROOT / "run-data/generated-assets/starcraft/metadata/.source"
+    source.mkdir(parents=True, exist_ok=True)
+    images_dat, images_tbl = source / "images.dat", source / "images.tbl"
+    helpers["extract"](game_dir, "arr/images.dat", images_dat)
+    helpers["extract"](game_dir, "arr/images.tbl", images_tbl)
+    enum_source = (ROOT / "upstream/openbw/bwenums.h").read_text()
+    block = enum_source.split("enum struct ImageTypes : int {", 1)[1].split("};", 1)[0]
+    names = re.findall(r"\bIMAGEID_[A-Za-z0-9_]+\b", block)
+    key = "IMAGEID_" + image_name
+    if key not in names:
+        raise ValueError(f"Unknown pinned OpenBW image: {key}")
+    data, table = images_dat.read_bytes(), images_tbl.read_bytes()
+    index = names.index(key)
+    if len(data) < 999 * 4 or len(table) < 4 or index >= 999:
+        raise ValueError("Unexpected classic StarCraft image metadata")
+    string_index = struct.unpack_from("<I", data, index * 4)[0]
+    count = struct.unpack_from("<H", table)[0]
+    if not 1 <= string_index <= count or 2 + count * 2 > len(table):
+        raise ValueError(f"Invalid GRP path index for {key}")
+    offset = struct.unpack_from("<H", table, 2 + (string_index - 1) * 2)[0]
+    if offset >= len(table):
+        raise ValueError(f"Invalid GRP path offset for {key}")
+    end = table.find(b"\0", offset)
+    if end < 0:
+        raise ValueError(f"Unterminated GRP path for {key}")
+    path = table[offset:end].decode("ascii").replace("\\", "/")
+    if not re.fullmatch(r"[A-Za-z0-9_/.-]+\.grp", path) or ".." in path.split("/"):
+        raise ValueError(f"Unsafe GRP path for {key}")
+    return "unit/" + path
 
 
 def light_only_frame(idle: Image.Image, illuminated: Image.Image) -> Image.Image:
@@ -47,7 +80,7 @@ def barracks_images(game_dir: Path) -> list[Image.Image]:
     source.mkdir(parents=True, exist_ok=True)
     helpers = runpy.run_path(str(ROOT / "scripts/prepare-starcraft-sprites.py"))
     grp_path, wpe_path = source / "TBarrack.grp", source / "Badlands.wpe"
-    helpers["extract"](game_dir, BARRACKS_RESOURCE, grp_path)
+    helpers["extract"](game_dir, image_resource(game_dir, "Barracks", helpers), grp_path)
     helpers["extract"](game_dir, PALETTE_RESOURCE, wpe_path)
     data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
     count, width, height = struct.unpack_from("<HHH", data)
@@ -87,11 +120,47 @@ def barracks_images(game_dir: Path) -> list[Image.Image]:
     return output_images
 
 
+def academy_images(game_dir: Path) -> list[Image.Image]:
+    source = ROOT / "run-data/generated-assets/starcraft/academy/.source"
+    source.mkdir(parents=True, exist_ok=True)
+    helpers = runpy.run_path(str(ROOT / "scripts/prepare-starcraft-sprites.py"))
+    grp_path, wpe_path = source / "Academy.grp", source / "Badlands.wpe"
+    helpers["extract"](game_dir, image_resource(game_dir, "Terran_Academy", helpers), grp_path)
+    helpers["extract"](game_dir, PALETTE_RESOURCE, wpe_path)
+    data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
+    if struct.unpack_from("<HHH", data) != (2, 96, 128) or len(wpe) != 1024:
+        raise ValueError("Unexpected classic StarCraft Academy GRP or Badlands palette")
+    image = helpers["decode_grp"](data, wpe, 0)
+    bounds = image.getbbox()
+    if bounds is None:
+        raise ValueError("Classic StarCraft Academy frame is empty")
+    image = image.crop(bounds).resize((140, 140), Image.Resampling.NEAREST)
+    palette = helpers["openrct2_palette"]()
+    available = [i for i in range(10, 255) if not 230 <= i <= 239 and not 243 <= i <= 254]
+    cache = {}
+    output = Image.new("P", image.size, 0)
+    output.putpalette([channel for colour in palette for channel in colour])
+    pixels = []
+    for red, green, blue, alpha in image.getdata():
+        if alpha == 0:
+            pixels.append(0)
+            continue
+        colour = (red, green, blue)
+        if colour not in cache:
+            cache[colour] = min(available, key=lambda i:
+                sum((colour[channel] - palette[i][channel]) ** 2 for channel in range(3)))
+        pixels.append(cache[colour])
+    output.putdata(pixels)
+    return [output]
+
+
 # Visual preparation is building-specific; tile layout and archive assembly are
 # shared. The Barracks' name, image paths, and bank order are save-compatible.
 BUILDING_OBJECTS = {
     "terran_barracks": {"frame_name": "barracks",
                         "prepare": lambda game_dir: barracks_images(game_dir)},
+    "terran_academy": {"frame_name": "academy", "prepare": academy_images,
+                        "preview_size": (52, 52), "preview_offset": (-26, -18)},
 }
 
 

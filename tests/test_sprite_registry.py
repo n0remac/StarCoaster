@@ -103,6 +103,36 @@ class SpriteRegistryTests(unittest.TestCase):
                 self.assertEqual(len(definition["properties"]["tiles"]), 4)
                 self.assertEqual(len(definition["images"]), 4 + 4 * 4)
 
+    def test_academy_object_has_static_six_tile_footprint_in_four_rotations(self):
+        spec = importlib.util.spec_from_file_location(
+            "academy_object", ROOT / "scripts/install-starcraft-construction-object.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        image = Image.new("P", (140, 140), 10)
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+                module, "academy_images", return_value=[image]):
+            module.BUILDING_OBJECTS["terran_academy"]["prepare"] = module.academy_images
+            path = module.install(Path(directory), Path(directory), "terran_academy")
+            with zipfile.ZipFile(path) as archive:
+                definition = json.loads(archive.read("object.json"))
+                self.assertEqual(definition["id"], "starcoaster.scenery_large.terran_academy")
+                self.assertEqual(len(definition["properties"]["tiles"]), 6)
+                self.assertEqual(len(definition["images"]), 4 + 6 * 4)
+                self.assertEqual({image["path"] for image in definition["images"][4:]},
+                                 {"images/academy-0.png"})
+
+    @unittest.skipUnless((ROOT / "run-data/generated-assets/starcraft/academy/.source/Academy.grp").is_file(),
+                         "local licensed Academy art has not been extracted")
+    def test_academy_art_resolves_from_classic_image_metadata(self):
+        spec = importlib.util.spec_from_file_location(
+            "academy_object", ROOT / "scripts/install-starcraft-construction-object.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        game = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
+        self.assertEqual(module.image_resource(game, "Terran_Academy"),
+                         "unit/terran/Academy.grp")
+        self.assertEqual(len(module.academy_images(game)), 1)
+
     def test_extraction_accepts_archive_aliases_and_relative_paths(self):
         spec = importlib.util.spec_from_file_location("starcraft_sprites", ROOT / "scripts/prepare-starcraft-sprites.py")
         module = importlib.util.module_from_spec(spec)

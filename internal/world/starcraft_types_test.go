@@ -17,8 +17,13 @@ func TestSupportedStarcraftTypes(t *testing.T) {
 		t.Fatal(marine)
 	}
 	barracks, ok := SupportedBuilding("terran_barracks")
-	if !ok || barracks.Width != 4 || barracks.Height != 3 || len(barracks.Production) != 1 || barracks.Production[0] != marine.ID {
+	if !ok || barracks.Width != 4 || barracks.Height != 3 || barracks.MaxHealth != 1000 || len(barracks.Production) != 1 || barracks.Production[0] != marine.ID {
 		t.Fatal(barracks)
+	}
+	academy, ok := SupportedBuilding("terran_academy")
+	if !ok || academy.NativeType != "Terran_Academy" || academy.Width != 3 || academy.Height != 2 ||
+		academy.MaxHealth != 600 || len(academy.Production) != 0 {
+		t.Fatal(academy)
 	}
 }
 

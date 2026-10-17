@@ -357,6 +357,40 @@ func TestGeneralizedTrainingCommand(t *testing.T) {
 	}
 }
 
+func TestAcademyBuildingStateWithoutProduction(t *testing.T) {
+	s := testService()
+	e := testEntity()
+	e.ID, e.SourceID, e.Kind, e.Type, e.Owner = "openrct2:large_scenery:4:1:1#1", "large_scenery:4:1:1", "structure", "terran_academy", 1
+	e.Geometry.Rects = []world.Rect{{X: 32, Y: 32, Width: 96, Height: 64}}
+	e.Combat.Health = 600
+	if err := s.registry.Replace("session-a", 1, 8, 8, []world.Entity{e}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.proxies[e.ID] = "openbw:77"
+	bridge, park := net.Pipe()
+	defer bridge.Close()
+	defer park.Close()
+	s.park = &peer{Conn: bridge}
+	forwarded := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(park)), &message)
+		forwarded <- message
+	}()
+	s.controllerMessage(nil, world.Message("building.state", "session-a", "controller:academy", "openbw", 1,
+		map[string]any{"id": e.ID, "native_id": "openbw:77", "owner": 1,
+			"health": 600, "max_health": 600, "queue": 0, "remaining_frames": 0,
+			"minerals": 500, "supply_used": 10, "supply_total": 16}))
+	select {
+	case message := <-forwarded:
+		if message.Kind != "building.state" {
+			t.Fatalf("academy state was not forwarded: %+v", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("academy state was not forwarded")
+	}
+}
+
 func TestTargetLinkIsForwardedAndValidated(t *testing.T) {
 	s := testService()
 	e := testEntity()

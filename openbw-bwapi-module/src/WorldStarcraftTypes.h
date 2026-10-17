@@ -49,6 +49,9 @@ inline const std::vector<WorldBuildingType>& worldBuildingTypes() {
         {"terran_barracks", BWAPI::UnitTypes::Terran_Barracks,
             "starcoaster.scenery_large.terran_barracks", 4, 3, "Terran Barracks", true,
             {"terran_marine"}},
+        {"terran_academy", BWAPI::UnitTypes::Terran_Academy,
+            "starcoaster.scenery_large.terran_academy", 3, 2, "Terran Academy", false,
+            {}},
     };
     return types;
 }

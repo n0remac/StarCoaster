@@ -33,7 +33,8 @@ def validate(catalog):
         if (not re.fullmatch(r"[a-z][a-z0-9_]+", item["id"])
                 or not item["native_type"] or not item["display_name"]
                 or not item["object_id"] or item["object_id"] in objects
-                or item["width"] < 1 or item["height"] < 1):
+                or item["width"] < 1 or item["height"] < 1
+                or not 1 <= item.get("max_health", 0) <= 100000):
             raise ValueError(f"Invalid building definition: {item['id']}")
         objects.add(item["object_id"])
         if any(unit not in units for unit in item["production"]):
@@ -61,6 +62,7 @@ def go_definitions(catalog):
             ("ID", "id"), ("NativeType", "native_type"), ("ObjectID", "object_id"),
             ("DisplayName", "display_name"), ("Visual", "visual"))]
         fields += [f'Width: {building["width"]}', f'Height: {building["height"]}',
+                   f'MaxHealth: {building["max_health"]}',
                    'Production: []string{' + ', '.join(map(quoted, building["production"])) + '}']
         lines.append(f'\t{quoted(building["id"])}: {{' + ', '.join(fields) + '},')
     return '\n'.join(lines + ['}']) + '\n'
@@ -78,7 +80,8 @@ def javascript_definitions(catalog):
     for building in catalog['buildings']:
         lines.append(f'        {building["id"]}: {{ name: {quoted(building["display_name"])}, '
                      f'objectID: {quoted(building["object_id"])}, width: {building["width"]}, '
-                     f'height: {building["height"]}, production: {json.dumps(building["production"])}, '
+                     f'height: {building["height"]}, maxHealth: {building["max_health"]}, '
+                     f'production: {json.dumps(building["production"])}, '
                      f'animation: {json.dumps(building.get("animation"), separators=(",", ":"))} }},')
     return '\n'.join(lines + ['    });'])
 

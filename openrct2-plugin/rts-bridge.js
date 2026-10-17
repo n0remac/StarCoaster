@@ -23,7 +23,8 @@
         zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
-        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, production: ["terran_marine"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
+        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
+        terran_academy: { name: "Terran Academy", objectID: "starcoaster.scenery_large.terran_academy", width: 3, height: 2, maxHealth: 600, production: [], animation: null },
     });
     // END GENERATED STARCRAFT TYPES
     const buildingByObject = {};
@@ -53,9 +54,14 @@
         const savedBarracksGenerations = parkStorage ? (parkStorage.get("barracksGenerations", {}) || {}) : {};
         const savedBarracksHealth = parkStorage ? (parkStorage.get("barracksHealth", {}) || {}) : {};
         if (parkStorage && parkStorage.get("barracksHealthMode", "proxy") !== "native") {
+            const barracksObject = typeof objectManager === "object"
+                ? objectManager.getAllObjects("large_scenery").find(function (object) {
+                    return object.identifier === BUILDING_TYPES.terran_barracks.objectID;
+                }) : null;
             Object.keys(savedBarracksHealth).forEach(function (id) {
                 const hp = savedBarracksHealth[id];
-                if (Number.isInteger(hp) && hp > 0)
+                if (barracksObject && id.startsWith("openrct2:large_scenery:"
+                    + barracksObject.index + ":") && Number.isInteger(hp) && hp > 0)
                     savedBarracksHealth[id] = Math.min(1000, hp * 25);
             });
             parkStorage.set("barracksHealth", savedBarracksHealth);
@@ -374,7 +380,8 @@
                     collision: { blocks: item.kind !== "path" },
                     destructible: true,
                     combat: { targetable: item.kind !== "path",
-                        health: item.kind === "structure" ? savedBarracksHealth[id] || 1000 : 100 },
+                        health: item.kind === "structure" ? savedBarracksHealth[id]
+                            || BUILDING_TYPES[item.type].maxHealth : 100 },
                     removal: item.removal, revision: revision };
                 if (item.name) entity.name = item.name;
                 if (item.kind !== "path" && item.volumes && item.volumes.length) {
@@ -1990,7 +1997,7 @@
                         const feedback = barracksInfoWindow.findWidget("building-feedback");
                         if (owner) owner.text = "Owner: Terran (player " + (native ? native.owner : terranOwner) + ")";
                         if (identity) identity.text = barracksInfoID || "Awaiting world identity";
-                        if (health) health.text = native ? "Health: " + native.health + "/" + (native.max_health || 1000)
+                        if (health) health.text = native ? "Health: " + native.health + "/" + (native.max_health || building.maxHealth)
                             : target ? "Health: " + target.health : "Health: awaiting native state";
                         if (status) status.text = target && native ? "Construction: complete"
                             : "Construction: synchronizing";
@@ -2016,11 +2023,12 @@
                             height: 14, text: "Health: awaiting native state" },
                         { type: "label", name: "building-status", x: 8, y: 73, width: 228,
                             height: 14, text: "Construction: synchronizing" },
+                    ].concat(building.production.length ? [
                         { type: "label", name: "building-queue", x: 8, y: 91, width: 228,
                             height: 14, text: "Queue: awaiting native state" },
                         { type: "label", name: "building-resources", x: 8, y: 109, width: 228,
                             height: 14, text: "" },
-                    ].concat(building.production.map(function (unitID, index) {
+                    ] : []).concat(building.production.map(function (unitID, index) {
                         return { type: "button", name: unitID === "terran_marine"
                             ? "building-train" : "building-train-" + unitID,
                             x: 8, y: 130 + index * 26, width: 228, height: 22,
@@ -2035,11 +2043,11 @@
                                     if (result.error) productionFeedback = result.errorMessage;
                                 });
                             } };
-                    }), [
+                    }), building.production.length ? [
                         { type: "label", name: "building-feedback", x: 8,
                             y: 158 + Math.max(0, building.production.length - 1) * 26, width: 228,
                             height: 24, text: "" }
-                    ]) });
+                    ] : []) });
             }
             if (typeof ui.registerViewportInteraction !== "function")
                 throw new Error("RTS Bridge needs the native shared viewport input build");

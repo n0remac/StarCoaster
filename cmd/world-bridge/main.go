@@ -127,9 +127,9 @@ type worldCommand struct {
 	Y             int      `json:"y,omitempty"`
 }
 
-func supportedProductionBuilding(id string) bool {
-	building, ok := world.SupportedBuilding(id)
-	return ok && len(building.Production) > 0
+func supportedNativeBuilding(id string) bool {
+	_, ok := world.SupportedBuilding(id)
+	return ok
 }
 
 type targetLink struct {
@@ -1586,7 +1586,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		}
 		entity, exists := s.registry.Entities[state.ID]
 		if m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
-			!exists || entity.Kind != "structure" || !supportedProductionBuilding(entity.Type) ||
+			!exists || entity.Kind != "structure" || !supportedNativeBuilding(entity.Type) ||
 			s.registry.Destroyed[state.ID] || s.proxies[state.ID] != state.NativeID ||
 			entity.Owner != state.Owner || state.Health < 0 || state.Health > 1000000 ||
 			(state.MaxHealth != 0 && (state.MaxHealth < state.Health || state.MaxHealth > 1000000)) ||
