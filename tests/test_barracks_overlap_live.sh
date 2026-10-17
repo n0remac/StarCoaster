@@ -5,12 +5,22 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
+overlap_building="${OVERLAP_BUILDING:-terran_barracks}"
+case "$overlap_building" in
+  terran_barracks) overlap_label="BARRACKS" ;;
+  terran_academy) overlap_label="ACADEMY" ;;
+  *) printf 'Unsupported overlap building: %s\n' "$overlap_building" >&2; exit 2 ;;
+esac
 map_file="$project_dir/run-data/scenarios/mt-zergling/map/mt-zergling.scm"
 park_file="$project_dir/run-data/mt-zergling/save/mt-zergling.park"
 test -s "$map_file"; test -s "$park_file"
-run_dir="$project_dir/run-data/barracks-overlap-live-$(date +%s)"
+run_dir="$project_dir/run-data/${overlap_building#terran_}-overlap-live-$(date +%s)"
 mkdir -p "$run_dir/server/plugin" "$run_dir/client/plugin"
-cp openrct2-plugin/rts-bridge.js scripts/live-barracks-overlap-probe.js "$run_dir/client/plugin/"
+cp openrct2-plugin/rts-bridge.js "$run_dir/client/plugin/"
+printf 'var STARCOASTER_OVERLAP_BUILDING = "%s";\n' "$overlap_building" \
+  > "$run_dir/client/plugin/live-barracks-overlap-probe.js"
+cat scripts/live-barracks-overlap-probe.js \
+  >> "$run_dir/client/plugin/live-barracks-overlap-probe.js"
 session_pid=""; client_pid=""
 cleanup() {
   for pid in "$client_pid" "$session_pid"; do
@@ -52,13 +62,14 @@ while (( $(grep -c 'WORLD_READY.*targets=2' "$run_dir/server.log") < 2 )); do
   fi
   sleep 1
 done
-python3 - "$run_dir" <<'PY'
+python3 - "$run_dir" "$overlap_label" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
 directory = Path(sys.argv[1])
+label = sys.argv[2]
 server = (directory / 'server.log').read_text(errors='replace')
 client = (directory / 'client.log').read_text(errors='replace')
 snapshots = re.findall(r'WORLD_SNAPSHOT session=\S+ entities=(\d+)', server)
@@ -67,7 +78,7 @@ hashes = re.findall(r'navigation initialized hash=([0-9a-f]{16})', server)
 rejected = re.search(r'park patch unsynchronized id=(\S+) revision=2 '
                      r'reason=(?:publisher|controller):occupied_construction_geometry', server)
 checks = {
-    'client_placed_over_marine': 'BARRACKS_OVERLAP_BUILD accepted=true' in client,
+    'client_placed_over_marine': label + '_OVERLAP_BUILD accepted=true' in client,
     'native_rejected': bool(rejected),
     'park_rolled_back': 'WORLD_BARRACKS_ROLLBACK_COMPLETE' in server,
     'no_false_confirmation': bool(rejected) and
@@ -81,4 +92,4 @@ result = {'checks': checks, 'snapshots': snapshots, 'ready': ready, 'hashes': ha
 print(json.dumps(result, indent=2))
 if not all(checks.values()): raise SystemExit(1)
 PY
-printf 'Barracks overlap logs: %s\n' "$run_dir"
+printf '%s overlap logs: %s\n' "$overlap_building" "$run_dir"
