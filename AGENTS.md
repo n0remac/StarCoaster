@@ -11,13 +11,14 @@ OpenRCT2 owns the park, scenery, rides, multiplayer state, and rendering. OpenBW
 - `openbw-bwapi-module/`: native actors, navigation, and combat bridge.
 - `cmd/world-bridge/`, `internal/world/`: transport, world model, spawn queue, and scenario runtime.
 - `scripts/`: consolidated CLI, build, park, launcher, and capture implementations; `tests/`: regressions.
-- `bridge-protocol/`: versioned wire contracts; `docs/archive/`: historical reports. `upstream/`, `build/`, and `run-data/` hold local inputs or generated outputs.
+- `bridge-protocol/entities/`: authoritative one-file StarCraft unit and building declarations. `bridge-protocol/starcraft-types.json`, `bridge-protocol/starcraft-visuals.json`, and generated Go/C++/JavaScript/protocol registries are derived; never edit them manually. `bridge-protocol/` also holds versioned wire contracts; `docs/archive/` holds historical reports. `upstream/`, `build/`, and `run-data/` hold local inputs or generated outputs.
 
 ## Canonical workflow
 
 ```sh
 scripts/project.sh start --scenario example-defense  # fetch, build, stage, play
 scripts/project.sh build                             # rebuild an existing checkout
+scripts/project.sh generate                          # regenerate StarCraft catalogs and registries
 scripts/project.sh validate-scenario example-defense
 scripts/project.sh play example-defense --plan       # inspect resolved paths
 scripts/project.sh park example-defense              # force-generate park data
