@@ -41,8 +41,14 @@ class StarcraftProtocolSchemaTests(unittest.TestCase):
         self.validator.validate(self.envelope("building.state", building, "bridge"))
         building["native_id"] = "not-native"
         self.assertFalse(self.validator.is_valid(self.envelope("building.state", building, "bridge")))
-        resources = {"owner": 1, "minerals": 500, "supply_used": 12, "supply_total": 16}
+        resources = {"owner": 1, "minerals": 500, "gas": 250,
+                     "supply_used": 12, "supply_total": 16}
         self.validator.validate(self.envelope("player.resources", resources, "bridge"))
+        del resources["gas"]
+        self.assertFalse(self.validator.is_valid(self.envelope("player.resources", resources, "bridge")))
+        resources["gas"] = -1
+        self.assertFalse(self.validator.is_valid(self.envelope("player.resources", resources, "bridge")))
+        resources["gas"] = 250
         resources["minerals"] = -1
         self.assertFalse(self.validator.is_valid(self.envelope("player.resources", resources, "bridge")))
 

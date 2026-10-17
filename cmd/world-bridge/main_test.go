@@ -380,7 +380,7 @@ func TestAcademyBuildingStateWithoutProduction(t *testing.T) {
 	s.controllerMessage(nil, world.Message("building.state", "session-a", "controller:academy", "openbw", 1,
 		map[string]any{"id": e.ID, "native_id": "openbw:77", "owner": 1,
 			"health": 600, "max_health": 600, "queue": 0, "remaining_frames": 0,
-			"minerals": 500, "supply_used": 10, "supply_total": 16}))
+			"minerals": 500, "gas": 250, "supply_used": 10, "supply_total": 16}))
 	select {
 	case message := <-forwarded:
 		if message.Kind != "building.state" {
@@ -388,6 +388,40 @@ func TestAcademyBuildingStateWithoutProduction(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("academy state was not forwarded")
+	}
+}
+
+func TestPlayerResourcesRequireNativeGas(t *testing.T) {
+	s := testService()
+	if err := s.registry.Replace("session-a", 1, 8, 8, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	bridge, park := net.Pipe()
+	defer bridge.Close()
+	defer park.Close()
+	s.park = &peer{Conn: bridge}
+	forwarded := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(park)), &message)
+		forwarded <- message
+	}()
+	message := map[string]any{"owner": 1, "minerals": 500,
+		"supply_used": 10, "supply_total": 16}
+	s.controllerMessage(nil, world.Message("player.resources", "session-a", "controller:missing-gas", "openbw", 1, message))
+	message["gas"] = 250
+	s.controllerMessage(nil, world.Message("player.resources", "session-a", "controller:with-gas", "openbw", 1, message))
+	select {
+	case actual := <-forwarded:
+		var report struct {
+			Gas *int `json:"gas"`
+		}
+		if actual.Kind != "player.resources" || actual.Decode(&report) != nil ||
+			report.Gas == nil || *report.Gas != 250 {
+			t.Fatalf("accepted missing gas resource report: %+v", actual)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("valid native resource report was not forwarded")
 	}
 }
 

@@ -8,15 +8,24 @@
 // The two native participants receive the same scenario starting resources.
 // OpenBW remains the only authority for later spending and supply accounting.
 inline bool applyWorldProductionFixture(BWAPI::Game* game) {
-    const char* value = std::getenv("BRIDGE_TERRAN_STARTING_MINERALS");
-    if (!value || !*value) return true;
-    char* end = nullptr;
-    errno = 0;
-    const long minerals = std::strtol(value, &end, 10);
-    if (errno || !end || *end || minerals < 0 || minerals > 100000) return true;
+    const auto configured = [](const char* name, int& amount) {
+        const char* value = std::getenv(name);
+        if (!value || !*value) return false;
+        char* end = nullptr;
+        errno = 0;
+        const long parsed = std::strtol(value, &end, 10);
+        if (errno || !end || *end || parsed < 0 || parsed > 100000) return false;
+        amount = static_cast<int>(parsed);
+        return true;
+    };
+    int minerals = 0, gas = 0;
+    const bool hasMinerals = configured("BRIDGE_TERRAN_STARTING_MINERALS", minerals);
+    const bool hasGas = configured("BRIDGE_TERRAN_STARTING_GAS", gas);
+    if (!hasMinerals && !hasGas) return true;
     for (auto player : game->getPlayers()) {
         if (!player || player->getID() != 1 || player->getRace() != BWAPI::Races::Terran) continue;
-        player->setMinerals(static_cast<int>(minerals));
+        if (hasMinerals) player->setMinerals(minerals);
+        if (hasGas) player->setGas(gas);
         return true;
     }
     return false;

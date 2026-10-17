@@ -119,7 +119,7 @@ action.execute({ player: 1, args: damaged });
 info.desc.onUpdate();
 assert.equal(info.findWidget('building-health').text, 'Health: 43');
 const nativeState = { session: 'a'.repeat(32), id: targetID, native_id: 'openbw:8',
-    owner: 1, health: 1000, queue: 1, remaining_frames: 240, minerals: 450,
+    owner: 1, health: 1000, queue: 1, remaining_frames: 240, minerals: 450, gas: 250,
     supply_used: 12, supply_total: 16 };
 const buildingAction = actions.get('rtsbridge.buildingState');
 assert.equal(buildingAction.query({ player: 1, args: nativeState }).error, undefined);
@@ -153,7 +153,7 @@ const unsupportedTrain = actions.get('rtsbridge.marineCommand').query({ player: 
         unit_type: 'terran_firebat', target_entity_id: targetID } });
 assert.equal(unsupportedTrain.error, 1);
 const resourcesAction = actions.get('rtsbridge.playerResources');
-const resources = { session: 'a'.repeat(32), owner: 1, minerals: 999,
+const resources = { session: 'a'.repeat(32), owner: 1, minerals: 999, gas: 250,
     supply_used: 12, supply_total: 16 };
 assert.equal(resourcesAction.query({ player: 1, args: resources }).error, undefined);
 resourcesAction.execute({ player: 1, args: resources });

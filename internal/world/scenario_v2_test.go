@@ -45,6 +45,7 @@ func loadV2ForTest(t *testing.T, s Scenario) error {
 
 func TestV2ScenarioValidation(t *testing.T) {
 	base := validV2(t)
+	base.ProductionFixture.TerranGas = 250
 	if err := loadV2ForTest(t, base); err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +63,8 @@ func TestV2ScenarioValidation(t *testing.T) {
 		{"unknown wave", func(s *Scenario) { s.Waves[2].Trigger.WaveID = "missing" }},
 		{"cycle", func(s *Scenario) { s.Waves[1].Trigger = WaveTrigger{Type: "wave_cleared", WaveID: "dependent"} }},
 		{"invalid trigger field", func(s *Scenario) { s.Waves[0].Trigger.WaveID = "timed" }},
+		{"negative starting gas", func(s *Scenario) { s.ProductionFixture.TerranGas = -1 }},
+		{"excess starting gas", func(s *Scenario) { s.ProductionFixture.TerranGas = 100001 }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

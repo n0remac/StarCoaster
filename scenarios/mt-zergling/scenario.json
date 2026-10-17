@@ -9,7 +9,7 @@
     "marines": [[117, 127], [118, 127], [119, 127], [118, 128], [119, 128]],
     "zerglings": []
   },
-  "production_fixture": { "terran_minerals": 500, "native_supply_depot": [4, 4] },
+  "production_fixture": { "terran_minerals": 500, "terran_gas": 250, "native_supply_depot": [4, 4] },
   "objectives": [],
   "initial_ai": { "strategy": "park_defense", "delay_frames": 0 },
   "spawn_zones": {

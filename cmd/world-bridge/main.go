@@ -1578,6 +1578,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			Queue           int    `json:"queue"`
 			RemainingFrames int    `json:"remaining_frames"`
 			Minerals        int    `json:"minerals"`
+			Gas             *int   `json:"gas"`
 			SupplyUsed      int    `json:"supply_used"`
 			SupplyTotal     int    `json:"supply_total"`
 		}
@@ -1591,20 +1592,23 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			entity.Owner != state.Owner || state.Health < 0 || state.Health > 1000000 ||
 			(state.MaxHealth != 0 && (state.MaxHealth < state.Health || state.MaxHealth > 1000000)) ||
 			state.Queue < 0 || state.Queue > 5 || state.RemainingFrames < 0 ||
-			state.Minerals < 0 || state.SupplyUsed < 0 || state.SupplyTotal < 0 {
+			state.Minerals < 0 || state.Gas == nil || *state.Gas < 0 ||
+			state.SupplyUsed < 0 || state.SupplyTotal < 0 {
 			return
 		}
 		_ = s.emit(s.park, "building.state", m.Session, m.Revision, state)
 	case "player.resources":
 		var resources struct {
-			Owner       int `json:"owner"`
-			Minerals    int `json:"minerals"`
-			SupplyUsed  int `json:"supply_used"`
-			SupplyTotal int `json:"supply_total"`
+			Owner       int  `json:"owner"`
+			Minerals    int  `json:"minerals"`
+			Gas         *int `json:"gas"`
+			SupplyUsed  int  `json:"supply_used"`
+			SupplyTotal int  `json:"supply_total"`
 		}
 		if m.Decode(&resources) != nil || m.Session != s.registry.Session ||
 			m.Revision != s.registry.Revision || resources.Owner < 0 || resources.Owner > 15 ||
-			resources.Minerals < 0 || resources.SupplyUsed < 0 || resources.SupplyTotal < 0 {
+			resources.Minerals < 0 || resources.Gas == nil || *resources.Gas < 0 ||
+			resources.SupplyUsed < 0 || resources.SupplyTotal < 0 {
 			return
 		}
 		_ = s.emit(s.park, "player.resources", m.Session, m.Revision, resources)

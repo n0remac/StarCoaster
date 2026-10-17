@@ -23,6 +23,7 @@ type Scenario struct {
 	} `json:"starting_units"`
 	ProductionFixture struct {
 		TerranMinerals    int    `json:"terran_minerals,omitempty"`
+		TerranGas         int    `json:"terran_gas,omitempty"`
 		NativeSupplyDepot [2]int `json:"native_supply_depot,omitempty"`
 	} `json:"production_fixture,omitempty"`
 	Objectives []ScenarioObjective `json:"objectives"`
@@ -135,6 +136,7 @@ func LoadScenario(path string) (*Scenario, error) {
 		return nil, fmt.Errorf("invalid scenario configuration")
 	}
 	if scenario.ProductionFixture.TerranMinerals < 0 || scenario.ProductionFixture.TerranMinerals > 100000 ||
+		scenario.ProductionFixture.TerranGas < 0 || scenario.ProductionFixture.TerranGas > 100000 ||
 		(scenario.ProductionFixture.TerranMinerals > 0 &&
 			(scenario.ProductionFixture.NativeSupplyDepot[0] < 1 || scenario.ProductionFixture.NativeSupplyDepot[0] > 252 ||
 				scenario.ProductionFixture.NativeSupplyDepot[1] < 1 || scenario.ProductionFixture.NativeSupplyDepot[1] > 253)) {

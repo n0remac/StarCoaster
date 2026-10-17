@@ -26,6 +26,12 @@ scenario = json.load(open(sys.argv[1], encoding="utf-8"))
 print(scenario.get("production_fixture", {}).get("terran_minerals", 0))
 PY
 )"
+  export BRIDGE_TERRAN_STARTING_GAS="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'
+import json, sys
+fixture = json.load(open(sys.argv[1], encoding="utf-8")).get("production_fixture", {})
+print(fixture["terran_gas"] if "terran_gas" in fixture else "")
+PY
+)"
 fi
 if [[ -n "${BRIDGE_RULES_CONFIG:-}" ]]; then bridge_args+=(--rules "$BRIDGE_RULES_CONFIG"); fi
 if [[ -n "${BRIDGE_SPAWN_JOURNAL:-}" ]]; then bridge_args+=(--spawn-journal "$BRIDGE_SPAWN_JOURNAL"); fi

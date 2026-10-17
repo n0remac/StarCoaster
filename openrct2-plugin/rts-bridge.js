@@ -1443,7 +1443,7 @@
                 return args.session === controlSession
                     && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.id || "")
                     && /^openbw:[0-9]+$/.test(args.native_id || "")
-                    && ["owner", "health", "queue", "remaining_frames", "minerals",
+                    && ["owner", "health", "queue", "remaining_frames", "minerals", "gas",
                         "supply_used", "supply_total"].every(function (field) {
                         return Number.isInteger(args[field]) && args[field] >= 0;
                     }) && args.health <= 1000000
@@ -1462,7 +1462,7 @@
                     return { error: 1, errorMessage: "Only the server may publish native resources" };
                 return /^[0-9a-f]{32}$/.test(args.session || "")
                     && (!controlSession || args.session === controlSession)
-                    && ["owner", "minerals", "supply_used", "supply_total"].every(function (field) {
+                    && ["owner", "minerals", "gas", "supply_used", "supply_total"].every(function (field) {
                         return Number.isInteger(args[field]) && args[field] >= 0;
                     }) ? {} : { error: 1, errorMessage: "Invalid native resources" };
             }, function (event) {
@@ -1758,7 +1758,8 @@
                     const resources = squadWindow.findWidget("player-resources");
                     const report = playerResources[terranOwner];
                     if (resources) resources.text = report ? "Minerals: " + report.minerals
-                        + "  Supply: " + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
+                        + "  Gas: " + report.gas + "  Supply: "
+                        + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
                     const objective = squadWindow.findWidget("objective");
                     if (objective) objective.text = missionStatus && missionStatus.session === controlSession
                         ? (missionStatus.mode === "park_defense"
@@ -2006,7 +2007,8 @@
                             : "Queue: awaiting native state";
                         const report = playerResources[terranOwner] || native;
                         if (resources) resources.text = report ? "Minerals: " + report.minerals
-                            + "  Supply: " + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
+                            + "  Gas: " + report.gas + "  Supply: "
+                            + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
                         if (feedback) feedback.text = productionFeedback;
                         building.production.forEach(function (unitID) {
                             const button = barracksInfoWindow.findWidget(unitID === "terran_marine"

@@ -88,6 +88,7 @@ public:
         if (!session_.empty() && game->getFrameCount() % 24 == 0) {
             if (game->self()) send("player.resources", session_, revision_ ? revision_ : 1,
                 {{"owner", game->self()->getID()}, {"minerals", game->self()->minerals()},
+                 {"gas", game->self()->gas()},
                  {"supply_used", game->self()->supplyUsed()},
                  {"supply_total", game->self()->supplyTotal()}}, game->getFrameCount());
             for (const auto& [id, link] : targetLinks_) {
@@ -103,6 +104,7 @@ public:
                          {"queue", unit->getTrainingQueue().size()},
                          {"remaining_frames", unit->getRemainingTrainTime()},
                          {"minerals", unit->getPlayer()->minerals()},
+                         {"gas", unit->getPlayer()->gas()},
                          {"supply_used", unit->getPlayer()->supplyUsed()},
                          {"supply_total", unit->getPlayer()->supplyTotal()}},
                         game->getFrameCount());

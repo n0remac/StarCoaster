@@ -25,8 +25,10 @@ public:
         if (!terran) return;
         if (!resourcesSet_) {
             resourcesSet_ = true;
-            terran->setMinerals(500);
-            terran->setGas(250);
+            const char* minerals = std::getenv("BRIDGE_TERRAN_STARTING_MINERALS");
+            const char* gas = std::getenv("BRIDGE_TERRAN_STARTING_GAS");
+            if (!minerals || !*minerals) terran->setMinerals(500);
+            if (!gas || !*gas) terran->setGas(250);
         }
         BWAPI::Unit barracks = nullptr, academy = nullptr;
         int firebats = 0;
