@@ -1,79 +1,103 @@
-# Native Barracks production discovery
+# Native Barracks and Marine production
 
-## Verified behavior in the pinned engines
+## Confirmed engine behavior
 
-OpenBW supports a functional Terran Barracks. In a two-participant Mt. Zergling
-run, a test-only BWAPI `Game::createUnit` call for Terran player 1 created the
-same completed 1000 HP Barracks in both participants. A synchronized grant of
-500 minerals and one test Supply Depot changed supply from 10/0 to 10/16.
-`Unit::train(Terran_Marine)` then returned true, deducted 50 minerals, reserved
-two half-supply units, and started a 360-frame native queue. The Marine became
-complete at frame 809 after the queue began near frame 449. It was assigned
-the shared actor ID `openbw:3001` and bound in both participants. Evidence is
-in `run-data/barracks-native-completion-1792192837/server.log`.
+The pinned OpenBW/BWAPI build supports a completed `Terran_Barracks` created
+through `Game::createUnit` and a real `Unit::train(Terran_Marine)` queue. A
+Marine costs 50 minerals and two half-supply units and takes 360 native frames.
+OpenBW deducts resources, reserves supply, grows the incomplete trainee, and
+releases it when training finishes. Both multiplayer participants perform the
+same actions. The initial focused experiment is in
+`run-data/barracks-native-completion-1792192837/server.log`.
 
-`Unit::train` cannot succeed in the current scenario without setup: the
-Terran player starts with zero minerals and no supply provider (10/0 supply
-with five initial Marines). The Barracks itself supplies no capacity. A Marine
-requires a completed Barracks, 50 minerals, free supply, and an available
-queue slot. OpenBW enforces these in `unit_can_build`, `build_queue_push`, and
-the normal train action; no independent resource or production simulation is
-needed.
+Two small OpenBW patches are needed for a park building:
 
-Native placement at the saved park Barracks position initially failed even
-though BWAPI reported walkable and buildable ground. Diagnostics in
-`run-data/barracks-native-trace3-1792192609/server.log` found OpenBW's
-`can_place_building` rejecting unexplored Terran tiles (`explored=255`, owner
-mask 2). This affects an ordinary StarEdit `Game::createUnit` action at a park
-site outside native Marine vision. A temporary local diagnostic change that
-skipped only that fog check let the real Barracks appear at the exact saved
-park coordinates on both participants while the park navigation mask remained
-active; see `run-data/barracks-native-mask-probe-1792192984/server.log`.
-Patch `0005-editor-building-fog-openbw.patch` now makes the pinned engine's
-editor placement path ignore fog while preserving ordinary SCV construction.
+- `0005-editor-building-fog-openbw.patch` lets an editor-created building be
+  placed outside the Terran player's explored tiles. Ordinary worker
+  construction still checks exploration.
+- `0006-native-production-egress-openbw.patch` lets a completed Marine search
+  for a nearby exit without requiring reachability from the Barracks' blocked
+  interior. Terrain walkability and unit collision still apply. Without it,
+  OpenBW accepted training and spent 50 minerals but discarded the trainee at
+  completion because the park navigation mask blocked the starting position.
 
-OpenBW emits the new Marine's creation event when training starts, while the
-unit is incomplete and has only partial HP. The existing actor registry
-published and bound `openbw:3001` near frame 448, roughly 360 frames before
-completion. A production integration must defer actor registration until
-`Unit::isCompleted()` on both participants. The first local change for this
-is in the adapter/controller; its live regression remains pending.
+Mt. Zergling has a scenario-owned production fixture: 500 Terran minerals and
+one native Supply Depot at native tile (4, 4), outside its mapped park. Both
+OpenBW participants receive the same initial minerals; OpenBW owns all later
+resource and supply accounting. The fixture is not an OpenRCT2 object or a
+player construction option.
 
-## Authority and lifecycle
+## Authority and command flow
 
-| Responsibility | Authority |
+| State or action | Authority |
 | --- | --- |
-| Placement, visible scenery, saved generation | OpenRCT2 |
-| Ordered placement and removal revision | Go world bridge |
-| Building HP, destruction, queue, Marine creation | OpenBW |
-| Park ID to native unit link, request deduplication | Go world bridge |
-| Construction and train controls | OpenRCT2 plugin |
+| Placement, scenery, save data, generation | OpenRCT2 |
+| Ordered world revision and park/native ID link | Go bridge |
+| Barracks HP, destruction, queue, resources, Marine creation | OpenBW |
+| Construction and production UI, commander authorization | OpenRCT2 plugin |
 
-The existing civilian target proxy must be replaced for a Barracks. Keeping
-it alongside the native building produces two HP sources and two native
-obstacles. The publisher adapter can create the real Barracks for the entity's
-native Terran owner during the existing target-reconciliation step, which
-already follows confirmation of both navigation participants. It can report
-the real native unit ID and HP using `entity.state`; the controller can find
-that synchronized unit and issue `Unit::train`. A snapshot or retry must first
-search for the same owner/type/position before creating anything, then bind
-the persistent park ID and generation to the observed native ID. Demolition
-must retire the native building through the same ordered `world.patch` path.
+A confirmed park Barracks is a `structure` with its own persistent scenery ID
+and generation. After both participants apply its 4×3 navigation footprint,
+the publisher creates one real Terran Barracks for the entity's owner and
+reports its native ID and HP through `entity.state`. It first searches for an
+existing owner/type/position match during recovery. There is no civilian proxy
+for this structure and no second collision footprint. The controller links the
+same park ID to the native unit. A bridge reconnect replays the target link;
+it does not create another building.
 
-The park-derived 4×3 mask remains the pathfinding authority before native
-creation. The exact-site experiment showed that the native building can be
-placed over that mask after the fog check is bypassed. Navigation after
-creation, combat demolition, and removal still need live verification to
-exclude duplicate obstacle effects. A reliable train request also needs a
-server-validated RCT2 commander, an idempotent request ID, native owner and
-operational-state checks, and a status query for retries. The information
-window should read queue and HP reports from OpenBW rather than keeping its
-own production state.
+The information window reads the native `building.state` report for HP, queue,
+remaining frames, minerals, and supply. Clicking Train Marine uses the existing
+synchronized OpenRCT2 command action with an empty `unit_ids`, verb
+`unit.train`, and the persistent building ID as `target_id`. OpenRCT2 checks
+that the submitting player is the current Terran commander and prevents a
+second action with the same session/player/request ID. Go validates the current
+structure and target link. The OpenBW controller checks the linked native ID,
+owner, type, completion, and HP before calling `Unit::train`.
 
-## Current production gate
+OpenBW emits a trainee creation event at the start of the queue. The actor
+bridge waits for `Unit::isCompleted()` before publishing and binding it. Once
+both participants bind it, the existing combat snapshot renders the Marine;
+ordinary selection and movement commands work. `combat.result` reports command
+acceptance, and `building.state` reports queue progress. The controller's
+monotonic command serial prevents a resent native command from training or
+charging twice in the same simulation session.
 
-Native training is supported and the real building lifecycle is wired. The
-scenario still lacks Terran minerals and supply, and the player-facing train
-request and queue status are not yet wired. The native test fixtures prove
-engine mechanics; they do not make the Train Marine control functional. The
-production tab remains disabled until command, status, and retry checks pass.
+Demolition remains a normal OpenRCT2 scenery action and ordered `world.patch`.
+The publisher retires the linked native building when the removal revision
+applies. OpenBW cancels its active queue; a trainee does not become an actor
+after the building is destroyed.
+
+## Verified runs
+
+- `tests/test_barracks_production_live.sh` passed in
+  `run-data/barracks-production-live-1792194939/verification.json`: client
+  construction, one native queue, 500→450 minerals, 10/16→12/16 half-supply,
+  completion, dual binding of `openbw:3001`, and accepted movement. A repeated
+  request produced no second command or train call.
+- `BARRACKS_CANCEL_AFTER_TRAIN=1 tests/test_barracks_production_live.sh`
+  passed in `run-data/barracks-production-live-1792195061/verification.json`:
+  the native Barracks was retired at frame 890 during training; no Marine
+  completed after the former queue deadline.
+- `tests/test_barracks_bridge_restart_live.sh` passed in
+  `run-data/barracks-bridge-restart-1792195397/verification.json`: both native
+  participants retained park ID generation #1, native ID `openbw:8`, and
+  1000 HP across a Go bridge restart without another creation.
+- A two-client graphical capture passed in
+  `run-data/artifacts/20261017T000416Z-5def080501a9/`. The player clicked
+  the toolbar icon, placed the Barracks with the native preview, inspected it,
+  clicked Train Marine, then selected and moved the completed Marine. The
+  capture contains `combined.mp4`, step screenshots, and client logs.
+
+## Recovery limits
+
+A real park save retains the scenery, generation, and last reported native HP.
+Loading starts a fresh OpenBW simulation and reconstructs the building at that
+HP. A same-session Go bridge restart keeps the running OpenBW building and
+queue. A full engine restart does not resume an in-progress training queue;
+OpenBW starts a fresh simulation from the saved park. Damaged-HP save/load
+has not been exercised separately from the verified 1000 HP save/load case.
+
+The native exit search is bounded to 128 pixels around the Barracks. A site
+with no walkable, unoccupied exit in that range can accept a training order
+but fail at completion under OpenBW's normal queue rules. The construction
+preview checks the 4×3 footprint and current occupancy, not future egress.

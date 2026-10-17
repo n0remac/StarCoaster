@@ -197,3 +197,23 @@ Marine commands travel from an authenticated OpenRCT2 player through a synchroni
 ## Park assault snapshot v3
 
 The same [v3 schema](scenario.snapshot.v3.schema.json) also defines `map_id: "park-assault"`. This variant supports the bridge ceiling of 32 actors and three or more independent targets. Its full snapshots carry `map_revision`; each target retains its stable logical ID, OpenBW proxy ID, health, and state even after destruction. The scenario configuration supplies the actual OpenRCT2 ride IDs, object identities, occupied tiles, and the shared coordinate transform. The server rejects duplicate actors or targets, stale sessions and sequences, HP increases, proxy identity changes, and a map revision ahead of confirmed demolition. Successful native ride demolition sends a short `nav <session> <revision> <target>` control line back to the OpenBW planner. It never clears a footprint before the host verifies demolition. The worst-case 32-actor, three-target, 64-event test packet fits below the 32768-byte transport ceiling; the measured live 20-actor packet is about 3.8 KiB.
+
+## Native Barracks production
+
+A confirmed `terran_barracks` structure keeps its OpenRCT2 scenery ID and
+`#generation`. `entity.state` links that ID to the real OpenBW Barracks native
+unit and HP; there is no civilian target proxy. The controller receives the
+same link. `building.state` flows from the controller through Go to the park
+with `id`, `native_id`, `owner`, `health`, `queue`, `remaining_frames`,
+`minerals`, `supply_used`, and `supply_total`. It is observational native
+state, not a second production queue.
+
+`combat.command` also accepts `verb: "unit.train"` with an empty `unit_ids`
+array and the persistent Barracks `target_id`. OpenRCT2 authenticates the
+commander and deduplicates the session/player/request ID. Go requires a live,
+linked Barracks in the confirmed registry; the controller verifies the native
+owner and building state before invoking BWAPI `Unit::train(Terran_Marine)`.
+The existing `combat.result` reports acceptance. Native trainee creation is
+withheld from `actor.spawn` and `actor.bind` until completion; the normal actor
+lifecycle then exposes the Marine to both clients. A demolition uses the
+ordered `world.patch` removal path and invalidates production.

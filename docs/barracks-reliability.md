@@ -26,20 +26,19 @@ must resolve that OpenRCT2 action failure before synchronization resumes.
 Barracks owner is derived from the observed native Terran Marine owner when
 available. Existing parks start with the current scenario's player 1 owner
 until a Marine snapshot arrives. RCT2 construction permissions still decide
-who may place or demolish scenery. Production requests will require their own
-authorization against the native Terran player.
+who may place or demolish scenery. Production requests require the connected
+Terran commander in OpenRCT2 and the linked native Terran owner in OpenBW.
 
 ## Checks
 
 | Command | Result |
 | --- | --- |
 | `scripts/project.sh test` | Passed: Go, C++, 87 Python tests (one skipped), and plugin JavaScript tests. |
-| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_overlap_live.sh` | Passed: `run-data/barracks-overlap-live-1792191848/verification.json`. OpenRCT2 accepted scenery over a moving Marine, OpenBW rejected revision 2, the plugin removed it, and both participants returned to the original hash `6782e549dd7cb935` with 4254 entities. |
-| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_save_load_live.sh` | Passed: `run-data/barracks-save-load-live-1792193357/verification.json`. A real `.park` save/load retained ID `openrct2:large_scenery:248:3200:3328:1216:0#1`, 1000 HP, real `Terran_Barracks` type, and mask `ee9230f1842ece7d`; demolition and reconstruction produced `#2`. |
+| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_overlap_live.sh` | Passed: `run-data/barracks-overlap-live-1792195130/verification.json`. OpenRCT2 accepted scenery over a moving Marine, OpenBW rejected revision 2, the plugin removed it, and both participants returned to the original hash `6782e549dd7cb935` with 4254 entities. |
+| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_save_load_live.sh` | Passed: `run-data/barracks-save-load-live-1792195203/verification.json`. A real `.park` save/load retained ID `openrct2:large_scenery:248:3200:3328:1216:0#1`, 1000 HP, real `Terran_Barracks` type, and mask `ee9230f1842ece7d`; demolition and reconstruction produced `#2`. |
+| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_bridge_restart_live.sh` | Passed: `run-data/barracks-bridge-restart-1792195397/verification.json`. Go restarted with the same park session and revision 2; both native participants retained one `openbw:8` Barracks at 1000 HP. |
 
-The save/load run starts fresh OpenBW processes. Same-session bridge restart
-recovery is covered by the generic live construction regression in
-`tests/test_live_construction_recovery.sh`; the Barracks-specific restart and
-damaged-HP save/load cases still need dedicated live checks. The 1000 HP value
-was unchanged in the save/load run, so that test establishes identity and
-native recreation rather than damaged-HP restoration.
+The save/load run starts fresh OpenBW processes; the bridge restart run keeps
+both engines alive. Damaged-HP save/load still needs a dedicated live check.
+The verified 1000 HP save/load case establishes identity, native recreation,
+and navigation recovery, rather than restoration of partial damage.

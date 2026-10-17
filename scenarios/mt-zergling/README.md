@@ -46,3 +46,13 @@ The test-only capture option uses ordinary OpenRCT2 actions to place one wall
 while Zerglings are alive and clicks Spawn Wave in the Marine window. It saves
 the video, screenshots, logs, and verification data under ignored
 `run-data/artifacts/`.
+
+## Barracks production
+
+The StarCraft button in the upper-right construction toolbar opens the
+Barracks placement menu. A completed Barracks can be clicked to inspect its
+native HP and queue and to train a Marine. The scenario starts Terran player 1
+with 500 minerals and a native Supply Depot outside the mapped park so OpenBW
+can apply its normal cost and supply rules. The Supply Depot is only a map
+fixture; it does not appear as a park construction option. A trained Marine
+can be selected and ordered with the existing controls.
