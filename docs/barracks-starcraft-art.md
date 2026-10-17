@@ -14,15 +14,15 @@ for all four park rotations. The launcher refreshes both the staged object and
 each local OpenRCT2 user object's copy before loading a park. This lets older
 saves keep their Barracks ID, health, and geometry while using the new art.
 
-The object keeps classic frame 0 in its original idle image bank. Seven more
-banks contain completed-building GRP frames 2–8; frame 1 depicts the unfinished
-structure and is excluded. All frames share one crop and tile alignment. The
-OpenRCT2 plugin sends a display-only tile set to the native renderer when the
-authoritative OpenBW `building.state` queue is nonempty. The renderer cycles
-those seven banks at eight frames per second and returns to frame 0 when the
-queue empties, the native building dies, or the park target is removed. Each
-client may display a different animation phase. Training, health, and
-demolition remain authoritative in OpenBW and the synchronized park world.
+The object keeps classic frame 0 in its original idle image bank. Its seven
+training banks all retain that stationary body and silhouette: five are dark,
+and two copy only the indicator lights and nearby glow from GRP frames 7 and
+8. Classic frames 2–4 move the legs as part of the lift off animation, so they
+are excluded from Marine training. The native renderer cycles the seven banks
+while the authoritative OpenBW `building.state` queue is nonempty, then returns
+to idle when training ends or the building is removed. Each client may display
+a different visual phase. Training, health, and demolition remain authoritative
+in OpenBW and the synchronized park world.
 
 Classic shadows, damage overlays, and team-colour remapping are not yet
 rendered. No animation images are committed.
@@ -53,21 +53,19 @@ rendered. No animation images are committed.
 
 ### Training animation
 
-- `scripts/project.sh test` passed after adding the animation banks and native
-  bridge binding. The Barracks plugin test checks training, completion, and
-  target removal; the object test checks all 388 image entries and the 12-tile
-  footprint.
+- `scripts/project.sh test` passed with 90 Python tests (one skipped), Go,
+  C++, and JavaScript checks. The sprite test verifies that the first six
+  image banks are identical, the two lit banks preserve the silhouette, and
+  the leg pixels are unchanged.
 - `tests/test_barracks_production_live.sh` passed in
   `run-data/barracks-production-live-1792205081/verification.json`: one genuine
   Marine completed training and accepted a movement order. The cancellation
   variant passed in `run-data/barracks-production-live-1792205306/verification.json`.
-- `scripts/project.sh record --scenario mt-zergling --duration 50
+- `scripts/project.sh record --scenario mt-zergling --duration 45
   --video-layout combined --barracks-production --barracks-training-probe`
-  passed in `run-data/artifacts/20261017T024533Z-a5287501a5a3/` with a
-  combined video, timed screenshots from both clients, and 435 matching shared
-  world snapshots. The building crop changes during training on both clients
-  and returns to the same idle image in later samples.
-- The final automated graphical check used the same command with `--duration 45
-  --no-video`. Its `run-data/artifacts/20261017T024931Z-7db9ab1fa81b/verification.json`
-  reports construction, native training, Marine completion and movement,
-  multiple Barracks frames on both clients, and 397 matching shared snapshots.
+  passed in `run-data/artifacts/20261017T031258Z-402e55a8dcd9/`: its
+  `combined.mp4` shows the corrected animation, 30 building-only screenshot
+  samples per client caught all three visual phases, and 370 shared world
+  snapshots matched. A light-on versus idle screenshot comparison found no
+  changed pixels in the lower leg area. Earlier animation captures in this
+  document's history included the lift off frames and are superseded.

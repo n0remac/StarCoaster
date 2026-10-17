@@ -13,6 +13,9 @@ object is generated locally from the player's classic StarCraft MPQs by
 registry and selects the generated Barracks GRP frame bank while OpenBW reports
 an active training queue. The plugin updates it through `setBuildingAnimations`;
 the ordinary large-scenery images and saved object ID remain stable.
+`0007-barracks-light-only.patch` updates the native bank comment for existing
+patched checkouts. The generated object repeats the idle frame in its dark
+banks and blends only indicator lights into the lit banks.
 
 The fork paints Marine and Zergling actors in the world paint pass, including walking, attacks, deaths, and health bars. An immutable snapshot registry preserves safe access during rendering; old and new regions are invalidated for movement. The fork exposes snapshot, hit testing, cursor location, and actor inspection bindings to the plugin. It also adds `onRightClick` to the existing custom map tool, since OpenRCT2 intentionally does not route right mouse clicks through shortcuts. The plugin distributes state through synchronized game actions and sends player orders to the Terran BWAPI endpoint.
 
