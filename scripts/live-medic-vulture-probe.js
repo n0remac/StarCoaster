@@ -6,6 +6,8 @@ registerPlugin({ name: "Medic and Vulture gameplay probe", version: "1.0.0",
         if (network.mode !== "client") return;
         const capture = typeof STARCOASTER_CAPTURE_NEXT_TECH !== "undefined"
             && STARCOASTER_CAPTURE_NEXT_TECH === true;
+        const keepBuildings = typeof STARCOASTER_KEEP_NEXT_BUILDINGS !== "undefined"
+            && STARCOASTER_KEEP_NEXT_BUILDINGS === true;
         const buildings = ["terran_barracks", "terran_factory", "terran_supply_depot", "terran_academy"];
         const placed = {}, locations = {}, nativeIDs = {}, sessionSeen = { value: "" };
         let next = 0, pending = false, lastPlacement = 0, beforeAcademy = false;
@@ -156,7 +158,7 @@ registerPlugin({ name: "Medic and Vulture gameplay probe", version: "1.0.0",
                     });
                 }
             }
-            if (mixedAt && !academyRemovedAt && Date.now() - mixedAt > 6000) {
+            if (!keepBuildings && mixedAt && !academyRemovedAt && Date.now() - mixedAt > 6000) {
                 academyRemovedAt = Date.now();
                 const site = locations.terran_academy;
                 context.executeAction("largesceneryremove", { x: site.x, y: site.y, z: site.z,
