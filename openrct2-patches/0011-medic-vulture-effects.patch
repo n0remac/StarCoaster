@@ -162,7 +162,15 @@ diff --git a/src/openrct2/SpriteIds.h b/src/openrct2/SpriteIds.h
 diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
 --- a/src/openrct2/paint/Paint.Entity.cpp
 +++ b/src/openrct2/paint/Paint.Entity.cpp
-@@ -107,7 +107,9 @@
+@@ -58,6 +58,7 @@
+         struct VisualState
+         {
+             uint32_t animationStartTick = 0;
++            uint32_t flameStartTick = 0;
+             int32_t previousX = 0;
+             int32_t previousY = 0;
+             uint32_t blendStartTick = 0;
+@@ -107,7 +108,9 @@
              return;
          // The image can extend well above the feet and across neighbouring
          // tiles. Invalidate both the old and new full screen footprints.
@@ -173,7 +181,36 @@ diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Enti
      }
  
      CoordsXY VisualPosition(const BridgeActor& actor, const BridgeSnapshot::VisualState& state)
-@@ -517,8 +519,14 @@
+@@ -156,6 +159,7 @@
+             const auto previousVisual = previous->visual.find(actor.id);
+             if (previousVisual != previous->visual.end())
+             {
++                visual.flameStartTick = previousVisual->second.flameStartTick;
+                 if (actor.motion == old->second.motion && actor.attackFrames == old->second.attackFrames)
+                     visual.animationStartTick = previousVisual->second.animationStartTick;
+                 const auto source = VisualPosition(old->second, previousVisual->second);
+@@ -169,6 +173,10 @@
+                 }
+             }
+         }
++        // A native attack can last one snapshot; keep its display burst while the actor resumes walking.
++        if (actor.kind == "terran_firebat" && actor.motion == "attack" && actor.attackFrames > 0
++            && (old == oldActors.end() || old->second.motion != "attack" || actor.attackFrames != old->second.attackFrames))
++            visual.flameStartTick = tick;
+         next->visual.emplace(actor.id, visual);
+         for (int32_t tileX = std::min(actor.x, visual.previousX) / 32; tileX <= std::max(actor.x, visual.previousX) / 32; ++tileX)
+             for (int32_t tileY = std::min(actor.y, visual.previousY) / 32; tileY <= std::max(actor.y, visual.previousY) / 32; ++tileY)
+@@ -210,7 +218,8 @@
+         auto it = snapshot->visual.find(actor.id);
+         if (it != snapshot->visual.end())
+         {
+-            if (actor.motion == "idle" && getGameState().currentTicks - it->second.blendStartTick >= it->second.blendDuration)
++            if (actor.motion == "idle" && getGameState().currentTicks - it->second.blendStartTick >= it->second.blendDuration
++                && (it->second.flameStartTick == 0 || getGameState().currentTicks - it->second.flameStartTick >= 14))
+                 continue;
+             BridgeActor old = actor;
+             const auto position = VisualPosition(actor, it->second);
+@@ -517,8 +526,14 @@
              "scout death sprite registry count differs from g2 range");
          static_assert(SPR_BRIDGE_FIREBAT_IDLE0_EAST - SPR_BRIDGE_HEALTH_MARINE_0 == 22,
              "existing health sprite registry count differs from g2 range");
@@ -189,7 +226,7 @@ diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Enti
          constexpr uint32_t walkCardinal[] = { SPR_BRIDGE_SCOUT_WALK0_EAST, SPR_BRIDGE_SCOUT_WALK1_EAST,
              SPR_BRIDGE_SCOUT_WALK2_EAST, SPR_BRIDGE_SCOUT_WALK3_EAST, SPR_BRIDGE_SCOUT_WALK4_EAST,
              SPR_BRIDGE_SCOUT_WALK5_EAST, SPR_BRIDGE_SCOUT_WALK6_EAST, SPR_BRIDGE_SCOUT_WALK7_EAST,
-@@ -527,7 +535,7 @@
+@@ -527,7 +542,7 @@
              SPR_BRIDGE_SCOUT_WALK2_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK3_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK4_SOUTHEAST,
              SPR_BRIDGE_SCOUT_WALK5_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK6_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK7_SOUTHEAST,
              SPR_BRIDGE_SCOUT_WALK8_SOUTHEAST, SPR_BRIDGE_SCOUT_WALK9_SOUTHEAST };
@@ -198,7 +235,7 @@ diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Enti
          struct BridgeVisualType
          {
              const char* id;
-@@ -538,6 +546,8 @@
+@@ -538,6 +553,8 @@
              { "terran_marine", BridgeVisualLayout::Marine, SPR_BRIDGE_HEALTH_MARINE_0 },
              { "zerg_zergling", BridgeVisualLayout::Zergling, SPR_BRIDGE_HEALTH_ZERGLING_0 },
              { "terran_firebat", BridgeVisualLayout::Firebat, SPR_BRIDGE_HEALTH_FIREBAT_0 },
@@ -207,7 +244,7 @@ diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Enti
          };
          const BridgeVisualType* visualType = nullptr;
          for (const auto& candidate : visualTypes)
-@@ -578,6 +588,28 @@
+@@ -578,6 +595,28 @@
                  imageId = firebatBases[pose] + direction;
              }
          }
@@ -236,12 +273,13 @@ diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Enti
          else
          {
              if (actor.motion == "death")
-@@ -593,6 +625,20 @@
+@@ -598,5 +637,22 @@
+             const auto level = std::clamp((actor.hp * 10 + actor.maxHp / 2) / actor.maxHp, 0, 10);
+             PaintAddImageAsChild(session, ImageId(visualType->healthBase + level), { 0, 0, z }, actorBounds);
          }
-         const BoundBoxXYZ actorBounds{ { -6, -6, z + 5 }, { 12, 12, 18 } };
-         PaintAddImageAsParent(session, ImageId(imageId), { 0, 0, z }, actorBounds);
-+        if (visualType->layout == BridgeVisualLayout::Firebat && actor.motion == "attack"
-+            && actor.attackFrames > 0 && elapsed < 14)
++        const uint32_t effectElapsed = getGameState().currentTicks - visual.flameStartTick;
++        if (visualType->layout == BridgeVisualLayout::Firebat && actor.hp > 0
++            && visual.flameStartTick > 0 && effectElapsed < 14)
 +        {
 +            constexpr uint32_t flameBases[] = { SPR_BRIDGE_FLAME_BURST0_EAST,
 +                SPR_BRIDGE_FLAME_BURST1_EAST, SPR_BRIDGE_FLAME_BURST2_EAST,
@@ -250,13 +288,14 @@ diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Enti
 +            // Snapshot cadence can retrigger a burst before its first frames
 +            // grow large enough to read at park zoom. Start at the native
 +            // flame's developed stage, then animate the remaining frames.
-+            const uint32_t flameFrame = std::min(6u, 2u + elapsed / 2);
-+            PaintAddImageAsChild(session, ImageId(flameBases[flameFrame] + direction),
++            const uint32_t flameFrame = std::min(6u, 2u + effectElapsed / 2);
++            // The health bar is the actor's child. A second child would
++            // replace it, so the flame needs its own paint struct.
++            PaintAddImageAsParent(session, ImageId(flameBases[flameFrame] + direction),
 +                { 0, 0, z + 1 }, actorBounds);
 +        }
-         if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
-         {
-             const auto level = std::clamp((actor.hp * 10 + actor.maxHp / 2) / actor.maxHp, 0, 10);
+     }
+ }
 diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
 --- a/src/openrct2/scripting/ScriptEngine.cpp
 +++ b/src/openrct2/scripting/ScriptEngine.cpp
