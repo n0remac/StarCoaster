@@ -990,6 +990,7 @@
         let shownOutcome = "";
         let commandFeedback = "";
         let productionFeedback = "";
+        const pendingTrainTypes = {};
         let buildingStates = {};
         let playerResources = {};
         function refreshBuildingAnimations() {
@@ -1426,7 +1427,9 @@
                 const args = event.args;
                 if (args.player === network.currentPlayer.id) {
                     if (args.unit.startsWith("openrct2:")) {
-                        productionFeedback = args.accepted ? "Marine training started"
+                        const unitName = pendingTrainTypes[args.request] || "Unit";
+                        delete pendingTrainTypes[args.request];
+                        productionFeedback = args.accepted ? unitName + " training started"
                             : "Training rejected: " + args.reason;
                         console.log("WORLD_TRAIN_RESULT id=" + args.unit + " accepted="
                             + args.accepted + " reason=" + args.reason);
@@ -2073,11 +2076,16 @@
                             onClick: function () {
                                 if (!barracksInfoID) return;
                                 productionFeedback = "Requesting " + UNIT_TYPES[unitID].name + " training...";
+                                const request = ++nextRequest;
+                                pendingTrainTypes[request] = UNIT_TYPES[unitID].name;
                                 context.executeAction(COMMAND_ACTION, { session: controlSession,
-                                    request: ++nextRequest, unit_ids: [], verb: "train",
+                                    request: request, unit_ids: [], verb: "train",
                                     unit_type: unitID,
                                     target_entity_id: barracksInfoID }, function (result) {
-                                    if (result.error) productionFeedback = result.errorMessage;
+                                    if (result.error) {
+                                        delete pendingTrainTypes[request];
+                                        productionFeedback = result.errorMessage;
+                                    }
                                 });
                             } };
                     }), building.production.length ? [

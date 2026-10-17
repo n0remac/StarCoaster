@@ -153,6 +153,21 @@ assert.equal(orders[0].verb, 'train');
 assert.equal(orders[0].unit_type, 'terran_marine');
 assert.equal(orders[0].target_entity_id, targetID);
 assert.equal(orders[0].unit_ids.length, 0);
+const resultAction = actions.get('rtsbridge.commandResult');
+resultAction.execute({ player: 1, args: { player: 1, request: orders[0].request,
+    unit: targetID, accepted: true, reason: 'ok' } });
+info.desc.onUpdate();
+assert.equal(info.findWidget('building-feedback').text, 'Marine training started');
+buildingAction.execute({ player: 1, args: { ...nativeState, availability: {
+    ...nativeState.availability,
+    terran_firebat: { ready: true, reason: 'ready', requirement: '' } } } });
+info.desc.onUpdate();
+info.findWidget('building-train-terran_firebat').onClick();
+assert.equal(orders[1].unit_type, 'terran_firebat');
+resultAction.execute({ player: 1, args: { player: 1, request: orders[1].request,
+    unit: targetID, accepted: true, reason: 'ok' } });
+info.desc.onUpdate();
+assert.equal(info.findWidget('building-feedback').text, 'Firebat training started');
 const unsupportedTrain = actions.get('rtsbridge.marineCommand').query({ player: 1,
     args: { session: 'a'.repeat(32), request: 900, unit_ids: [], verb: 'train',
         unit_type: 'terran_medic', target_entity_id: targetID } });
