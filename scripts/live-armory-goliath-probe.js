@@ -25,6 +25,16 @@ registerPlugin({ name: "Armory and Goliath gameplay probe", version: "1.0.0",
             return command([], "train", { unit_type: "terran_goliath",
                 target_entity_id: nativeIDs.terran_factory }, label, fixedRequest);
         }
+        function whenFactorySynchronized(done) {
+            const snapshot = rtsBridge.getActors();
+            context.queryAction("rtsbridge.marineCommand", {
+                session: snapshot.session, request: request + 1, unit_ids: [], verb: "train",
+                unit_type: "terran_goliath", target_entity_id: nativeIDs.terran_factory
+            }, function (result) {
+                pending = false;
+                if (!result.error) done();
+            });
+        }
         function place(kind, done) {
             const object = objectManager.getAllObjects("large_scenery").find(function (item) {
                 return item.identifier === "starcoaster.scenery_large." + kind;
@@ -78,8 +88,11 @@ registerPlugin({ name: "Armory and Goliath gameplay probe", version: "1.0.0",
                 pending = true;
                 place("terran_factory", function () { phase = 1; pending = false; });
             } else if (phase === 1 && Date.now() - since > 8000) {
-                train("without_armory");
-                phase = 2; since = Date.now();
+                pending = true;
+                whenFactorySynchronized(function () {
+                    train("without_armory");
+                    phase = 2; since = Date.now();
+                });
             } else if (phase === 2 && Date.now() - since > 4500) {
                 pending = true;
                 place("terran_armory", function () { phase = 3; pending = false; });
