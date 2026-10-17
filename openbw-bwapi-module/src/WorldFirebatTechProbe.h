@@ -103,7 +103,9 @@ public:
                       << game->getFrameCount() << " queue=" << barracks->getTrainingQueue().size()
                       << " remaining=" << barracks->getRemainingTrainTime()
                       << " firebats=" << firebats << std::endl;
-        if (controller_ && completedReported_ && academy && !removedIssued_) {
+        if (std::getenv("BRIDGE_TEST_FIREBAT_ACADEMY_COUNT"))
+            testAcademyCount(game, terran, barracks, firebats);
+        else if (controller_ && completedReported_ && academy && !removedIssued_) {
             removedIssued_ = true;
             game->killUnit(academy);
         }
@@ -120,6 +122,68 @@ public:
 
 private:
     const char* role() const { return controller_ ? "controller" : "publisher"; }
+    void testAcademyCount(BWAPI::Game* game, BWAPI::Player terran,
+                          BWAPI::Unit barracks, int firebats) {
+        if (!firebats) return;
+        std::vector<BWAPI::Unit> academies;
+        for (auto unit : game->getAllUnits())
+            if (unit && unit->exists() && unit->getPlayer() == terran
+                && unit->getType() == BWAPI::UnitTypes::Terran_Academy
+                && unit->isCompleted())
+                academies.push_back(unit);
+        int requiredAcademies = 0;
+        for (const auto& requirement : BWAPI::UnitTypes::Terran_Firebat.requiredUnits())
+            if (requirement.first == BWAPI::UnitTypes::Terran_Academy)
+                requiredAcademies = requirement.second;
+        const bool prerequisiteMet = requiredAcademies > 0
+            && academies.size() >= static_cast<size_t>(requiredAcademies);
+        if (controller_ && academies.size() == 1 && !secondAcademyIssued_) {
+            secondAcademyIssued_ = true;
+            create(game, terran, BWAPI::UnitTypes::Terran_Academy);
+        }
+        if (academies.size() == 2 && !twoAcademiesReported_) {
+            twoAcademiesReported_ = true;
+            twoAcademiesFrame_ = game->getFrameCount();
+            std::cerr << "[firebat-count] role=" << role() << " academies=2 can_train="
+                      << barracks->canTrain(BWAPI::UnitTypes::Terran_Firebat)
+                      << " requirement_met=" << prerequisiteMet
+                      << " minerals=" << terran->minerals() << " gas=" << terran->gas() << std::endl;
+        }
+        if (controller_ && academies.size() == 2 && twoAcademiesReported_
+            && !firstAcademyRemoved_ && game->getFrameCount() - twoAcademiesFrame_ >= 10) {
+            firstAcademyRemoved_ = true;
+            game->killUnit(academies[0]);
+        }
+        if (firstAcademyRemoved_ && academies.size() == 1 && !oneAcademyReported_) {
+            oneAcademyReported_ = true;
+            oneAcademyFrame_ = game->getFrameCount();
+            std::cerr << "[firebat-count] role=" << role() << " academies=1 can_train="
+                      << barracks->canTrain(BWAPI::UnitTypes::Terran_Firebat)
+                      << " requirement_met=" << prerequisiteMet
+                      << " minerals=" << terran->minerals() << " gas=" << terran->gas() << std::endl;
+        }
+        if (!controller_ && twoAcademiesReported_ && academies.size() == 1
+            && !oneAcademyReported_) {
+            oneAcademyReported_ = true;
+            std::cerr << "[firebat-count] role=publisher academies=1 can_train="
+                      << barracks->canTrain(BWAPI::UnitTypes::Terran_Firebat)
+                      << " requirement_met=" << prerequisiteMet
+                      << " minerals=" << terran->minerals() << " gas=" << terran->gas() << std::endl;
+        }
+        if (controller_ && academies.size() == 1 && oneAcademyReported_
+            && !secondAcademyRemoved_ && game->getFrameCount() - oneAcademyFrame_ >= 10) {
+            secondAcademyRemoved_ = true;
+            game->killUnit(academies[0]);
+        }
+        if (twoAcademiesReported_ && oneAcademyReported_ && academies.empty()
+            && !zeroAcademiesReported_) {
+            zeroAcademiesReported_ = true;
+            std::cerr << "[firebat-count] role=" << role() << " academies=0 can_train="
+                      << barracks->canTrain(BWAPI::UnitTypes::Terran_Firebat)
+                      << " requirement_met=" << prerequisiteMet
+                      << " minerals=" << terran->minerals() << " gas=" << terran->gas() << std::endl;
+        }
+    }
     void testSplash(BWAPI::Game* game, BWAPI::Player terran) {
         BWAPI::Unit firebat = nullptr;
         BWAPI::Player zerg = nullptr;
@@ -190,4 +254,8 @@ private:
     bool queueReported_ = false;
     bool splashCreated_ = false, splashAttackIssued_ = false, splashReported_ = false;
     std::map<int, int> splashHP_;
+    bool secondAcademyIssued_ = false, twoAcademiesReported_ = false;
+    bool firstAcademyRemoved_ = false, oneAcademyReported_ = false;
+    bool secondAcademyRemoved_ = false, zeroAcademiesReported_ = false;
+    int twoAcademiesFrame_ = 0, oneAcademyFrame_ = 0;
 };
