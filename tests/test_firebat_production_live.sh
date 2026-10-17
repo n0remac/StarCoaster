@@ -50,6 +50,20 @@ import json, re, sys
 from pathlib import Path
 run = Path(sys.argv[1]); server = (run / 'server.log').read_text(errors='replace'); client = (run / 'client.log').read_text(errors='replace')
 train = re.findall(r'\[world-control\] train command=\S+ barracks=\d+ accepted=(\d).*?unit_type=terran_firebat gas=(\d+)', server)
+actor_ids = re.search(r'FIREBAT_PROBE_ACTORS ids=((?:openbw:\d+,){4}openbw:\d+)', client)
+lines = client.splitlines()
+move_line = next((i for i, line in enumerate(lines) if 'FIREBAT_PROBE_MIXED_MOVE accepted=true' in line), -1)
+snapshots_before = [line for line in lines[:move_line] if 'RTS Bridge apply tick=' in line] if move_line >= 0 else []
+snapshots_after = [line for line in lines[move_line + 1:] if 'RTS Bridge apply tick=' in line] if move_line >= 0 else []
+def position(line, actor_id):
+    match = re.search(re.escape(actor_id) + r',(\d+),(\d+),', line)
+    return tuple(map(int, match.groups())) if match else None
+mixed_moved = bool(actor_ids and snapshots_before and snapshots_after) and all(
+    (origin := position(snapshots_before[-1], actor_id)) is not None
+    and any((later := position(line, actor_id)) is not None
+            and abs(later[0] - origin[0]) + abs(later[1] - origin[1]) > 8
+            for line in snapshots_after[:120])
+    for actor_id in actor_ids.group(1).split(','))
 checks = {
     'barracks_and_academy_park_actions': 'FIREBAT_PROBE_BARRACKS accepted=true' in client
         and 'FIREBAT_PROBE_ACADEMY accepted=true' in client,
@@ -66,6 +80,7 @@ checks = {
     'mixed_orders': 'FIREBAT_PROBE_MIXED_MOVE accepted=true' in client
         and 'FIREBAT_PROBE_REDIRECT accepted=true' in client
         and bool(re.search(r'FIREBAT_PROBE_ACTORS ids=openbw:\d+(,openbw:\d+){4}', client)),
+    'all_five_moved_in_native_snapshots': mixed_moved,
     'academy_demolition': 'FIREBAT_PROBE_REMOVE accepted=true' in client
         and 'WORLD_PATCH_SYNC revision=4' in server,
 }
