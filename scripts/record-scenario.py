@@ -156,6 +156,8 @@ def parse_args(argv=None):
     parser.add_argument("--cycle-rotations", action="store_true", help="save screenshots from all four park views")
     parser.add_argument("--mixed-zerg-camera", action="store_true",
                         help="follow the Frontier mixed wave from two camera angles")
+    parser.add_argument("--mixed-zerg-heavy-defense", action="store_true",
+                        help="add test-only Marine lines to capture Hydralisk and Ultralisk deaths")
     parser.add_argument("--ridge-probe", action="store_true", help="run the test-only cliff, slope and combat driver on client A")
     parser.add_argument("--ridge-assault", action="store_true", help="test native Zergling approach from below the saved ridge")
     parser.add_argument("--live-construction", action="store_true",
@@ -233,6 +235,8 @@ def parse_args(argv=None):
     if args.mixed_zerg_camera and (scenario_id != "frontier-outpost" or args.video_layout == "single"
                                   or args.cycle_rotations):
         parser.error("--mixed-zerg-camera requires Frontier and two clients without --cycle-rotations")
+    if args.mixed_zerg_heavy_defense and not args.mixed_zerg_camera:
+        parser.error("--mixed-zerg-heavy-defense requires --mixed-zerg-camera")
     if not args.world_256:
         try:
             args.plan = resolve(scenario_id)
@@ -285,7 +289,8 @@ def main():
                               "armory_goliath_probe": args.armory_goliath_probe,
                               "navigation_baseline": args.navigation_baseline,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations,
-                              "mixed_zerg_camera": args.mixed_zerg_camera})
+                              "mixed_zerg_camera": args.mixed_zerg_camera,
+                              "mixed_zerg_heavy_defense": args.mixed_zerg_heavy_defense})
     out = run.output
     if args.live_construction or args.navigation_baseline:
         server_plugins = out / "server-data/plugin"
@@ -384,6 +389,11 @@ def main():
                                               {"unit_type": "zerg_ultralisk", "count": 1}]}]})
             scenario["starting_units"]["marines"] += [
                 [33, 47], [34, 47], [33, 48], [34, 48]]
+            if args.mixed_zerg_heavy_defense:
+                scenario["starting_units"]["marines"] += [
+                    [31, 47], [32, 47], [31, 48], [32, 48], [33, 46],
+                    [34, 42], [35, 42], [33, 42], [34, 43], [34, 41],
+                    [32, 37], [33, 37], [31, 37], [32, 38], [32, 36]]
             scenario["starting_units"]["zerglings"] = []
             test_scenario = out / "mixed-zerg-capture-scenario.json"
             test_scenario.write_text(json.dumps(scenario, indent=2) + "\n")

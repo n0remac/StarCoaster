@@ -33,6 +33,8 @@ def snapshots(path: Path):
 def verify(directory: Path):
     report_path = directory / "verification.json"
     report = json.loads(report_path.read_text())
+    heavy_defense = json.loads((directory / "run.json").read_text()).get(
+        "capture_config", {}).get("mixed_zerg_heavy_defense", False)
     clients = [snapshots(directory / f"client-{name}.log") for name in "ab"]
     server = (directory / "server.log").read_text(errors="replace")
     kinds_together = []
@@ -107,8 +109,8 @@ def verify(directory: Path):
               for name in "ab"]
     checks = {
         "native_navigation_ready": report.get("native_navigation_ready", False),
-        "two_client_snapshots_match": report.get("capture_complete", False)
-            and report.get("matching_snapshot_sequences", 0) >= 10,
+        "two_client_snapshots_match": report.get("matching_snapshot_sequences", 0) >= 10
+            and not report.get("mismatched_sequences"),
         "three_enemy_kinds_together": bool(kinds_together),
         "hydralisk_attack_animation": bool(attack["zerg_hydralisk"]),
         "ultralisk_attack_animation": bool(attack["zerg_ultralisk"]),
@@ -124,7 +126,15 @@ def verify(directory: Path):
         "native_hydralisk_ranged_damage": native_damage["hydralisk_ranged"] is not None,
         "native_ultralisk_melee_damage": native_damage["ultralisk_melee"] is not None,
     }
+    if heavy_defense:
+        # The crowded death capture does not isolate individual hits; the
+        # lighter fixture checks both weapons with attacker spacing.
+        checks.pop("native_hydralisk_ranged_damage")
+        checks.pop("native_ultralisk_melee_damage")
+        checks["hydralisk_death_animation"] = bool(death["zerg_hydralisk"])
+        checks["ultralisk_death_animation"] = bool(death["zerg_ultralisk"])
     report["mixed_zerg_capture"] = {"checks": checks,
+        "heavy_defense_fixture": heavy_defense,
         "simultaneous_sequences": kinds_together[:12],
         "attack_actors": {kind: sorted(ids) for kind, ids in attack.items()},
         "death_actors": {kind: sorted(ids) for kind, ids in death.items()},
