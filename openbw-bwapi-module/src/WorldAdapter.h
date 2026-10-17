@@ -10,6 +10,7 @@
 #include "WorldProductionFixture.h"
 #include "WorldFirebatTechProbe.h"
 #include "WorldMedicVultureProbe.h"
+#include "WorldGoliathProbe.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -100,6 +101,7 @@ public:
             startingResourcesApplied_ = applyWorldProductionFixture(game);
         firebatTechProbe_.onFrame(game);
         medicVultureProbe_.onFrame(game);
+        goliathProbe_.onFrame(game);
         std::set<int> pendingIDs;
         for (const auto& [id, creation] : pendingCreations_) pendingIDs.insert(id);
         actorRegistry_.prepare(game, pendingIDs);
@@ -1299,6 +1301,7 @@ private:
     WorldActorRegistry actorRegistry_;
     WorldFirebatTechProbe firebatTechProbe_{false};
     WorldMedicVultureProbe medicVultureProbe_{false};
+    WorldGoliathProbe goliathProbe_{false};
     std::map<int, PendingCreation> pendingCreations_;
     std::set<int> publishedActors_;
     std::map<std::string, NativeSpawn> nativeSpawns_;
