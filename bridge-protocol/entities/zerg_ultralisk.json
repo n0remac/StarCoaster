@@ -21,9 +21,9 @@
     "frame_count": 265,
     "stride": 17,
     "animations": {
-      "idle": {"banks": [0], "ticks": 0},
-      "walk": {"banks": [1, 2, 3, 4, 5, 6, 7, 8, 9], "ticks": 4},
-      "attack": {"banks": [10, 11, 12, 13, 14], "ticks": 2},
+      "idle": {"banks": [9], "ticks": 0},
+      "walk": {"banks": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "ticks": 1},
+      "attack": {"banks": [14, 13, 12, 11, 12, 13, 14], "ticks": 2},
       "death": {"frames": [255, 256, 257, 258, 259, 260, 261, 262, 263, 264], "ticks": 2}
     },
     "health_offset": [-12, -53],

@@ -310,14 +310,17 @@ class SpriteRegistryTests(unittest.TestCase):
     @unittest.skipUnless(MANIFEST.is_file(), "local licensed sprites have not been prepared")
     def test_verified_walk_groups_and_mirror_anchors(self):
         manifest = json.loads(MANIFEST.read_text())
-        self.assertEqual(len(manifest["frames"]), 136)
-        self.assertEqual([group["classification"] for group in manifest["source_groups"][:11]],
-                         ["idle"] + ["walk"] * 10)
-        self.assertEqual([group["classification"] for group in manifest["source_groups"][11:17]], ["death"] * 6)
+        self.assertEqual(len(manifest["frames"]), 191)
+        self.assertEqual([group["classification"] for group in manifest["source_groups"][:12]],
+                         ["attack"] * 5 + ["idle"] + ["walk"] * 6)
+        self.assertEqual([group["classification"] for group in manifest["source_groups"][12:17]],
+                         ["burrow"] * 5)
         registry = manifest["registry"].get("zerg_zergling") or manifest["registry"]["alien_scout"]
         self.assertEqual(len(registry["walk"]["frames"]), 8)
-        self.assertEqual(len(registry["death"]["frames"]["east"]), 6)
-        for motion in ("idle", *(f"walk{index}" for index in range(10)), *(f"death{index}" for index in range(6))):
+        self.assertEqual(len(registry["death"]["frames"]), 7)
+        for motion in ("idle", *(f"walk{index}" for index in range(10)),
+                       *(f"attack{index}" for index in range(6)),
+                       *(f"death{index}" for index in range(6))):
             for east, west in (("east", "west"), ("southeast", "southwest"),
                                ("northeast", "northwest")):
                 a = manifest["frames"][f"{motion}_{east}.png"]

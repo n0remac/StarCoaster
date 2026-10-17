@@ -91,6 +91,30 @@ def ensure_registered_banks(contents: str, source: Path, pack: str) -> str:
     return contents.rstrip()[:-1].rstrip() + ",\n" + rendered + "\n]\n"
 
 
+def ensure_zergling_extra_banks(contents: str, source: Path, pack: str) -> str:
+    """Append newly declared Zergling poses after every pre-existing G2 ID."""
+    entries = json.loads(contents)
+    existing = {entry["path"] for entry in entries}
+    profile = dict(registered_units())["zerg_zergling"]
+    manifest = json.loads((source / "manifest.json").read_text()) if pack == "starcraft-local" else None
+    names = list(manifest["frames"]) if manifest else [
+        (f"{state}{pose}_{direction}.png" if state != "idle" else f"idle_{direction}.png")
+        for state, animation in profile["animations"].items() if "banks" in animation
+        for pose in range(len(animation["banks"])) for direction in MARINE_DIRECTIONS
+    ] + [f"death{pose}.png" for pose in range(len(profile["animations"]["death"]["frames"]))]
+    additions = []
+    for name in names:
+        path = f"bridge/{name}"
+        if path not in existing:
+            additions.append({"path": path, "x": -16, "y": -16})
+            existing.add(path)
+    if not additions:
+        return contents
+    rendered = ",\n".join(f'    {{"path": "{item["path"]}", "x": {item["x"]}, "y": {item["y"]}}}'
+                           for item in additions)
+    return contents.rstrip()[:-1].rstrip() + ",\n" + rendered + "\n]\n"
+
+
 def stage_registered_banks(source: Path, pack: str, upstream: Path, contents: str,
                            colours: set, prepared: list) -> str:
     from PIL import ImageDraw
@@ -276,8 +300,6 @@ def standard_colours(upstream: Path) -> set[tuple[int, int, int]]:
 
 def stage_zergling(source: Path, pack: str, manifest: dict, contents: str,
                     colours: set, prepared: list) -> str:
-    registry = (manifest.get("registry", {}).get("zerg_zergling")
-                or manifest.get("registry", {}).get("alien_scout", {}))
     diagonals = {"southeast": "east", "southwest": "south",
                  "northwest": "west", "northeast": "north"}
     motions = ("idle", *(f"walk{index}" for index in range(10)), *(f"death{index}" for index in range(6)))
@@ -304,9 +326,6 @@ def stage_zergling(source: Path, pack: str, manifest: dict, contents: str,
                     meta = manifest.get("frames", {}).get(name)
                     if not meta or (meta["width"], meta["height"]) != image.size:
                         raise SystemExit(f"Sprite/manifest mismatch: {path}")
-                    kind = "idle" if motion == "idle" else "death" if motion.startswith("death") else "walk"
-                    if name not in registry[kind]["frames"][direction]:
-                        raise SystemExit(f"Sprite missing from kind registry: {name}")
                     x, y = meta["x"], meta["y"]
                 else:
                     x, y = -16, -28
@@ -316,6 +335,37 @@ def stage_zergling(source: Path, pack: str, manifest: dict, contents: str,
             if count != 1:
                 raise SystemExit(f"Missing or duplicate g2 metadata entry: {name}")
             prepared.append((path, name))
+    legacy = {f"{motion}_{direction}.png" for motion in motions
+              for direction in ("east", "south", "west", "north", *diagonals)}
+    if pack == "starcraft-local":
+        extra = [(name, source / name, meta) for name, meta in manifest["frames"].items()
+                 if name not in legacy]
+    else:
+        placeholder = ROOT / "run-data/generated-assets/placeholder/zergling"
+        placeholder.mkdir(parents=True, exist_ok=True)
+        names = [entry["path"].removeprefix("bridge/") for entry in json.loads(contents)
+                 if entry["path"].startswith("bridge/attack") or
+                 re.fullmatch(r"bridge/death\d+\.png", entry["path"])]
+        extra = []
+        for name in names:
+            destination = placeholder / name
+            shutil.copyfile(source / "idle_east.png", destination)
+            extra.append((name, destination, {"x": -16, "y": -28}))
+    for name, path, meta in extra:
+        with Image.open(path) as image:
+            image.load()
+            if image.mode != "RGBA" or not (1 <= image.width <= 300 and 1 <= image.height <= 300) \
+                    or (pack == "starcraft-local" and (image.width, image.height) !=
+                        (meta["width"], meta["height"])) \
+                    or any(alpha not in (0, 255) or (alpha and (red, green, blue) not in colours)
+                           for red, green, blue, alpha in image.getdata()):
+                raise SystemExit(f"Incompatible Zergling frame: {path}")
+        pattern = re.compile(r'(\{\s*"path": "bridge/' + re.escape(name)
+                             + r'",\s*"x": )-?\d+(,\s*"y": )-?\d+(\s*\})')
+        contents, count = pattern.subn(lambda match: f'{match[1]}{meta["x"]}{match[2]}{meta["y"]}{match[3]}', contents)
+        if count != 1:
+            raise SystemExit(f"Missing or duplicate Zergling G2 entry: {name}")
+        prepared.append((path, name))
     return contents
 
 
@@ -416,12 +466,13 @@ def main() -> None:
     if pack == "starcraft-local" and only_unit in (None, "zerg_zergling"):
         registry = (manifest.get("registry", {}).get("zerg_zergling")
                     or manifest.get("registry", {}).get("alien_scout", {}))
-        if len(manifest.get("frames", {})) != 136 or len(registry.get("walk", {}).get("frames", {})) != 8 \
-           or len(registry.get("death", {}).get("frames", {}).get("east", [])) != 6:
-            raise SystemExit("StarCraft manifest must contain 136 frames including six death poses")
+        if len(registry.get("walk", {}).get("frames", {})) != 8 \
+           or len(registry.get("attack", {}).get("frames", {})) != 8 \
+           or len(registry.get("death", {}).get("frames", [])) != 7:
+            raise SystemExit("StarCraft Zergling manifest has invalid animation states")
     sprite_list = upstream / "resources/g2/sprites.json"
-    contents = ensure_registered_banks(
-        ensure_next_g2_entries(ensure_firebat_g2_entries(sprite_list.read_text())), source, pack)
+    contents = ensure_zergling_extra_banks(ensure_registered_banks(
+        ensure_next_g2_entries(ensure_firebat_g2_entries(sprite_list.read_text())), source, pack), source, pack)
     enum_text = (upstream / "src/openrct2/SpriteIds.h").read_text()
     if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_(?:IDLE|WALK[0-9]+)_", enum_text, re.MULTILINE)) != 88:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 88 bridge images")

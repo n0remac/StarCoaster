@@ -263,6 +263,19 @@ def prepare_profile_pack(kind: str, profile: dict, game_dir: Path, output: Path)
 
     registry[kind].update(prepare_groups(profile["animations"], "", profile["source"],
                                          primary, (width, height), profile["stride"]))
+    # Old G2 paths are permanent IDs. Keep producing retired frames so a clean
+    # checkout can build the full, append-only atlas after a mapping correction.
+    legacy_banks = {
+        "zergling": {"walk": list(range(1, 11)), "death": list(range(11, 17))},
+        "hydralisk": {"walk": list(range(1, 11)), "death": [15, 16]},
+    }.get(profile["asset"], {})
+    for state, banks in legacy_banks.items():
+        for pose, bank in enumerate(banks):
+            for direction, (facing, mirror) in directions.items():
+                filename = f"{state}{pose}_{direction}.png"
+                if filename not in selected:
+                    frame_image(primary, profile["source"], bank * profile["stride"] + facing,
+                                (width, height), filename, mirror)
     attachments = {}
     for attachment in profile.get("attachments", []):
         name = attachment["name"]
@@ -287,8 +300,9 @@ def prepare_profile_pack(kind: str, profile: dict, game_dir: Path, output: Path)
         manifest["source_groups"] = [
             {"group": group, "first_frame": group * profile["stride"],
              "last_frame": min(count - 1, (group + 1) * profile["stride"] - 1),
-             "classification": "idle" if group == 0 else "walk" if group <= 10
-                               else "death" if group <= 16 else "non_locomotion"}
+             "classification": "attack" if group <= 4 else "idle" if group == 5
+                               else "walk" if group <= 11 else "burrow" if group <= 16
+                               else "death"}
             for group in range((count + profile["stride"] - 1) // profile["stride"])]
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Prepared {len(selected)} {kind} frames in {output}")
