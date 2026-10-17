@@ -56,7 +56,7 @@ const sandbox = {
                     payload: { op_id: m.op_id, accepted: true } }) + '\n');
             } }; return socket;
     } },
-    rtsBridge: { version: 4, assetVersion: 3, cursorWorld() { return null; }, invalidateAnimation() {}, applySnapshot(snapshot) { applied.push(snapshot); },
+    rtsBridge: { version: 5, assetVersion: 3, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, applySnapshot(snapshot) { applied.push(snapshot); },
         actorScreenPosition(id) { return actorScreens.get(id) || null; },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
     ui: { tileSelection: { tiles: [] }, get tool() { return activeTool; }, openWindow(desc) { squadWidgets = desc.widgets;

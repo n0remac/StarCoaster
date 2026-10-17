@@ -64,11 +64,31 @@ def ensure_starcraft_toolbar(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_barracks_animation(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0006-barracks-training-animation.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected native changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
-        print("OpenRCT2 native bridge patch " + ensure_bridge(checkout))
+        animation = ROOT / "openrct2-patches/0006-barracks-training-animation.patch"
+        animation_applied = applies(checkout, animation, reverse=True)
+        if animation_applied:
+            subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(animation)], check=True)
+        try:
+            bridge_status = ensure_bridge(checkout)
+        finally:
+            if animation_applied:
+                subprocess.run(["git", "-C", str(checkout), "apply", str(animation)], check=True)
+        print("OpenRCT2 native bridge patch " + bridge_status)
         print("StarCraft toolbar patch " + ensure_starcraft_toolbar(checkout))
+        print("Barracks training animation patch " + ensure_barracks_animation(checkout))
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)

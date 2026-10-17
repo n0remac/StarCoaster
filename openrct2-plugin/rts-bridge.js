@@ -861,9 +861,10 @@
     }
 
     function main() {
-        if (typeof rtsBridge !== "object" || rtsBridge.version !== 4 || rtsBridge.assetVersion !== 3
+        if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 3
             || typeof rtsBridge.applySnapshot !== "function"
             || typeof rtsBridge.invalidateAnimation !== "function"
+            || typeof rtsBridge.setBuildingAnimations !== "function"
             || typeof rtsBridge.actorScreenPosition !== "function") {
             throw new Error("RTS Bridge needs the matching native OpenRCT2 build and asset pack");
         }
@@ -943,6 +944,24 @@
         let commandFeedback = "";
         let productionFeedback = "";
         let buildingStates = {};
+        function refreshBuildingAnimations() {
+            if (!barracksObject || !controlSession) return;
+            const prefix = "openrct2:large_scenery:" + barracksObject.index + ":";
+            const tiles = [];
+            Object.keys(buildingStates).forEach(function (id) {
+                const state = buildingStates[id];
+                const target = worldTargetIds[id];
+                if (!id.startsWith(prefix) || !target || !state || state.session !== controlSession
+                    || targetCatalogSession !== controlSession || state.health < 1 || state.queue < 1) return;
+                target.geometry.rects.forEach(function (rect) {
+                    for (let y = rect.y; y < rect.y + rect.height; y += 32)
+                        for (let x = rect.x; x < rect.x + rect.width; x += 32)
+                            tiles.push({ x: x, y: y });
+                });
+            });
+            rtsBridge.setBuildingAnimations({ session: controlSession,
+                object: barracksObject.index, tiles: tiles });
+        }
         const pendingCommands = {};
         const seenCommandRequests = {};
         context.registerAction(SPAWN_STATUS_ACTION, function (event) {
@@ -990,12 +1009,14 @@
                         && activeActorGenerations[unit.id] > 0);
             });
             rtsBridge.applySnapshot({ session: event.args.session, seq: event.args.seq, units: visible });
-            if (controlSession !== event.args.session) {
+            const sessionChanged = controlSession !== event.args.session;
+            if (sessionChanged) {
                 outcomeState = null; shownOutcome = "";
                 buildingStates = {};
                 if (missionStatus && missionStatus.session !== event.args.session) missionStatus = null;
             }
             controlSession = event.args.session;
+            if (sessionChanged) refreshBuildingAnimations();
             controlUnits = {};
             visible.forEach(function (unit) { controlUnits[unit.id] = unit; });
             occupancyUnits = {};
@@ -1123,6 +1144,7 @@
                     targetCatalogVersion = args.version;
                     worldTargetIds = pendingTargetCatalog.targets;
                     pendingTargetCatalog = null;
+                    refreshBuildingAnimations();
                     if (network.mode === "server") console.log("WORLD_TARGET_CATALOG session="
                         + targetCatalogSession + " version=" + targetCatalogVersion
                         + " targets=" + Object.keys(worldTargetIds).length);
@@ -1368,6 +1390,7 @@
                     ? {} : { error: 1, errorMessage: "Invalid native building state" };
             }, function (event) {
                 buildingStates[event.args.id] = event.args;
+                refreshBuildingAnimations();
                 return {};
             });
 

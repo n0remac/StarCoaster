@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BARRACKS_RESOURCE = "unit/terran/TBarrack.grp"
 PALETTE_RESOURCE = "Tileset/Badlands.wpe"
 
-def barracks_image(game_dir: Path) -> Image.Image:
+def barracks_images(game_dir: Path) -> list[Image.Image]:
     source = ROOT / "run-data/generated-assets/starcraft/barracks/.source"
     source.mkdir(parents=True, exist_ok=True)
     helpers = runpy.run_path(str(ROOT / "scripts/prepare-starcraft-sprites.py"))
@@ -29,29 +29,33 @@ def barracks_image(game_dir: Path) -> Image.Image:
     count, width, height = struct.unpack_from("<HHH", data)
     if (count, width, height) != (9, 192, 160) or len(wpe) != 1024:
         raise ValueError("Unexpected classic StarCraft Barracks GRP or Badlands palette")
-    image = helpers["decode_grp"](data, wpe, 0)
-    bounds = image.getbbox()
+    source_images = [helpers["decode_grp"](data, wpe, index)
+                     for index in (0, 2, 3, 4, 5, 6, 7, 8)]
+    bounds = source_images[0].getbbox()
     if bounds is None:
         raise ValueError("Classic StarCraft Barracks frame is empty")
-    image = image.crop(bounds).resize((189, 164), Image.Resampling.NEAREST)
     palette = helpers["openrct2_palette"]()
-    # Large scenery's palette=keep importer uses index 0 as transparency.
-    output = Image.new("P", image.size, 0)
-    output.putpalette([channel for colour in palette for channel in colour])
     available = [i for i in range(10, 255) if not 230 <= i <= 239 and not 243 <= i <= 254]
     cache = {}
-    pixels = []
-    for red, green, blue, alpha in image.getdata():
-        if alpha == 0:
-            pixels.append(0)
-            continue
-        colour = (red, green, blue)
-        if colour not in cache:
-            cache[colour] = min(available, key=lambda i:
-                sum((colour[channel] - palette[i][channel]) ** 2 for channel in range(3)))
-        pixels.append(cache[colour])
-    output.putdata(pixels)
-    return output
+    output_images = []
+    for source in source_images:
+        # Keep every frame on the same canvas so moving parts do not shift the building.
+        image = source.crop(bounds).resize((189, 164), Image.Resampling.NEAREST)
+        output = Image.new("P", image.size, 0)
+        output.putpalette([channel for colour in palette for channel in colour])
+        pixels = []
+        for red, green, blue, alpha in image.getdata():
+            if alpha == 0:
+                pixels.append(0)
+                continue
+            colour = (red, green, blue)
+            if colour not in cache:
+                cache[colour] = min(available, key=lambda i:
+                    sum((colour[channel] - palette[i][channel]) ** 2 for channel in range(3)))
+            pixels.append(cache[colour])
+        output.putdata(pixels)
+        output_images.append(output)
+    return output_images
 
 
 def png_bytes(image: Image.Image) -> bytes:
@@ -74,7 +78,8 @@ def tile_screen(x: int, y: int, direction: int) -> tuple[int, int]:
 def install(data_root: Path, game_dir: Path) -> Path:
     destination = data_root / "object" / "starcoaster" / "scenery_large" / (IDENTIFIER + ".parkobj")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    sprite = barracks_image(game_dir)
+    sprites = barracks_images(game_dir)
+    sprite = sprites[0]
     preview = sprite.resize((58, 50), Image.Resampling.NEAREST)
     images = []
     tiles = []
@@ -94,14 +99,18 @@ def install(data_root: Path, game_dir: Path) -> Path:
         centre_x = (min(p[0] for p in positions) + max(p[0] for p in positions)) // 2
         origins.append((centre_x - sprite.width // 2,
                         max(p[1] for p in positions) + 16 - sprite.height))
-    for y in range(3):
-        for x in range(4):
-            for direction in range(4):
-                origin_x, origin_y = origins[direction]
-                screen_x, screen_y = tile_screen(x, y, direction)
-                images.append({"path": "images/barracks.png",
-                               "x": origin_x - screen_x, "y": origin_y - screen_y,
-                               "palette": "keep"})
+    # Frame 0 remains at the original image indexes for old saves and normal
+    # scenery painting. Native painting selects a later 48-image bank only while
+    # OpenBW reports a Marine in this Barracks' training queue.
+    for frame in range(len(sprites)):
+        for y in range(3):
+            for x in range(4):
+                for direction in range(4):
+                    origin_x, origin_y = origins[direction]
+                    screen_x, screen_y = tile_screen(x, y, direction)
+                    images.append({"path": f"images/barracks-{frame}.png",
+                                   "x": origin_x - screen_x, "y": origin_y - screen_y,
+                                   "palette": "keep"})
     definition = {"id": IDENTIFIER, "authors": ["StarCoaster"], "version": "2.0",
                   "objectType": "scenery_large",
                   "properties": {"price": 1, "removalPrice": 0, "cursor": "CURSOR_STATUE_DOWN",
@@ -111,7 +120,8 @@ def install(data_root: Path, game_dir: Path) -> Path:
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("object.json", json.dumps(definition, separators=(",", ":")))
         archive.writestr("images/preview.png", png_bytes(preview))
-        archive.writestr("images/barracks.png", png_bytes(sprite))
+        for frame, frame_sprite in enumerate(sprites):
+            archive.writestr(f"images/barracks-{frame}.png", png_bytes(frame_sprite))
     return destination
 
 

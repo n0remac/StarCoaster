@@ -12,7 +12,7 @@ function tile(x, y) {
 }
 const windows = new Map(), actions = new Map(), menu = new Map();
 let tool = null, passive = null, placements = 0, closedWindows = 0, frontedWindows = 0;
-const orders = [];
+const orders = [], buildingAnimations = [];
 const ui = {
     tileSelection: { tiles: [], range: null },
     get tool() { return tool; },
@@ -67,8 +67,9 @@ const sandbox = {
     map: { size: { x: 16, y: 16 }, rides: [], getTile: tile },
     objectManager: { getAllObjects(kind) { return kind === 'large_scenery' ? [barracks] : []; } },
     network: { mode: 'client', currentPlayer: { id: 1 }, players: [{ id: 1 }] },
-    rtsBridge: { version: 4, assetVersion: 3, applySnapshot() {},
-        invalidateAnimation() {}, actorScreenPosition() { return null; }, cursorWorld() { return null; } },
+    rtsBridge: { version: 5, assetVersion: 3, applySnapshot() {},
+        invalidateAnimation() {}, setBuildingAnimations(state) { buildingAnimations.push(state); },
+        actorScreenPosition() { return null; }, cursorWorld() { return null; } },
     ui, context, console: { log() {} }, registerPlugin(plugin) { plugin.main(); },
 };
 vm.runInNewContext(fs.readFileSync('openrct2-plugin/rts-bridge.js', 'utf8'), sandbox);
@@ -120,6 +121,17 @@ const nativeState = { session: 'a'.repeat(32), id: targetID, native_id: 'openbw:
 const buildingAction = actions.get('rtsbridge.buildingState');
 assert.equal(buildingAction.query({ player: 1, args: nativeState }).error, undefined);
 buildingAction.execute({ player: 1, args: nativeState });
+assert.equal(buildingAnimations.at(-1).session, nativeState.session);
+assert.equal(buildingAnimations.at(-1).object, barracks.index);
+assert.equal(buildingAnimations.at(-1).tiles.length, 12);
+assert.equal(buildingAnimations.at(-1).tiles[0].x, 64);
+assert.equal(buildingAnimations.at(-1).tiles[0].y, 64);
+buildingAction.execute({ player: 1, args: { ...nativeState, queue: 0, remaining_frames: 0 } });
+assert.equal(buildingAnimations.at(-1).tiles.length, 0, 'completed training restores the idle frame');
+buildingAction.execute({ player: 1, args: nativeState });
+action.execute({ player: 1, args: { ...catalog, version: 3, targets: [] } });
+assert.equal(buildingAnimations.at(-1).tiles.length, 0, 'demolition removes training animation');
+action.execute({ player: 1, args: { ...catalog, version: 4 } });
 info.desc.onUpdate();
 assert.equal(info.findWidget('building-health').text, 'Health: 1000/1000');
 assert.match(info.findWidget('building-queue').text, /Queue: 1/);
@@ -197,8 +209,8 @@ function discoverAfterLoad() {
                 } };
             return socket;
         } },
-        rtsBridge: { version: 4, assetVersion: 3, applySnapshot() {},
-            invalidateAnimation() {}, actorScreenPosition() {} },
+        rtsBridge: { version: 5, assetVersion: 3, applySnapshot() {},
+            invalidateAnimation() {}, setBuildingAnimations() {}, actorScreenPosition() {} },
         context: { getParkStorage() { return { get(key, fallback) { return savedStorage[key] || fallback; },
             set(key, value) { savedStorage[key] = structuredClone(value); } }; },
             registerAction() {}, subscribe() {}, executeAction() {} },

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from PIL import Image
@@ -18,6 +19,30 @@ MARINE_MANIFEST = ROOT / "run-data/generated-assets/starcraft/marine/manifest.js
 
 
 class SpriteRegistryTests(unittest.TestCase):
+    def test_barracks_animation_images_keep_idle_bank_and_footprint(self):
+        spec = importlib.util.spec_from_file_location(
+            "barracks_object", ROOT / "scripts/install-starcraft-construction-object.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        palette = [0, 0, 0] * 256
+        frames = []
+        for index in range(8):
+            image = Image.new("P", (189, 164), index + 10)
+            image.putpalette(palette)
+            frames.append(image)
+        with tempfile.TemporaryDirectory() as directory, patch.object(module, "barracks_images", return_value=frames):
+            path = module.install(Path(directory), Path(directory))
+            with zipfile.ZipFile(path) as archive:
+                object_data = json.loads(archive.read("object.json"))
+                images = object_data["images"]
+                self.assertEqual(len(object_data["properties"]["tiles"]), 12)
+                self.assertEqual(len(images), 4 + 8 * 12 * 4)
+                self.assertEqual(images[4]["path"], "images/barracks-0.png")
+                self.assertEqual(images[52]["path"], "images/barracks-1.png")
+                self.assertEqual(images[-1]["path"], "images/barracks-7.png")
+                self.assertEqual(len([name for name in archive.namelist()
+                                      if name.startswith("images/barracks-")]), 8)
+
     def test_extraction_accepts_archive_aliases_and_relative_paths(self):
         spec = importlib.util.spec_from_file_location("starcraft_sprites", ROOT / "scripts/prepare-starcraft-sprites.py")
         module = importlib.util.module_from_spec(spec)
@@ -88,9 +113,9 @@ class SpriteRegistryTests(unittest.TestCase):
                     self.assertTrue(all(tuple(pixel[:3]) in colours for pixel in image.getdata() if pixel[3]))
         native = (upstream / "src/openrct2/scripting/ScriptEngine.cpp").read_text()
         plugin = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
-        self.assertIn('"version", JS_NewInt32(ctx, 4)', native)
+        self.assertIn('"version", JS_NewInt32(ctx, 5)', native)
         self.assertIn('"assetVersion", JS_NewInt32(ctx, 3)', native)
-        self.assertIn('rtsBridge.version !== 4', plugin)
+        self.assertIn('rtsBridge.version !== 5', plugin)
         self.assertIn('rtsBridge.assetVersion !== 3', plugin)
 
     @unittest.skipUnless(MANIFEST.is_file(), "local licensed sprites have not been prepared")

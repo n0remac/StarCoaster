@@ -43,8 +43,8 @@ const game = {
             write(line) { const message = JSON.parse(line); sent.push(message); replies.push(message); } };
         return socket;
     } },
-    rtsBridge: { version: 4, assetVersion: 3, applySnapshot() {},
-        invalidateAnimation() {}, actorScreenPosition() {} },
+    rtsBridge: { version: 5, assetVersion: 3, applySnapshot() {},
+        invalidateAnimation() {}, setBuildingAnimations() {}, actorScreenPosition() {} },
     context: { getParkStorage() { return { get(key, fallback) { return storage[key] || fallback; },
         set(key, value) { storage[key] = structuredClone(value); } }; },
         registerAction(name, query, execute) { actions.set(name, { query, execute }); },

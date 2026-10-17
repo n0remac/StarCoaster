@@ -3,6 +3,7 @@
 
 import argparse
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ import signal
 import socket
 import subprocess
 import time
+
+from PIL import Image
 
 from artifact_runs import ArtifactRun
 from scenario_package import build_native_map, ensure_park, resolve, session_environment
@@ -143,6 +146,8 @@ def parse_args(argv=None):
                         help="exercise Mt. Zergling construction and the graphical Spawn Wave button")
     parser.add_argument("--barracks-production", action="store_true",
                         help="center both graphical clients on the Barracks construction site")
+    parser.add_argument("--barracks-training-probe", action="store_true",
+                        help="test-only automatic Barracks build and native Marine training capture")
     parser.add_argument("--marine-screen-probe", action="store_true",
                         help="check Marine drag selection across Mt. Zergling rotations and zoom levels")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
@@ -172,6 +177,10 @@ def parse_args(argv=None):
         parser.error("--mt-zergling-playthrough requires --scenario mt-zergling")
     if args.barracks_production and (scenario_id != "mt-zergling" or args.video_layout == "single"):
         parser.error("--barracks-production requires Mt. Zergling and two clients")
+    if args.barracks_training_probe and not args.barracks_production:
+        parser.error("--barracks-training-probe requires --barracks-production")
+    if args.barracks_training_probe and args.duration < 45:
+        parser.error("--barracks-training-probe requires at least 45 seconds")
     if args.marine_screen_probe and (scenario_id != "mt-zergling" or args.mt_zergling_playthrough):
         parser.error("--marine-screen-probe requires Mt. Zergling without the playthrough probe")
     if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault
@@ -359,6 +368,9 @@ def main():
             if args.barracks_production:
                 (data_dir / "plugin/barracks-production-camera.js").write_text(
                     (ROOT / "scripts/barracks-production-camera.js").read_text())
+            if args.barracks_training_probe and name == "client-a":
+                for probe in ("live-barracks-build-probe.js", "live-barracks-training-probe.js"):
+                    (data_dir / "plugin" / probe).write_text((ROOT / "scripts" / probe).read_text())
             if args.marine_screen_probe and name == "client-a":
                 (data_dir / "plugin/marine-screen-probe.js").write_text(
                     (ROOT / "scripts/marine-screen-probe.js").read_text())
@@ -436,6 +448,7 @@ def main():
         mt_marine_clicked = False
         mt_zoomed = False
         mt_samples = set()
+        barracks_samples = set()
         marine_screen_seen = 0
         rotation_offsets = {name: len(re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
                               (out / f"{name}.log").read_text(errors="replace")))
@@ -504,6 +517,19 @@ def main():
                         if recorder:
                             recorder.event("park_defense_screenshot", client="client-a",
                                            second=second, filename=filename)
+            if args.barracks_training_probe:
+                elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
+                for point in (8, 12, 16, 20, 24, 28, 32, 40):
+                    if elapsed < point or point in barracks_samples:
+                        continue
+                    for name, display in displays:
+                        filename = f"{name}-barracks-t{point}.png"
+                        subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                       env=env | {"DISPLAY": display}, check=True)
+                        if recorder:
+                            recorder.event("barracks_training_screenshot", client=name,
+                                           second=point, filename=filename)
+                    barracks_samples.add(point)
             if args.navigation_baseline and recorder:
                 elapsed = time.monotonic() - recorder.start_monotonic
                 for point in sorted(baseline_samples - captured_baseline_samples):
@@ -574,6 +600,31 @@ def main():
         subprocess.run(["python3", str(ROOT / "scripts" / verifier), str(out)],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         detailed = json.loads((out / "verification.json").read_text())
+        if args.barracks_training_probe:
+            animation_hashes = {}
+            for name, _ in displays:
+                frames = []
+                for point in sorted(barracks_samples):
+                    with Image.open(out / f"{name}-barracks-t{point}.png") as image:
+                        centre_x, centre_y = image.width // 2, image.height // 2
+                        pixels = image.crop((centre_x - 100, centre_y - 125,
+                                             centre_x + 100, centre_y + 25)).tobytes()
+                        frames.append(hashlib.sha256(pixels).hexdigest()[:12])
+                animation_hashes[name] = frames
+            checks = {
+                "park_barracks_built": "BARRACKS_BUILD_PROBE_RESULT accepted=true" in client_logs[0],
+                "native_train_accepted": "BARRACKS_TRAIN_PROBE_ACTION accepted=true" in client_logs[0]
+                    and "[world-control] train command=" in snapshot,
+                "marine_completed_and_moved": "BARRACKS_TRAIN_PROBE_MARINE id=" in client_logs[0]
+                    and "BARRACKS_TRAIN_PROBE_MOVE accepted=true" in client_logs[0],
+                "animation_visible_on_both_clients": all(len(set(frames)) >= 2
+                                                         for frames in animation_hashes.values()),
+            }
+            detailed["barracks_training_probe"] = {"checks": checks,
+                                                   "frame_hashes": animation_hashes}
+            detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
+            detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
         if args.navigation_baseline:
             verify_navigation_baseline(out, client_logs, snapshot, detailed)
         if args.live_construction:
