@@ -47,12 +47,23 @@ while Zerglings are alive and clicks Spawn Wave in the Marine window. It saves
 the video, screenshots, logs, and verification data under ignored
 `run-data/artifacts/`.
 
-## Barracks production
+## StarCraft construction and production
 
 The StarCraft button in the upper-right construction toolbar opens the
-Barracks placement menu. A completed Barracks can be clicked to inspect its
-native HP and queue and to train a Marine. The scenario starts Terran player 1
-with 500 minerals and a native Supply Depot outside the mapped park so OpenBW
-can apply its normal cost and supply rules. The Supply Depot is only a map
-fixture; it does not appear as a park construction option. A trained Marine
-can be selected and ordered with the existing controls.
+Barracks and Academy placement menu. Place each building on clear park ground;
+normal OpenRCT2 clearance and ownership rules apply. Click a completed Barracks
+to inspect its native HP, queue, and Marine and Firebat buttons. Firebat training
+requires a completed, Terran-owned native Academy. Click the Academy to inspect
+its native identity, synchronization status, and HP (up to 600). It has no
+production queue. Demolishing the last Academy disables new Firebat orders.
+
+Terran player 1 starts with 500 minerals, 250 gas, and a native Supply Depot
+outside the mapped park. OpenBW spends resources and checks supply, queue
+capacity, and technology when a training order executes. These resources are
+a fixed scenario fixture; there is no mining or gas harvesting in this mode.
+The Supply Depot does not appear as a park construction option. Completed
+Marines and Firebats use the same selection and squad orders, including mixed
+groups. A bridge reconnect preserves native resources, queues, buildings, and
+actors while the engines remain running. A full engine restart reconstructs
+buildings and their saved HP from the park, but does not restore a training
+queue that was still active.

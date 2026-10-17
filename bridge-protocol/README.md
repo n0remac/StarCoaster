@@ -198,17 +198,19 @@ Marine commands travel from an authenticated OpenRCT2 player through a synchroni
 
 The same [v3 schema](scenario.snapshot.v3.schema.json) also defines `map_id: "park-assault"`. This variant supports the bridge ceiling of 32 actors and three or more independent targets. Its full snapshots carry `map_revision`; each target retains its stable logical ID, OpenBW proxy ID, health, and state even after destruction. The scenario configuration supplies the actual OpenRCT2 ride IDs, object identities, occupied tiles, and the shared coordinate transform. The server rejects duplicate actors or targets, stale sessions and sequences, HP increases, proxy identity changes, and a map revision ahead of confirmed demolition. Successful native ride demolition sends a short `nav <session> <revision> <target>` control line back to the OpenBW planner. It never clears a footprint before the host verifies demolition. The worst-case 32-actor, three-target, 64-event test packet fits below the 32768-byte transport ceiling; the measured live 20-actor packet is about 3.8 KiB.
 
-## Native Barracks production
+## Native StarCraft building and unit production
 
-A confirmed `terran_barracks` structure keeps its OpenRCT2 scenery ID and
-`#generation`. `entity.state` links that ID to the real OpenBW Barracks native
-unit and HP; there is no civilian target proxy. The controller receives the
+A confirmed `terran_barracks` or `terran_academy` keeps its OpenRCT2 scenery ID and
+`#generation`. `entity.state` links that ID to the real OpenBW building and its
+HP; there is no civilian target proxy. The controller receives the
 same link. `building.state` flows from the controller through Go to the park
 with `id`, `native_id`, `owner`, `health`, `queue`, `remaining_frames`,
-`minerals`, `supply_used`, and `supply_total`. The optional `max_health` field
-reports the native building maximum. It is observational native state, not a
-second production queue. `player.resources` separately reports the native
-owner's minerals and supply, even when no production building exists.
+`minerals`, `gas`, `supply_used`, and `supply_total`. The optional `max_health`
+field reports the native building maximum (600 for Academy). Academy has an
+empty production list and no training controls. Building state is observational
+native state, not a second production queue. `player.resources` separately
+reports the native owner's minerals, gas, and supply, even when no production
+building exists.
 
 `combat.command` also accepts `verb: "unit.train"` with an empty `unit_ids`
 array, a supported `unit_type`, and a persistent production building
@@ -217,7 +219,10 @@ to `terran_marine`. OpenRCT2 authenticates the commander and deduplicates the
 session/player/request ID. Go requires a live, linked registered producer in
 the confirmed registry; the controller verifies the native owner, completion,
 and BWAPI `canTrain` before invoking `train` with the requested native type.
-The existing `combat.result` reports acceptance. Native trainee creation is
-withheld from `actor.spawn` and `actor.bind` until completion; the normal actor
-lifecycle then exposes the Marine to both clients. A demolition uses the
+`building.state.availability` carries advisory native status for each supported
+product; the command rechecks native rules when it executes. Firebat needs an
+Academy and costs 50 minerals and 25 gas in the pinned engine. The existing
+`combat.result` reports acceptance. Native trainee creation is withheld from
+`actor.spawn` and `actor.bind` until completion; the normal actor lifecycle
+then exposes the Marine or Firebat to both clients. A demolition uses the
 ordered `world.patch` removal path and invalidates production.

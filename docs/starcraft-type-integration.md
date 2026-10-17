@@ -32,8 +32,9 @@ in the catalog. OpenBW owns those rules.
 ## Add a unit
 
 1. Add the stable ID, BWAPI name, race, ownership, visual ID, commands, and
-   display name to the catalog. A future Firebat would also need its own
-   native type entry; it is not supported or trainable today.
+   display name to the catalog. Marine, Zergling, and Firebat are currently
+   registered. Firebat production declares the Barracks as producer and uses
+   OpenBW's native Academy requirement.
 2. Add BWAPI resolution in `WorldStarcraftTypes.h`. Mark the unit controllable
    only if both the native controller and plugin can issue its intended
    commands. Runtime actors receive canonical IDs from native creation events
