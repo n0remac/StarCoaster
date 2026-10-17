@@ -16,18 +16,16 @@
     const SPAWN_STATUS_ACTION = "rtsbridge.spawnStatus";
     const WAVE_ACTION = "rtsbridge.requestWave";
     const WAVE_STATUS_ACTION = "rtsbridge.waveStatus";
-    const BARRACKS_OBJECT = "starcoaster.scenery_large.terran_barracks";
     // Supported integration types only. Native rules remain in OpenBW.
+    // BEGIN GENERATED STARCRAFT TYPES
     const UNIT_TYPES = Object.freeze({
-        terran_marine: { name: "Marine", visual: "terran_marine", race: "terran", controllable: true,
-            commands: ["move", "attack", "attack_move", "hold", "stop"] },
-        zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false,
-            commands: [] }
+        terran_marine: { name: "Marine", visual: "terran_marine", race: "terran", controllable: true, commands: ["move", "attack", "attack_move", "hold", "stop"] },
+        zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
-        terran_barracks: { name: "Terran Barracks", objectID: BARRACKS_OBJECT,
-            width: 4, height: 3, production: ["terran_marine"], animation: "training_lights" }
+        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, production: ["terran_marine"], animation: "training_lights" },
     });
+    // END GENERATED STARCRAFT TYPES
     const buildingByObject = {};
     Object.keys(BUILDING_TYPES).forEach(function (id) {
         const definition = BUILDING_TYPES[id];

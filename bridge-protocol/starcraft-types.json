@@ -1,0 +1,24 @@
+{
+  "units": [
+    {
+      "id": "terran_marine", "native_type": "Terran_Marine", "race": "terran",
+      "ownership": "player", "display_name": "Marine", "visual": "terran_marine",
+      "controllable": true,
+      "commands": ["unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"]
+    },
+    {
+      "id": "zerg_zergling", "native_type": "Zerg_Zergling", "race": "zerg",
+      "ownership": "enemy", "display_name": "Zergling", "visual": "zerg_zergling",
+      "controllable": false, "commands": []
+    }
+  ],
+  "buildings": [
+    {
+      "id": "terran_barracks", "native_type": "Terran_Barracks",
+      "object_id": "starcoaster.scenery_large.terran_barracks",
+      "display_name": "Terran Barracks", "visual": "terran_barracks",
+      "width": 4, "height": 3, "production": ["terran_marine"],
+      "animation": "training_lights"
+    }
+  ]
+}

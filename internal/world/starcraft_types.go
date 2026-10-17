@@ -16,15 +16,17 @@ type BuildingDefinition struct {
 	Production                                    []string
 }
 
+// BEGIN GENERATED STARCRAFT TYPES
 var unitDefinitions = map[string]UnitDefinition{
-	"terran_marine": {ID: "terran_marine", NativeType: "Terran_Marine", Race: "terran", Ownership: "player", DisplayName: "Marine", Visual: "terran_marine", Controllable: true,
-		Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
-	"zerg_zergling": {ID: "zerg_zergling", NativeType: "Zerg_Zergling", Race: "zerg", Ownership: "enemy", DisplayName: "Zergling", Visual: "zerg_zergling"},
+	"terran_marine": {ID: "terran_marine", NativeType: "Terran_Marine", Race: "terran", Ownership: "player", DisplayName: "Marine", Visual: "terran_marine", Controllable: true, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
+	"zerg_zergling": {ID: "zerg_zergling", NativeType: "Zerg_Zergling", Race: "zerg", Ownership: "enemy", DisplayName: "Zergling", Visual: "zerg_zergling", Controllable: false, Commands: []string{}},
 }
 
 var buildingDefinitions = map[string]BuildingDefinition{
 	"terran_barracks": {ID: "terran_barracks", NativeType: "Terran_Barracks", ObjectID: "starcoaster.scenery_large.terran_barracks", DisplayName: "Terran Barracks", Visual: "terran_barracks", Width: 4, Height: 3, Production: []string{"terran_marine"}},
 }
+
+// END GENERATED STARCRAFT TYPES
 
 func SupportedUnit(id string) (UnitDefinition, bool) {
 	unit, ok := unitDefinitions[id]
