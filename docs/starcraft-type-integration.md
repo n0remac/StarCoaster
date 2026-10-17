@@ -148,6 +148,13 @@ defeat. In the 2026-10-17 local run, Hydralisk hits reduced carousel HP from
 40 to 20 before the Zergling attacked; Ultralisk hits reduced it from 40 to 0.
 The test writes logs and `verification.json` under ignored `run-data/`.
 
+Run `python3 tests/test_mixed_zerg_restart_live.py` with the same licensed
+data variables to check a living mixed wave across a same-session Go bridge
+restart. This test-only fixture disables assault orders so construction
+demolition cannot interrupt the actor observation. It verifies the session,
+unit types, native actor IDs, request IDs, and queue order remain stable, then
+queries the restored actors from a newly joined OpenRCT2 client.
+
 Air movement, transport, siege and morph modes,
 new spells or effect renderers, resource collection, non-Terran construction,
 Zerg larva production, and multi-producer relationships need separate runtime
