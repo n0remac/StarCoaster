@@ -519,7 +519,9 @@ def main():
                                            second=second, filename=filename)
             if args.barracks_training_probe:
                 elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
-                for point in (4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40):
+                # The light is dark for five of seven banks. Subsecond samples
+                # avoid accidentally capturing only the dark phase.
+                for point in (*[round(2 + index * 0.7, 1) for index in range(27)], 24, 32, 40):
                     if elapsed < point or point in barracks_samples:
                         continue
                     for name, display in displays:
