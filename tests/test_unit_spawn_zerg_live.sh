@@ -44,11 +44,37 @@ wait_for() {
 }
 wait_for 'WORLD_READY' "$run_dir/session.log" 75
 openrct2_data="$project_dir/build/openrct2-stage/usr/local/share/openrct2"
-for name in client-a client-b; do
+start_client() {
+  local name="$1"
   build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
     --rct2-data-path="$RCT2_DATA_DIR" --openrct2-data-path="$openrct2_data" \
     --user-data-path="$run_dir/$name" > "$run_dir/$name.log" 2>&1 &
   if [[ "$name" == client-a ]]; then client_a_pid=$!; else client_b_pid=$!; fi
+}
+start_client client-a
+start_client client-b
+# OpenRCT2 occasionally rejects the initial compressed map transfer. Retry the
+# observer's join before checking its roster; the bridge and native actors stay up.
+for attempt in 1 2 3; do
+  started=$SECONDS
+  while ! grep -q 'RTS Bridge apply tick=' "$run_dir/client-b.log" 2>/dev/null; do
+    if grep -q 'Decompression error!' "$run_dir/client-b.log" 2>/dev/null || \
+       ! kill -0 "$client_b_pid" 2>/dev/null || (( SECONDS - started >= 45 )); then
+      break
+    fi
+    sleep 1
+  done
+  if grep -q 'RTS Bridge apply tick=' "$run_dir/client-b.log" 2>/dev/null; then
+    break
+  fi
+  kill "$client_b_pid" 2>/dev/null || true
+  wait "$client_b_pid" 2>/dev/null || true
+  mv "$run_dir/client-b.log" "$run_dir/client-b-join-attempt-$attempt.log"
+  if (( attempt == 3 )); then
+    printf 'Client B could not load the park after three joins\n' >&2
+    exit 1
+  fi
+  start_client client-b
 done
 wait_for 'scenario spawn request=.*state=ready' "$run_dir/session.log" 90
 wait_for 'WORLD_ZERG_ROSTER count=6' "$run_dir/client-a.log" 90
