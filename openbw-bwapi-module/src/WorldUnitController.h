@@ -5,6 +5,7 @@
 #include "WorldActorRegistry.h"
 #include "WorldNavigation.h"
 #include "WorldProductionFixture.h"
+#include "WorldFirebatTechProbe.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -30,6 +31,7 @@ class WorldUnitController {
 public:
     ~WorldUnitController() { closeSocket(); }
     void onUnitCreate(BWAPI::Unit unit, int frame) {
+        firebatTechProbe_.onUnitCreate(unit);
         if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
         if (!worldUnitType(type)) return;
@@ -46,6 +48,7 @@ public:
     void onFrame(BWAPI::Game* game) {
         if (!startingResourcesApplied_)
             startingResourcesApplied_ = applyWorldProductionFixture(game);
+        firebatTechProbe_.onFrame(game);
         std::set<int> candidateIDs;
         for (const auto& [id, candidate] : creationCandidates_) candidateIDs.insert(id);
         actorRegistry_.prepare(game, candidateIDs);
@@ -730,6 +733,7 @@ private:
     std::map<std::string, TargetLink> targetLinks_;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
+    WorldFirebatTechProbe firebatTechProbe_{true};
     std::map<int, CreationCandidate> creationCandidates_;
     std::map<std::string, json> identities_, publisherBindings_;
     std::set<std::string> ambiguousActors_;

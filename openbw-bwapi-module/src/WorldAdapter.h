@@ -8,6 +8,7 @@
 #include "WorldAssaultController.h"
 #include "WorldSpawnPlacement.h"
 #include "WorldProductionFixture.h"
+#include "WorldFirebatTechProbe.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -47,6 +48,7 @@ class WorldAdapter {
 public:
     ~WorldAdapter() { if (socket_ >= 0) ::close(socket_); }
     void onUnitCreate(BWAPI::Unit unit, int frame) {
+        firebatTechProbe_.onUnitCreate(unit);
         if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
         if (!worldUnitType(type)) return;
@@ -85,6 +87,7 @@ public:
     void onFrame(BWAPI::Game* game) {
         if (!startingResourcesApplied_)
             startingResourcesApplied_ = applyWorldProductionFixture(game);
+        firebatTechProbe_.onFrame(game);
         std::set<int> pendingIDs;
         for (const auto& [id, creation] : pendingCreations_) pendingIDs.insert(id);
         actorRegistry_.prepare(game, pendingIDs);
@@ -1234,6 +1237,7 @@ private:
         pendingMaskUnchanged_ = false;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
+    WorldFirebatTechProbe firebatTechProbe_{false};
     std::map<int, PendingCreation> pendingCreations_;
     std::set<int> publishedActors_;
     std::map<std::string, NativeSpawn> nativeSpawns_;
