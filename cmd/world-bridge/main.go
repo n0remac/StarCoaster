@@ -120,10 +120,16 @@ type worldCommand struct {
 	RequestID     int      `json:"request_id"`
 	UnitIDs       []string `json:"unit_ids"`
 	Verb          string   `json:"verb"`
+	UnitType      string   `json:"unit_type,omitempty"`
 	TargetID      string   `json:"target_id,omitempty"`
 	TargetProxyID string   `json:"target_proxy_id,omitempty"`
 	X             int      `json:"x,omitempty"`
 	Y             int      `json:"y,omitempty"`
+}
+
+func supportedProductionBuilding(id string) bool {
+	building, ok := world.SupportedBuilding(id)
+	return ok && len(building.Production) > 0
 }
 
 type targetLink struct {
@@ -980,10 +986,22 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		switch command.Verb {
 		case "unit.train":
 			entity, exists := s.registry.Entities[command.TargetID]
+			building, supported := world.SupportedBuilding(entity.Type)
+			if command.UnitType == "" {
+				command.UnitType = "terran_marine"
+			} // world.v1 legacy default
+			_, supportedUnit := world.SupportedUnit(command.UnitType)
+			trainable := false
+			for _, id := range building.Production {
+				if id == command.UnitType {
+					trainable = true
+					break
+				}
+			}
 			if len(command.UnitIDs) != 0 || !exists || entity.Kind != "structure" ||
-				entity.Type != "terran_barracks" || entity.Owner < 0 ||
+				!supported || !supportedUnit || !trainable || entity.Owner < 0 ||
 				s.registry.Destroyed[command.TargetID] || s.proxies[command.TargetID] == "" {
-				s.ack(p, m, false, "barracks_unavailable")
+				s.ack(p, m, false, "production_unavailable")
 				return
 			}
 			command.TargetProxyID = s.proxies[command.TargetID]
@@ -1561,7 +1579,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		}
 		entity, exists := s.registry.Entities[state.ID]
 		if m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
-			!exists || entity.Kind != "structure" || entity.Type != "terran_barracks" ||
+			!exists || entity.Kind != "structure" || !supportedProductionBuilding(entity.Type) ||
 			s.registry.Destroyed[state.ID] || s.proxies[state.ID] != state.NativeID ||
 			entity.Owner != state.Owner || state.Health < 0 || state.Health > 1000 ||
 			state.Queue < 0 || state.Queue > 5 || state.RemainingFrames < 0 ||
@@ -1569,6 +1587,19 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			return
 		}
 		_ = s.emit(s.park, "building.state", m.Session, m.Revision, state)
+	case "player.resources":
+		var resources struct {
+			Owner       int `json:"owner"`
+			Minerals    int `json:"minerals"`
+			SupplyUsed  int `json:"supply_used"`
+			SupplyTotal int `json:"supply_total"`
+		}
+		if m.Decode(&resources) != nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || resources.Owner < 0 || resources.Owner > 15 ||
+			resources.Minerals < 0 || resources.SupplyUsed < 0 || resources.SupplyTotal < 0 {
+			return
+		}
+		_ = s.emit(s.park, "player.resources", m.Session, m.Revision, resources)
 	case "world.ack":
 		var answer world.Ack
 		if m.Decode(&answer) != nil || m.Session != s.registry.Session {

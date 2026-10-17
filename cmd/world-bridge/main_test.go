@@ -312,6 +312,45 @@ func TestWorldCommandResolvesLogicalTargetAndCorrelatesResult(t *testing.T) {
 	}
 }
 
+func TestGeneralizedTrainingCommand(t *testing.T) {
+	s := testService()
+	e := testEntity()
+	e.ID, e.SourceID, e.Kind, e.Type, e.Owner = "openrct2:large_scenery:3:1:1#1", "large_scenery:3:1:1", "structure", "terran_barracks", 1
+	e.Geometry.Rects = []world.Rect{{X: 32, Y: 32, Width: 128, Height: 96}}
+	e.Combat.Health = 1000
+	if err := s.registry.Replace("session-a", 1, 8, 8, []world.Entity{e}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.ready = true
+	s.proxies[e.ID] = "openbw:77"
+	bridge, native := net.Pipe()
+	defer bridge.Close()
+	defer native.Close()
+	s.controller = &peer{Conn: bridge}
+	forwarded := make(chan world.Envelope, 1)
+	go func() { var m world.Envelope; _ = json.Unmarshal([]byte(readLine(native)), &m); forwarded <- m }()
+	command := worldCommand{CommandID: "session-a:1", PlayerID: 2, RequestID: 1, Verb: "unit.train", TargetID: e.ID, UnitIDs: []string{}}
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:train:1", "openrct2", 1, command))
+	var actual worldCommand
+	if err := (<-forwarded).Decode(&actual); err != nil || actual.UnitType != "terran_marine" || actual.TargetProxyID != "openbw:77" {
+		t.Fatalf("legacy train default: %+v %v", actual, err)
+	}
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:train:retry", "openrct2", 1, command))
+	if len(s.commands) != 1 {
+		t.Fatal("duplicate training command forwarded")
+	}
+	command.CommandID, command.RequestID, command.UnitType = "session-a:2", 2, "terran_firebat"
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:train:unsupported", "openrct2", 1, command))
+	if len(s.commands) != 1 {
+		t.Fatal("unsupported unit forwarded")
+	}
+	command.CommandID, command.RequestID, command.UnitType = "session-a:3", 3, "zerg_zergling"
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:train:wrong-producer", "openrct2", 1, command))
+	if len(s.commands) != 1 {
+		t.Fatal("inappropriate production forwarded")
+	}
+}
+
 func TestTargetLinkIsForwardedAndValidated(t *testing.T) {
 	s := testService()
 	e := testEntity()

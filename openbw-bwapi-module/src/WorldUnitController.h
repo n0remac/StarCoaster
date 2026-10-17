@@ -83,10 +83,14 @@ public:
         applyScheduledNavigation(game);
         probeNativeBarracks(game);
         if (!session_.empty() && game->getFrameCount() % 24 == 0) {
+            if (game->self()) send("player.resources", session_, revision_ ? revision_ : 1,
+                {{"owner", game->self()->getID()}, {"minerals", game->self()->minerals()},
+                 {"supply_used", game->self()->supplyUsed()},
+                 {"supply_total", game->self()->supplyTotal()}}, game->getFrameCount());
             for (const auto& [id, link] : targetLinks_) {
                 for (auto unit : game->getAllUnits()) {
                     if (!unit || !unit->exists()
-                        || unit->getType() != BWAPI::UnitTypes::Terran_Barracks
+                        || !worldBuildingType(unit->getType())
                         || "openbw:" + std::to_string(unit->getID()) != link.proxyID) continue;
                     send("building.state", session_, revision_ ? revision_ : 1,
                         {{"id", id}, {"native_id", link.proxyID},
@@ -553,25 +557,29 @@ private:
         }
         BWAPI::Unit target = nullptr;
         if (accepted && verb == "unit.train") {
+            const std::string requestedType = command.value("unit_type", "terran_marine");
+            const auto* requested = worldUnitType(requestedType);
+            if (!requested) { accepted = false; reason = "unsupported_unit_type"; }
             const auto targetID = command.value("target_id", "");
             const auto link = targetLinks_.find(targetID);
-            if (link == targetLinks_.end() || link->second.proxyID
-                != command.value("target_proxy_id", "")) {
-                accepted = false; reason = "barracks_unlinked";
-            } else {
+            if (accepted && (link == targetLinks_.end() || link->second.proxyID
+                != command.value("target_proxy_id", ""))) {
+                accepted = false; reason = "production_unlinked";
+            } else if (accepted) {
                 for (auto candidate : game->getAllUnits()) {
                     if (!candidate || !candidate->exists()
                         || "openbw:" + std::to_string(candidate->getID())
                             != link->second.proxyID) continue;
                     const auto position = candidate->getPosition();
-                    if (candidate->getType() == BWAPI::UnitTypes::Terran_Barracks
+                    const auto* building = worldBuildingType(candidate->getType());
+                    if (building && worldCanProduce(*building, requestedType)
                         && candidate->getPlayer() == game->self()
                         && candidate->isCompleted() && candidate->getHitPoints() > 0
                         && std::abs(position.x - link->second.x) <= 16
                         && std::abs(position.y - link->second.y) <= 16) target = candidate;
                     break;
                 }
-                if (!target) { accepted = false; reason = "barracks_unavailable"; }
+                if (!target) { accepted = false; reason = "production_unavailable"; }
             }
         }
         if (accepted && verb == "unit.attack") {
@@ -610,7 +618,8 @@ private:
             const auto unit = actorRegistry_.lookup(id);
             if (!unique.insert(id).second || !unit || !unit->exists()
                 || unit->getPlayer() != game->self()
-                || unit->getType() != BWAPI::UnitTypes::Terran_Marine) {
+                || !worldUnitType(unit->getType())
+                || !worldUnitType(unit->getType())->controllable) {
                 accepted = false; reason = "invalid_owner_or_unit"; break;
             }
         }
@@ -618,7 +627,9 @@ private:
             revision_ = message.at("revision").get<uint64_t>();
             lastCommandSerial_ = std::stoull(commandID.substr(session_.size() + 1));
             if (verb == "unit.train") {
-                accepted = target->train(BWAPI::UnitTypes::Terran_Marine);
+                const auto* requested = worldUnitType(command.value("unit_type", "terran_marine"));
+                accepted = requested && target->canTrain(requested->native)
+                    && target->train(requested->native);
                 if (!accepted) reason = "native_train_rejected";
                 std::cerr << "[world-control] train command=" << commandID
                           << " barracks=" << target->getID() << " accepted=" << accepted
