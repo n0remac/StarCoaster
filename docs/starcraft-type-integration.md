@@ -138,6 +138,16 @@ and recorded death states for both Hydralisks and its Ultralisk. These
 observations come from the locally licensed native engines; extracted art and
 recordings remain outside Git.
 
+Run `python3 tests/test_zerg_structure_assault_live.py` with `RCT2_DATA_DIR`
+and `STARCRAFT_DATA_DIR` set to verify each new unit against the Frontier
+carousel in a separate native session. The test uses the packaged
+park and a short-lived objective-assault scenario. It requires a native actor
+binding, enemy ownership, native carousel HP loss while the original Zergling
+is still walking, confirmed combat demolition, and the resulting objective
+defeat. In the 2026-10-17 local run, Hydralisk hits reduced carousel HP from
+40 to 20 before the Zergling attacked; Ultralisk hits reduced it from 40 to 0.
+The test writes logs and `verification.json` under ignored `run-data/`.
+
 Air movement, transport, siege and morph modes,
 new spells or effect renderers, resource collection, non-Terran construction,
 Zerg larva production, and multi-producer relationships need separate runtime
