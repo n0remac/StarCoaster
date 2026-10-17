@@ -36,9 +36,11 @@ Terran commander in OpenRCT2 and the linked native Terran owner in OpenBW.
 | `scripts/project.sh test` | Passed: Go, C++, 87 Python tests (one skipped), and plugin JavaScript tests. |
 | `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_overlap_live.sh` | Passed: `run-data/barracks-overlap-live-1792195130/verification.json`. OpenRCT2 accepted scenery over a moving Marine, OpenBW rejected revision 2, the plugin removed it, and both participants returned to the original hash `6782e549dd7cb935` with 4254 entities. |
 | `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_save_load_live.sh` | Passed: `run-data/barracks-save-load-live-1792195203/verification.json`. A real `.park` save/load retained ID `openrct2:large_scenery:248:3200:3328:1216:0#1`, 1000 HP, real `Terran_Barracks` type, and mask `ee9230f1842ece7d`; demolition and reconstruction produced `#2`. |
+| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft BARRACKS_TEST_HEALTH=700 tests/test_barracks_save_load_live.sh` | Passed: `run-data/barracks-save-load-live-1792196839/verification.json`. The native Barracks dropped to 700 HP before a real park save. Fresh OpenBW participants restored generation `#1` at 700 HP with the same navigation hash; reconstruction produced `#2` at 1000 HP. |
 | `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft tests/test_barracks_bridge_restart_live.sh` | Passed: `run-data/barracks-bridge-restart-1792195397/verification.json`. Go restarted with the same park session and revision 2; both native participants retained one `openbw:8` Barracks at 1000 HP. |
+| `RCT2_DATA_DIR=/home/pi/games/rct2 STARCRAFT_DATA_DIR=/home/pi/games/starcraft scripts/project.sh test-live-construction` | Passed: the full focused live construction suite, including ordinary scenery/path/terrain changes, occupied Barracks rollback, interrupted patch recovery, and combat/manual demolition. |
 
 The save/load run starts fresh OpenBW processes; the bridge restart run keeps
-both engines alive. Damaged-HP save/load still needs a dedicated live check.
-The verified 1000 HP save/load case establishes identity, native recreation,
-and navigation recovery, rather than restoration of partial damage.
+both engines alive. Restoring partial damage required the adapter to process
+pending native HP updates during initialization; otherwise readiness waited
+indefinitely for a check that ran only after readiness.

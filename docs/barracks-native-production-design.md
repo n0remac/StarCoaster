@@ -94,8 +94,8 @@ A real park save retains the scenery, generation, and last reported native HP.
 Loading starts a fresh OpenBW simulation and reconstructs the building at that
 HP. A same-session Go bridge restart keeps the running OpenBW building and
 queue. A full engine restart does not resume an in-progress training queue;
-OpenBW starts a fresh simulation from the saved park. Damaged-HP save/load
-has not been exercised separately from the verified 1000 HP save/load case.
+OpenBW starts a fresh simulation from the saved park. A real save/load at 700 HP
+passed in `run-data/barracks-save-load-live-1792196839/verification.json`.
 
 The native exit search is bounded to 128 pixels around the Barracks. A site
 with no walkable, unoccupied exit in that range can accept a training order
