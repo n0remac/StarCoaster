@@ -148,6 +148,8 @@ def parse_args(argv=None):
                         help="center both graphical clients on the Barracks construction site")
     parser.add_argument("--barracks-training-probe", action="store_true",
                         help="capture Barracks placement and Marine training through the graphical interface")
+    parser.add_argument("--academy-firebat-probe", action="store_true",
+                        help="capture Academy construction and Firebat training through the graphical interface")
     parser.add_argument("--marine-screen-probe", action="store_true",
                         help="check Marine drag selection across Mt. Zergling rotations and zoom levels")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
@@ -183,6 +185,13 @@ def parse_args(argv=None):
         parser.error("--barracks-training-probe requires at least 45 seconds")
     if args.barracks_training_probe and (args.display_width, args.display_height) != (1280, 800):
         parser.error("--barracks-training-probe requires a 1280x800 display")
+    if args.academy_firebat_probe and (scenario_id != "mt-zergling" or args.video_layout == "single"
+                                       or args.duration < 90 or (args.display_width, args.display_height) != (1280, 800)):
+        parser.error("--academy-firebat-probe requires Mt. Zergling, two 1280x800 clients, and at least 90 seconds")
+    if args.academy_firebat_probe and args.barracks_training_probe:
+        parser.error("Choose one graphical production probe")
+    if args.academy_firebat_probe:
+        args.barracks_production = True
     if args.marine_screen_probe and (scenario_id != "mt-zergling" or args.mt_zergling_playthrough):
         parser.error("--marine-screen-probe requires Mt. Zergling without the playthrough probe")
     if scenario_id != "frontier-outpost" and (args.ridge_probe or args.ridge_assault
@@ -235,6 +244,7 @@ def main():
                               "live_construction": args.live_construction,
                               "mt_zergling_playthrough": args.mt_zergling_playthrough,
                               "barracks_production": args.barracks_production,
+                              "academy_firebat_probe": args.academy_firebat_probe,
                               "navigation_baseline": args.navigation_baseline,
                               "world_256": args.world_256, "cycle_rotations": args.cycle_rotations})
     out = run.output
@@ -281,6 +291,10 @@ def main():
             packaged_command, native_map = prepare_packaged_session(args.plan, out, env)
             run.manifest["capture_config"]["native_map"] = str(native_map)
         for name, display in displays:
+            if shutil.which("xset") and subprocess.run(
+                    ["xset", "-display", display, "q"], stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL).returncode == 0:
+                continue
             start("display-" + name[-1], ["Xvfb", display, "-screen", "0",
                                            f"{args.display_width}x{args.display_height}x24", "-nolisten", "tcp"], env)
         time.sleep(1)
@@ -374,6 +388,9 @@ def main():
                 (data_dir / "plugin" / probe).write_text(
                     "var STARCOASTER_CAPTURE_UI_TRAINING = true;\n"
                     + (ROOT / "scripts" / probe).read_text())
+            if args.academy_firebat_probe:
+                (data_dir / "plugin/firebat-capture-audit.js").write_text(
+                    (ROOT / "scripts/firebat-capture-audit.js").read_text())
             if args.marine_screen_probe and name == "client-a":
                 (data_dir / "plugin/marine-screen-probe.js").write_text(
                     (ROOT / "scripts/marine-screen-probe.js").read_text())
@@ -471,6 +488,86 @@ def main():
             click(1272, 77)  # Close construction catalog
             if recorder:
                 recorder.event("barracks_ui_train", client="client-a")
+        if args.academy_firebat_probe:
+            display_env = env | {"DISPLAY": ":91"}
+
+            def firebat_click(x, y):
+                subprocess.run(["xdotool", "mousemove", str(x), str(y), "click", "1"],
+                               env=display_env, check=True)
+
+            def firebat_shot(stage):
+                for client_name, display in displays:
+                    filename = f"{client_name}-{stage}.png"
+                    subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                   env=env | {"DISPLAY": display}, check=True)
+                    if recorder:
+                        recorder.event("academy_firebat_screenshot", client=client_name,
+                                       stage=stage, filename=filename)
+
+            def firebat_window(classification, after=0):
+                marker = "FIREBAT_CAPTURE_WINDOW type=" + classification
+                pattern = (r"FIREBAT_CAPTURE_WINDOW type=" + re.escape(classification)
+                           + r" x=(\d+) y=(\d+) width=(\d+) height=(\d+)")
+                deadline = time.monotonic() + 8
+                while True:
+                    rows = re.findall(pattern, (out / "client-a.log").read_text(errors="replace"))
+                    if len(rows) > after:
+                        x, y, width, height = map(int, rows[-1])
+                        break
+                    if time.monotonic() >= deadline or clients["client-a"].poll() is not None:
+                        raise RuntimeError("missing new graphical window bounds: " + classification)
+                    time.sleep(0.1)
+                # The captured OpenRCT2 window starts below Xfce's 40-pixel panel.
+                return x, y + 40, width, height
+
+            firebat_click(1076, 52)
+            time.sleep(0.4)
+            menu_x, menu_y, menu_w, _ = firebat_window("starcoaster-construction")
+            firebat_shot("construction-menu")
+            firebat_click(menu_x + 120, menu_y + 48)
+            subprocess.run(["xdotool", "mousemove", "635", "360"], env=display_env, check=True)
+            time.sleep(0.5)
+            firebat_shot("barracks-preview")
+            firebat_click(635, 360)
+            wait_for(out / "server.log", "native target state id=openrct2:large_scenery:248:3200:3328:1216:0#1",
+                     session, 25)
+            wait_for(out / "server.log", '"reason":"requires_building"', session, 10)
+            time.sleep(2)
+            firebat_shot("barracks-built")
+            firebat_click(635, 360)
+            info_x, info_y, info_w, _ = firebat_window("starcoaster-barracks-info")
+            time.sleep(0.5)
+            firebat_shot("firebat-requires-academy")
+            firebat_click(info_x + info_w - 8, info_y + 8)
+            firebat_click(menu_x + 120, menu_y + 77)
+            subprocess.run(["xdotool", "mousemove", "475", "440"], env=display_env, check=True)
+            time.sleep(0.5)
+            firebat_shot("academy-preview")
+            firebat_click(475, 440)
+            wait_for(out / "server.log", "type=Terran_Academy hp=600", session, 25)
+            wait_for(out / "server.log", '"terran_firebat":{"ready":true', session, 15)
+            time.sleep(2)
+            firebat_shot("academy-built")
+            firebat_click(menu_x + menu_w - 8, menu_y + 8)
+            firebat_click(475, 440)
+            academy_x, academy_y, academy_w, _ = firebat_window("starcoaster-building-info")
+            time.sleep(0.5)
+            firebat_shot("academy-inspection")
+            firebat_click(academy_x + academy_w - 8, academy_y + 8)
+            prior_barracks_windows = len(re.findall(
+                r"FIREBAT_CAPTURE_WINDOW type=starcoaster-barracks-info",
+                (out / "client-a.log").read_text(errors="replace")))
+            firebat_click(635, 360)
+            info_x, info_y, _, _ = firebat_window("starcoaster-barracks-info",
+                                                 after=prior_barracks_windows)
+            time.sleep(0.5)
+            firebat_shot("firebat-ready")
+            firebat_click(info_x + 120, info_y + 130 + 26 + 11)
+            wait_for(out / "server.log", "unit_type=terran_firebat gas=225", session, 20)
+            firebat_shot("firebat-training")
+            firebat_click(info_x + 236, info_y + 8)
+            if recorder:
+                recorder.event("academy_firebat_ui_train", client="client-a")
         if args.marine_screen_probe:
             subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+m"],
                            env=env | {"DISPLAY": ":91"}, check=True)
@@ -491,6 +588,7 @@ def main():
         mt_samples = set()
         barracks_samples = set()
         trained_marine_selected = False
+        captured_firebat_actor = False
         marine_screen_seen = 0
         rotation_offsets = {name: len(re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
                               (out / f"{name}.log").read_text(errors="replace")))
@@ -500,6 +598,11 @@ def main():
         while time.monotonic() < until:
             if recorder:
                 recorder.check_alive()
+            if args.academy_firebat_probe and not captured_firebat_actor and \
+                    "FIREBAT_CAPTURE_ACTOR id=" in (out / "client-a.log").read_text(errors="replace"):
+                time.sleep(0.5)
+                firebat_shot("firebat-completed")
+                captured_firebat_actor = True
             if args.marine_screen_probe:
                 samples = re.findall(r"MARINE_SCREEN_PROBE rotation=(\d) zoom=(-?\d+) z=(\d+)"
                                      r" x=(-?\d+) y=(-?\d+) tool=([a-z0-9.-]+)",
@@ -700,6 +803,23 @@ def main():
             }
             detailed["barracks_training_probe"] = {"checks": checks,
                                                    "frame_hashes": animation_hashes}
+            detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
+            detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
+        if args.academy_firebat_probe:
+            checks = {
+                "academy_constructed": "type=Terran_Academy hp=600" in snapshot
+                    and (out / "client-a-academy-built.png").is_file(),
+                "firebat_train_native": bool(re.search(
+                    r"train command=\S+ barracks=\d+ accepted=1.*unit_type=terran_firebat gas=225",
+                    snapshot)) and (out / "client-a-firebat-training.png").is_file(),
+                "firebat_completed": captured_firebat_actor
+                    and "actor binding id=openbw:3001 participant=controller" in snapshot,
+                "two_client_frames": all((out / f"client-{letter}-academy-built.png").is_file()
+                                         and (out / f"client-{letter}-firebat-completed.png").is_file()
+                                         for letter in "ab"),
+            }
+            detailed["academy_firebat_probe"] = {"checks": checks}
             detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
             detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
             (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
