@@ -186,8 +186,8 @@ def parse_args(argv=None):
     if args.barracks_training_probe and (args.display_width, args.display_height) != (1280, 800):
         parser.error("--barracks-training-probe requires a 1280x800 display")
     if args.academy_firebat_probe and (scenario_id != "mt-zergling" or args.video_layout == "single"
-                                       or args.duration < 90 or (args.display_width, args.display_height) != (1280, 800)):
-        parser.error("--academy-firebat-probe requires Mt. Zergling, two 1280x800 clients, and at least 90 seconds")
+                                       or args.duration < 180 or (args.display_width, args.display_height) != (1280, 800)):
+        parser.error("--academy-firebat-probe requires Mt. Zergling, two 1280x800 clients, and at least 180 seconds")
     if args.academy_firebat_probe and args.barracks_training_probe:
         parser.error("Choose one graphical production probe")
     if args.academy_firebat_probe:
@@ -267,6 +267,8 @@ def main():
         env["BRIDGE_DISABLE_ASSAULT_AI"] = "1"
     if args.ridge_assault:
         env["BRIDGE_TEST_ASSAULT_MARINES"] = "1"
+    if args.academy_firebat_probe:
+        env["BRIDGE_TEST_FIREBAT_GAMEPLAY"] = "1"
     displays = (("client-a", ":91"),) if args.video_layout == "single" else (
         ("client-a", ":91"), ("client-b", ":92"))
     processes = []
@@ -390,7 +392,8 @@ def main():
                     + (ROOT / "scripts" / probe).read_text())
             if args.academy_firebat_probe:
                 (data_dir / "plugin/firebat-capture-audit.js").write_text(
-                    (ROOT / "scripts/firebat-capture-audit.js").read_text())
+                    ("var STARCOASTER_FIREBAT_CAPTURE_DRIVER = true;\n" if name == "client-a" else "")
+                    + (ROOT / "scripts/firebat-capture-audit.js").read_text())
             if args.marine_screen_probe and name == "client-a":
                 (data_dir / "plugin/marine-screen-probe.js").write_text(
                     (ROOT / "scripts/marine-screen-probe.js").read_text())
@@ -564,6 +567,7 @@ def main():
             firebat_shot("firebat-ready")
             firebat_click(info_x + 120, info_y + 130 + 26 + 11)
             wait_for(out / "server.log", "unit_type=terran_firebat gas=225", session, 20)
+            time.sleep(1.5)
             firebat_shot("firebat-training")
             firebat_click(info_x + 236, info_y + 8)
             if recorder:
@@ -589,6 +593,12 @@ def main():
         barracks_samples = set()
         trained_marine_selected = False
         captured_firebat_actor = False
+        selected_mixed_firebat = False
+        ordered_mixed_firebat = False
+        captured_firebat_combat = False
+        captured_firebat_death = False
+        firebat_combat_at = 0.0
+        demolished_academy = False
         marine_screen_seen = 0
         rotation_offsets = {name: len(re.findall(r"FRONTIER_CAMERA rotation=([0-3])",
                               (out / f"{name}.log").read_text(errors="replace")))
@@ -603,6 +613,65 @@ def main():
                 time.sleep(0.5)
                 firebat_shot("firebat-completed")
                 captured_firebat_actor = True
+            if args.academy_firebat_probe and captured_firebat_actor and not selected_mixed_firebat:
+                driver_log = (out / "client-a.log").read_text(errors="replace")
+                ready = re.findall(r"FIREBAT_CAPTURE_MIXED_READY ids=([a-z0-9:,]+)"
+                                   r" box=(\d+),(\d+),(\d+),(\d+)", driver_log)
+                if ready:
+                    ids, left, top, right, bottom = ready[-1]
+                    left, top = str(max(255, int(left) - 80)), str(max(80, int(top) - 60))
+                    right, bottom = str(min(1240, int(right) + 80)), str(min(710, int(bottom) + 110))
+                    subprocess.run(["xdotool", "mousemove", left, top, "mousedown", "1",
+                                    "mousemove", "--sync", right, bottom, "mouseup", "1"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    time.sleep(0.5)
+                    firebat_shot("mixed-selected")
+                    selections = re.findall(r"RTS Bridge selected Marines=([^'\r\n]+)",
+                                            (out / "client-a.log").read_text(errors="replace"))
+                    if not selections or not set(ids.split(",")).issubset(set(selections[-1].split(","))):
+                        raise RuntimeError("graphical box selection missed the mixed squad")
+                    selected_mixed_firebat = True
+                    subprocess.run(["xdotool", "mousemove", "870", "525", "click", "3"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    time.sleep(0.8)
+                    firebat_shot("mixed-moving")
+                    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+f"],
+                                   env=env | {"DISPLAY": ":91"}, check=True)
+                    firebat_click(50, 245)  # Player-facing extra Zergling wave.
+                    if recorder:
+                        recorder.event("academy_firebat_manual_wave", client="client-a")
+                    ordered_mixed_firebat = True
+            if args.academy_firebat_probe and ordered_mixed_firebat and not captured_firebat_combat \
+                    and re.search(r"openbw:3001,\d+,\d+,\d+,attack,",
+                                  (out / "client-a.log").read_text(errors="replace")):
+                firebat_shot("firebat-combat")
+                time.sleep(0.6)
+                firebat_shot("firebat-combat-later")
+                subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+r"],
+                               env=env | {"DISPLAY": ":91"}, check=True)
+                wait_for(out / "client-a.log", "FIREBAT_CAPTURE_MARINE_RETREAT accepted=true",
+                         clients["client-a"], 10)
+                captured_firebat_combat = True
+                firebat_combat_at = time.monotonic()
+            if args.academy_firebat_probe and captured_firebat_combat and not captured_firebat_death \
+                    and re.search(r"openbw:3001,\d+,\d+,\d+,death,",
+                                  (out / "client-a.log").read_text(errors="replace")):
+                firebat_shot("firebat-death")
+                captured_firebat_death = True
+            if args.academy_firebat_probe and captured_firebat_combat and not demolished_academy \
+                    and (captured_firebat_death or time.monotonic() - firebat_combat_at > 120):
+                subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+d"],
+                               env=env | {"DISPLAY": ":91"}, check=True)
+                wait_for(out / "client-a.log", "FIREBAT_CAPTURE_DEMOLISH accepted=true",
+                         clients["client-a"], 10)
+                wait_for(out / "server.log",
+                         ":patch:3 revision=", session, 45)
+                time.sleep(0.6)
+                firebat_shot("academy-demolished")
+                firebat_click(635, 360)
+                time.sleep(1.5)
+                firebat_shot("firebat-requires-academy-again")
+                demolished_academy = True
             if args.marine_screen_probe:
                 samples = re.findall(r"MARINE_SCREEN_PROBE rotation=(\d) zoom=(-?\d+) z=(\d+)"
                                      r" x=(-?\d+) y=(-?\d+) tool=([a-z0-9.-]+)",
@@ -807,6 +876,8 @@ def main():
             detailed["status"] = "passed" if detailed["capture_complete"] else "incomplete"
             (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
         if args.academy_firebat_probe:
+            after_academy_removal = snapshot.split(":patch:3 revision=", 1)[-1] \
+                if ":patch:3 revision=" in snapshot else ""
             checks = {
                 "academy_constructed": "type=Terran_Academy hp=600" in snapshot
                     and (out / "client-a-academy-built.png").is_file(),
@@ -818,6 +889,21 @@ def main():
                 "two_client_frames": all((out / f"client-{letter}-academy-built.png").is_file()
                                          and (out / f"client-{letter}-firebat-completed.png").is_file()
                                          for letter in "ab"),
+                "mixed_viewport_selection": selected_mixed_firebat
+                    and (out / "client-a-mixed-selected.png").is_file(),
+                "mixed_move_and_attack_move": ordered_mixed_firebat
+                    and "FIREBAT_CAPTURE_ATTACK_MOVE accepted=true" in client_logs[0]
+                    and "FIREBAT_CAPTURE_MARINE_RETREAT accepted=true" in client_logs[0]
+                    and (out / "client-a-mixed-moving.png").is_file(),
+                "graphical_firebat_combat": captured_firebat_combat
+                    and all((out / f"client-{letter}-firebat-combat.png").is_file()
+                            for letter in "ab"),
+                "graphical_firebat_death": captured_firebat_death
+                    and all((out / f"client-{letter}-firebat-death.png").is_file()
+                            for letter in "ab"),
+                "academy_demolition_relocks_firebat": demolished_academy
+                    and '"reason":"requires_building"' in after_academy_removal
+                    and (out / "client-a-firebat-requires-academy-again.png").is_file(),
             }
             detailed["academy_firebat_probe"] = {"checks": checks}
             detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
