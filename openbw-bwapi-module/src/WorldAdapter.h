@@ -219,7 +219,16 @@ public:
         for (auto& [id,target] : targets_) {
             const auto type = target.unit && target.unit->exists() ? target.unit->getType()
                 : BWAPI::UnitTypes::None;
-            const char* testHealth = type == BWAPI::UnitTypes::Terran_Barracks
+            const char* testHealth = nullptr;
+            if (const char* requested = std::getenv("BRIDGE_TEST_BUILDING_HP")) {
+                if (const auto* building = worldBuildingType(type)) {
+                    const std::string prefix = std::string(building->id) + "=";
+                    if (std::strncmp(requested, prefix.c_str(), prefix.size()) == 0)
+                        testHealth = requested + prefix.size();
+                }
+            }
+            // Keep the original focused test fixtures working during migration.
+            if (!testHealth) testHealth = type == BWAPI::UnitTypes::Terran_Barracks
                 ? std::getenv("BRIDGE_TEST_BARRACKS_HP")
                 : type == BWAPI::UnitTypes::Terran_Academy
                     ? std::getenv("BRIDGE_TEST_ACADEMY_HP") : nullptr;

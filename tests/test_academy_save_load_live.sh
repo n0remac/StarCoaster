@@ -7,7 +7,7 @@ cd "$project_dir"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
 building_kind="${STARCOASTER_BUILDING_TYPE:-academy}"
 case "$building_kind" in academy) native_type=Terran_Academy; expected_max=600; expected_hp="${ACADEMY_TEST_HEALTH:-372}" ;;
-                          armory) native_type=Terran_Armory; expected_max=750; expected_hp=750 ;;
+                          armory) native_type=Terran_Armory; expected_max=750; expected_hp="${ARMORY_TEST_HEALTH:-427}" ;;
                           *) printf 'Unsupported building save/load probe: %s\n' "$building_kind" >&2; exit 2 ;;
 esac
 marker="${building_kind^^}"
@@ -52,6 +52,7 @@ wait_for() {
 }
 BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/mt-zergling/mapping.json" \
   BRIDGE_TEST_ACADEMY_HP="${ACADEMY_TEST_HEALTH:-372}" \
+  BRIDGE_TEST_BUILDING_HP="terran_armory=${ARMORY_TEST_HEALTH:-427}" \
   BRIDGE_DISABLE_ASSAULT_AI=1 BRIDGE_LAUNCH_CLIENT=0 \
   BRIDGE_SERVER_DATA_DIR="$run_dir/server" \
   timeout 115s scripts/run-world-session.sh "$park_file" > "$run_dir/build.log" 2>&1 &
