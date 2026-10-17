@@ -14,8 +14,18 @@ for all four park rotations. The launcher refreshes both the staged object and
 each local OpenRCT2 user object's copy before loading a park. This lets older
 saves keep their Barracks ID, health, and geometry while using the new art.
 
-The Barracks uses one static source frame. Classic idle animation, shadow,
-damage overlays, and team-colour remapping are not yet rendered.
+The object keeps classic frame 0 in its original idle image bank. Seven more
+banks contain completed-building GRP frames 2–8; frame 1 depicts the unfinished
+structure and is excluded. All frames share one crop and tile alignment. The
+OpenRCT2 plugin sends a display-only tile set to the native renderer when the
+authoritative OpenBW `building.state` queue is nonempty. The renderer cycles
+those seven banks at eight frames per second and returns to frame 0 when the
+queue empties, the native building dies, or the park target is removed. Each
+client may display a different animation phase. Training, health, and
+demolition remain authoritative in OpenBW and the synchronized park world.
+
+Classic shadows, damage overlays, and team-colour remapping are not yet
+rendered. No animation images are committed.
 
 ## Verification
 
@@ -40,3 +50,24 @@ damage overlays, and team-colour remapping are not yet rendered.
 - `run-data/generated-assets/starcraft/barracks/rotation-0.png` through
   `rotation-3.png` show the new art in all four OpenRCT2 park rotations when
   rendering an older Barracks save with the refreshed local object installed.
+
+### Training animation
+
+- `scripts/project.sh test` passed after adding the animation banks and native
+  bridge binding. The Barracks plugin test checks training, completion, and
+  target removal; the object test checks all 388 image entries and the 12-tile
+  footprint.
+- `tests/test_barracks_production_live.sh` passed in
+  `run-data/barracks-production-live-1792205081/verification.json`: one genuine
+  Marine completed training and accepted a movement order. The cancellation
+  variant passed in `run-data/barracks-production-live-1792205306/verification.json`.
+- `scripts/project.sh record --scenario mt-zergling --duration 50
+  --video-layout combined --barracks-production --barracks-training-probe`
+  passed in `run-data/artifacts/20261017T024533Z-a5287501a5a3/` with a
+  combined video, timed screenshots from both clients, and 435 matching shared
+  world snapshots. The building crop changes during training on both clients
+  and returns to the same idle image in later samples.
+- The final automated graphical check used the same command with `--duration 45
+  --no-video`. Its `run-data/artifacts/20261017T024931Z-7db9ab1fa81b/verification.json`
+  reports construction, native training, Marine completion and movement,
+  multiple Barracks frames on both clients, and 397 matching shared snapshots.

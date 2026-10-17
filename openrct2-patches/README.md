@@ -9,6 +9,11 @@ object is generated locally from the player's classic StarCraft MPQs by
 `scripts/install-starcraft-construction-object.py`; see
 `docs/barracks-starcraft-art.md`. No extracted art is in the patch.
 
+`0006-barracks-training-animation.patch` adds a display-only building tile
+registry and selects the generated Barracks GRP frame bank while OpenBW reports
+an active training queue. The plugin updates it through `setBuildingAnimations`;
+the ordinary large-scenery images and saved object ID remain stable.
+
 The fork paints Marine and Zergling actors in the world paint pass, including walking, attacks, deaths, and health bars. An immutable snapshot registry preserves safe access during rendering; old and new regions are invalidated for movement. The fork exposes snapshot, hit testing, cursor location, and actor inspection bindings to the plugin. It also adds `onRightClick` to the existing custom map tool, since OpenRCT2 intentionally does not route right mouse clicks through shortcuts. The plugin distributes state through synchronized game actions and sends player orders to the Terran BWAPI endpoint.
 
 Marine selection uses `ui.registerViewportInteraction`, a passive handler for the
@@ -23,4 +28,4 @@ search for unit selection. Alt bypasses unit input for overlapping park entities
 `0001-native-bridge.patch` includes the same changes for clean checkouts. The
 patch reconciler verifies the final native code and preserves unrelated local edits.
 
-The native compatibility version is 4 and the asset version is 3. Older bridge clients are rejected by the plugin. `BRIDGE_SPRITE_SOURCE=starcraft-local` installs local StarCraft unit art; `alien-scout` uses original open unit art and a CC0 Marine placeholder. Barracks scenery art is generated locally from the player's StarCraft data in either mode.
+The native compatibility version is 5 and the asset version is 3. Older bridge clients are rejected by the plugin. `BRIDGE_SPRITE_SOURCE=starcraft-local` installs local StarCraft unit art; `alien-scout` uses original open unit art and a CC0 Marine placeholder. Barracks scenery art is generated locally from the player's StarCraft data in either mode.
