@@ -119,17 +119,24 @@ OpenRCT2 because no generic projectile effect renderer exists.
 
 For a two-client mixed-combat visual audit, run
 `scripts/project.sh record --scenario frontier-outpost --duration 110 --video-layout combined --mixed-zerg-camera`.
+Add `--mixed-zerg-heavy-defense` for a second capture with enough test-only
+Marines to show Hydralisk and Ultralisk death animations. The lighter capture
+isolates native Hydralisk ranged and Ultralisk melee HP loss; the heavier
+capture requires both new death states.
+
 The option creates an ignored test-only park-defense fixture on Frontier's
 existing park, with a short first-wave delay and two camera angles. It leaves
 the packaged Frontier timing and mission rules intact. Inspect the resulting
 `combined.mp4`, screenshots, logs, and `verification.json` under
 `run-data/artifacts/`. The mixed verifier requires matching snapshots, all
-three kinds together, attack and death states, Marine and enemy HP loss, and
-native 10-HP Hydralisk ranged and 20-HP Ultralisk melee damage samples. The
-2026-10-17 capture had 265 matching two-client sequences with no mismatches;
-its damage samples were at snapshot sequences 200 and 229. Those observations
-come from the locally licensed native engines; extracted art and recordings
-remain outside Git.
+three kinds together, attack and death states, and Marine and enemy HP loss.
+The lighter fixture also requires isolated native 10-HP Hydralisk ranged and
+20-HP Ultralisk melee damage samples. Its 2026-10-17 capture had 265 matching
+two-client sequences with no mismatches; the damage samples were at sequences
+200 and 229. The heavier capture had 584 matching sequences with no mismatches
+and recorded death states for both Hydralisks and its Ultralisk. These
+observations come from the locally licensed native engines; extracted art and
+recordings remain outside Git.
 
 Air movement, transport, siege and morph modes,
 new spells or effect renderers, resource collection, non-Terran construction,
