@@ -10,6 +10,7 @@ registerPlugin({ name: "Native production HUD capture", version: "1.0.0",
         ["Armory", 122, 100, 3, 2]
     ];
     let focus = 0, ticks = 0, attempts = 0, request = 8000, observedEgg = false, ready = false;
+    let demolitionAccepted = false, demolitionClosed = false;
     if (typeof STARCOASTER_HUD_DRIVER !== "undefined" && STARCOASTER_HUD_DRIVER) {
         ui.registerShortcut({ id: "starcoaster.hud-gallery", text: "Next native building HUD",
             bindings: ["CTRL+SHIFT+H"], callback: function () {
@@ -17,6 +18,26 @@ registerPlugin({ name: "Native production HUD capture", version: "1.0.0",
                 focus = (focus + 1) % buildings.length;
                 centre();
                 console.log("NATIVE_HUD_FOCUS building=" + buildings[focus][0]);
+            } });
+        ui.registerShortcut({ id: "starcoaster.hud-demolish", text: "Demolish selected test Armory",
+            bindings: ["CTRL+SHIFT+D"], callback: function () {
+                if (buildings[focus][0] !== "Armory" || !ui.getWindow("starcoaster-building-info")) {
+                    console.log("NATIVE_HUD_DEMOLISH_ERROR armory_inspector_required"); return;
+                }
+                const tile = map.getTile(122, 100);
+                let scenery = null;
+                for (let index = 0; index < tile.numElements; ++index) {
+                    const element = tile.getElement(index);
+                    if (element.type === "large_scenery") { scenery = element; break; }
+                }
+                if (!scenery) { console.log("NATIVE_HUD_DEMOLISH_ERROR armory_missing"); return; }
+                context.executeAction("largesceneryremove", { x: 122 * 32, y: 100 * 32,
+                    z: scenery.baseZ === undefined ? scenery.baseHeight * 8 : scenery.baseZ,
+                    direction: scenery.rotation || 0, tileIndex: 0 }, function (result) {
+                    demolitionAccepted = !result.error;
+                    console.log("NATIVE_HUD_DEMOLISH accepted=" + demolitionAccepted
+                        + " reason=" + (result.errorMessage || "ok"));
+                });
             } });
     }
     function centre() {
@@ -42,6 +63,10 @@ registerPlugin({ name: "Native production HUD capture", version: "1.0.0",
         }
         if (++ticks % 20 === 1) centre();
         if (typeof STARCOASTER_HUD_DRIVER === "undefined" || !STARCOASTER_HUD_DRIVER) return;
+        if (demolitionAccepted && !demolitionClosed && !ui.getWindow("starcoaster-building-info")) {
+            demolitionClosed = true;
+            console.log("NATIVE_HUD_TARGET_CLOSED building=Armory");
+        }
         if (snapshot.units.some(function (unit) { return unit.kind === "zerg_egg" && unit.hp > 0; })) {
             if (!observedEgg) console.log("NATIVE_HUD_EGG_VISIBLE");
             observedEgg = true;

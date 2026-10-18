@@ -621,6 +621,20 @@ def main():
                     if recorder:
                         recorder.event("building_hud_training_accepted", client="client-a",
                                        building=label, filename="building-hud-gallery/" + accepted)
+            before = "armory-demolition-before.png"
+            subprocess.run(["scrot", "-z", "-o", str(gallery / before)],
+                           env=display_env, check=True)
+            subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+d"],
+                           env=display_env, check=True)
+            wait_for(out / "client-a.log", "NATIVE_HUD_DEMOLISH accepted=true", session, 15)
+            wait_for(out / "client-a.log", "NATIVE_HUD_TARGET_CLOSED building=Armory", session, 45)
+            after = "armory-demolition-after.png"
+            subprocess.run(["scrot", "-z", "-o", str(gallery / after)],
+                           env=display_env, check=True)
+            if recorder:
+                recorder.event("building_hud_demolition", client="client-a", building="Armory",
+                               before="building-hud-gallery/" + before,
+                               after="building-hud-gallery/" + after)
             subprocess.run(["xdotool", "mousemove", "1272", "77", "click", "1"],
                            env=display_env, check=True)
             subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+h"],
@@ -634,7 +648,9 @@ def main():
                 + "\n- [Barracks training](barracks-training.png)"
                 + "\n- [Barracks accepted](barracks-training-accepted.png)"
                 + "\n- [Factory training](factory-training.png)"
-                + "\n- [Factory accepted](factory-training-accepted.png)\n")
+                + "\n- [Factory accepted](factory-training-accepted.png)"
+                + "\n- [Armory before demolition](armory-demolition-before.png)"
+                + "\n- [Armory after demolition](armory-demolition-after.png)\n")
         if args.barracks_training_probe:
             display_env = env | {"DISPLAY": ":91"}
 

@@ -58,6 +58,13 @@ def main(out):
             return len(set(image.convert("RGB").crop((x, y, x + 38, y + 27)).getdata()))
     icon_slots = {"hatchery": (0,), "barracks": (0, 1, 2), "factory": (0, 1)}
     passive = ("spawning-pool", "academy", "supply-depot", "armory")
+    demolition_before = gallery / "armory-demolition-before.png"
+    demolition_after = gallery / "armory-demolition-after.png"
+    demolition_visual = False
+    if demolition_before.is_file() and demolition_after.is_file():
+        with Image.open(demolition_before) as before, Image.open(demolition_after) as after:
+            area = (835, 70, 1280, 370)
+            demolition_visual = before.crop(area).tobytes() != after.crop(area).tobytes()
     checks = {
         "seven_building_gallery": len(images) == len(LABELS),
         "original_command_icons_visible": len(images) == len(LABELS) and all(
@@ -90,6 +97,9 @@ def main(out):
             - set(range(1000, 1005))),
         "both_clients_saw_trained_vulture": bool(
             terran[0]["terran_vulture"] & terran[1]["terran_vulture"]),
+        "demolition_closes_inspector": demolition_visual
+            and "NATIVE_HUD_DEMOLISH accepted=true" in client[0]
+            and "NATIVE_HUD_TARGET_CLOSED building=Armory" in client[0],
     }
     report["native_production_hud"] = {
         "checks": checks, "gallery": [f"building-hud-gallery/{label}.png" for label in images],
