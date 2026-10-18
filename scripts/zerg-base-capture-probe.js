@@ -115,7 +115,7 @@ registerPlugin({ name: "Zerg base capture probe", version: "1.0.0", authors: ["S
                     }
                 });
             }
-            if (!spawnRequested && seconds >= (lifecycle ? 5 : 55)) {
+            if (!spawnRequested && seconds >= (lifecycle ? 5 : 15)) {
                 spawnRequested = true;
                 context.executeAction("rtsbridge.spawnMarine", { session: snapshot.session,
                     request_id: snapshot.session + ":zerg-base:marines", count: 5,
@@ -133,7 +133,7 @@ registerPlugin({ name: "Zerg base capture probe", version: "1.0.0", authors: ["S
                 console.log("ZERG_BASE_MARINES count=" + marines.length + " x=" + marines[0].x);
                 command(snapshot, marines, "move", { x: 17 * 32, y: 38 * 32 }, "approach_base");
             }
-            if (!moved || seconds < (lifecycle ? 11 : 61) || marines.length < 1) return;
+            if (!moved || seconds < (lifecycle ? 11 : 50) || marines.length < 1) return;
             const target = present(structures[0]) ? structures[0]
                 : !lifecycle && present(structures[1]) ? structures[1] : null;
             if (!target || Date.now() - lastAttack < 8000) return;
