@@ -88,3 +88,5 @@ The [world geometry milestone](docs/world-geometry-milestone.md) documents 256×
 - `bridge-protocol/`: wire schemas; `docs/archive/`: historical specifications and experiments.
 
 The [world bridge guide](docs/world-bridge.md) and [licensing inventory](docs/licensing.md) cover design details and remaining limits. Earlier demonstrations are in [the archive](docs/archive/README.md). Original CC0 placeholder art is tracked; proprietary game files, extracted sprites, and locally built asset packs are never committed.
+
+The experimental [browser client workflow](docs/wasm-browser.md) provides a patched OpenRCT2 Emscripten build path and private, versioned bundle staging for Pi hosting. `scripts/project.sh build-wasm`, `test-wasm`, `deploy-wasm`, and `serve-wasm` are the dedicated commands. The Pi has no successful WASM build yet; browser multiplayer and mixed-client gameplay still require live verification.

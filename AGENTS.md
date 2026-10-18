@@ -11,6 +11,7 @@ OpenRCT2 owns the park, scenery, rides, multiplayer state, and rendering. OpenBW
 - `openbw-bwapi-module/`: native actors, navigation, and combat bridge.
 - `cmd/world-bridge/`, `internal/world/`: transport, world model, spawn queue, and scenario runtime.
 - `scripts/`: consolidated CLI, build, park, launcher, and capture implementations; `tests/`: regressions.
+- `browser/`, `cmd/wasm-server/`: browser launcher, private static hosting, and fixed OpenRCT2 WebSocket gateway. The WASM client uses the same patched pinned OpenRCT2 source.
 - `bridge-protocol/entities/`: authoritative one-file StarCraft unit and building declarations. `bridge-protocol/starcraft-types.json`, `bridge-protocol/starcraft-visuals.json`, and generated Go/C++/JavaScript/protocol registries are derived; never edit them manually. `bridge-protocol/` also holds versioned wire contracts; `docs/archive/` holds historical reports. `upstream/`, `build/`, and `run-data/` hold local inputs or generated outputs.
 
 ## Canonical workflow
@@ -27,9 +28,15 @@ scripts/project.sh test                              # offline regressions
 scripts/project.sh test-live                         # licensed native regressions
 scripts/project.sh test-live-construction            # focused live construction regressions
 scripts/project.sh record --scenario example-defense --duration 85
+scripts/project.sh build-wasm                       # patched graphical WASM client
+scripts/project.sh test-wasm                        # gateway and bundle checks
+scripts/project.sh deploy-wasm                      # private versioned bundle staging
+scripts/project.sh serve-wasm                       # local browser server
 ```
 
 `start`, `park`, and `record` default to `frontier-outpost`; `play` requires an ID. `play` regenerates stale park data and the native map. The CLI resolves packages through `scripts/scenario_package.py` and launches gameplay through `scripts/run-world-session.sh`. Use `scripts/project.sh --help` and subcommand help for current options. Live commands require built engines and locally licensed RCT2 and StarCraft data.
+
+The browser workflow and its verification limits are in `docs/wasm-browser.md`. Keep browser resources private, require local RCT2 import, and preserve the native OpenRCT2 multiplayer protocol and remote plugin path. A WASM build or offline park render does not complete browser gameplay verification; confirm a browser order executes in OpenBW and both client types display the same result.
 
 Use player-facing scenario configuration and the normal `start`/`play` path for features. Keep fault hooks, spawn probes, and diagnostic scripts in tests and verification workflows; do not surface them as player controls. Preserve park footprints, spawn tiles, chokepoints, collision masks, and native routes when changing geometry.
 
