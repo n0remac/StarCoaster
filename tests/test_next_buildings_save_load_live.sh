@@ -66,7 +66,7 @@ for building in terran_supply_depot terran_factory; do
     BRIDGE_SERVER_DATA_DIR="$stage/reload-server" \
     timeout 110s scripts/run-world-session.sh "$saved" > "$stage/reload.log" 2>&1 &
   session_pid=$!
-  wait_for 'WORLD_READY.*targets=3' "$stage/reload.log" 80
+  wait_for 'WORLD_READY.*targets=5' "$stage/reload.log" 80
   python3 - "$stage" "$building" "$native" "$hp" <<'PY'
 import json, re, sys
 from pathlib import Path
@@ -81,7 +81,7 @@ checks = {
     'confirmed_revision': 'WORLD_PATCH_SYNC revision=2' in build,
     'saved_real_park': (stage/'server/save/next-building-recovery.park').stat().st_size > 0,
     'identity_and_native_hp_restored': len(before)==1 and len(after)==1 and before[0]==after[0],
-    'two_native_participants_ready': bool(re.search(r'WORLD_READY entities=\d+ targets=3', reload)),
+    'two_native_participants_ready': bool(re.search(r'WORLD_READY entities=\d+ targets=5', reload)),
     'no_duplicate_native_building': len(after)==1,
 }
 (stage/'verification.json').write_text(json.dumps({'checks':checks,'before':before,'after':after},indent=2)+'\n')

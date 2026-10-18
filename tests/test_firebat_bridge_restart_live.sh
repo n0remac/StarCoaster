@@ -49,12 +49,17 @@ wait_for 'train command=.*accepted=1.*unit_type=terran_firebat gas=225' "$run_di
 old_pid="$(ps -eo pid,args | awk -v binary="$project_dir/build/world-bridge" '$2 == binary { print $1; exit }')"
 test -n "$old_pid"
 kill "$old_pid"
+started=$SECONDS
+while [[ -n "$(ss -ltnH 'sport = :40010')" ]]; do
+  if (( SECONDS - started >= 10 )); then echo 'Old bridge did not release port 40010' >&2; exit 1; fi
+  sleep 0.1
+done
 build/world-bridge --scenario "$project_dir/scenarios/mt-zergling/scenario.json" \
   --rules "$project_dir/scenarios/mt-zergling/mapping.json" \
   --spawn-journal "$run_dir/spawn-queue.json" > "$run_dir/restart.log" 2>&1 &
 bridge_pid=$!
 wait_for 'park snapshot session=' "$run_dir/restart.log" 55
-wait_for 'OpenBW ready targets=4' "$run_dir/restart.log" 55
+wait_for 'OpenBW ready targets=6' "$run_dir/restart.log" 55
 wait_for 'FIREBAT_PROBE_AFTER_REMOVE' "$run_dir/client.log" 100
 sleep 2
 python3 - "$run_dir" <<'PY'
@@ -74,7 +79,7 @@ checks = {
     'same_session_reconciled': bool(first_session and next_session)
         and first_session.group(1) == next_session.group(1),
     'native_academy_retained': 'type=Terran_Academy hp=600' in first
-        and 'OpenBW ready targets=4' in restart,
+        and 'OpenBW ready targets=6' in restart,
     'first_firebat_completed_after_restart': 'FIREBAT_PROBE_SECOND accepted=true' in client
         and 'actor binding id=openbw:3001' in first+restart,
     'resources_and_second_firebat_retained': ('1', '450', '225') in trains

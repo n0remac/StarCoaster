@@ -586,7 +586,7 @@ def main():
             screenshot("barracks-placement-preview.png")
             click(635, 360)
             wait_for(out / "server.log",
-                     "native target state id=openrct2:large_scenery:248:3200:3328:1216:0#1",
+                     "type=Terran_Barracks hp=1000",
                      session, 20)
             # Building state follows the confirmed park revision on the next
             # bridge report; the inspection button remains disabled until then.
@@ -643,7 +643,7 @@ def main():
             time.sleep(0.5)
             firebat_shot("barracks-preview")
             firebat_click(635, 360)
-            wait_for(out / "server.log", "native target state id=openrct2:large_scenery:248:3200:3328:1216:0#1",
+            wait_for(out / "server.log", "type=Terran_Barracks hp=1000",
                      session, 25)
             wait_for(out / "server.log", '"reason":"requires_building"', session, 10)
             time.sleep(2)
@@ -1047,7 +1047,7 @@ def main():
                         frames.append(hashlib.sha256(pixels).hexdigest()[:12])
                 animation_hashes[name] = frames
             checks = {
-                "park_barracks_built": "openrct2:large_scenery:248:3200:3328:1216:0#1" in snapshot
+                "park_barracks_built": bool(re.search(r"openrct2:large_scenery:\d+:3200:3328:1216:0#1", snapshot))
                     and all((out / name).is_file() for name in ("barracks-construction-menu.png",
                              "barracks-placement-preview.png", "barracks-placed.png")),
                 "native_train_accepted": "[world-control] train command=" in snapshot

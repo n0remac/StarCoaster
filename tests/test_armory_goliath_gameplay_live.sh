@@ -72,6 +72,8 @@ trains = re.findall(r'\[world-control\] train command=\S+ barracks=\d+ accepted=
 availability = [json.loads(row)['terran_goliath'] for row in re.findall(
     r'\[world-control\] production id=.*? availability=(\{.*\}) minerals=', server)
     if 'terran_goliath' in json.loads(row)]
+armory = re.search(r'\[world\] target id=(openrct2:large_scenery:\d+:\S+) '
+                   r'proxy=\d+ type=Terran_Armory', server)
 checks = {
     'factory_armory_and_supply_placed': all(f'GOLIATH_PROBE_PLACE type={kind} accepted=true' in client
         for kind in ('terran_factory', 'terran_armory', 'terran_supply_depot')),
@@ -97,8 +99,9 @@ checks = {
     'armory_retired': (
         ('GOLIATH_PROBE_ARMORY_COMBAT_REMOVED' in client
          and (commands.get('armory_attack') in (None, 'true'))
-         and bool(re.search(r'native target state id=openrct2:large_scenery:252:[^\s]+ proxy=openbw:\d+ hp=0', server))
-         and 'combat demolition synchronized id=openrct2:large_scenery:252:' in server)
+         and bool(armory and re.search(r'native target state id=' + re.escape(armory[1])
+                                       + r' proxy=openbw:\d+ hp=0', server))
+         and bool(armory and 'combat demolition synchronized id=' + armory[1] in server))
         if combat_armory else
         ('GOLIATH_PROBE_REMOVE accepted=true' in client and 'target retired id=' in server)),
     'prerequisite_relocked': 'after_armory_removal' in commands

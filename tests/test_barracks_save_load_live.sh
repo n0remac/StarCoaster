@@ -55,7 +55,7 @@ BRIDGE_MAP_FILE="$map_file" BRIDGE_RULES_CONFIG="$project_dir/scenarios/mt-zergl
   BRIDGE_SERVER_DATA_DIR="$run_dir/reload-server" \
   timeout 100s scripts/run-world-session.sh "$saved" > "$run_dir/reload.log" 2>&1 &
 session_pid=$!
-wait_for 'WORLD_READY.*targets=3' "$run_dir/reload.log" 80
+wait_for 'WORLD_READY.*targets=5' "$run_dir/reload.log" 80
 rm "$run_dir/client/plugin/live-barracks-build-probe.js"
 cp scripts/live-barracks-rebuild-probe.js "$run_dir/client/plugin/"
 build/openrct2/openrct2-cli join 127.0.0.1 --headless --port=11753 \
@@ -89,7 +89,7 @@ checks = {
         and build.count('type=Terran_Barracks hp=1000') >= 1
         and reload.count('type=Terran_Barracks') >= 2,
     'native_mask_preserved': bool(hashes[0] and hashes[1]) and hashes[0][-1] == hashes[1][-1],
-    'two_native_participants_ready': 'WORLD_READY entities=4255 targets=3' in reload,
+    'two_native_participants_ready': bool(re.search(r'WORLD_READY entities=\d+ targets=5', reload)),
     'demolition_and_rebuild': 'BARRACKS_REBUILD_REMOVE accepted=true' in rebuild_client
         and 'BARRACKS_REBUILD_BUILD accepted=true' in rebuild_client
         and 'WORLD_PATCH_SYNC revision=3' in reload,

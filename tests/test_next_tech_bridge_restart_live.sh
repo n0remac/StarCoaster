@@ -56,11 +56,16 @@ old_count="$(grep -c 'NEXT_RECONNECT_STATE' "$run_dir/client.log")"
 old_pid="$(ps -eo pid,args | awk -v binary="$project_dir/build/world-bridge" '$2 == binary { print $1; exit }')"
 test -n "$old_pid"
 kill "$old_pid"
+started=$SECONDS
+while [[ -n "$(ss -ltnH 'sport = :40010')" ]]; do
+  if (( SECONDS - started >= 10 )); then echo 'Old bridge did not release port 40010' >&2; exit 1; fi
+  sleep 0.1
+done
 build/world-bridge --scenario "$project_dir/scenarios/mt-zergling/scenario.json" \
   --rules "$project_dir/scenarios/mt-zergling/mapping.json" \
   --spawn-journal "$run_dir/spawn-queue.json" > "$run_dir/restart.log" 2>&1 &
 bridge_pid=$!
-wait_for 'OpenBW ready targets=6' "$run_dir/restart.log" 60
+wait_for 'OpenBW ready targets=8' "$run_dir/restart.log" 60
 started=$SECONDS
 while (( $(grep -c 'NEXT_RECONNECT_STATE' "$run_dir/client.log") <= old_count )); do
   if (( SECONDS - started > 35 )); then
@@ -100,7 +105,7 @@ checks={
     'same_resources_and_actors': bool(old and new) and old[-1]==new[-1]
         and old[-1][1:4]==('375','225','16/32')
         and 'terran_medic' in old[-1][4] and 'terran_vulture' in old[-1][4],
-    'two_native_participants_reconnected': 'OpenBW ready targets=6' in restart,
+    'two_native_participants_reconnected': 'OpenBW ready targets=8' in restart,
     'medic_and_vulture_rebound': len(retained_actor_ids)==2 and all(
         'actor binding id='+actor+' participant='+role in restart
         for actor in retained_actor_ids for role in ('publisher','controller')),

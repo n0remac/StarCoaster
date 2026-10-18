@@ -66,7 +66,7 @@ if sys.argv[2] == '1':
     'native_train_started': bool(re.search(r'\[world-control\] train command=\S+ barracks=\d+ accepted=1 queue=1', server)),
     'park_demolition': 'BARRACKS_CANCEL_REMOVE accepted=true' in client and 'WORLD_PATCH_SYNC revision=3' in server,
     'no_completed_marine': 'actor-spawn id=openbw:3001' not in server,
-    'native_target_removed': 'target retired id=openrct2:large_scenery:248:3200:3328:1216:0#1' in server,
+    'native_target_removed': bool(re.search(r'target retired id=openrct2:large_scenery:\d+:3200:3328:1216:0#1', server)),
   })
 else:
   checks.update({

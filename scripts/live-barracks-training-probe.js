@@ -3,7 +3,11 @@ registerPlugin({ name: "Barracks training probe", version: "1.0.0", authors: ["S
     type: "local", licence: "MIT", targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         if (network.mode !== "client") return;
-        const building = "openrct2:large_scenery:248:3200:3328:1216:0#1";
+        const barracks = objectManager.getAllObjects("large_scenery").find(function (item) {
+            return item.identifier === "starcoaster.scenery_large.terran_barracks";
+        });
+        if (!barracks) throw new Error("Barracks scenery object is unavailable");
+        const building = "openrct2:large_scenery:" + barracks.index + ":3200:3328:1216:0#1";
         let started = 0, requested = false, duplicateRequested = false, lastAttempt = 0, moved = false;
         const captureUITraining = typeof STARCOASTER_CAPTURE_UI_TRAINING !== "undefined"
             && STARCOASTER_CAPTURE_UI_TRAINING;

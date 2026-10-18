@@ -6,8 +6,8 @@ cd "$project_dir"
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR}"
 building_kind="${STARCOASTER_BUILDING_TYPE:-academy}"
-case "$building_kind" in academy) object_index=249; expected_hp=372 ;;
-                          armory) object_index=252; expected_hp="${ARMORY_TEST_HEALTH:-427}" ;;
+case "$building_kind" in academy) expected_hp=372 ;;
+                          armory) expected_hp="${ARMORY_TEST_HEALTH:-427}" ;;
                           *) printf 'Unsupported building bridge restart probe: %s\n' "$building_kind" >&2; exit 2 ;;
 esac
 marker="${building_kind^^}"
@@ -60,18 +60,23 @@ wait_for 'WORLD_PATCH_SYNC revision=2' "$run_dir/server.log" 50
 old_pid="$(ps -eo pid,args | awk -v binary="$project_dir/build/world-bridge" '$2 == binary { print $1; exit }')"
 test -n "$old_pid"
 kill "$old_pid"
+started=$SECONDS
+while [[ -n "$(ss -ltnH 'sport = :40010')" ]]; do
+  if (( SECONDS - started >= 10 )); then echo 'Old bridge did not release port 40010' >&2; exit 1; fi
+  sleep 0.1
+done
 build/world-bridge --scenario "$project_dir/scenarios/mt-zergling/scenario.json" \
   --rules "$project_dir/scenarios/mt-zergling/mapping.json" \
   --spawn-journal "$run_dir/spawn-queue.json" > "$run_dir/restart.log" 2>&1 &
 bridge_pid=$!
 wait_for 'park snapshot session=' "$run_dir/restart.log" 55
-wait_for 'OpenBW ready targets=3' "$run_dir/restart.log" 55
-python3 - "$run_dir" "$object_index" "$expected_hp" "$marker" <<'PY'
+wait_for 'OpenBW ready targets=5' "$run_dir/restart.log" 55
+python3 - "$run_dir" "$expected_hp" "$marker" <<'PY'
 import json, re, sys
 from pathlib import Path
 p=Path(sys.argv[1]); first=(p/'server.log').read_text(errors='replace'); restart=(p/'restart.log').read_text(errors='replace')
-object_index, expected_hp, marker = sys.argv[2:]
-target=rf'openrct2:large_scenery:{object_index}:3360:3328:1216:0#1'
+expected_hp, marker = sys.argv[2:]
+target=r'openrct2:large_scenery:\d+:3360:3328:1216:0#1'
 linked_before=re.findall(r'native target state id='+target+r' proxy=(openbw:\d+) hp=(\d+)', first)
 linked_after=re.findall(r'native target state id='+target+r' proxy=(openbw:\d+) hp=(\d+)', restart)
 first_session=re.search(r'park snapshot session=([0-9a-f]{32}) revision=1',first)
@@ -84,7 +89,7 @@ checks={
   'same_native_identity_and_health': bool(linked_before and linked_after)
       and linked_before[-1]==linked_after[-1] and linked_after[-1][1]==expected_hp,
   'no_duplicate_native_building': len(re.findall(r'\[world\] target id='+target+r' proxy=', first+restart))==1,
-  'both_participants_ready': 'OpenBW ready targets=3' in restart,
+  'both_participants_ready': 'OpenBW ready targets=5' in restart,
 }
 (p/'verification.json').write_text(json.dumps({'checks':checks,'before':linked_before,
     'after':linked_after},indent=2)+'\n')

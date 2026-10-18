@@ -3,7 +3,11 @@ registerPlugin({ name: "Barracks cancellation probe", version: "1.0.0", authors:
     type: "local", licence: "MIT", targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         if (network.mode !== "client") return;
-        const building = "openrct2:large_scenery:248:3200:3328:1216:0#1";
+        const barracks = objectManager.getAllObjects("large_scenery").find(function (item) {
+            return item.identifier === "starcoaster.scenery_large.terran_barracks";
+        });
+        if (!barracks) throw new Error("Barracks scenery object is unavailable");
+        const building = "openrct2:large_scenery:" + barracks.index + ":3200:3328:1216:0#1";
         let started = 0, lastAttempt = 0, trainedAt = 0, removed = false;
         context.subscribe("interval.tick", function () {
             const snapshot = rtsBridge.getActors();
