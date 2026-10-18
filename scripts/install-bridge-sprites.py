@@ -474,6 +474,10 @@ def main() -> None:
     contents = ensure_zergling_extra_banks(ensure_registered_banks(
         ensure_next_g2_entries(ensure_firebat_g2_entries(sprite_list.read_text())), source, pack), source, pack)
     enum_text = (upstream / "src/openrct2/SpriteIds.h").read_text()
+    g2_base_match = re.search(r"SPR_G2_BEGIN\s*=\s*(\d+)", enum_text)
+    if not g2_base_match:
+        raise SystemExit("Pinned OpenRCT2 G2 sprite base is missing")
+    g2_base = int(g2_base_match.group(1))
     if len(re.findall(r"^\s*SPR_BRIDGE_SCOUT_(?:IDLE|WALK[0-9]+)_", enum_text, re.MULTILINE)) != 88:
         raise SystemExit("OpenRCT2 sprite ID range must contain exactly 88 bridge images")
     if len(re.findall(r"^\s*SPR_BRIDGE_MARINE_", enum_text, re.MULTILINE)) != 56:
@@ -564,7 +568,7 @@ def main() -> None:
         else:
             index = len(entries)
             entries.append({"path": key, "x": 0, "y": 0})
-        icon_ids[kind] = 29357 + index  # SPR_G2_BEGIN in the pinned OpenRCT2.
+        icon_ids[kind] = g2_base + index
         prepared.append((path, "command/" + meta["file"]))
     if icon_ids:
         # Preserve the existing hand-formatted G2 file and append only new IDs.

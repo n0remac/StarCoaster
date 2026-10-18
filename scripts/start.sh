@@ -112,6 +112,7 @@ PY
     for unit in "${required_assets[@]}"; do
         python3 scripts/prepare-starcraft-sprites.py --game-dir "$STARCRAFT_DATA_DIR" --unit "$unit"
     done
+    python3 scripts/prepare-starcraft-command-icons.py --game-dir "$STARCRAFT_DATA_DIR"
 fi
 printf 'Building engines and world bridge...\n'
 scripts/project.sh build
