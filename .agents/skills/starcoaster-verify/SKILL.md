@@ -11,6 +11,7 @@ Run `scripts/project.sh test` for the Go, C++, Python, and JavaScript suite. Use
 | --- | --- |
 | Terrain, elevation, or navigation | `tests/test_frontier_ridge_live.sh`, `tests/test_frontier_native_navigation_live.sh`, `python3 tests/test_world_256_native_live.py` |
 | Generic demolition and two-client synchronization | `tests/test_world_live.sh` |
+| Scenario Zerg buildings, combat, restart, and rejoin | `python3 tests/test_zerg_base_lifecycle_live.py`; `scripts/project.sh record --scenario mt-zergling --duration 160 --zerg-base-playthrough` |
 | Playable launcher, starting units, or ready wave | `tests/test_playable_start_live.sh` |
 | Victory, reconnect, or bridge restart | `python3 scripts/verify-frontier-lifecycle.py` |
 | Native actor lifecycle | `tests/test_actor_lifecycle_live.sh` |

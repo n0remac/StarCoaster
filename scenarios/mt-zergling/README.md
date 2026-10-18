@@ -3,6 +3,14 @@
 This package loads the original `Mt. Zergling.park` from the ignored
 `run-data/mt-zergling/source/` directory. The source is never modified; the
 launcher stages a separate save under `run-data/mt-zergling/save/`.
+The staged save adds a Zerg Hatchery at tile `(8,31)` and a Spawning Pool at
+`(8,37)`. Both are on the western perimeter, outside the main ride area.
+OpenRCT2 validates the complete flat, unobstructed footprints before staging;
+an invalid placement stops park preparation with a named error. The staged
+save holds stable scenario identities and Zerg player 0 ownership. OpenBW
+creates completed native buildings and owns their HP and combat. Neither
+building produces units. Marine attacks remove them through the normal
+ordered park revision path, while ordinary player removal is rejected.
 
 OpenRCT2 reports a 202×202 map, an in-progress scenario with a 1,000 guests
 by year 4 objective, and no starting rides. The player builds rides while
@@ -46,6 +54,12 @@ The test-only capture option uses ordinary OpenRCT2 actions to place one wall
 while Zerglings are alive and clicks Spawn Wave in the Marine window. It saves
 the video, screenshots, logs, and verification data under ignored
 `run-data/artifacts/`.
+For the Zerg base combat video, run
+`scripts/project.sh record --scenario mt-zergling --duration 160 --zerg-base-playthrough`.
+The capture drives the existing manual wave, Marine reinforcement, and squad
+command actions; it keeps the packaged wave schedule and park objective.
+`python3 tests/test_zerg_base_lifecycle_live.py` checks native destruction,
+bridge restart, and a client rejoin in an ignored run directory.
 
 ## StarCraft construction and production
 
