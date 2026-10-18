@@ -50,11 +50,16 @@ def main(directory):
     displacements = {uid: round(((point[0] - starts[uid][0]) ** 2
                                 + (point[1] - starts[uid][1]) ** 2) ** .5)
                      for uid, point in phase1_ends.items() if uid in starts}
+    # Crossing positions are interpolated between sampled native unit centres.
+    # Allow one quarter tile at opening edges for steering and sample rounding.
+    def through_opening(item):
+        return item["y"] < 520 or item["y"] >= 1272
+
     checks = {
         "carousel_avoidance": bool(phase1) and not carousel_before
             and all(point[1] < 700 for point in phase1_ends.values()),
-        "legitimate_wall_opening": any(item["y"] < 512 or item["y"] >= 1280 for item in phase2),
-        "blocked_corridor": bool(phase2) and all(item["y"] < 512 or item["y"] >= 1280 for item in phase2),
+        "legitimate_wall_opening": any(through_opening(item) for item in phase2),
+        "blocked_corridor": bool(phase2) and all(through_opening(item) for item in phase2),
         "wall_demolition_opens_route": "WORLD_REMOVAL id=openrct2:wall:31:896:1120:112:0#1 state=confirmed" in server
             and any(1110 <= item["y"] <= 1160 for item in phase4),
         "carousel_demolition_opens_footprint": "WORLD_REMOVAL id=openrct2:ride:0#1 state=confirmed" in server
