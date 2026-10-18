@@ -86,14 +86,15 @@ def crossing(phase):
     return None
 
 identities = re.findall(r"LIVE_CONSTRUCTION_ACTORS (?:initial|final)=([^'\r\n]+)", driver)
+wall_present = observer.find("LIVE_OBSERVER_WALL present=true")
+wall_removed = observer.find("LIVE_OBSERVER_WALL present=false", wall_present + 1)
 checks = {
     "ordinary_wall_actions": "LIVE_CONSTRUCTION_BUILD accepted=true" in driver
         and "LIVE_CONSTRUCTION_REMOVE accepted=true" in driver,
     "two_confirmed_revisions": len(patches) >= 2,
     "both_native_participants_applied": len(patches) >= 2
         and all(item in publisher and item in controller for item in patches[:2]),
-    "second_client_saw_wall_and_removal": "LIVE_OBSERVER_WALL present=true" in observer
-        and observer.count("LIVE_OBSERVER_WALL present=false") >= 2,
+    "second_client_saw_wall_and_removal": wall_present >= 0 and wall_removed > wall_present,
     "same_actor_identities": len(identities) >= 2 and identities[0] == identities[-1],
     "native_movement_rerouted_and_reopened": crossing(2) is not None and crossing(4) is not None
         and not 992 <= crossing(2) < 1024 and 992 <= crossing(4) < 1024,
