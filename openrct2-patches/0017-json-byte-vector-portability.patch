@@ -1,0 +1,15 @@
+diff --git a/src/openrct2/core/Json.cpp b/src/openrct2/core/Json.cpp
+index 391c446..59d4bbc 100644
+--- a/src/openrct2/core/Json.cpp
++++ b/src/openrct2/core/Json.cpp
+@@ -76,8 +76,8 @@ namespace OpenRCT2::Json
+ 
+         try
+         {
+-            json = json_t::parse(
+-                vec.begin(), vec.end(), /* callback */ nullptr, /* allow_exceptions */ true, /* ignore_comments */ true);
++            const auto raw = std::string_view(reinterpret_cast<const char*>(vec.data()), vec.size());
++            json = json_t::parse(raw, /* callback */ nullptr, /* allow_exceptions */ true, /* ignore_comments */ true);
+         }
+         catch (const json_t::exception& e)
+         {

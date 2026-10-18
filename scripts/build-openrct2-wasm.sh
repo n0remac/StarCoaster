@@ -45,7 +45,10 @@ if [[ "${1:-}" == --inside ]]; then
         -DICU_DATA_LIBRARIES="$deps/icu/icu4c/source/lib/libicuuc.so" \
         -DICU_DT_LIBRARY_RELEASE="$deps/icu/icu4c/source/stubdata/libicudata.so" \
         -DLIBZIP_LIBRARIES="$deps/libzip/build/lib/libzip.a" \
+        -DLIBZIP_INCLUDE_DIRS="$deps/libzip/lib;$deps/libzip/build" \
+        -DZLIB_INCLUDE_DIRS="$deps/zlib/build" \
         -DZSTD_LIBRARIES="$deps/zstd/build/build/lib/libzstd.a" \
+        -DZSTD_INCLUDE_DIRS="$deps/zstd/lib" \
         -DEMSCRIPTEN_FLAGS="$cmake_flags" \
         -DEMSCRIPTEN_EXPORTED_FUNCTIONS=_GetVersion,_main \
         -DEMSCRIPTEN_LDFLAGS="$link_flags"
