@@ -246,8 +246,16 @@ def main() -> None:
                     output = (run / f"{client}.log").read_text(errors="replace")
                     if client == "client-b":
                         output += (run / "client-b-reconnect.log").read_text(errors="replace")
-                    assert re.search(re.escape(unit["actor_id"]) +
-                                     r",[^;\n]*," + kind + r",\d+,\d+,0,", output), \
+                    rendered = re.search(re.escape(unit["actor_id"]) +
+                                         r",[^;\n]*," + kind + r",\d+,\d+,0,", output)
+                    # An enemy may spawn and die while client B is offline. In
+                    # that case its final snapshot must reconcile the death.
+                    final_snapshot = next((line for line in reversed(output.splitlines())
+                        if "RTS Bridge apply tick=" in line), "")
+                    reconciled_death = (client == "client-b" and unit["state"] == "dead"
+                        and "actor-despawn id=" + unit["actor_id"] in session_events
+                        and bool(final_snapshot) and unit["actor_id"] + "," not in final_snapshot)
+                    assert rendered or reconciled_death, \
                         f"{client} lacks owner-zero {kind} actor {unit['actor_id']}"
         assert "navigation initialized" in session_events, "native navigation was not initialized"
         assert "actor reconcile living=" in (run / "bridge-restart.log").read_text(
