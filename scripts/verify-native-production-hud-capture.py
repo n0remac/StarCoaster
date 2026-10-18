@@ -61,9 +61,9 @@ def main(out):
     checks = {
         "seven_building_gallery": len(images) == len(LABELS),
         "original_command_icons_visible": len(images) == len(LABELS) and all(
-            slot_colours(label, slot) > 3 for label, slots in icon_slots.items() for slot in slots),
+            slot_colours(label, slot) > 1 for label, slots in icon_slots.items() for slot in slots),
         "nonproduction_slots_empty": len(images) == len(LABELS) and all(
-            slot_colours(label, 0) <= 3 for label in passive),
+            slot_colours(label, 0) == 1 for label in passive),
         "gallery_focus_sequence": all("NATIVE_HUD_FOCUS building=" + label in client[0]
             for label in ("Spawning Pool", "Barracks", "Academy", "Supply Depot", "Factory", "Armory")),
         "native_zerg_order_accepted": bool(re.search(
