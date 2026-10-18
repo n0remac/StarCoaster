@@ -167,7 +167,7 @@ class VideoRecorder:
                 interrupted.add(filename)
         for filename, _, process in self.processes:
             try:
-                code = process.wait(timeout=10)
+                code = process.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 process.kill()
                 code = process.wait(timeout=5)
