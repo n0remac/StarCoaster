@@ -550,7 +550,7 @@ def main() -> None:
         raise SystemExit("Missing original command icons; run scripts/prepare-starcraft-command-icons.py")
     icon_frames = json.loads(icon_manifest.read_text())["icons"] if icon_manifest.is_file() and only_unit is None else {}
     entries = json.loads(contents)
-    icon_ids = {}
+    icon_ids = {"empty": g2_base}
     for kind, meta in sorted(icon_frames.items()):
         path = icons_dir / meta["file"]
         with Image.open(path) as icon:
@@ -570,7 +570,7 @@ def main() -> None:
             entries.append({"path": key, "x": 0, "y": 0})
         icon_ids[kind] = g2_base + index
         prepared.append((path, "command/" + meta["file"]))
-    if icon_ids:
+    if icon_frames:
         # Preserve the existing hand-formatted G2 file and append only new IDs.
         for entry in entries[len(json.loads(contents)):]:
             contents = contents.rstrip()[:-1].rstrip()

@@ -636,18 +636,38 @@ for (const [index, type] of starcraftBuildings.entries()) {
     assert.equal(window.widgets.filter(widget => widget.type === 'viewport').length, 1);
     window.onUpdate();
     const card = window.widgets.filter(widget => widget.name.startsWith('building-command-'));
+    const labels = window.widgets.filter(widget => widget.name.startsWith('building-label-'));
+    assert.equal(labels.length, 9);
     assert.equal(card.filter(widget => !widget.isDisabled).length,
         type.startsWith('zerg_') ? 0 : commands.length);
-    assert.equal(card.filter(widget => widget.text === '' && !widget.image).length,
+    const emptyImage = card[8].image;
+    assert.equal(card.filter(widget => widget.image === emptyImage && widget.isDisabled).length,
         9 - commands.length);
-    assert.ok(card.slice(0, commands.length).every(widget => widget.text || widget.image),
-        'native command slots have a label or a staged original icon');
+    assert.ok(card.slice(0, commands.length).every(widget => widget.image !== emptyImage),
+        'native command icons remain intact after HUD updates');
+    assert.ok(labels.slice(0, commands.length).every(widget => widget.text),
+        'native command slots have short labels');
     assert.deepEqual(JSON.parse(JSON.stringify(window.widgets.find(widget => widget.name === 'building-camera').viewport.centre)),
-        { x: index * 32 + 16, y: 7 * 32 + 16, z: 112 });
+        { x: index * 32 + 16, y: 7 * 32 + 16, z: 122 });
 }
 const scenarioHatchery = { ...hudStates[5], command_authorized: true };
 assert.equal(buildingState.query({ player: 1, args: scenarioHatchery }).error, undefined);
 buildingState.execute({ player: 1, args: scenarioHatchery });
+const hatcheryEvent = { screenCoords: { x: 16, y: 16 },
+    mapCoords: { x: 5 * 32 + 16, y: 7 * 32 + 16 } };
+selectionTool.onDown(hatcheryEvent);
+selectionTool.onUp(hatcheryEvent);
+const authorizedHatcheryWindow = openedWindows.at(-1);
+authorizedHatcheryWindow.onUpdate();
+const zergButton = authorizedHatcheryWindow.widgets.find(
+    widget => widget.name === 'building-command-0');
+assert.equal(zergButton.isDisabled, false);
+const priorActions = actions.length;
+zergButton.onClick();
+assert.equal(actions.length, priorActions + 1);
+assert.equal(actions.at(-1).name, 'rtsbridge.marineCommand');
+assert.equal(actions.at(-1).args.unit_type, 'zerg_zergling');
+assert.equal(actions.at(-1).args.target_entity_id, hudTargets[5].id);
 const zergOrder = { session: sid, request: 981, unit_ids: [], verb: 'train',
     unit_type: 'zerg_zergling', target_entity_id: hudTargets[5].id };
 assert.equal(command.query({ player: 1, args: zergOrder }).error, undefined,

@@ -40,7 +40,7 @@
         zerg_spawning_pool: { name: "Zerg Spawning Pool", objectID: "starcoaster.scenery_large.zerg_spawning_pool", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
     });
     // END GENERATED STARCRAFT TYPES
-    const COMMAND_ICON_IMAGES = Object.freeze({"terran_firebat": 30696, "terran_goliath": 30697, "terran_marine": 30698, "terran_medic": 30699, "terran_vulture": 30700, "zerg_zergling": 30701});
+    const COMMAND_ICON_IMAGES = Object.freeze({"empty": 29357, "terran_firebat": 30696, "terran_goliath": 30697, "terran_marine": 30698, "terran_medic": 30699, "terran_vulture": 30700, "zerg_zergling": 30701});
     const buildingByObject = {};
     Object.keys(BUILDING_TYPES).forEach(function (id) {
         const definition = BUILDING_TYPES[id];
@@ -2134,7 +2134,9 @@
                     right: Math.floor(point.x / 32) * 32 + building.width * 32,
                     bottom: Math.floor(point.y / 32) * 32 + building.height * 32 };
                 const centre = { x: Math.floor((bounds.left + bounds.right) / 2),
-                    y: Math.floor((bounds.top + bounds.bottom) / 2), z: point.z || 0 };
+                    y: Math.floor((bounds.top + bounds.bottom) / 2),
+                    z: (point.z || 0) + Math.floor(Math.max(bounds.right - bounds.left,
+                        bounds.bottom - bounds.top) / 3) };
                 const reasonLabels = { building_unavailable: "Building unavailable",
                     insufficient_minerals: "Insufficient minerals", insufficient_gas: "Insufficient gas",
                     supply_limit: "Supply limit", queue_full: "Queue full",
@@ -2153,7 +2155,8 @@
                 const card = Array.from({ length: 9 }, function (_, slot) {
                     return { type: "button", name: "building-command-" + slot,
                         x: 289 + (slot % 3) * 49, y: 35 + Math.floor(slot / 3) * 48,
-                        width: 46, height: 44, text: "", isDisabled: true,
+                        width: 46, height: 34, image: COMMAND_ICON_IMAGES.empty, border: true,
+                        text: "", isDisabled: true,
                         onClick: function () {
                             const native = buildingStates[buildingInfoID];
                             const command = native && native.commands ? native.commands[slot] : null;
@@ -2172,6 +2175,11 @@
                                 }
                             });
                         } };
+                });
+                const cardLabels = Array.from({ length: 9 }, function (_, slot) {
+                    return { type: "label", name: "building-label-" + slot,
+                        x: 289 + (slot % 3) * 49, y: 69 + Math.floor(slot / 3) * 48,
+                        width: 46, height: 11, text: "" };
                 });
                 buildingInfoWindow = ui.openWindow({ classification: "starcoaster-building-info",
                     width: 445, height: 300, title: building.name,
@@ -2217,8 +2225,9 @@
                             const command = native && native.commands ? native.commands[slot] : null;
                             if (!widget) continue;
                             const image = command && COMMAND_ICON_IMAGES[command.unit_type];
-                            widget.image = image || 0;
-                            widget.text = image ? "" : commandText(command);
+                            widget.image = image || COMMAND_ICON_IMAGES.empty;
+                            const label = buildingInfoWindow.findWidget("building-label-" + slot);
+                            if (label) label.text = commandText(command);
                             widget.isDisabled = !target || !native || native.health < 1
                                 || !mayCommandBuilding(native) || !command || !command.ready;
                             widget.tooltip = command ? (!mayCommandBuilding(native) ? "Read-only building"
@@ -2240,7 +2249,7 @@
                             height: 14, text: "" },
                         { type: "label", name: "building-feedback", x: 283, y: 190, width: 155,
                             height: 27, text: "" }
-                    ].concat(card) });
+                    ].concat(card, cardLabels) });
             }
             if (typeof ui.registerViewportInteraction !== "function")
                 throw new Error("RTS Bridge needs the native shared viewport input build");

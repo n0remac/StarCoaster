@@ -15,6 +15,7 @@ registerPlugin({ name: "Native production HUD capture", version: "1.0.0",
             bindings: ["CTRL+SHIFT+H"], callback: function () {
                 ui.closeWindows("starcoaster-building-info");
                 focus = (focus + 1) % buildings.length;
+                centre();
                 console.log("NATIVE_HUD_FOCUS building=" + buildings[focus][0]);
             } });
     }
@@ -41,12 +42,12 @@ registerPlugin({ name: "Native production HUD capture", version: "1.0.0",
         }
         if (++ticks % 20 === 1) centre();
         if (typeof STARCOASTER_HUD_DRIVER === "undefined" || !STARCOASTER_HUD_DRIVER) return;
-        if (snapshot.units.some(function (unit) { return unit.kind === "zerg_egg" && unit.alive; })) {
+        if (snapshot.units.some(function (unit) { return unit.kind === "zerg_egg" && unit.hp > 0; })) {
             if (!observedEgg) console.log("NATIVE_HUD_EGG_VISIBLE");
             observedEgg = true;
         }
         if (observedEgg || attempts >= 6 || ticks % 80 !== 1
-            || !snapshot.units.some(function (unit) { return unit.kind === "zerg_larva" && unit.alive; })) return;
+            || !snapshot.units.some(function (unit) { return unit.kind === "zerg_larva" && unit.hp > 0; })) return;
         const serial = ++request;
         ++attempts;
         context.executeAction("rtsbridge.marineCommand", { session: snapshot.session,

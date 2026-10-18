@@ -583,10 +583,14 @@ def main():
                       "Supply Depot", "Factory", "Armory")
             for index, label in enumerate(labels):
                 if index:
+                    subprocess.run(["xdotool", "mousemove", "1272", "77", "click", "1"],
+                                   env=display_env, check=True)
                     subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+h"],
                                    env=display_env, check=True)
                 time.sleep(1.2)
-                subprocess.run(["xdotool", "mousemove", "640", "400", "click", "1"],
+                click = (620, 355) if label == "Hatchery" else (
+                    (640, 330) if label == "Spawning Pool" else (640, 400))
+                subprocess.run(["xdotool", "mousemove", str(click[0]), str(click[1]), "click", "1"],
                                env=display_env, check=True)
                 time.sleep(0.5)
                 filename = label.lower().replace(" ", "-") + ".png"
@@ -595,10 +599,12 @@ def main():
                 if recorder:
                     recorder.event("building_hud_gallery", client="client-a",
                                    building=label, filename="building-hud-gallery/" + filename)
+            subprocess.run(["xdotool", "mousemove", "1272", "77", "click", "1"],
+                           env=display_env, check=True)
             subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+h"],
                            env=display_env, check=True)
             time.sleep(1)
-            subprocess.run(["xdotool", "mousemove", "640", "400", "click", "1"],
+            subprocess.run(["xdotool", "mousemove", "620", "355", "click", "1"],
                            env=display_env, check=True)
             (gallery / "README.md").write_text("# Universal StarCraft building HUD\n\n"
                 + "\n".join(f"- [{label}]({label.lower().replace(' ', '-')}.png)"
@@ -1071,6 +1077,10 @@ def main():
         if args.mixed_zerg_camera:
             subprocess.run(["python3", str(ROOT / "scripts/verify-mixed-zerg-capture.py"),
                             str(out)], cwd=ROOT, check=False, stdout=subprocess.DEVNULL)
+            detailed = json.loads((out / "verification.json").read_text())
+        if args.native_production_hud:
+            subprocess.run(["python3", str(ROOT / "scripts/verify-native-production-hud-capture.py"),
+                            str(out)], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
             detailed = json.loads((out / "verification.json").read_text())
         if args.barracks_training_probe:
             animation_hashes = {}
