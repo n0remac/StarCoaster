@@ -33,6 +33,9 @@ const shortcuts = new Map();
 let selectionTool, activeTool = null;
 const actorScreens = new Map();
 let squadWidgets;
+const openedWindows = [];
+const starcraftBuildings = ['terran_barracks', 'terran_academy', 'terran_supply_depot',
+    'terran_factory', 'terran_armory', 'zerg_hatchery', 'zerg_spawning_pool'];
 let socket;
 const sandbox = {
     map: { size: { x: 8, y: 8 }, get rides() { return ride ? [ride] : []; },
@@ -41,7 +44,10 @@ const sandbox = {
             getElement(index) { return elements[index]; } }; } },
     objectManager: { getAllObjects(kind) {
         if (kind === 'large_scenery') return [{ index: 1, identifier: 'rct2.scenery_large.test',
-            tiles: [{ offset: { x: 0, y: 0, z: 0 } }, { offset: { x: 32, y: 0, z: 0 } }] }];
+            tiles: [{ offset: { x: 0, y: 0, z: 0 } }, { offset: { x: 32, y: 0, z: 0 } }] }]
+            .concat(starcraftBuildings.map((name, index) => ({ index: 100 + index,
+                identifier: 'starcoaster.scenery_large.' + name,
+                tiles: [{ offset: { x: 0, y: 0, z: 0 } }] })));
         if (kind === 'small_scenery') return [
             { index: 2, identifier: 'rct2.scenery_small.tree' },
             { index: 5, identifier: 'rct2.scenery_small.no_supports', flags: 1 << 20 }];
@@ -60,7 +66,11 @@ const sandbox = {
         actorScreenPosition(id) { return actorScreens.get(id) || null; },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
     ui: { tileSelection: { tiles: [] }, get tool() { return activeTool; }, openWindow(desc) { squadWidgets = desc.widgets;
-            return { findWidget(name) { return squadWidgets.find(widget => widget.name === name); } }; },
+            openedWindows.push(desc);
+            const camera = { zoom: 1, rotation: 0, moveTo(position) { this.centre = position; } };
+            return { findWidget(name) { const widget = desc.widgets.find(item => item.name === name);
+                    if (widget && name === 'building-camera') widget.viewport = camera;
+                    return widget; }, close() { if (desc.onClose) desc.onClose(); } }; },
         registerShortcut(shortcut) { shortcuts.set(shortcut.id, shortcut); },
         registerViewportInteraction(handler) { selectionTool = handler; },
         activateTool(tool) { if (activeTool) activeTool.cancel(); activeTool = tool;
@@ -595,4 +605,41 @@ drain();
 ticks();
 assert.ok(lastChange().additions.some(id => id.includes('wall:3:192:128:112')),
     'an edit during snapshot transmission is retained for the next batch');
+const hudTargets = starcraftBuildings.map((type, index) => ({
+    id: 'scenario:hud-' + type.replace(/_/g, '-'), type,
+    rects: [{ x: index * 32, y: 7 * 32, width: 32, height: 32 }], health: 500
+}));
+applyCatalog(catalog(100, hudTargets)[0]);
+const buildingState = registered.get('rtsbridge.buildingState');
+for (const [index, type] of starcraftBuildings.entries()) {
+    at(index, 7).push({ type: 'large_scenery', object: 100 + index,
+        baseHeight: 14, baseZ: 112, direction: 0 });
+    const commands = type === 'terran_barracks' ? ['terran_marine', 'terran_firebat', 'terran_medic']
+        : type === 'terran_factory' ? ['terran_vulture', 'terran_goliath'] : [];
+    const availability = Object.fromEntries(commands.map(unit => [unit,
+        { ready: true, reason: 'ready', requirement: '' }]));
+    const state = { session: sid, id: hudTargets[index].id, native_id: 'openbw:' + (100 + index),
+        owner: type.startsWith('zerg_') ? 0 : 1, race: type.startsWith('zerg_') ? 'Zerg' : 'Terran',
+        completed: true, health: 500, max_health: 500, queue: 0, remaining_frames: 0,
+        minerals: 500, gas: 250, supply_used: 0, supply_total: 18, larva_count: 0,
+        availability, commands: commands.map((unit, slot) => ({ slot, action: 'unit.train',
+            unit_type: unit, label: unit.replace('_', ' '), ready: true,
+            reason: 'ready', requirement: '' })) };
+    assert.equal(buildingState.query({ player: 1, args: state }).error, undefined);
+    buildingState.execute({ player: 1, args: state });
+    const event = { screenCoords: { x: 16, y: 16 },
+        mapCoords: { x: index * 32 + 16, y: 7 * 32 + 16 } };
+    selectionTool.onDown(event);
+    selectionTool.onUp(event);
+    const window = openedWindows.at(-1);
+    assert.equal(window.classification, 'starcoaster-building-info');
+    assert.equal(window.widgets.filter(widget => widget.name.startsWith('building-command-')).length, 9);
+    assert.equal(window.widgets.filter(widget => widget.type === 'viewport').length, 1);
+    window.onUpdate();
+    const card = window.widgets.filter(widget => widget.name.startsWith('building-command-'));
+    assert.equal(card.filter(widget => !widget.isDisabled).length, commands.length);
+    assert.equal(card.filter(widget => widget.text === '').length, 9 - commands.length);
+    assert.deepEqual(JSON.parse(JSON.stringify(window.widgets.find(widget => widget.name === 'building-camera').viewport.centre)),
+        { x: index * 32 + 16, y: 7 * 32 + 16, z: 112 });
+}
 console.log('world plugin discovery and lifecycle validation passed');

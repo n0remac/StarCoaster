@@ -112,7 +112,7 @@ assert.equal(tile(5, 4).numElements, 2);
 // Barracks inspection consumes its own passive hit without selecting a Marine.
 passive.onDown(event);
 assert.equal(passive.onUp(event), true);
-const info = windows.get('starcoaster-barracks-info');
+const info = windows.get('starcoaster-building-info');
 assert.ok(info);
 const targetID = 'openrct2:large_scenery:7:64:64:112:0#1';
 const catalog = { session: 'a'.repeat(32), version: 1, index: 0, chunks: 1,
@@ -121,19 +121,27 @@ const action = actions.get('rtsbridge.targetCatalog');
 assert.equal(action.query({ player: 1, args: catalog }).error, undefined);
 action.execute({ player: 1, args: catalog });
 info.desc.onUpdate();
-assert.equal(info.findWidget('building-health').text, 'Health: 76');
-assert.equal(info.findWidget('building-identity').text, 'Identity: awaiting native state');
+assert.equal(info.findWidget('building-health').text, 'HP: awaiting native state');
+assert.equal(info.desc.widgets.filter(widget => widget.type === 'viewport').length, 1);
+assert.equal(info.desc.widgets.filter(widget => widget.name.startsWith('building-command-')).length, 9);
 const damaged = { ...catalog, version: 2, targets: [{ ...catalog.targets[0], health: 43 }] };
 assert.equal(action.query({ player: 1, args: damaged }).error, undefined);
 action.execute({ player: 1, args: damaged });
 info.desc.onUpdate();
-assert.equal(info.findWidget('building-health').text, 'Health: 43');
+assert.equal(info.findWidget('building-health').text, 'HP: awaiting native state');
 const nativeState = { session: 'a'.repeat(32), id: targetID, native_id: 'openbw:8',
-    owner: 1, health: 1000, queue: 1, remaining_frames: 240, minerals: 450, gas: 250,
-    supply_used: 12, supply_total: 16,
+    owner: 1, race: 'Terran', completed: true, health: 1000, max_health: 1000,
+    queue: 1, remaining_frames: 240, minerals: 450, gas: 250,
+    supply_used: 12, supply_total: 16, larva_count: 0,
     availability: { terran_marine: { ready: true, reason: 'ready', requirement: '' },
         terran_firebat: { ready: false, reason: 'requires_building', requirement: 'Terran_Academy' },
-        terran_medic: { ready: true, reason: 'ready', requirement: '' } } };
+        terran_medic: { ready: true, reason: 'ready', requirement: '' } },
+    commands: ['terran_marine', 'terran_firebat', 'terran_medic'].map((unit, slot) => ({
+        slot, action: 'unit.train', unit_type: unit,
+        label: 'Terran ' + unit.split('_')[1].replace(/^./, letter => letter.toUpperCase()),
+        ...({ terran_marine: { ready: true, reason: 'ready', requirement: '' },
+            terran_firebat: { ready: false, reason: 'requires_building', requirement: 'Terran_Academy' },
+            terran_medic: { ready: true, reason: 'ready', requirement: '' } })[unit] })) };
 const buildingAction = actions.get('rtsbridge.buildingState');
 assert.equal(buildingAction.query({ player: 1, args: nativeState }).error, undefined);
 buildingAction.execute({ player: 1, args: nativeState });
@@ -152,14 +160,13 @@ action.execute({ player: 1, args: { ...catalog, version: 3, targets: [] } });
 assert.equal(buildingAnimations.at(-1).tiles.length, 0, 'demolition removes training animation');
 action.execute({ player: 1, args: { ...catalog, version: 4 } });
 info.desc.onUpdate();
-assert.equal(info.findWidget('building-health').text, 'Health: 1000/1000');
-assert.equal(info.findWidget('building-identity').text, 'Native: openbw:8  Generation: 1');
-assert.match(info.findWidget('building-queue').text, /Queue: 1/);
-assert.equal(info.findWidget('building-train').isDisabled, false);
-assert.equal(info.findWidget('building-train-terran_firebat').isDisabled, true);
-assert.match(info.findWidget('building-train-terran_firebat').text, /Requires Academy/);
-assert.equal(info.findWidget('building-train-terran_medic').isDisabled, false);
-info.findWidget('building-train').onClick();
+assert.equal(info.findWidget('building-health').text, 'HP: 1000/1000');
+assert.match(info.findWidget('building-status').text, /Queue: 1/);
+assert.equal(info.findWidget('building-command-0').isDisabled, false);
+assert.equal(info.findWidget('building-command-1').isDisabled, true);
+assert.match(info.findWidget('building-command-1').tooltip, /Requires Terran Academy/);
+assert.equal(info.findWidget('building-command-2').isDisabled, false);
+info.findWidget('building-command-0').onClick();
 assert.equal(orders.length, 1);
 assert.equal(orders[0].verb, 'train');
 assert.equal(orders[0].unit_type, 'terran_marine');
@@ -172,15 +179,17 @@ info.desc.onUpdate();
 assert.equal(info.findWidget('building-feedback').text, 'Marine training started');
 buildingAction.execute({ player: 1, args: { ...nativeState, availability: {
     ...nativeState.availability,
-    terran_firebat: { ready: true, reason: 'ready', requirement: '' } } } });
+    terran_firebat: { ready: true, reason: 'ready', requirement: '' } },
+    commands: nativeState.commands.map((entry, slot) => slot === 1
+        ? { ...entry, ready: true, reason: 'ready', requirement: '' } : entry) } });
 info.desc.onUpdate();
-info.findWidget('building-train-terran_firebat').onClick();
+info.findWidget('building-command-1').onClick();
 assert.equal(orders[1].unit_type, 'terran_firebat');
 resultAction.execute({ player: 1, args: { player: 1, request: orders[1].request,
     unit: targetID, accepted: true, reason: 'ok' } });
 info.desc.onUpdate();
 assert.equal(info.findWidget('building-feedback').text, 'Firebat training started');
-info.findWidget('building-train-terran_medic').onClick();
+info.findWidget('building-command-2').onClick();
 assert.equal(orders.at(-1).unit_type, 'terran_medic');
 const unsupportedTrain = actions.get('rtsbridge.marineCommand').query({ player: 1,
     args: { session: 'a'.repeat(32), request: 900, unit_ids: [], verb: 'train',
@@ -196,7 +205,7 @@ assert.match(info.findWidget('building-resources').text, /Minerals: 999/);
 passive.onDown(event);
 assert.equal(passive.onUp(event), true);
 assert.equal(closedWindows, 1, 'opening an existing Barracks closes its earlier info window');
-assert.notEqual(windows.get('starcoaster-barracks-info'), info);
+assert.notEqual(windows.get('starcoaster-building-info'), info);
 
 // Existing paths and occupied units both reject placement before native action.
 tile(9, 2).elements.push({ type: 'footpath', baseHeight: 14 });
@@ -251,13 +260,12 @@ const academyInfo = windows.get('starcoaster-building-info');
 assert.ok(academyInfo);
 buildingAction.execute({ player: 1, args: { ...nativeState, id: academyID,
     native_id: 'openbw:9', health: 600, max_health: 600, queue: 0,
-    remaining_frames: 0, availability: {} } });
+    remaining_frames: 0, availability: {}, commands: [] } });
 academyInfo.desc.onUpdate();
-assert.equal(academyInfo.findWidget('building-health').text, 'Health: 600/600');
-assert.equal(academyInfo.findWidget('building-identity').text, 'Native: openbw:9  Generation: 1');
-assert.equal(academyInfo.findWidget('building-status').text, 'Construction: complete');
-assert.equal(academyInfo.findWidget('building-queue'), undefined);
-assert.equal(academyInfo.findWidget('building-train'), undefined);
+assert.equal(academyInfo.findWidget('building-health').text, 'HP: 600/600');
+assert.match(academyInfo.findWidget('building-status').text, /Complete/);
+assert.ok(academyInfo.desc.widgets.filter(widget => widget.name.startsWith('building-command-'))
+    .every(widget => widget.isDisabled && widget.text === ''));
 
 // Park storage keeps the structure ID stable when the plugin restarts on a saved park.
 let savedStorage = {};
@@ -268,29 +276,37 @@ action.execute({ player: 1, args: { ...catalog, version: 5, targets: catalog.tar
     { id: factoryID, rects: [{ x: 320, y: 64, width: 128, height: 96 }], health: 1250 }
 ]) } });
 buildingAction.execute({ player: 1, args: { ...nativeState, id: factoryID,
-    native_id: 'openbw:9', health: 1250, queue: 0, remaining_frames: 0,
+    native_id: 'openbw:9', health: 1250, max_health: 1250, queue: 0, remaining_frames: 0,
     availability: { terran_vulture: { ready: true, reason: 'ready', requirement: '' },
-        terran_goliath: { ready: false, reason: 'requires_building', requirement: 'Terran_Armory' } } } });
+        terran_goliath: { ready: false, reason: 'requires_building', requirement: 'Terran_Armory' } },
+    commands: [{ slot: 0, action: 'unit.train', unit_type: 'terran_vulture', label: 'Terran Vulture',
+        ready: true, reason: 'ready', requirement: '' },
+        { slot: 1, action: 'unit.train', unit_type: 'terran_goliath', label: 'Terran Goliath',
+            ready: false, reason: 'requires_building', requirement: 'Terran_Armory' }] } });
 const factoryEvent = { mapCoords: { x: 320, y: 64 }, screenCoords: { x: 600, y: 300 } };
 passive.onDown(factoryEvent);
 assert.equal(passive.onUp(factoryEvent), true);
 const factoryInfo = windows.get('starcoaster-building-info');
 assert.ok(factoryInfo);
 factoryInfo.desc.onUpdate();
-assert.equal(factoryInfo.findWidget('building-health').text, 'Health: 1250/1250');
-assert.equal(factoryInfo.findWidget('building-train-terran_vulture').isDisabled, false);
-assert.equal(factoryInfo.findWidget('building-train-terran_goliath').isDisabled, true);
-assert.match(factoryInfo.findWidget('building-train-terran_goliath').text, /Requires Armory/);
-factoryInfo.findWidget('building-train-terran_vulture').onClick();
+assert.equal(factoryInfo.findWidget('building-health').text, 'HP: 1250/1250');
+assert.equal(factoryInfo.findWidget('building-command-0').isDisabled, false);
+assert.equal(factoryInfo.findWidget('building-command-1').isDisabled, true);
+assert.match(factoryInfo.findWidget('building-command-1').tooltip, /Requires Terran Armory/);
+factoryInfo.findWidget('building-command-0').onClick();
 assert.equal(orders.at(-1).unit_type, 'terran_vulture');
 assert.equal(orders.at(-1).target_entity_id, factoryID);
 buildingAction.execute({ player: 1, args: { ...nativeState, id: factoryID,
-    native_id: 'openbw:9', health: 1250, queue: 0, remaining_frames: 0,
+    native_id: 'openbw:9', health: 1250, max_health: 1250, queue: 0, remaining_frames: 0,
     availability: { terran_vulture: { ready: true, reason: 'ready', requirement: '' },
-        terran_goliath: { ready: true, reason: 'ready', requirement: '' } } } });
+        terran_goliath: { ready: true, reason: 'ready', requirement: '' } },
+    commands: [{ slot: 0, action: 'unit.train', unit_type: 'terran_vulture', label: 'Terran Vulture',
+        ready: true, reason: 'ready', requirement: '' },
+        { slot: 1, action: 'unit.train', unit_type: 'terran_goliath', label: 'Terran Goliath',
+            ready: true, reason: 'ready', requirement: '' }] } });
 factoryInfo.desc.onUpdate();
-assert.equal(factoryInfo.findWidget('building-train-terran_goliath').isDisabled, false);
-factoryInfo.findWidget('building-train-terran_goliath').onClick();
+assert.equal(factoryInfo.findWidget('building-command-1').isDisabled, false);
+factoryInfo.findWidget('building-command-1').onClick();
 assert.equal(orders.at(-1).unit_type, 'terran_goliath');
 assert.equal(orders.at(-1).target_entity_id, factoryID);
 tile(10, 5).elements.push({ type: 'large_scenery', object: 9, baseHeight: 14,
@@ -301,15 +317,15 @@ action.execute({ player: 1, args: { ...catalog, version: 6, targets: [
 ] } });
 buildingAction.execute({ player: 1, args: { ...nativeState, id: depotID,
     native_id: 'openbw:10', health: 500, max_health: 500, queue: 0,
-    remaining_frames: 0, availability: {} } });
+    remaining_frames: 0, availability: {}, commands: [] } });
 const depotEvent = { mapCoords: { x: 320, y: 160 }, screenCoords: { x: 620, y: 360 } };
 passive.onDown(depotEvent);
 assert.equal(passive.onUp(depotEvent), true);
 const depotInfo = windows.get('starcoaster-building-info');
 depotInfo.desc.onUpdate();
-assert.equal(depotInfo.findWidget('building-health').text, 'Health: 500/500');
-assert.equal(depotInfo.findWidget('building-train'), undefined);
-assert.equal(depotInfo.findWidget('building-queue'), undefined);
+assert.equal(depotInfo.findWidget('building-health').text, 'HP: 500/500');
+assert.ok(depotInfo.desc.widgets.filter(widget => widget.name.startsWith('building-command-'))
+    .every(widget => widget.isDisabled && widget.text === ''));
 function discoverAfterLoad() {
     const placed = new Map();
     for (let y = 2; y < 5; y++) for (let x = 2; x < 6; x++) {

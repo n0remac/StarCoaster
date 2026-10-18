@@ -481,6 +481,7 @@ func TestAcademyBuildingStateWithoutProduction(t *testing.T) {
 	}()
 	s.controllerMessage(nil, world.Message("building.state", "session-a", "controller:academy", "openbw", 1,
 		map[string]any{"id": e.ID, "native_id": "openbw:77", "owner": 1,
+			"race": "Terran", "completed": true, "commands": []any{}, "larva_count": 0,
 			"health": 600, "max_health": 600, "queue": 0, "remaining_frames": 0,
 			"minerals": 500, "gas": 250, "supply_used": 10, "supply_total": 16}))
 	select {

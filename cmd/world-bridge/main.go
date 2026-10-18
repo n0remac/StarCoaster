@@ -1629,6 +1629,8 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			ID              string `json:"id"`
 			NativeID        string `json:"native_id"`
 			Owner           int    `json:"owner"`
+			Race            string `json:"race"`
+			Completed       bool   `json:"completed"`
 			Health          int    `json:"health"`
 			MaxHealth       int    `json:"max_health,omitempty"`
 			Queue           int    `json:"queue"`
@@ -1640,6 +1642,16 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 				Reason      string `json:"reason"`
 				Requirement string `json:"requirement"`
 			} `json:"availability"`
+			Commands []struct {
+				Slot        int    `json:"slot"`
+				Action      string `json:"action"`
+				UnitType    string `json:"unit_type"`
+				Label       string `json:"label"`
+				Ready       bool   `json:"ready"`
+				Reason      string `json:"reason"`
+				Requirement string `json:"requirement"`
+			} `json:"commands"`
+			LarvaCount int `json:"larva_count"`
 			SupplyUsed  int `json:"supply_used"`
 			SupplyTotal int `json:"supply_total"`
 		}
@@ -1659,13 +1671,23 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		}
 		building, _ := world.SupportedBuilding(entity.Type)
 		if (state.MaxHealth != 0 && state.MaxHealth != building.MaxHealth) ||
-			len(state.Availability) != len(building.Production) {
+			state.Race != strings.SplitN(building.NativeType, "_", 2)[0] ||
+			len(state.Availability) != len(building.Production) ||
+			len(state.Commands) != len(building.Production) ||
+			state.LarvaCount < 0 || state.LarvaCount > 3 {
 			return
 		}
-		for _, unitID := range building.Production {
+		for slot, unitID := range building.Production {
 			availability, ok := state.Availability[unitID]
 			if !ok || availability.Reason == "" || len(availability.Reason) > 64 ||
 				len(availability.Requirement) > 64 {
+				return
+			}
+			command := state.Commands[slot]
+			if command.Slot != slot || command.Action != "unit.train" ||
+				command.UnitType != unitID || command.Label == "" || len(command.Label) > 64 ||
+				command.Ready != availability.Ready || command.Reason != availability.Reason ||
+				command.Requirement != availability.Requirement {
 				return
 			}
 		}

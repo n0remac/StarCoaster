@@ -143,6 +143,16 @@ public:
                         || "openbw:" + std::to_string(unit->getID()) != link.proxyID) continue;
                     const auto* building = worldBuildingType(unit->getType());
                     const auto availability = productionAvailability(game, unit, *building);
+                    json commands = json::array();
+                    for (const auto& unitID : building->trainable) {
+                        const auto* requested = worldUnitType(unitID);
+                        if (!requested || commands.size() >= 9) continue;
+                        const auto& status = availability.at(unitID);
+                        commands.push_back({{"slot", commands.size()}, {"action", "unit.train"},
+                            {"unit_type", unitID}, {"label", requested->native.getName()},
+                            {"ready", status.at("ready")}, {"reason", status.at("reason")},
+                            {"requirement", status.at("requirement")}});
+                    }
                     const std::string availabilityKey = availability.dump();
                     if (lastAvailability_[id] != availabilityKey) {
                         lastAvailability_[id] = availabilityKey;
@@ -154,6 +164,8 @@ public:
                     send("building.state", session_, revision_ ? revision_ : 1,
                         {{"id", id}, {"native_id", link.proxyID},
                          {"owner", unit->getPlayer()->getID()},
+                         {"race", unit->getPlayer()->getRace().getName()},
+                         {"completed", unit->isCompleted()},
                          {"health", unit->getHitPoints()},
                          {"max_health", unit->getType().maxHitPoints()},
                          {"queue", unit->getTrainingQueue().size()},
@@ -161,6 +173,9 @@ public:
                          {"minerals", unit->getPlayer()->minerals()},
                          {"gas", unit->getPlayer()->gas()},
                          {"availability", availability},
+                         {"commands", commands},
+                         {"larva_count", unit->getType().producesLarva()
+                             ? unit->getLarva().size() : 0},
                          {"supply_used", unit->getPlayer()->supplyUsed()},
                          {"supply_total", unit->getPlayer()->supplyTotal()}},
                         game->getFrameCount());

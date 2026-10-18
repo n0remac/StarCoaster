@@ -1526,9 +1526,11 @@
                         || /^scenario:[a-z0-9-]{1,64}$/.test(args.id || ""))
                     && /^openbw:[0-9]+$/.test(args.native_id || "")
                     && ["owner", "health", "queue", "remaining_frames", "minerals", "gas",
-                        "supply_used", "supply_total"].every(function (field) {
+                        "supply_used", "supply_total", "larva_count"].every(function (field) {
                         return Number.isInteger(args[field]) && args[field] >= 0;
                     }) && args.health <= 1000000
+                    && ["Terran", "Zerg", "Protoss"].includes(args.race)
+                    && typeof args.completed === "boolean" && args.larva_count <= 3
                     && (args.max_health === undefined || (Number.isInteger(args.max_health)
                         && args.max_health >= args.health && args.max_health <= 1000000))
                     && args.queue <= 5
@@ -1539,6 +1541,20 @@
                             && typeof status.reason === "string" && status.reason.length > 0
                             && status.reason.length <= 64 && typeof status.requirement === "string"
                             && status.requirement.length <= 64;
+                    })
+                    && Array.isArray(args.commands) && args.commands.length <= 9
+                    && args.commands.every(function (command, slot) {
+                        return command && command.slot === slot && command.action === "unit.train"
+                            && !!UNIT_TYPES[command.unit_type]
+                            && typeof command.label === "string" && command.label.length > 0
+                            && command.label.length <= 64 && typeof command.ready === "boolean"
+                            && typeof command.reason === "string" && command.reason.length > 0
+                            && command.reason.length <= 64
+                            && typeof command.requirement === "string"
+                            && command.requirement.length <= 64
+                            && args.availability[command.unit_type]
+                            && args.availability[command.unit_type].ready === command.ready
+                            && args.availability[command.unit_type].reason === command.reason;
                     })
                     ? {} : { error: 1, errorMessage: "Invalid native building state" };
             }, function (event) {
@@ -1611,8 +1627,8 @@
             let nextSpawnRequest = 0;
             let nextWaveRequest = 0;
             let constructionWindow = null;
-            let barracksInfoWindow = null;
-            let barracksInfoID = "";
+            let buildingInfoWindow = null;
+            let buildingInfoID = "";
             let barracksPreview = null;
             let barracksPreviewStatus = "Select Barracks to place";
             let barracksQuery = 0;
@@ -2056,7 +2072,7 @@
                 dragStart = null; dragEnd = null;
                 ui.tileSelection.range = null;
             }
-            function barracksAt(event) {
+            function buildingAt(event) {
                 if (!event || !event.mapCoords || event.alt) return null;
                 const point = event.mapCoords;
                 const x = Math.floor(point.x / 32), y = Math.floor(point.y / 32);
@@ -2068,12 +2084,14 @@
                         const id = Object.keys(buildingObjects).filter(function (type) {
                             return buildingObjects[type] && buildingObjects[type].index === element.object;
                         })[0];
-                        if (id) return { x: point.x, y: point.y, buildingID: id };
+                        if (id) return { x: point.x, y: point.y,
+                            z: element.baseZ === undefined ? element.baseHeight * 8 : element.baseZ,
+                            buildingID: id };
                     }
                 }
                 return null;
             }
-            function barracksTargetAt(point) {
+            function buildingTargetAt(point) {
                 return Object.keys(worldTargetIds).filter(function (id) {
                     return !!targetBuildingID(id, worldTargetIds[id])
                         && worldTargetIds[id].geometry.rects.some(function (rect) {
@@ -2082,120 +2100,130 @@
                     });
                 })[0] || "";
             }
-            function openBarracksInfo(point) {
-                barracksInfoID = barracksTargetAt(point);
-                const initial = worldTargetIds[barracksInfoID];
-                const buildingID = targetBuildingID(barracksInfoID, initial) || point.buildingID;
+            function openBuildingInspector(point) {
+                buildingInfoID = buildingTargetAt(point);
+                const initial = worldTargetIds[buildingInfoID];
+                const buildingID = targetBuildingID(buildingInfoID, initial) || point.buildingID;
                 const building = BUILDING_TYPES[buildingID];
                 if (!building) return;
-                function identityText(native) {
-                    if (!native) return "Identity: awaiting native state";
-                    const generation = /#([0-9]+)$/.exec(barracksInfoID || "");
-                    return "Native: " + native.native_id + "  Generation: "
-                        + (generation ? generation[1] : "?");
+                const rects = initial && initial.geometry ? initial.geometry.rects : [];
+                const bounds = rects.length ? {
+                    left: Math.min.apply(null, rects.map(function (rect) { return rect.x; })),
+                    top: Math.min.apply(null, rects.map(function (rect) { return rect.y; })),
+                    right: Math.max.apply(null, rects.map(function (rect) { return rect.x + rect.width; })),
+                    bottom: Math.max.apply(null, rects.map(function (rect) { return rect.y + rect.height; }))
+                } : { left: Math.floor(point.x / 32) * 32, top: Math.floor(point.y / 32) * 32,
+                    right: Math.floor(point.x / 32) * 32 + building.width * 32,
+                    bottom: Math.floor(point.y / 32) * 32 + building.height * 32 };
+                const centre = { x: Math.floor((bounds.left + bounds.right) / 2),
+                    y: Math.floor((bounds.top + bounds.bottom) / 2), z: point.z || 0 };
+                const reasonLabels = { building_unavailable: "Building unavailable",
+                    insufficient_minerals: "Insufficient minerals", insufficient_gas: "Insufficient gas",
+                    supply_limit: "Supply limit", queue_full: "Queue full",
+                    native_unavailable: "Unavailable" };
+                function commandText(command) {
+                    if (!command) return "";
+                    return command.label.replace(/^Terran |^Zerg |^Protoss /, "");
                 }
-                function availabilityText(unitID, availability) {
-                    const name = UNIT_TYPES[unitID].name;
-                    if (!availability) return name + ": awaiting native state";
-                    if (availability.ready) return "Train " + name + " (ready)";
-                    const labels = { building_unavailable: "Building unavailable",
-                        insufficient_minerals: "Insufficient minerals",
-                        insufficient_gas: "Insufficient gas", supply_limit: "Supply limit reached",
-                        queue_full: "Production queue full", native_unavailable: "Unavailable" };
-                    const reason = availability.reason === "requires_building"
-                        ? "Requires " + availability.requirement.replace(/_/g, " ").replace(/^Terran /, "")
-                        : labels[availability.reason] || "Unavailable";
-                    return name + ": " + reason;
+                function nativeReason(command) {
+                    if (!command) return "";
+                    if (command.reason === "requires_building")
+                        return "Requires " + command.requirement.replace(/_/g, " ");
+                    return reasonLabels[command.reason] || command.reason.replace(/_/g, " ");
                 }
-                if (barracksInfoWindow) barracksInfoWindow.close();
-                barracksInfoWindow = ui.openWindow({ classification: buildingID === "terran_barracks"
-                    ? "starcoaster-barracks-info" : "starcoaster-building-info",
-                    width: 244, height: 168 + building.production.length * 26,
-                    title: building.name,
-                    onClose: function () { barracksInfoWindow = null; },
+                if (buildingInfoWindow) buildingInfoWindow.close();
+                const card = Array.from({ length: 9 }, function (_, slot) {
+                    return { type: "button", name: "building-command-" + slot,
+                        x: 289 + (slot % 3) * 49, y: 35 + Math.floor(slot / 3) * 48,
+                        width: 46, height: 44, text: "", isDisabled: true,
+                        onClick: function () {
+                            const native = buildingStates[buildingInfoID];
+                            const command = native && native.commands ? native.commands[slot] : null;
+                            if (!command || !command.ready || native.owner !== terranOwner
+                                || command.action !== "unit.train") return;
+                            const request = ++nextRequest;
+                            pendingTrainTypes[request] = commandText(command);
+                            productionFeedback = "Requesting " + commandText(command) + "...";
+                            context.executeAction(COMMAND_ACTION, { session: controlSession,
+                                request: request, unit_ids: [], verb: "train",
+                                unit_type: command.unit_type, target_entity_id: buildingInfoID },
+                            function (result) {
+                                if (result.error) {
+                                    delete pendingTrainTypes[request];
+                                    productionFeedback = result.errorMessage;
+                                }
+                            });
+                        } };
+                });
+                buildingInfoWindow = ui.openWindow({ classification: "starcoaster-building-info",
+                    width: 445, height: 300, title: building.name,
+                    onClose: function () { buildingInfoWindow = null; buildingInfoID = ""; },
                     onUpdate: function () {
-                        if (!barracksInfoWindow) return;
-                        if (!barracksInfoID) barracksInfoID = barracksTargetAt(point);
-                        const target = worldTargetIds[barracksInfoID];
-                        const native = buildingStates[barracksInfoID];
-                        const owner = barracksInfoWindow.findWidget("building-owner");
-                        const identity = barracksInfoWindow.findWidget("building-identity");
-                        const health = barracksInfoWindow.findWidget("building-health");
-                        const status = barracksInfoWindow.findWidget("building-status");
-                        const queue = barracksInfoWindow.findWidget("building-queue");
-                        const resources = barracksInfoWindow.findWidget("building-resources");
-                        const feedback = barracksInfoWindow.findWidget("building-feedback");
-                        if (owner) owner.text = "Owner: Terran (player " + (native ? native.owner : terranOwner) + ")";
-                        if (identity) identity.text = identityText(native);
-                        if (health) health.text = native ? "Health: " + native.health + "/" + (native.max_health || building.maxHealth)
-                            : target ? "Health: " + target.health : "Health: awaiting native state";
-                        if (status) status.text = target && native ? "Construction: complete"
-                            : "Construction: synchronizing";
-                        if (queue) queue.text = native ? "Queue: " + native.queue
-                            + (native.queue ? " (" + Math.ceil(native.remaining_frames / 24) + "s remaining)" : "")
-                            : "Queue: awaiting native state";
-                        const report = playerResources[terranOwner] || native;
-                        if (resources) resources.text = report ? "Minerals: " + report.minerals
-                            + "  Gas: " + report.gas + "  Supply: "
-                            + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
-                        if (feedback) feedback.text = productionFeedback;
-                        building.production.forEach(function (unitID) {
-                            const button = barracksInfoWindow.findWidget(unitID === "terran_marine"
-                                ? "building-train" : "building-train-" + unitID);
-                            const availability = native && native.availability
-                                ? native.availability[unitID] : null;
-                            if (button) {
-                                button.isDisabled = !target || !native || native.health < 1
-                                    || native.owner !== terranOwner || !availability || !availability.ready;
-                                button.text = availabilityText(unitID, availability);
-                            }
+                        if (!buildingInfoWindow) return;
+                        if (!buildingInfoID) buildingInfoID = buildingTargetAt(point);
+                        const target = worldTargetIds[buildingInfoID];
+                        if (!target && initial) { buildingInfoWindow.close(); return; }
+                        const native = buildingStates[buildingInfoID];
+                        const resources = native ? (playerResources[native.owner] || native) : null;
+                        const camera = buildingInfoWindow.findWidget("building-camera");
+                        if (camera && camera.viewport) {
+                            const viewport = camera.viewport;
+                            if (ui.mainViewport && viewport.rotation !== ui.mainViewport.rotation)
+                                viewport.rotation = ui.mainViewport.rotation;
+                            if (viewport.zoom !== 0) viewport.zoom = 0;
+                            viewport.moveTo(centre);
+                        }
+                        const fields = {
+                            "building-owner": native ? "Owner: " + native.race + " (player " + native.owner + ")"
+                                : "Owner: awaiting native state",
+                            "building-health": native ? "HP: " + native.health + "/" + native.max_health
+                                : "HP: awaiting native state",
+                            "building-status": native ? (native.completed ? "Complete" : "Constructing")
+                                + "  Queue: " + native.queue
+                                + (native.remaining_frames ? "  Remaining: " + native.remaining_frames + " frames" : "")
+                                + (native.larva_count ? "  Larvae: " + native.larva_count : "")
+                                : "Native status: synchronizing",
+                            "building-resources": resources ? "Minerals: " + resources.minerals + "  Gas: " + resources.gas
+                                + "  Supply: " + (resources.supply_used / 2) + "/" + (resources.supply_total / 2) : "",
+                            "building-feedback": productionFeedback
+                        };
+                        Object.keys(fields).forEach(function (name) {
+                            const widget = buildingInfoWindow.findWidget(name);
+                            if (widget) widget.text = fields[name];
                         });
+                        for (let slot = 0; slot < 9; slot++) {
+                            const widget = buildingInfoWindow.findWidget("building-command-" + slot);
+                            const command = native && native.commands ? native.commands[slot] : null;
+                            if (!widget) continue;
+                            widget.text = commandText(command);
+                            widget.isDisabled = !target || !native || native.health < 1
+                                || native.owner !== terranOwner || !command || !command.ready;
+                            widget.tooltip = command ? (command.ready ? "Train " + command.label
+                                : nativeReason(command)) : "";
+                        }
                     }, widgets: [
-                        { type: "label", name: "building-owner", x: 8, y: 19, width: 228,
-                            height: 14, text: "Owner: Terran" },
-                        { type: "label", name: "building-identity", x: 8, y: 37, width: 228,
-                            height: 14, text: "Identity: awaiting native state" },
-                        { type: "label", name: "building-health", x: 8, y: 55, width: 228,
-                            height: 14, text: "Health: awaiting native state" },
-                        { type: "label", name: "building-status", x: 8, y: 73, width: 228,
-                            height: 14, text: "Construction: synchronizing" },
-                    ].concat(building.production.length ? [
-                        { type: "label", name: "building-queue", x: 8, y: 91, width: 228,
-                            height: 14, text: "Queue: awaiting native state" },
-                        { type: "label", name: "building-resources", x: 8, y: 109, width: 228,
+                        { type: "viewport", name: "building-camera", x: 8, y: 20,
+                            width: 268, height: 194 },
+                        { type: "groupbox", name: "building-card-frame", x: 281, y: 20,
+                            width: 155, height: 164, text: "Commands" },
+                        { type: "label", name: "building-owner", x: 8, y: 222, width: 430,
+                            height: 14, text: "Owner: awaiting native state" },
+                        { type: "label", name: "building-health", x: 8, y: 239, width: 430,
+                            height: 14, text: "HP: awaiting native state" },
+                        { type: "label", name: "building-status", x: 8, y: 256, width: 430,
+                            height: 14, text: "Native status: synchronizing" },
+                        { type: "label", name: "building-resources", x: 8, y: 273, width: 430,
                             height: 14, text: "" },
-                    ] : []).concat(building.production.map(function (unitID, index) {
-                        return { type: "button", name: unitID === "terran_marine"
-                            ? "building-train" : "building-train-" + unitID,
-                            x: 8, y: 130 + index * 26, width: 228, height: 22,
-                            text: "Train " + UNIT_TYPES[unitID].name, isDisabled: true,
-                            onClick: function () {
-                                if (!barracksInfoID) return;
-                                productionFeedback = "Requesting " + UNIT_TYPES[unitID].name + " training...";
-                                const request = ++nextRequest;
-                                pendingTrainTypes[request] = UNIT_TYPES[unitID].name;
-                                context.executeAction(COMMAND_ACTION, { session: controlSession,
-                                    request: request, unit_ids: [], verb: "train",
-                                    unit_type: unitID,
-                                    target_entity_id: barracksInfoID }, function (result) {
-                                    if (result.error) {
-                                        delete pendingTrainTypes[request];
-                                        productionFeedback = result.errorMessage;
-                                    }
-                                });
-                            } };
-                    }), building.production.length ? [
-                        { type: "label", name: "building-feedback", x: 8,
-                            y: 158 + Math.max(0, building.production.length - 1) * 26, width: 228,
-                            height: 24, text: "" }
-                    ] : []) });
+                        { type: "label", name: "building-feedback", x: 283, y: 190, width: 155,
+                            height: 27, text: "" }
+                    ].concat(card) });
             }
             if (typeof ui.registerViewportInteraction !== "function")
                 throw new Error("RTS Bridge needs the native shared viewport input build");
             const marineSelection = { id: "starcoaster.select-marine",
                 filter: ["terrain", "water", "footpath", "ride", "wall", "scenery", "large_scenery"],
                 onHover: function (event) {
-                    return !event.alt && (!!unitAtScreen(event.screenCoords, true) || !!barracksAt(event));
+                    return !event.alt && (!!unitAtScreen(event.screenCoords, true) || !!buildingAt(event));
                 },
                 onDown: function (event) {
                     clearDrag();
@@ -2223,9 +2251,9 @@
                     }
                     const id = unitAtScreen(end, true);
                     if (!id) {
-                        const building = barracksAt(event);
+                        const building = buildingAt(event);
                         if (!building) return false;
-                        openBarracksInfo(building);
+                        openBuildingInspector(building);
                         return true;
                     }
                     chooseAt(id, event.shift);
