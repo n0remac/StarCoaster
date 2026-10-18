@@ -599,6 +599,18 @@ def main():
                 if recorder:
                     recorder.event("building_hud_gallery", client="client-a",
                                    building=label, filename="building-hud-gallery/" + filename)
+                if label in ("Barracks", "Factory"):
+                    unit_type = "terran_marine" if label == "Barracks" else "terran_vulture"
+                    subprocess.run(["xdotool", "mousemove", "1147", "120", "click", "1"],
+                                   env=display_env, check=True)
+                    wait_for(out / "server.log", "unit_type=" + unit_type, session, 15)
+                    time.sleep(0.3)
+                    training = label.lower() + "-training.png"
+                    subprocess.run(["scrot", "-z", "-o", str(gallery / training)],
+                                   env=display_env, check=True)
+                    if recorder:
+                        recorder.event("building_hud_training", client="client-a",
+                                       building=label, filename="building-hud-gallery/" + training)
             subprocess.run(["xdotool", "mousemove", "1272", "77", "click", "1"],
                            env=display_env, check=True)
             subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+h"],

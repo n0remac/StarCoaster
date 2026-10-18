@@ -672,6 +672,20 @@ assert.equal(actions.length, priorActions + 1);
 assert.equal(actions.at(-1).name, 'rtsbridge.marineCommand');
 assert.equal(actions.at(-1).args.unit_type, 'zerg_zergling');
 assert.equal(actions.at(-1).args.target_entity_id, hudTargets[5].id);
+registered.get('rtsbridge.commandResult').execute({ player: 1, args: {
+    player: 1, request: actions.at(-1).args.request,
+    unit: hudTargets[5].id, accepted: true, reason: 'ok' } });
+authorizedHatcheryWindow.onUpdate();
+assert.equal(authorizedHatcheryWindow.widgets.find(
+    widget => widget.name === 'building-feedback').text, 'Zergling training started');
+zergButton.onClick();
+registered.get('rtsbridge.commandResult').execute({ player: 1, args: {
+    player: 1, request: actions.at(-1).args.request,
+    unit: hudTargets[5].id, accepted: false, reason: 'native_train_rejected' } });
+authorizedHatcheryWindow.onUpdate();
+assert.equal(authorizedHatcheryWindow.widgets.find(
+    widget => widget.name === 'building-feedback').text,
+    'Training rejected: native_train_rejected');
 const zergOrder = { session: sid, request: 981, unit_ids: [], verb: 'train',
     unit_type: 'zerg_zergling', target_entity_id: hudTargets[5].id };
 assert.equal(command.query({ player: 1, args: zergOrder }).error, undefined,

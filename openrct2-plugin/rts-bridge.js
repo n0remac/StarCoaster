@@ -1061,7 +1061,7 @@
         let missionStatus = null;
         let shownOutcome = "";
         let commandFeedback = "";
-        let productionFeedback = "";
+        const productionFeedback = {};
         const pendingTrainTypes = {};
         let buildingStates = {};
         let playerResources = {};
@@ -1513,10 +1513,10 @@
             }, function (event) {
                 const args = event.args;
                 if (args.player === network.currentPlayer.id) {
-                    if (args.unit.startsWith("openrct2:")) {
-                        const unitName = pendingTrainTypes[args.request] || "Unit";
+                    const pending = pendingTrainTypes[args.request];
+                    if (pending) {
                         delete pendingTrainTypes[args.request];
-                        productionFeedback = args.accepted ? unitName + " training started"
+                        productionFeedback[pending.target] = args.accepted ? pending.label + " training started"
                             : "Training rejected: " + args.reason;
                         console.log("WORLD_TRAIN_RESULT id=" + args.unit + " accepted="
                             + args.accepted + " reason=" + args.reason);
@@ -2163,15 +2163,17 @@
                             if (!command || !command.ready || !mayCommandBuilding(native)
                                 || command.action !== "unit.train") return;
                             const request = ++nextRequest;
-                            pendingTrainTypes[request] = commandText(command);
-                            productionFeedback = "Requesting " + commandText(command) + "...";
+                            const targetID = buildingInfoID;
+                            pendingTrainTypes[request] = { label: commandText(command),
+                                target: targetID };
+                            productionFeedback[targetID] = "Requesting " + commandText(command) + "...";
                             context.executeAction(COMMAND_ACTION, { session: controlSession,
                                 request: request, unit_ids: [], verb: "train",
-                                unit_type: command.unit_type, target_entity_id: buildingInfoID },
+                                unit_type: command.unit_type, target_entity_id: targetID },
                             function (result) {
                                 if (result.error) {
                                     delete pendingTrainTypes[request];
-                                    productionFeedback = result.errorMessage;
+                                    productionFeedback[targetID] = result.errorMessage;
                                 }
                             });
                         } };
@@ -2214,7 +2216,7 @@
                                 : "Native status: synchronizing",
                             "building-resources": resources ? "Minerals: " + resources.minerals + "  Gas: " + resources.gas
                                 + "  Supply: " + (resources.supply_used / 2) + "/" + (resources.supply_total / 2) : "",
-                            "building-feedback": productionFeedback
+                            "building-feedback": productionFeedback[buildingInfoID] || ""
                         };
                         Object.keys(fields).forEach(function (name) {
                             const widget = buildingInfoWindow.findWidget(name);

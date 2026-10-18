@@ -12,6 +12,7 @@ from PIL import Image
 LABELS = ("hatchery", "spawning-pool", "barracks", "academy",
           "supply-depot", "factory", "armory")
 ACTOR = re.compile(r"openbw:(\d+),[^;\n]*?,(zerg_larva|zerg_egg|zerg_zergling),")
+TERRAN_ACTOR = re.compile(r"openbw:(\d+),[^;\n]*?,(terran_marine|terran_vulture),")
 
 
 def observed(log):
@@ -36,6 +37,9 @@ def main(out):
     client = [(out / f"client-{name}.log").read_text(errors="replace")
               for name in ("a", "b")]
     traces = [observed(log) for log in client]
+    terran = [{kind: {int(native) for native, actor in TERRAN_ACTOR.findall(log)
+                      if actor == kind} for kind in ("terran_marine", "terran_vulture")}
+              for log in client]
     morph_ids = [kinds["zerg_egg"] & kinds["zerg_zergling"] for kinds, _ in traces]
     matching_morphs = set.intersection(*morph_ids)
     matching_pairs = traces[0][1] & traces[1][1]
@@ -53,6 +57,10 @@ def main(out):
             for label in ("Spawning Pool", "Barracks", "Academy", "Supply Depot", "Factory", "Armory")),
         "native_zerg_order_accepted": bool(re.search(
             r"native production command=.*unit_type=zerg_zergling accepted=1", server)),
+        "barracks_ui_training_accepted": bool(re.search(
+            r"\[world-control\] train command=.*accepted=1[^\n]*unit_type=terran_marine", server)),
+        "factory_ui_training_accepted": bool(re.search(
+            r"\[world-control\] train command=.*accepted=1[^\n]*unit_type=terran_vulture", server)),
         "client_order_submitted": bool(re.search(r"NATIVE_HUD_ORDER request=\d+ accepted=true", client[0])),
         "both_clients_saw_larvae": all(kinds["zerg_larva"] for kinds, _ in traces),
         "same_larva_became_egg_and_zergling": any(
@@ -60,6 +68,13 @@ def main(out):
         "both_clients_saw_same_egg_morph": bool(matching_morphs),
         "both_clients_saw_distinct_zergling_pair": any(
             any(native in pair for native in matching_morphs) for pair in matching_pairs),
+        "training_gallery": all((gallery / f"{label}-training.png").is_file()
+                                for label in ("barracks", "factory")),
+        "both_clients_saw_trained_marine": bool(
+            (terran[0]["terran_marine"] & terran[1]["terran_marine"])
+            - set(range(1000, 1005))),
+        "both_clients_saw_trained_vulture": bool(
+            terran[0]["terran_vulture"] & terran[1]["terran_vulture"]),
     }
     report["native_production_hud"] = {
         "checks": checks, "gallery": [f"building-hud-gallery/{label}.png" for label in images],
