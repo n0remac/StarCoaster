@@ -63,6 +63,8 @@ inline const std::vector<WorldBuildingType>& worldBuildingTypes() {
         {"terran_supply_depot", BWAPI::UnitTypes::Terran_Supply_Depot, "starcoaster.scenery_large.terran_supply_depot", 3, 2, "Terran Supply Depot", false, {}},
         {"terran_factory", BWAPI::UnitTypes::Terran_Factory, "starcoaster.scenery_large.terran_factory", 4, 3, "Terran Factory", true, {"terran_vulture", "terran_goliath"}},
         {"terran_armory", BWAPI::UnitTypes::Terran_Armory, "starcoaster.scenery_large.terran_armory", 3, 2, "Terran Armory", false, {}},
+        {"zerg_hatchery", BWAPI::UnitTypes::Zerg_Hatchery, "starcoaster.scenery_large.zerg_hatchery", 4, 3, "Zerg Hatchery", false, {}},
+        {"zerg_spawning_pool", BWAPI::UnitTypes::Zerg_Spawning_Pool, "starcoaster.scenery_large.zerg_spawning_pool", 3, 2, "Zerg Spawning Pool", false, {}},
 
         // END GENERATED STARCRAFT BUILDINGS
     };

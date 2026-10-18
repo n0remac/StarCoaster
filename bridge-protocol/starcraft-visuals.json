@@ -686,6 +686,34 @@
         -18
       ],
       "art_method": "static"
+    },
+    "zerg_hatchery": {
+      "image": "Hatchery",
+      "asset": "hatchery",
+      "source_size": [
+        192,
+        160
+      ],
+      "frame_count": 6,
+      "output_size": [
+        189,
+        164
+      ],
+      "art_method": "static"
+    },
+    "zerg_spawning_pool": {
+      "image": "Spawning_Pool",
+      "asset": "spawning_pool",
+      "source_size": [
+        96,
+        128
+      ],
+      "frame_count": 4,
+      "output_size": [
+        140,
+        140
+      ],
+      "art_method": "static"
     }
   }
 }

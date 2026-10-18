@@ -202,6 +202,28 @@
       "max_health": 750,
       "visual": "terran_armory",
       "production": []
+    },
+    {
+      "id": "zerg_hatchery",
+      "native_type": "Zerg_Hatchery",
+      "object_id": "starcoaster.scenery_large.zerg_hatchery",
+      "display_name": "Zerg Hatchery",
+      "width": 4,
+      "height": 3,
+      "max_health": 1250,
+      "visual": "zerg_hatchery",
+      "production": []
+    },
+    {
+      "id": "zerg_spawning_pool",
+      "native_type": "Zerg_Spawning_Pool",
+      "object_id": "starcoaster.scenery_large.zerg_spawning_pool",
+      "display_name": "Zerg Spawning Pool",
+      "width": 3,
+      "height": 2,
+      "max_health": 750,
+      "visual": "zerg_spawning_pool",
+      "production": []
     }
   ]
 }

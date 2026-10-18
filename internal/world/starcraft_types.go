@@ -35,6 +35,8 @@ var buildingDefinitions = map[string]BuildingDefinition{
 	"terran_supply_depot": {ID: "terran_supply_depot", NativeType: "Terran_Supply_Depot", ObjectID: "starcoaster.scenery_large.terran_supply_depot", DisplayName: "Terran Supply Depot", Visual: "terran_supply_depot", Width: 3, Height: 2, MaxHealth: 500, Production: []string{}},
 	"terran_factory": {ID: "terran_factory", NativeType: "Terran_Factory", ObjectID: "starcoaster.scenery_large.terran_factory", DisplayName: "Terran Factory", Visual: "terran_factory", Width: 4, Height: 3, MaxHealth: 1250, Production: []string{"terran_vulture", "terran_goliath"}},
 	"terran_armory": {ID: "terran_armory", NativeType: "Terran_Armory", ObjectID: "starcoaster.scenery_large.terran_armory", DisplayName: "Terran Armory", Visual: "terran_armory", Width: 3, Height: 2, MaxHealth: 750, Production: []string{}},
+	"zerg_hatchery": {ID: "zerg_hatchery", NativeType: "Zerg_Hatchery", ObjectID: "starcoaster.scenery_large.zerg_hatchery", DisplayName: "Zerg Hatchery", Visual: "zerg_hatchery", Width: 4, Height: 3, MaxHealth: 1250, Production: []string{}},
+	"zerg_spawning_pool": {ID: "zerg_spawning_pool", NativeType: "Zerg_Spawning_Pool", ObjectID: "starcoaster.scenery_large.zerg_spawning_pool", DisplayName: "Zerg Spawning Pool", Visual: "zerg_spawning_pool", Width: 3, Height: 2, MaxHealth: 750, Production: []string{}},
 }
 
 // END GENERATED STARCRAFT TYPES

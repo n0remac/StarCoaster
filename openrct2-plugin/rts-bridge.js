@@ -34,6 +34,8 @@
         terran_supply_depot: { name: "Terran Supply Depot", objectID: "starcoaster.scenery_large.terran_supply_depot", width: 3, height: 2, maxHealth: 500, production: [], animation: null },
         terran_factory: { name: "Terran Factory", objectID: "starcoaster.scenery_large.terran_factory", width: 4, height: 3, maxHealth: 1250, production: ["terran_vulture", "terran_goliath"], animation: null },
         terran_armory: { name: "Terran Armory", objectID: "starcoaster.scenery_large.terran_armory", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
+        zerg_hatchery: { name: "Zerg Hatchery", objectID: "starcoaster.scenery_large.zerg_hatchery", width: 4, height: 3, maxHealth: 1250, production: [], animation: null },
+        zerg_spawning_pool: { name: "Zerg Spawning Pool", objectID: "starcoaster.scenery_large.zerg_spawning_pool", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
     });
     // END GENERATED STARCRAFT TYPES
     const buildingByObject = {};

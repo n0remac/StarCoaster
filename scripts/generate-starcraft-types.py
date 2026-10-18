@@ -323,8 +323,10 @@ def validate_entities(entities, root=ROOT):
                                              or not TYPE_ID.fullmatch(entity["produced_at"])):
                 raise ValueError(f"{label}: produced_at: expected one building ID")
         else:
-            if not entity["native_type"].startswith("Terran_"):
-                raise ValueError(f"{label}: native_type: only conventional Terran buildings are supported")
+            if not entity["native_type"].startswith(("Terran_", "Zerg_")):
+                raise ValueError(f"{label}: native_type: unsupported building race")
+            if entity["native_type"].startswith("Zerg_") and entity["conventional_training"]:
+                raise ValueError(f"{label}: conventional_training: Zerg buildings are passive")
             for field in ("object_id",):
                 value = entity[field]
                 if not isinstance(value, str) or not OBJECT_ID.fullmatch(value) or value in seen[field]:

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "building",
+  "id": "zerg_spawning_pool",
+  "registry_order": 70,
+  "native_type": "Zerg_Spawning_Pool",
+  "object_id": "starcoaster.scenery_large.zerg_spawning_pool",
+  "display_name": "Zerg Spawning Pool",
+  "width": 3,
+  "height": 2,
+  "max_health": 750,
+  "conventional_training": false,
+  "visual": {
+    "image": "Spawning_Pool",
+    "asset": "spawning_pool",
+    "source_size": [96, 128],
+    "frame_count": 4,
+    "output_size": [140, 140],
+    "art_method": "static"
+  }
+}
