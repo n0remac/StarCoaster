@@ -12,10 +12,12 @@ registerPlugin({ name: "Zerg base capture probe", version: "1.0.0", authors: ["S
             { id: "scenario:western-hatchery", type: "zerg_hatchery", x: 8, y: 31, z: 112 }
         ];
         const lastHealth = {}, lastPresence = {};
+        const hatcheryMarineIDs = {};
         let started = 0, ticks = 0, request = 5000, wave = 0, nextWave = 5;
         let waveRequestID = "", waveRequestedAt = 0;
-        let spawnRequested = false, moved = false, attackedPool = false, attackedHatchery = false;
-        let lastAttack = 0, mixedLogged = false;
+        let spawnRequested = false, hatcherySpawnRequested = false, poolSpawnRequested = false, moved = false;
+        let attackedPool = false, attackedHatchery = false;
+        let lastAttack = 0, lastHatcheryAttack = 0, mixedLogged = false;
         function present(structure) {
             const object = objectManager.getAllObjects("large_scenery").find(function (item) {
                 return item.identifier === "starcoaster.scenery_large." + structure.type;
@@ -48,6 +50,15 @@ registerPlugin({ name: "Zerg base capture probe", version: "1.0.0", authors: ["S
             }
             if (event.action === "rtsbridge.spawnStatus" && /^.*:zerg-base:marines$/.test(args.request_id || ""))
                 console.log("ZERG_BASE_SPAWN state=" + args.state + " reason=" + args.reason);
+            if (event.action === "rtsbridge.spawnStatus" && /^.*:zerg-base:hatchery-marines$/.test(args.request_id || "")) {
+                (args.units || []).forEach(function (unit) {
+                    if (unit.state === "ready" && unit.actor_id) hatcheryMarineIDs[unit.actor_id] = true;
+                });
+                console.log("ZERG_BASE_HATCHERY_SPAWN state=" + args.state
+                    + " ready=" + Object.keys(hatcheryMarineIDs).length);
+            }
+            if (event.action === "rtsbridge.spawnStatus" && /^.*:zerg-base:pool-marines$/.test(args.request_id || ""))
+                console.log("ZERG_BASE_POOL_SPAWN state=" + args.state);
             if (event.action === "rtsbridge.waveStatus" && args.request_id === waveRequestID) {
                 console.log("ZERG_BASE_WAVE state=" + args.state + " id=" + args.wave_id);
                 waveRequestID = "";
@@ -100,7 +111,7 @@ registerPlugin({ name: "Zerg base capture probe", version: "1.0.0", authors: ["S
                 waveRequestID = "";
                 nextWave = seconds + 5;
             }
-            if (!lifecycle && wave < 4 && !waveRequestID && seconds >= nextWave) {
+            if (!lifecycle && wave < 3 && !waveRequestID && seconds >= nextWave) {
                 const number = ++request;
                 const id = snapshot.session + ":wave:" + network.currentPlayer.id + ":" + number;
                 waveRequestID = id;
@@ -115,12 +126,30 @@ registerPlugin({ name: "Zerg base capture probe", version: "1.0.0", authors: ["S
                     }
                 });
             }
-            if (!spawnRequested && seconds >= (lifecycle ? 5 : 15)) {
+            if (!spawnRequested && seconds >= 5) {
                 spawnRequested = true;
                 context.executeAction("rtsbridge.spawnMarine", { session: snapshot.session,
                     request_id: snapshot.session + ":zerg-base:marines", count: 5,
-                    x: 20 * 32, y: 38 * 32 }, function (result) {
+                    x: (lifecycle ? 20 : 16) * 32, y: 38 * 32 }, function (result) {
                     console.log("ZERG_BASE_SPAWN_REQUEST accepted=" + !result.error
+                        + " reason=" + (result.errorMessage || "ok"));
+                });
+            }
+            if (!lifecycle && !hatcherySpawnRequested && seconds >= 8) {
+                hatcherySpawnRequested = true;
+                context.executeAction("rtsbridge.spawnMarine", { session: snapshot.session,
+                    request_id: snapshot.session + ":zerg-base:hatchery-marines", count: 5,
+                    x: 16 * 32, y: 32 * 32 }, function (result) {
+                    console.log("ZERG_BASE_HATCHERY_SPAWN_REQUEST accepted=" + !result.error
+                        + " reason=" + (result.errorMessage || "ok"));
+                });
+            }
+            if (!lifecycle && !poolSpawnRequested && seconds >= 11) {
+                poolSpawnRequested = true;
+                context.executeAction("rtsbridge.spawnMarine", { session: snapshot.session,
+                    request_id: snapshot.session + ":zerg-base:pool-marines", count: 5,
+                    x: 16 * 32, y: 38 * 32 }, function (result) {
+                    console.log("ZERG_BASE_POOL_SPAWN_REQUEST accepted=" + !result.error
                         + " reason=" + (result.errorMessage || "ok"));
                 });
             }
@@ -131,16 +160,31 @@ registerPlugin({ name: "Zerg base capture probe", version: "1.0.0", authors: ["S
             if (marines.length >= 3 && !moved) {
                 moved = true;
                 console.log("ZERG_BASE_MARINES count=" + marines.length + " x=" + marines[0].x);
-                command(snapshot, marines, "move", { x: 17 * 32, y: 38 * 32 }, "approach_base");
+                command(snapshot, marines, "move", { x: (lifecycle ? 17 : 13) * 32,
+                    y: 38 * 32 }, "approach_base");
             }
-            if (!moved || seconds < (lifecycle ? 11 : 50) || marines.length < 1) return;
+            const hatcheryMarines = marines.filter(function (unit) {
+                return hatcheryMarineIDs[unit.id];
+            });
+            if (!lifecycle && hatcheryMarines.length && present(structures[0])
+                && present(structures[1]) && Date.now() - lastHatcheryAttack >= 8000) {
+                lastHatcheryAttack = Date.now();
+                attackedHatchery = true;
+                command(snapshot, hatcheryMarines, "attack",
+                    { target_entity_id: structures[1].id }, "hatchery");
+            }
+            if (!moved || seconds < (lifecycle ? 11 : 15) || marines.length < 1) return;
             const target = present(structures[0]) ? structures[0]
                 : !lifecycle && present(structures[1]) ? structures[1] : null;
             if (!target || Date.now() - lastAttack < 8000) return;
             lastAttack = Date.now();
             if (target === structures[0]) attackedPool = true;
             else attackedHatchery = true;
-            command(snapshot, marines, "attack", { target_entity_id: target.id },
+            const attackers = target === structures[0] ? marines.filter(function (unit) {
+                return !hatcheryMarineIDs[unit.id];
+            }) : marines;
+            if (!attackers.length) return;
+            command(snapshot, attackers, "attack", { target_entity_id: target.id },
                 target === structures[0] ? "spawning_pool" : "hatchery");
             if (attackedPool && attackedHatchery)
                 console.log("ZERG_BASE_BOTH_ATTACKED true");
