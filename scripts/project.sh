@@ -27,6 +27,9 @@ case "$command" in
     build-wasm)
         exec scripts/build-openrct2-wasm.sh "$@"
         ;;
+    prepare-wasm-arm64)
+        exec scripts/prepare-openrct2-wasm-arm64.sh "$@"
+        ;;
     serve-wasm)
         exec scripts/serve-wasm.sh "$@"
         ;;
@@ -108,7 +111,7 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {start|build|build-wasm|serve-wasm|deploy-wasm|test-wasm|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
+Usage: scripts/project.sh {start|build|prepare-wasm-arm64|build-wasm|serve-wasm|deploy-wasm|test-wasm|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
 
 start [--scenario ID] [--headless|--client] [--browser|--browser-bundle DIR]
                                         Fetch, build, stage, and play.
@@ -118,6 +121,7 @@ record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
 validate-scenario ID                    Validate scenario configuration.
 build, test, test-live                   Build and run offline or licensed live tests.
 build-wasm                               Build the patched graphical OpenRCT2 WASM client.
+prepare-wasm-arm64                      Install the pinned Emscripten toolchain and dependencies on the build drive.
 serve-wasm [server flags]                Serve the private bundle on localhost with browser headers.
 deploy-wasm [BUNDLE_DIR]                 Stage a versioned private bundle without restarting a game.
 test-wasm                                Test the gateway and validate a built WASM bundle.

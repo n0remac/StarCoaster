@@ -6,6 +6,15 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
+export CCACHE_DIR="${CCACHE_DIR:-$project_dir/build/wasm-ccache}"
+mkdir -p "$CCACHE_DIR"
+if [[ "${OPENRCT2_WASM_LOCAL:-0}" == 1 && ! -x "$(command -v emcmake || true)" && -f "$project_dir/build/emsdk/emsdk_env.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$project_dir/build/emsdk/emsdk_env.sh"
+fi
+if [[ "${OPENRCT2_WASM_LOCAL:-0}" == 1 && -z "${OPENRCT2_WASM_DEPS:-}" ]]; then
+    export OPENRCT2_WASM_DEPS="$project_dir/build/openrct2-wasm-deps"
+fi
 if [[ "${1:-}" == --help ]]; then
     cat <<'EOF'
 Usage: scripts/project.sh build-wasm
