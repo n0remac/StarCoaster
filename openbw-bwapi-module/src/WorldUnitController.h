@@ -8,6 +8,7 @@
 #include "WorldFirebatTechProbe.h"
 #include "WorldMedicVultureProbe.h"
 #include "WorldGoliathProbe.h"
+#include "WorldZergProductionProbe.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -62,6 +63,7 @@ public:
         firebatTechProbe_.onFrame(game);
         medicVultureProbe_.onFrame(game);
         goliathProbe_.onFrame(game);
+        zergProductionProbe_.onFrame(game);
         if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY") && game->getFrameCount() % 120 == 0) {
             for (auto unit : game->getAllUnits())
                 if (unit && unit->exists() && unit->getPlayer() == game->self()
@@ -852,6 +854,7 @@ private:
     WorldFirebatTechProbe firebatTechProbe_{true};
     WorldMedicVultureProbe medicVultureProbe_{true};
     WorldGoliathProbe goliathProbe_{true};
+    WorldZergProductionProbe zergProductionProbe_{false};
     std::map<int, CreationCandidate> creationCandidates_;
     std::map<std::string, json> identities_, publisherBindings_;
     std::set<std::string> ambiguousActors_;

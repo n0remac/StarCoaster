@@ -80,6 +80,16 @@ def scenario_units(path: Path) -> list[bytes]:
         # This map-only supply provider lies outside the park and is never a
         # player construction option. OpenBW owns its supply accounting.
         units.append(unit(2000, tile[0] * 32 + 48, tile[1] * 32 + 32, 109, 1))
+    if fixture.get("zerg_minerals", 0):
+        tile = fixture.get("native_overlord")
+        if (not isinstance(tile, list) or len(tile) != 2
+                or any(type(v) is not int or not 1 <= v <= 254 for v in tile)):
+            raise ValueError("invalid native Overlord fixture")
+        park_x, park_y = (MAP_SIZE - size[0]) // 2, (MAP_SIZE - size[1]) // 2
+        if park_x <= tile[0] < park_x + size[0] and park_y <= tile[1] < park_y + size[1]:
+            raise ValueError("native Overlord fixture overlaps mapped park")
+        # Map-only native supply provider for isolated production fixtures.
+        units.append(unit(2001, tile[0] * 32 + 16, tile[1] * 32 + 16, 42, 0))
     return units
 
 

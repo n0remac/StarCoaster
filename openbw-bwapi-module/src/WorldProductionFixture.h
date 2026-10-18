@@ -21,12 +21,24 @@ inline bool applyWorldProductionFixture(BWAPI::Game* game) {
     int minerals = 0, gas = 0;
     const bool hasMinerals = configured("BRIDGE_TERRAN_STARTING_MINERALS", minerals);
     const bool hasGas = configured("BRIDGE_TERRAN_STARTING_GAS", gas);
-    if (!hasMinerals && !hasGas) return true;
+    int zergMinerals = 0, zergGas = 0;
+    const bool hasZergMinerals = configured("BRIDGE_ZERG_STARTING_MINERALS", zergMinerals);
+    const bool hasZergGas = configured("BRIDGE_ZERG_STARTING_GAS", zergGas);
+    if (!hasMinerals && !hasGas && !hasZergMinerals && !hasZergGas) return true;
+    bool terranApplied = !hasMinerals && !hasGas;
+    bool zergApplied = !hasZergMinerals && !hasZergGas;
     for (auto player : game->getPlayers()) {
-        if (!player || player->getID() != 1 || player->getRace() != BWAPI::Races::Terran) continue;
-        if (hasMinerals) player->setMinerals(minerals);
-        if (hasGas) player->setGas(gas);
-        return true;
+        if (!player) continue;
+        if (player->getID() == 1 && player->getRace() == BWAPI::Races::Terran) {
+            if (hasMinerals) player->setMinerals(minerals);
+            if (hasGas) player->setGas(gas);
+            terranApplied = true;
+        }
+        if (player->getID() == 0 && player->getRace() == BWAPI::Races::Zerg) {
+            if (hasZergMinerals) player->setMinerals(zergMinerals);
+            if (hasZergGas) player->setGas(zergGas);
+            zergApplied = true;
+        }
     }
-    return false;
+    return terranApplied && zergApplied;
 }

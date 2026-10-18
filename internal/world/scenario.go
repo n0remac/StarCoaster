@@ -25,6 +25,9 @@ type Scenario struct {
 		TerranMinerals    int    `json:"terran_minerals,omitempty"`
 		TerranGas         int    `json:"terran_gas,omitempty"`
 		NativeSupplyDepot [2]int `json:"native_supply_depot,omitempty"`
+		ZergMinerals      int    `json:"zerg_minerals,omitempty"`
+		ZergGas           int    `json:"zerg_gas,omitempty"`
+		NativeOverlord    [2]int `json:"native_overlord,omitempty"`
 	} `json:"production_fixture,omitempty"`
 	InitialStructures []ScenarioStructure `json:"initial_structures,omitempty"`
 	Objectives        []ScenarioObjective `json:"objectives"`
@@ -176,9 +179,14 @@ func LoadScenario(path string) (*Scenario, error) {
 	}
 	if scenario.ProductionFixture.TerranMinerals < 0 || scenario.ProductionFixture.TerranMinerals > 100000 ||
 		scenario.ProductionFixture.TerranGas < 0 || scenario.ProductionFixture.TerranGas > 100000 ||
+		scenario.ProductionFixture.ZergMinerals < 0 || scenario.ProductionFixture.ZergMinerals > 100000 ||
+		scenario.ProductionFixture.ZergGas < 0 || scenario.ProductionFixture.ZergGas > 100000 ||
 		(scenario.ProductionFixture.TerranMinerals > 0 &&
 			(scenario.ProductionFixture.NativeSupplyDepot[0] < 1 || scenario.ProductionFixture.NativeSupplyDepot[0] > 252 ||
-				scenario.ProductionFixture.NativeSupplyDepot[1] < 1 || scenario.ProductionFixture.NativeSupplyDepot[1] > 253)) {
+				scenario.ProductionFixture.NativeSupplyDepot[1] < 1 || scenario.ProductionFixture.NativeSupplyDepot[1] > 253)) ||
+		(scenario.ProductionFixture.ZergMinerals > 0 &&
+			(scenario.ProductionFixture.NativeOverlord[0] < 1 || scenario.ProductionFixture.NativeOverlord[0] > 254 ||
+				scenario.ProductionFixture.NativeOverlord[1] < 1 || scenario.ProductionFixture.NativeOverlord[1] > 254)) {
 		return nil, fmt.Errorf("invalid production fixture")
 	}
 	if scenario.ProductionFixture.TerranMinerals > 0 {
@@ -186,6 +194,14 @@ func LoadScenario(path string) (*Scenario, error) {
 		parkX, parkY := (256-scenario.ParkSize[0])/2, (256-scenario.ParkSize[1])/2
 		if x < parkX+scenario.ParkSize[0] && x+3 > parkX &&
 			y < parkY+scenario.ParkSize[1] && y+2 > parkY {
+			return nil, fmt.Errorf("production fixture overlaps mapped park")
+		}
+	}
+	if scenario.ProductionFixture.ZergMinerals > 0 {
+		x, y := scenario.ProductionFixture.NativeOverlord[0], scenario.ProductionFixture.NativeOverlord[1]
+		parkX, parkY := (256-scenario.ParkSize[0])/2, (256-scenario.ParkSize[1])/2
+		if x >= parkX && x < parkX+scenario.ParkSize[0] &&
+			y >= parkY && y < parkY+scenario.ParkSize[1] {
 			return nil, fmt.Errorf("production fixture overlaps mapped park")
 		}
 	}

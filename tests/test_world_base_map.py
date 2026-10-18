@@ -86,6 +86,19 @@ class WorldBaseMapTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "starting Zerglings"):
                 module.scenario_units(path)
 
+    def test_isolated_zerg_supply_fixture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scenario.json"
+            scenario = json.loads((ROOT / "scenarios/mt-zergling/scenario.json").read_text())
+            scenario["production_fixture"].update(zerg_minerals=100, native_overlord=[7, 7])
+            path.write_text(json.dumps(scenario))
+            units = [UNIT.unpack(row) for row in module.scenario_units(path)]
+            self.assertEqual([(entry[3], entry[7]) for entry in units if entry[0] == 2001], [(42, 0)])
+            scenario["production_fixture"]["native_overlord"] = [50, 50]
+            path.write_text(json.dumps(scenario))
+            with self.assertRaisesRegex(ValueError, "overlaps mapped park"):
+                module.scenario_units(path)
+
 
 if __name__ == "__main__":
     unittest.main()

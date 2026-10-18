@@ -11,6 +11,7 @@
 #include "WorldFirebatTechProbe.h"
 #include "WorldMedicVultureProbe.h"
 #include "WorldGoliathProbe.h"
+#include "WorldZergProductionProbe.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -102,6 +103,7 @@ public:
         firebatTechProbe_.onFrame(game);
         medicVultureProbe_.onFrame(game);
         goliathProbe_.onFrame(game);
+        zergProductionProbe_.onFrame(game);
         std::set<int> pendingIDs;
         for (const auto& [id, creation] : pendingCreations_) pendingIDs.insert(id);
         actorRegistry_.prepare(game, pendingIDs);
@@ -1326,6 +1328,7 @@ private:
     WorldFirebatTechProbe firebatTechProbe_{false};
     WorldMedicVultureProbe medicVultureProbe_{false};
     WorldGoliathProbe goliathProbe_{false};
+    WorldZergProductionProbe zergProductionProbe_{true};
     std::map<int, PendingCreation> pendingCreations_;
     std::set<int> publishedActors_;
     std::map<std::string, NativeSpawn> nativeSpawns_;
