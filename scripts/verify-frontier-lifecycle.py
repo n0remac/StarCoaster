@@ -76,7 +76,7 @@ def cycle(number: int, scenario: Path, map_file: Path, rct2: Path, starcraft: Pa
         b = client("client-b", False)
         wait_for(output / "client-b.log", initial, b, 60)
         wait_for(output / "client-a.log", r"LIFECYCLE_ATTACK accepted=true", a, 30)
-        wait_for(output / "session.log", r"outcome=victory marines=6 zerglings=0", session, 100)
+        wait_for(output / "session.log", r"outcome=victory marines=6 enemies=0", session, 100)
         os.killpg(b.pid, signal.SIGTERM)
         b.wait(timeout=10)
         # Reuse the client data directory to exercise the normal reconnect path.
