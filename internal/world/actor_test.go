@@ -168,6 +168,51 @@ func TestIncompleteCombatActorCannotBeCommanded(t *testing.T) {
 	}
 }
 
+func TestEggCancellationRetiresOnlyItsNativeIdentity(t *testing.T) {
+	larva := ActorIdentity{ID: "openbw:3001", Engine: "openbw", Type: "zerg_larva",
+		Owner: 0, Phase: "complete", Generation: 17, Session: "park-session"}
+	sibling := larva
+	sibling.ID, sibling.Generation = "openbw:3002", 18
+	actors := NewActorRegistry(larva.Session)
+	for _, identity := range []ActorIdentity{larva, sibling} {
+		if err := actors.Spawn(identity); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, binding := range []ActorBinding{
+		{ID: larva.ID, Session: larva.Session, Generation: larva.Generation,
+			Participant: "publisher", NativeID: "11", CreationFrame: 120},
+		{ID: larva.ID, Session: larva.Session, Generation: larva.Generation,
+			Participant: "controller", NativeID: "45", CreationFrame: 120},
+		{ID: sibling.ID, Session: sibling.Session, Generation: sibling.Generation,
+			Participant: "publisher", NativeID: "12", CreationFrame: 121},
+		{ID: sibling.ID, Session: sibling.Session, Generation: sibling.Generation,
+			Participant: "controller", NativeID: "46", CreationFrame: 121},
+	} {
+		if err := actors.Bind(binding); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := actors.Morph(ActorMorph{ID: larva.ID, Session: larva.Session,
+		Generation: larva.Generation, FromType: larva.Type, Type: "zerg_egg",
+		Phase: "incomplete"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := actors.Despawn(ActorDespawn{ID: larva.ID, Session: larva.Session,
+		Generation: larva.Generation}); err != nil {
+		t.Fatal(err)
+	}
+	if record, ok := actors.Lookup(sibling.ID); !ok || record.State != ActorActive ||
+		record.Identity.Type != "zerg_larva" {
+		t.Fatal("cancelled egg retired an unrelated larva")
+	}
+	if err := actors.Morph(ActorMorph{ID: larva.ID, Session: larva.Session,
+		Generation: larva.Generation, FromType: "zerg_egg", Type: "zerg_zergling",
+		Phase: "complete"}); err == nil {
+		t.Fatal("cancelled egg accepted a late completion")
+	}
+}
+
 func TestActorReconciliationAndSessionIsolation(t *testing.T) {
 	identity := testActor()
 	actors := NewActorRegistry(identity.Session)
