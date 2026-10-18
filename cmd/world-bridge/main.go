@@ -1717,6 +1717,11 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		if m.Decode(&state) != nil {
 			return
 		}
+		if p != nil && ((state.Owner == 0 && p != s.bw) ||
+			(state.Owner != 0 && p != s.controller)) {
+			s.ack(p, m, false, "wrong_native_owner")
+			return
+		}
 		entity, exists := s.registry.Entities[state.ID]
 		if m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
 			!exists || entity.Kind != "structure" || !supportedNativeBuilding(entity.Type) ||
@@ -1769,6 +1774,11 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			resources.SupplyUsed < 0 || resources.SupplyTotal < 0 {
 			return
 		}
+		if p != nil && ((resources.Owner == 0 && p != s.bw) ||
+			(resources.Owner != 0 && p != s.controller)) {
+			s.ack(p, m, false, "wrong_native_owner")
+			return
+		}
 		_ = s.emit(s.park, "player.resources", m.Session, m.Revision, resources)
 	case "world.ack":
 		var answer world.Ack
@@ -1803,6 +1813,16 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		if !found || command.PlayerID != result.PlayerID || command.RequestID != result.RequestID {
 			s.ack(p, m, false, "unknown_command")
 			return
+		}
+		if p != nil {
+			expected := s.controller
+			if command.Verb == "unit.train" && s.registry.Entities[command.TargetID].Owner == 0 {
+				expected = s.bw
+			}
+			if p != expected {
+				s.ack(p, m, false, "wrong_native_owner")
+				return
+			}
 		}
 		delete(s.commands, result.CommandID)
 		s.ack(p, m, true, "")
