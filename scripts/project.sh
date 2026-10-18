@@ -24,6 +24,28 @@ case "$command" in
         scripts/build-bridge-module.sh
         "$go_bin" build -o build/world-bridge ./cmd/world-bridge
         ;;
+    build-wasm)
+        exec scripts/build-openrct2-wasm.sh "$@"
+        ;;
+    serve-wasm)
+        exec scripts/serve-wasm.sh "$@"
+        ;;
+    deploy-wasm)
+        exec scripts/deploy-wasm.sh "$@"
+        ;;
+    test-wasm)
+        go_bin="$(command -v go || true)"
+        go_bin="${go_bin:-/usr/local/go/bin/go}"
+        export GOCACHE="${GOCACHE:-$project_dir/build/go-cache}"
+        "$go_bin" test ./cmd/wasm-server
+        node --check browser/index.js
+        if [[ -f build/wasm-client/manifest.json ]]; then
+            python3 scripts/verify-wasm-bundle.py build/wasm-client
+        else
+            printf 'BLOCKED: WASM artifact validation requires scripts/project.sh build-wasm\n' >&2
+            exit 3
+        fi
+        ;;
     park)
         if [[ "${1:-}" == --probe-demolition ]]; then
             python3 scripts/create-park-assault.py --playable "$@"
@@ -86,14 +108,19 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {start|build|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
+Usage: scripts/project.sh {start|build|build-wasm|serve-wasm|deploy-wasm|test-wasm|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
 
-start [--scenario ID] [--headless|--client]  Fetch, build, stage, and play (Frontier default).
+start [--scenario ID] [--headless|--client] [--browser|--browser-bundle DIR]
+                                        Fetch, build, stage, and play.
 play ID [--plan]                        Play an existing build; --plan only resolves paths.
 park [ID]                               Force-generate a park (Frontier default).
 record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
 validate-scenario ID                    Validate scenario configuration.
 build, test, test-live                   Build and run offline or licensed live tests.
+build-wasm                               Build the patched graphical OpenRCT2 WASM client.
+serve-wasm [server flags]                Serve the private bundle on localhost with browser headers.
+deploy-wasm [BUNDLE_DIR]                 Stage a versioned private bundle without restarting a game.
+test-wasm                                Test the gateway and validate a built WASM bundle.
 generate                                 Generate StarCraft catalogs and consumers.
 test-live-construction                  Run licensed live construction regressions.
 

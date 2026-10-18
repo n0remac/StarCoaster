@@ -7,6 +7,10 @@ test -f "$park_file" || { printf 'Missing park: %s\n' "$park_file" >&2; exit 1; 
 test -x "$project_dir/build/world-bridge" || { printf 'Build the bridge with: go build -o build/world-bridge ./cmd/world-bridge\n' >&2; exit 1; }
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR to your RCT2 installation}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR to your StarCraft installation}"
+wasm_bundle="${WASM_DEPLOY_DIR:-$project_dir/run-data/wasm-deploy}/current"
+if [[ "${BRIDGE_SERVE_WASM:-0}" == 1 ]]; then
+    test -s "$wasm_bundle/manifest.json" || { printf 'Missing deployed WASM bundle: %s\n' "$wasm_bundle" >&2; exit 1; }
+fi
 
 export BRIDGE_SCENARIO=world
 export OPENBW_LAN_MODE=LOCAL
@@ -65,6 +69,15 @@ bw_pid=$!
 controller_pid=$!
 "$project_dir/scripts/run-openrct2-host.sh" "$park_file" &
 park_pid=$!
+wasm_pid=""
+if [[ "${BRIDGE_SERVE_WASM:-0}" == 1 ]]; then
+    wasm_log="${BRIDGE_WASM_LOG_FILE:-$project_dir/run-data/world-base/wasm-server.log}"
+    mkdir -p "$(dirname "$wasm_log")"
+    "$project_dir/scripts/serve-wasm.sh" --bundle "$wasm_bundle" \
+        --listen "${WASM_LISTEN_ADDRESS:-127.0.0.1:8080}" \
+        --native "127.0.0.1:${OPENRCT2_PORT:-11753}" >> "$wasm_log" 2>&1 &
+    wasm_pid=$!
+fi
 client_pid=""
 if [[ "${BRIDGE_LAUNCH_CLIENT:-0}" == 1 ]]; then
     : "${DISPLAY:?A graphical DISPLAY is required for BRIDGE_LAUNCH_CLIENT=1}"
@@ -93,15 +106,16 @@ if [[ "${BRIDGE_LAUNCH_CLIENT:-0}" == 1 ]]; then
 fi
 
 cleanup() {
+    if [[ -n "$wasm_pid" ]]; then kill "$wasm_pid" 2>/dev/null || true; fi
     if [[ -n "$client_pid" ]]; then kill "$client_pid" 2>/dev/null || true; fi
     kill "$park_pid" "$bw_pid" "$controller_pid" "$bridge_pid" 2>/dev/null || true
     if [[ -n "$client_pid" ]]; then wait "$client_pid" 2>/dev/null || true; fi
     wait "$park_pid" "$bw_pid" "$controller_pid" "$bridge_pid" 2>/dev/null || true
+    if [[ -n "$wasm_pid" ]]; then wait "$wasm_pid" 2>/dev/null || true; fi
 }
 trap cleanup EXIT INT TERM
 # A bridge restart must not tear down either authoritative engine.
-if [[ -n "$client_pid" ]]; then
-    wait -n "$park_pid" "$bw_pid" "$controller_pid" "$client_pid"
-else
-    wait -n "$park_pid" "$bw_pid" "$controller_pid"
-fi
+wait_pids=("$park_pid" "$bw_pid" "$controller_pid")
+if [[ -n "$client_pid" ]]; then wait_pids+=("$client_pid"); fi
+if [[ -n "$wasm_pid" ]]; then wait_pids+=("$wasm_pid"); fi
+wait -n "${wait_pids[@]}"

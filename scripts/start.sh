@@ -7,8 +7,8 @@ cd "$project_dir"
 
 usage() {
     cat <<'EOF'
-Usage: scripts/project.sh start [--scenario ID] [--headless|--client]
-       scripts/start.sh [--scenario ID] [--headless|--client]
+Usage: scripts/project.sh start [--scenario ID] [--headless|--client] [--browser|--browser-bundle DIR]
+       scripts/start.sh [--scenario ID] [--headless|--client] [--browser|--browser-bundle DIR]
 
 Fetch pinned sources, build both engines and the bridge, stage OpenRCT2 assets,
 and play the selected scenario (default: frontier-outpost). Ctrl+C stops it.
@@ -21,11 +21,16 @@ the original placeholder art.
 BRIDGE_BUILD_JOBS defaults to 2. A graphical client opens when DISPLAY is set;
 use --headless to disable it or --client to require it.
 Install system build dependencies first; see docs/bootstrap.md.
+--browser builds and deploys the private WASM bundle and serves it on localhost
+alongside the ordinary scenario. Configure Tailscale Serve separately.
+--browser-bundle DIR deploys an amd64 workstation bundle on the Pi and serves it.
 EOF
 }
 
 scenario=frontier-outpost
 client_mode=""
+browser_mode=0
+browser_bundle=""
 while (( $# )); do
     case "$1" in
         --scenario)
@@ -41,6 +46,18 @@ while (( $# )); do
             fi
             client_mode="$1"
             shift
+            ;;
+        --browser)
+            if [[ -n "$browser_bundle" ]]; then printf '%s and --browser-bundle cannot be combined\n' "$1" >&2; exit 2; fi
+            browser_mode=1
+            shift
+            ;;
+        --browser-bundle)
+            if (( $# < 2 )) || [[ "$2" == --* ]] || [[ "$browser_mode" == 1 ]]; then
+                printf 'Pass a bundle directory to --browser-bundle and do not combine it with --browser\n' >&2; exit 2
+            fi
+            browser_bundle="$2"
+            shift 2
             ;;
         -h|--help) usage; exit 0 ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -121,6 +138,14 @@ scripts/install-openrct2-local.sh
 if [[ "$BRIDGE_SPRITE_SOURCE" == starcraft-local ]]; then
     python3 scripts/install-starcraft-construction-object.py \
         build/openrct2-stage/usr/local/share/openrct2 --game-dir "$STARCRAFT_DATA_DIR" --all
+fi
+if [[ "$browser_mode" == 1 ]]; then
+    scripts/project.sh build-wasm
+    scripts/project.sh deploy-wasm
+    export BRIDGE_SERVE_WASM=1
+elif [[ -n "$browser_bundle" ]]; then
+    scripts/project.sh deploy-wasm "$browser_bundle"
+    export BRIDGE_SERVE_WASM=1
 fi
 printf 'Starting %s (Ctrl+C to stop)...\n' "$scenario"
 exec scripts/project.sh play "$scenario"
