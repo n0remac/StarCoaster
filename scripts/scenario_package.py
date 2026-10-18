@@ -115,16 +115,27 @@ def ensure_park(plan: dict, force: bool = False) -> None:
             signature = stream.read(4)
         if signature != b"PARK":
             raise RuntimeError(f"invalid OpenRCT2 park source: {source}")
-        if force or not park.is_file() or source.stat().st_mtime_ns > park.stat().st_mtime_ns:
+        scenario_path = Path(plan["scenario"])
+        scenario = json.loads(scenario_path.read_text())
+        inputs = [source, scenario_path]
+        if scenario.get("initial_structures"):
+            inputs += [ROOT / "scripts/stage-scenario-structures.py",
+                       ROOT / "scripts/stage-scenario-structures.js",
+                       ROOT / "bridge-protocol/starcraft-types.json"]
+        if force or not park.is_file() or any(path.stat().st_mtime_ns > park.stat().st_mtime_ns for path in inputs):
             actual = inspect_existing_park(source)
-            expected = json.loads(Path(plan["scenario"]).read_text()).get("park_size")
+            expected = scenario.get("park_size")
             if actual[0] > 256 or actual[1] > 256:
                 raise RuntimeError(f"existing park exceeds 256x256 native map: {actual[0]}x{actual[1]}")
             if list(actual) != expected:
                 raise RuntimeError(f"existing park size {actual[0]}x{actual[1]} differs from scenario {expected}")
             park.parent.mkdir(parents=True, exist_ok=True)
             temporary = park.with_suffix(".park.tmp")
-            shutil.copy2(source, temporary)
+            if scenario.get("initial_structures"):
+                subprocess.run(["python3", "scripts/stage-scenario-structures.py",
+                                str(source), str(temporary), str(scenario_path)], cwd=ROOT, check=True)
+            else:
+                shutil.copy2(source, temporary)
             os.replace(temporary, park)
         return
     park, fixture, navigation = (Path(plan[key]) for key in ("park", "fixture", "navigation"))

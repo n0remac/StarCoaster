@@ -1,10 +1,49 @@
 package world
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestMtZerglingInitialStructures(t *testing.T) {
+	path := filepath.Join("..", "..", "scenarios", "mt-zergling", "scenario.json")
+	scenario, err := LoadScenario(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scenario.InitialStructures) != 2 {
+		t.Fatalf("structures: %+v", scenario.InitialStructures)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*Scenario)
+	}{
+		{"wrong race", func(s *Scenario) { s.InitialStructures[0].Faction = "terran" }},
+		{"overlap", func(s *Scenario) { s.InitialStructures[1].Tile = s.InitialStructures[0].Tile }},
+		{"spawn", func(s *Scenario) { s.InitialStructures[0].Tile = [2]int{10, 93} }},
+		{"padding", func(s *Scenario) { s.InitialStructures[0].Tile = [2]int{1, 31} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			copy := *scenario
+			copy.InitialStructures = append([]ScenarioStructure(nil), scenario.InitialStructures...)
+			test.change(&copy)
+			data, err := json.Marshal(copy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate := filepath.Join(t.TempDir(), "scenario.json")
+			if err := os.WriteFile(candidate, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadScenario(candidate); err == nil {
+				t.Fatal("accepted invalid structure")
+			}
+		})
+	}
+}
 
 func TestFrontierScenarioRequiresNativeNavigationAndObjective(t *testing.T) {
 	scenario, err := LoadScenario(filepath.Join("..", "..", "scenarios", "frontier-outpost", "scenario.json"))

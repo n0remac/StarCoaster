@@ -64,6 +64,15 @@
         const parkStorage = typeof context.getParkStorage === "function" ? context.getParkStorage() : null;
         const savedBarracksGenerations = parkStorage ? (parkStorage.get("barracksGenerations", {}) || {}) : {};
         const savedBarracksHealth = parkStorage ? (parkStorage.get("barracksHealth", {}) || {}) : {};
+        const scenarioStructures = parkStorage ? (parkStorage.get("scenarioStructures", []) || []) : [];
+        const scenarioAt = {};
+        scenarioStructures.forEach(function (structure) {
+            if (!structure || typeof structure.id !== "string" || !BUILDING_TYPES[structure.type]
+                || !Number.isInteger(structure.x) || !Number.isInteger(structure.y)
+                || !Number.isInteger(structure.z) || ![0, 1].includes(structure.owner))
+                throw new Error("Invalid scenario structure ownership");
+            scenarioAt[structure.type + ":" + structure.x + ":" + structure.y + ":" + structure.z] = structure;
+        });
         if (parkStorage && parkStorage.get("barracksHealthMode", "proxy") !== "native") {
             const barracksObject = typeof objectManager === "object"
                 ? objectManager.getAllObjects("large_scenery").find(function (object) {
@@ -90,6 +99,44 @@
             waterraise: true, waterlower: true, watersetheight: true,
             surfacesetstyle: true, tilemodify: true, clearscenery: true
         };
+        context.subscribe("action.query", function (event) {
+            if (!event || !event.result || event.result.error || !constructionActions[event.action]
+                || (network.mode === "server" && event.player === network.currentPlayer.id)
+                || !scenarioStructures.length) return;
+            const args = event.args || {};
+            if (!Number.isInteger(args.x) && !Number.isInteger(args.x1)) return;
+            const x1 = Number.isInteger(args.x1) ? args.x1 : args.x;
+            const y1 = Number.isInteger(args.y1) ? args.y1 : args.y;
+            const x2 = Number.isInteger(args.x2) ? args.x2 : x1;
+            const y2 = Number.isInteger(args.y2) ? args.y2 : y1;
+            if (![x1, y1, x2, y2].every(Number.isInteger)) return;
+            const left = Math.floor(Math.min(x1, x2) / 32), right = Math.floor(Math.max(x1, x2) / 32);
+            const top = Math.floor(Math.min(y1, y2) / 32), bottom = Math.floor(Math.max(y1, y2) / 32);
+            if (scenarioStructures.some(function (structure) {
+                const building = BUILDING_TYPES[structure.type];
+                if (structure.owner === terranOwner || !building) return false;
+                const object = objectManager.getAllObjects("large_scenery").find(function (item) {
+                    return item.identifier === building.objectID;
+                });
+                if (!object) return false;
+                const tile = map.getTile(structure.x, structure.y);
+                let present = false;
+                for (let i = 0; i < tile.numElements; i++) {
+                    const element = tile.getElement(i);
+                    if (element.type === "large_scenery" && element.object === object.index
+                        && element.baseHeight * 8 === structure.z) present = true;
+                }
+                return present
+                    && left < structure.x + building.width && right >= structure.x
+                    && top < structure.y + building.height && bottom >= structure.y;
+            })) {
+                console.log("WORLD_ENEMY_STRUCTURE_BLOCK player=" + event.player
+                    + " action=" + event.action);
+                event.result.error = 1;
+                event.result.errorTitle = "Enemy structure";
+                event.result.errorMessage = "Enemy structures must be destroyed in combat";
+            }
+        });
         const CONSTRUCTION_DEBOUNCE_TICKS = 6, RECONCILE_TICKS = 1200;
         const MAX_CHANGE_OPERATIONS = 4096, MAX_CHANGE_BYTES = 4194304;
         const MAX_WIRE_PAYLOAD_BYTES = 900000;
@@ -380,9 +427,13 @@
                         last.width += 32;
                     else rects.push({ x: cell.x * 32, y: cell.y * 32, width: 32, height: 32 });
                 });
-                const id = "openrct2:" + key + "#" + generations[key];
+                const authored = item.kind === "structure"
+                    ? scenarioAt[item.type + ":" + Math.floor(item.x / 32) + ":"
+                        + Math.floor(item.y / 32) + ":" + item.z] : null;
+                const id = authored ? "scenario:" + authored.id : "openrct2:" + key + "#" + generations[key];
                 const entity = { id: id, source: "openrct2", source_id: key, kind: item.kind,
-                    type: item.type, owner: item.kind === "structure" ? terranOwner : 0,
+                    type: item.type, owner: item.kind === "structure"
+                        ? (authored ? authored.owner : terranOwner) : 0,
                     position: { x: Math.max(0, minX), y: Math.max(0, minY) },
                     rotation: item.direction || 0, elevation: item.z,
                     geometry: { cells: sortedCells, rects: item.kind === "wall" ? item.rects.slice().sort(function (a, b) {
@@ -1163,7 +1214,8 @@
                     || (args.targets.length === 0 && (args.chunks !== 1 || args.index !== 0))
                     || !args.targets.every(function (item) {
                         return item && typeof item.id === "string" && item.id.length <= 256
-                            && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(item.id)
+                            && (/^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(item.id)
+                                || /^scenario:[a-z0-9-]{1,64}$/.test(item.id))
                             && (item.type === undefined || typeof item.type === "string")
                             && (item.health === undefined || (Number.isInteger(item.health)
                                 && item.health >= 0 && item.health <= 1000000))
@@ -1367,7 +1419,8 @@
                 if (args.verb === "attack") {
                     const target = controlUnits[args.target_id];
                     const structure = typeof args.target_entity_id === "string"
-                        && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.target_entity_id)
+                        && (/^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.target_entity_id)
+                            || /^scenario:[a-z0-9-]{1,64}$/.test(args.target_entity_id))
                         && targetCatalogSession === args.session && worldTargetIds[args.target_entity_id];
                     if ((!target || !UNIT_TYPES[target.kind] || target.owner === terranOwner || target.hp <= 0) && !structure)
                         return { error: 1, errorMessage: "Invalid attack target" };
@@ -1469,7 +1522,8 @@
                 if (network.mode === "server" && event.player !== network.currentPlayer.id)
                     return { error: 1, errorMessage: "Only the server may publish native building state" };
                 return args.session === controlSession
-                    && /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.id || "")
+                    && (/^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.id || "")
+                        || /^scenario:[a-z0-9-]{1,64}$/.test(args.id || ""))
                     && /^openbw:[0-9]+$/.test(args.native_id || "")
                     && ["owner", "health", "queue", "remaining_frames", "minerals", "gas",
                         "supply_used", "supply_total"].every(function (field) {

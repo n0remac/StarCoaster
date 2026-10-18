@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 const Version = 1
@@ -246,6 +247,14 @@ func (e Entity) Validate(width, height int) error {
 	}
 	if e.Position.X < 0 || e.Position.Y < 0 || e.Position.X >= width*32 || e.Position.Y >= height*32 || e.Rotation < 0 || e.Rotation > 255 || e.Elevation < -4096 || e.Elevation > 32768 {
 		return errors.New("entity outside world")
+	}
+	if e.Kind == "structure" {
+		building, ok := SupportedBuilding(e.Type)
+		if !ok || (e.Owner != 0 && e.Owner != 1) ||
+			(strings.HasPrefix(building.NativeType, "Zerg_") && e.Owner != 0) ||
+			(strings.HasPrefix(building.NativeType, "Terran_") && e.Owner != 1) {
+			return errors.New("invalid native building ownership")
+		}
 	}
 	if len(e.Geometry.Cells) > 16384 || len(e.Geometry.Rects) > 16384 {
 		return errors.New("geometry exceeds limit")

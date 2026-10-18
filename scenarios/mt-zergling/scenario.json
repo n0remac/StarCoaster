@@ -10,6 +10,10 @@
     "zerglings": []
   },
   "production_fixture": { "terran_minerals": 500, "terran_gas": 250, "native_supply_depot": [4, 4] },
+  "initial_structures": [
+    { "id": "western-hatchery", "type": "zerg_hatchery", "faction": "zerg", "tile": [8, 31] },
+    { "id": "western-spawning-pool", "type": "zerg_spawning_pool", "faction": "zerg", "tile": [8, 37] }
+  ],
   "objectives": [],
   "initial_ai": { "strategy": "park_defense", "delay_frames": 0 },
   "spawn_zones": {

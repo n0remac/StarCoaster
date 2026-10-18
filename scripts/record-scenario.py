@@ -164,6 +164,8 @@ def parse_args(argv=None):
                         help="capture ordinary two-client wall construction and native rerouting")
     parser.add_argument("--mt-zergling-playthrough", action="store_true",
                         help="exercise Mt. Zergling construction and the graphical Spawn Wave button")
+    parser.add_argument("--zerg-base-playthrough", action="store_true",
+                        help="capture Mt. Zergling's enemy structures, mixed waves, and Marine assault")
     parser.add_argument("--barracks-production", action="store_true",
                         help="center both graphical clients on the Barracks construction site")
     parser.add_argument("--barracks-training-probe", action="store_true",
@@ -201,6 +203,9 @@ def parse_args(argv=None):
         parser.error("--live-construction requires two clients")
     if args.mt_zergling_playthrough and scenario_id != "mt-zergling":
         parser.error("--mt-zergling-playthrough requires --scenario mt-zergling")
+    if args.zerg_base_playthrough and (scenario_id != "mt-zergling" or args.video_layout == "single"
+                                      or args.duration < 110):
+        parser.error("--zerg-base-playthrough requires Mt. Zergling, two clients, and at least 110 seconds")
     if args.barracks_production and (scenario_id != "mt-zergling" or args.video_layout == "single"):
         parser.error("--barracks-production requires Mt. Zergling and two clients")
     if args.barracks_training_probe and not args.barracks_production:
@@ -463,6 +468,10 @@ def main():
             if args.mt_zergling_playthrough and name == "client-a":
                 (data_dir / "plugin/mt-zergling-construction-probe.js").write_text(
                     (ROOT / "scripts/mt-zergling-construction-probe.js").read_text())
+            if args.zerg_base_playthrough:
+                prefix = "var STARCOASTER_ZERG_BASE_DRIVER = true;\n" if name == "client-a" else ""
+                (data_dir / "plugin/zerg-base-capture-probe.js").write_text(
+                    prefix + (ROOT / "scripts/zerg-base-capture-probe.js").read_text())
             if args.barracks_production:
                 (data_dir / "plugin/barracks-production-camera.js").write_text(
                     (ROOT / "scripts/barracks-production-camera.js").read_text())
@@ -692,6 +701,7 @@ def main():
         mt_marine_clicked = False
         mt_zoomed = False
         mt_samples = set()
+        zerg_base_samples = set()
         barracks_samples = set()
         next_unit_samples = set()
         goliath_samples = set()
@@ -717,6 +727,19 @@ def main():
         while time.monotonic() < until:
             if recorder:
                 recorder.check_alive()
+            if args.zerg_base_playthrough:
+                elapsed = time.monotonic() - recorder.start_monotonic if recorder else args.duration - (until - time.monotonic())
+                for point in (3, 42, 60, 80, 105, 135):
+                    if point > args.duration - 2 or point in zerg_base_samples or elapsed < point:
+                        continue
+                    for name, display in displays:
+                        filename = f"{name}-zerg-base-t{point}.png"
+                        subprocess.run(["scrot", "-z", "-o", str(out / filename)],
+                                       env=env | {"DISPLAY": display}, check=True)
+                        if recorder:
+                            recorder.event("zerg_base_screenshot", client=name,
+                                           second=point, filename=filename)
+                    zerg_base_samples.add(point)
             if args.academy_firebat_probe and not captured_firebat_actor and \
                     "FIREBAT_CAPTURE_ACTOR id=" in (out / "client-a.log").read_text(errors="replace"):
                 time.sleep(0.5)
@@ -1188,6 +1211,41 @@ def main():
                 "checks": checks, "wave_instances": sorted(set(wave_instances)),
                 "construction_log": re.findall(r"MT_ZERGLING_CONSTRUCTION_.*", driver),
             }
+            detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
+            (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
+        if args.zerg_base_playthrough:
+            identifiers = ("scenario:western-hatchery", "scenario:western-spawning-pool")
+            commands = dict(re.findall(r"ZERG_BASE_COMMAND label=(\S+) accepted=(\w+)", client_logs[0]))
+            health = [{ident: [int(value) for value in re.findall(
+                r"ZERG_BASE_HEALTH id=" + re.escape(ident) + r" owner=0 hp=(\d+)", client)]
+                       for ident in identifiers} for client in client_logs]
+            checks = {
+                "native_zerg_buildings": all("target id=" + ident in snapshot for ident in identifiers)
+                    and "type=Zerg_Hatchery hp=1250" in snapshot
+                    and "type=Zerg_Spawning_Pool hp=750" in snapshot,
+                "two_client_initial_presence": all(all(
+                    "ZERG_BASE_PRESENT id=" + ident + " present=true" in client
+                    for ident in identifiers) for client in client_logs),
+                "two_client_zerg_ownership": all(all(values for values in client.values())
+                                                  for client in health),
+                "mixed_zerg_wave": any("ZERG_BASE_MIXED_WAVE visible=true" in client
+                                       for client in client_logs),
+                "marine_approach": commands.get("approach_base") == "true"
+                    and "ZERG_BASE_MARINES count=" in client_logs[0],
+                "marine_attacks": commands.get("spawning_pool") == "true"
+                    and commands.get("hatchery") == "true",
+                "native_damage": all(any(value < maximum for value in health[0][ident])
+                                     for ident, maximum in zip(identifiers, (1250, 750))),
+                "combat_removal": all("WORLD_REMOVAL id=" + ident + " state=confirmed" in snapshot
+                                      for ident in identifiers),
+                "two_client_removal": all(all(
+                    "ZERG_BASE_PRESENT id=" + ident + " present=false" in client
+                    for ident in identifiers) for client in client_logs),
+                "two_client_screenshots": len(zerg_base_samples) >= 4,
+            }
+            detailed["zerg_base_playthrough"] = {"checks": checks,
+                                                  "sample_seconds": sorted(zerg_base_samples),
+                                                  "health": health}
             detailed["capture_complete"] = detailed["capture_complete"] and all(checks.values())
             (out / "verification.json").write_text(json.dumps(detailed, indent=2) + "\n")
         if args.marine_screen_probe:

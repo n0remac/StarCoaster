@@ -105,6 +105,25 @@ class EntityDeclarationTests(unittest.TestCase):
             self.assertIn('zerg_' + name + ': { name:',
                           (self.root / "openrct2-plugin/rts-bridge.js").read_text())
 
+    def test_zerg_building_declarations_use_pinned_art_and_stable_order(self):
+        catalog = json.loads((self.root / OUTPUTS[0]).read_text())
+        visuals = json.loads((self.root / OUTPUTS[1]).read_text())["buildings"]
+        expected = {
+            "zerg_hatchery": (60, "Zerg_Hatchery", 4, 3, 1250, "Hatchery", [192, 160], 6),
+            "zerg_spawning_pool": (70, "Zerg_Spawning_Pool", 3, 2, 750,
+                                   "Spawning_Pool", [96, 128], 4),
+        }
+        for ident, (order, native, width, height, health, image, source_size, frames) in expected.items():
+            declaration = json.loads(self.entity(ident).read_text())
+            building = next(item for item in catalog["buildings"] if item["id"] == ident)
+            with self.subTest(ident=ident):
+                self.assertEqual((declaration["registry_order"], building["native_type"],
+                                  building["width"], building["height"], building["max_health"]),
+                                 (order, native, width, height, health))
+                self.assertFalse(declaration["conventional_training"])
+                self.assertEqual((visuals[ident]["image"], visuals[ident]["source_size"],
+                                  visuals[ident]["frame_count"]), (image, source_size, frames))
+
     def test_new_unit_from_one_declaration(self):
         self.write_entity(self.ghost())
         self.run_generator()
@@ -163,7 +182,8 @@ class EntityDeclarationTests(unittest.TestCase):
         self.assertEqual((starport["object_id"], starport["width"], starport["height"], starport["production"]),
                          ("starcoaster.scenery_large.terran_starport", 4, 3, []))
         self.assertEqual(visuals["buildings"]["terran_starport"]["asset"], "starport")
-        self.assertEqual(catalog["buildings"][:-1], BASELINE["catalogs"]["starcraft-types.json"]["buildings"])
+        established = BASELINE["catalogs"]["starcraft-types.json"]["buildings"]
+        self.assertEqual(catalog["buildings"][:len(established)], established)
         self.assertIn('BWAPI::UnitTypes::Terran_Starport',
                       (self.root / "openbw-bwapi-module/src/WorldStarcraftTypes.h").read_text())
         self.assertIn('"terran_starport": {ID: "terran_starport", NativeType: "Terran_Starport"',

@@ -40,8 +40,13 @@ def main() -> int:
         ("openbw", "0002-native-navigation-openbw.patch", "0004-native-navigation-upgrade-openbw.patch"),
         ("openbw", "0005-editor-building-fog-openbw.patch", None),
         ("openbw", "0006-native-production-egress-openbw.patch", None),
+        ("openbw", "0007-scenario-spawning-pool-openbw.patch", None),
         ("bwapi", "0003-native-navigation-bwapi.patch", None),
     ):
+        if (patch == "0005-editor-building-fog-openbw.patch" and
+                applies(ROOT / "upstream/openbw", patches / "0007-scenario-spawning-pool-openbw.patch", reverse=True)):
+            print(f"{name}: {patch} current (extended by 0007)")
+            continue
         result = ensure_patch(ROOT / "upstream" / name, patches / patch,
                               patches / upgrade if upgrade else None)
         print(f"{name}: {patch} {result}")

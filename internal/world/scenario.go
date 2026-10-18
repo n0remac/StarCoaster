@@ -26,8 +26,9 @@ type Scenario struct {
 		TerranGas         int    `json:"terran_gas,omitempty"`
 		NativeSupplyDepot [2]int `json:"native_supply_depot,omitempty"`
 	} `json:"production_fixture,omitempty"`
-	Objectives []ScenarioObjective `json:"objectives"`
-	InitialAI  struct {
+	InitialStructures []ScenarioStructure `json:"initial_structures,omitempty"`
+	Objectives        []ScenarioObjective `json:"objectives"`
+	InitialAI         struct {
 		Strategy    string `json:"strategy"`
 		Objective   string `json:"objective"`
 		DelayFrames int    `json:"delay_frames"`
@@ -45,6 +46,14 @@ type Scenario struct {
 	SpawnZones  map[string]SpawnZone `json:"spawn_zones,omitempty"`
 	Waves       []ScenarioWave       `json:"waves,omitempty"`
 	ParkDefense *ParkDefenseWaves    `json:"park_defense,omitempty"`
+}
+
+// ScenarioStructure uses OpenRCT2 tile coordinates, before native map padding.
+type ScenarioStructure struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Faction string `json:"faction"`
+	Tile    [2]int `json:"tile"`
 }
 
 // ParkDefenseWaves is one recurring attack template. Frames follow the
@@ -234,13 +243,34 @@ func (s *Scenario) validateV2() error {
 			seenTiles[tile] = true
 		}
 	}
+	structureIDs := map[string]bool{}
+	structureTiles := map[[2]int]bool{}
+	for _, structure := range s.InitialStructures {
+		building, ok := SupportedBuilding(structure.Type)
+		if !ok || !identifier.MatchString(structure.ID) || structureIDs[structure.ID] ||
+			(structure.Faction != "terran" && structure.Faction != "zerg") ||
+			!strings.EqualFold(strings.SplitN(building.NativeType, "_", 2)[0], structure.Faction) {
+			return fmt.Errorf("invalid initial structure: %s", structure.ID)
+		}
+		structureIDs[structure.ID] = true
+		for y := structure.Tile[1]; y < structure.Tile[1]+building.Height; y++ {
+			for x := structure.Tile[0]; x < structure.Tile[0]+building.Width; x++ {
+				tile := [2]int{x, y}
+				if x < 8 || y < 8 || x >= s.ParkSize[0]-8 || y >= s.ParkSize[1]-8 ||
+					seenTiles[tile] || structureTiles[tile] {
+					return fmt.Errorf("invalid initial structure footprint: %s at %v", structure.ID, tile)
+				}
+				structureTiles[tile] = true
+			}
+		}
+	}
 	for id, zone := range s.SpawnZones {
 		if !identifier.MatchString(id) || len(zone.Tiles) == 0 {
 			return fmt.Errorf("invalid spawn zone: %s", id)
 		}
 		seen := map[[2]int]bool{}
 		for _, tile := range zone.Tiles {
-			if !s.validTile(tile) || seen[tile] {
+			if !s.validTile(tile) || seen[tile] || structureTiles[tile] {
 				return fmt.Errorf("invalid or duplicate zone tile: %s %v", id, tile)
 			}
 			seen[tile] = true

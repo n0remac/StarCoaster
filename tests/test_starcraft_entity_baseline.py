@@ -14,7 +14,7 @@ class EntityBaselineTests(unittest.TestCase):
         expected = BASELINE["catalogs"]["starcraft-types.json"]
         actual = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
         self.assertEqual(actual["units"][:len(expected["units"])], expected["units"])
-        self.assertEqual(actual["buildings"], expected["buildings"])
+        self.assertEqual(actual["buildings"][:len(expected["buildings"])], expected["buildings"])
         expected = BASELINE["catalogs"]["starcraft-visuals.json"]
         actual = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())
         self.assertEqual(actual["directions"], expected["directions"])

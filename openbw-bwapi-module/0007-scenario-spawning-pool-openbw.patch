@@ -1,0 +1,32 @@
+--- a/bwgame.h
++++ b/bwgame.h
+@@ -2512,7 +2512,7 @@
+ 		return false;
+ 	}
+ 
+-	bool can_place_building(const unit_t* u, int owner, const unit_type_t* unit_type, xy pos, bool check_undetected_units, bool check_invisible_tiles, bool ignore_explored = false) const {
++	bool can_place_building(const unit_t* u, int owner, const unit_type_t* unit_type, xy pos, bool check_undetected_units, bool check_invisible_tiles, bool ignore_explored = false, bool ignore_initial_pool_creep = false) const {
+ 		xy_t<size_t> tile_pos;
+ 		tile_pos.x = (pos.x - unit_type->placement_size.x / 2) / 32u;
+ 		tile_pos.y = (pos.y - unit_type->placement_size.y / 2) / 32u;
+@@ -2556,7 +2556,7 @@
+ 					auto& tile = st.tiles[y * game_st.map_tile_width + x];
+ 					if (!ignore_explored && (tile.explored & visibility_mask)) return false;
+ 					if (check_invisible_tiles || is_nydus_exit || ~tile.visible & visibility_mask) {
+-						if (~tile.flags & tile_t::flag_has_creep) return false;
++						if (!ignore_initial_pool_creep && (~tile.flags & tile_t::flag_has_creep)) return false;
+ 					}
+ 				}
+ 			}
+@@ -18922,7 +18922,10 @@
+ 			pos = top_left / 32 * 32 + unit_type->placement_size / 2;
+ 			// Editor placement is authoritative even outside the owner's fog.
+ 			// Ordinary worker orders still use the exploration check above.
+-			if (!can_place_building(nullptr, owner, unit_type, pos, true, false, true)) {
++			// Scenario setup may place a completed Spawning Pool before creep
++			// propagates. Worker construction still enforces normal creep rules.
++			if (!can_place_building(nullptr, owner, unit_type, pos, true, false, true,
++				unit_is(unit_type, UnitTypes::Zerg_Spawning_Pool))) {
+ 				// todo: show error?
+ 				return nullptr;
+ 			}

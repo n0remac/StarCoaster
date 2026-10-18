@@ -7,6 +7,24 @@ func exampleEntity(id string) Entity {
 		Position: Point{64, 96}, Elevation: 112, Geometry: Geometry{Cells: []Point{{2, 3}, {3, 3}},
 			Rects: []Rect{{64, 96, 64, 32}}}, Destructible: true, Combat: Combat{Targetable: true, Health: 400}, Revision: 1}
 }
+
+func TestNativeBuildingOwnerMatchesRace(t *testing.T) {
+	for _, test := range []struct {
+		building string
+		owner    int
+		valid    bool
+	}{
+		{"terran_barracks", 1, true}, {"terran_barracks", 0, false},
+		{"zerg_hatchery", 0, true}, {"zerg_hatchery", 1, false},
+		{"zerg_spawning_pool", 0, true}, {"zerg_spawning_pool", 1, false},
+	} {
+		entity := exampleEntity("scenario:building")
+		entity.Kind, entity.Type, entity.Owner = "structure", test.building, test.owner
+		if (entity.Validate(8, 8) == nil) != test.valid {
+			t.Fatalf("building=%s owner=%d valid=%v", test.building, test.owner, test.valid)
+		}
+	}
+}
 func TestSnapshotAtomicAndIdentity(t *testing.T) {
 	r := NewRegistry()
 	original := exampleEntity("openrct2:ride:17#1")
