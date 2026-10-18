@@ -672,6 +672,10 @@ assert.equal(actions.length, priorActions + 1);
 assert.equal(actions.at(-1).name, 'rtsbridge.marineCommand');
 assert.equal(actions.at(-1).args.unit_type, 'zerg_zergling');
 assert.equal(actions.at(-1).args.target_entity_id, hudTargets[5].id);
+const scenarioTrainResult = { player: 1, request: actions.at(-1).args.request,
+    unit: hudTargets[5].id, accepted: true, reason: 'ok' };
+assert.equal(registered.get('rtsbridge.commandResult').query({
+    player: 1, args: scenarioTrainResult }).error, undefined);
 registered.get('rtsbridge.commandResult').execute({ player: 1, args: {
     player: 1, request: actions.at(-1).args.request,
     unit: hudTargets[5].id, accepted: true, reason: 'ok' } });

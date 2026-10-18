@@ -51,8 +51,19 @@ def main(out):
             with Image.open(path) as image:
                 if image.size == (1280, 800) and path.stat().st_size > 50_000:
                     images.append(label)
+    def slot_colours(label, slot):
+        with Image.open(gallery / f"{label}.png") as image:
+            x = 1128 + (slot % 3) * 49
+            y = 108 + (slot // 3) * 48
+            return len(set(image.convert("RGB").crop((x, y, x + 38, y + 27)).getdata()))
+    icon_slots = {"hatchery": (0,), "barracks": (0, 1, 2), "factory": (0, 1)}
+    passive = ("spawning-pool", "academy", "supply-depot", "armory")
     checks = {
         "seven_building_gallery": len(images) == len(LABELS),
+        "original_command_icons_visible": len(images) == len(LABELS) and all(
+            slot_colours(label, slot) > 3 for label, slots in icon_slots.items() for slot in slots),
+        "nonproduction_slots_empty": len(images) == len(LABELS) and all(
+            slot_colours(label, 0) <= 3 for label in passive),
         "gallery_focus_sequence": all("NATIVE_HUD_FOCUS building=" + label in client[0]
             for label in ("Spawning Pool", "Barracks", "Academy", "Supply Depot", "Factory", "Armory")),
         "native_zerg_order_accepted": bool(re.search(
@@ -61,6 +72,9 @@ def main(out):
             r"\[world-control\] train command=.*accepted=1[^\n]*unit_type=terran_marine", server)),
         "factory_ui_training_accepted": bool(re.search(
             r"\[world-control\] train command=.*accepted=1[^\n]*unit_type=terran_vulture", server)),
+        "native_results_reached_hud": all(
+            "WORLD_TRAIN_RESULT id=scenario:hud-" + label + " accepted=true" in client[0]
+            for label in ("barracks", "factory")),
         "client_order_submitted": bool(re.search(r"NATIVE_HUD_ORDER request=\d+ accepted=true", client[0])),
         "both_clients_saw_larvae": all(kinds["zerg_larva"] for kinds, _ in traces),
         "same_larva_became_egg_and_zergling": any(
@@ -68,8 +82,9 @@ def main(out):
         "both_clients_saw_same_egg_morph": bool(matching_morphs),
         "both_clients_saw_distinct_zergling_pair": any(
             any(native in pair for native in matching_morphs) for pair in matching_pairs),
-        "training_gallery": all((gallery / f"{label}-training.png").is_file()
-                                for label in ("barracks", "factory")),
+        "training_gallery": all((gallery / f"{label}-{stage}.png").is_file()
+                                for label in ("barracks", "factory")
+                                for stage in ("training", "training-accepted")),
         "both_clients_saw_trained_marine": bool(
             (terran[0]["terran_marine"] & terran[1]["terran_marine"])
             - set(range(1000, 1005))),

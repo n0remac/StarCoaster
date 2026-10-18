@@ -611,6 +611,16 @@ def main():
                     if recorder:
                         recorder.event("building_hud_training", client="client-a",
                                        building=label, filename="building-hud-gallery/" + training)
+                    target_id = "scenario:hud-barracks" if label == "Barracks" else "scenario:hud-factory"
+                    wait_for(out / "client-a.log", "WORLD_TRAIN_RESULT id=" + target_id
+                             + " accepted=true", session, 15)
+                    time.sleep(0.25)
+                    accepted = label.lower() + "-training-accepted.png"
+                    subprocess.run(["scrot", "-z", "-o", str(gallery / accepted)],
+                                   env=display_env, check=True)
+                    if recorder:
+                        recorder.event("building_hud_training_accepted", client="client-a",
+                                       building=label, filename="building-hud-gallery/" + accepted)
             subprocess.run(["xdotool", "mousemove", "1272", "77", "click", "1"],
                            env=display_env, check=True)
             subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+h"],
@@ -620,7 +630,11 @@ def main():
                            env=display_env, check=True)
             (gallery / "README.md").write_text("# Universal StarCraft building HUD\n\n"
                 + "\n".join(f"- [{label}]({label.lower().replace(' ', '-')}.png)"
-                            for label in labels) + "\n")
+                            for label in labels)
+                + "\n- [Barracks training](barracks-training.png)"
+                + "\n- [Barracks accepted](barracks-training-accepted.png)"
+                + "\n- [Factory training](factory-training.png)"
+                + "\n- [Factory accepted](factory-training-accepted.png)\n")
         if args.barracks_training_probe:
             display_env = env | {"DISPLAY": ":91"}
 

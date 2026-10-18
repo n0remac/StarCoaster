@@ -1506,7 +1506,8 @@
                 const args = event.args;
                 return args && Number.isSafeInteger(args.player) && Number.isSafeInteger(args.request)
                     && (/^openbw:[0-9]+$/.test(args.unit)
-                        || /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.unit))
+                        || /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.unit)
+                        || /^scenario:[a-z0-9-]{1,64}$/.test(args.unit))
                     && typeof args.accepted === "boolean"
                     && /^[a-z_]{2,64}$/.test(args.reason)
                     ? {} : { error: 1, errorMessage: "Invalid Marine command result" };
