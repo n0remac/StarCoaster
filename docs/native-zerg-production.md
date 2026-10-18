@@ -94,3 +94,15 @@ so Academy, Armory, Supply Depot, and Spawning Pool show native status with
 empty command slots. The capture does not provide a dedicated screenshot of
 inspector closure on combat demolition; target invalidation is covered by the
 building inspector regressions.
+
+## Final verification
+
+On 2026-10-18, `scripts/project.sh generate` and `scripts/project.sh build`
+passed with the local licensed installations. `scripts/project.sh test` passed
+the Go and C++ checks and 119 Python tests (one skipped). The complete
+`scripts/project.sh test-live` suite passed; its local log is
+`run-data/milestone-test-live-complete.log`. This includes both native Zerg
+probes, actor restart and reconnect, scenario runtime, all live construction
+cases, and the manual objective removal test. The graphical capture used
+`scripts/project.sh record --scenario native-production-hud --native-production-hud --duration 85`
+and produced the passing artifact above.
