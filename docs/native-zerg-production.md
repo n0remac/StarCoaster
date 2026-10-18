@@ -78,7 +78,7 @@ stay empty.
 ## Graphical verification
 
 The two-client `native-production-hud` recording passed all 17 capture checks
-under `run-data/artifacts/20261018T204345Z-7711c91fdf68/`. Its
+under `run-data/artifacts/20261018T205228Z-0124888f4a0f/`. Its
 `building-hud-gallery/` contains a labeled screenshot for each of the seven
 building windows, including live camera viewports and the shared 3×3 card.
 The same directory contains Barracks and Factory training screenshots, accepted
