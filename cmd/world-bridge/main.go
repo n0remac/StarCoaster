@@ -1706,10 +1706,13 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 				Reason      string `json:"reason"`
 				Requirement string `json:"requirement"`
 			} `json:"commands"`
-			LarvaCount        int  `json:"larva_count"`
-			SupplyUsed        int  `json:"supply_used"`
-			SupplyTotal       int  `json:"supply_total"`
-			CommandAuthorized bool `json:"command_authorized"`
+			LarvaCount           *int `json:"larva_count,omitempty"`
+			MorphCount           *int `json:"morph_count,omitempty"`
+			MorphRemainingFrames *int `json:"morph_remaining_frames,omitempty"`
+			SupplyProvided       *int `json:"supply_provided,omitempty"`
+			SupplyUsed           int  `json:"supply_used"`
+			SupplyTotal          int  `json:"supply_total"`
+			CommandAuthorized    bool `json:"command_authorized"`
 		}
 		if m.Decode(&state) != nil {
 			return
@@ -1730,7 +1733,10 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			state.Race != strings.SplitN(building.NativeType, "_", 2)[0] ||
 			len(state.Availability) != len(building.Production) ||
 			len(state.Commands) != len(building.Production) ||
-			state.LarvaCount < 0 || state.LarvaCount > 3 {
+			(state.LarvaCount != nil && (*state.LarvaCount < 0 || *state.LarvaCount > 3)) ||
+			(state.MorphCount != nil && (*state.MorphCount < 0 || *state.MorphCount > 3)) ||
+			(state.MorphRemainingFrames != nil && *state.MorphRemainingFrames < 0) ||
+			(state.SupplyProvided != nil && *state.SupplyProvided < 0) {
 			return
 		}
 		for slot, unitID := range building.Production {

@@ -523,7 +523,7 @@ func TestAcademyBuildingStateWithoutProduction(t *testing.T) {
 	}()
 	s.controllerMessage(nil, world.Message("building.state", "session-a", "controller:academy", "openbw", 1,
 		map[string]any{"id": e.ID, "native_id": "openbw:77", "owner": 1,
-			"race": "Terran", "completed": true, "commands": []any{}, "larva_count": 0,
+			"race": "Terran", "completed": true, "commands": []any{},
 			"health": 600, "max_health": 600, "queue": 0, "remaining_frames": 0,
 			"minerals": 500, "gas": 250, "supply_used": 10, "supply_total": 16}))
 	select {
@@ -531,8 +531,56 @@ func TestAcademyBuildingStateWithoutProduction(t *testing.T) {
 		if message.Kind != "building.state" {
 			t.Fatalf("academy state was not forwarded: %+v", message)
 		}
+		var state map[string]any
+		if message.Decode(&state) != nil || state["larva_count"] != nil {
+			t.Fatalf("academy acquired a fabricated larva count: %+v", state)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("academy state was not forwarded")
+	}
+}
+
+func TestHatcheryNativeMorphStatusSurvivesBridge(t *testing.T) {
+	s := testService()
+	e := testEntity()
+	e.ID, e.SourceID, e.Kind, e.Type, e.Owner = "openrct2:large_scenery:7:1:1#1", "large_scenery:7:1:1", "structure", "zerg_hatchery", 0
+	e.Geometry.Rects = []world.Rect{{X: 32, Y: 32, Width: 128, Height: 96}}
+	e.Combat.Health = 1250
+	if err := s.registry.Replace("session-a", 1, 8, 8, []world.Entity{e}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.proxies[e.ID] = "openbw:77"
+	bridge, park := net.Pipe()
+	defer bridge.Close()
+	defer park.Close()
+	s.park = &peer{Conn: bridge}
+	forwarded := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(park)), &message)
+		forwarded <- message
+	}()
+	s.controllerMessage(nil, world.Message("building.state", "session-a", "publisher:hatchery", "openbw", 1,
+		map[string]any{"id": e.ID, "native_id": "openbw:77", "owner": 0,
+			"race": "Zerg", "completed": true, "health": 1250, "max_health": 1250,
+			"queue": 0, "remaining_frames": 0, "minerals": 450, "gas": 0,
+			"supply_used": 1, "supply_total": 18, "larva_count": 2,
+			"morph_count": 1, "morph_remaining_frames": 372,
+			"availability": map[string]any{"zerg_zergling": map[string]any{
+				"ready": true, "reason": "ready", "requirement": ""}},
+			"commands": []any{map[string]any{"slot": 0, "action": "unit.train",
+				"unit_type": "zerg_zergling", "label": "Zerg Zergling",
+				"ready": true, "reason": "ready", "requirement": ""}}}))
+	select {
+	case message := <-forwarded:
+		var state map[string]any
+		if message.Decode(&state) != nil || state["larva_count"] != float64(2) ||
+			state["morph_count"] != float64(1) || state["morph_remaining_frames"] != float64(372) ||
+			state["command_authorized"] != false {
+			t.Fatalf("native morph status was changed or authorized by the bridge: %+v", state)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("hatchery state was not forwarded")
 	}
 }
 
