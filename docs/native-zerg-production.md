@@ -77,23 +77,25 @@ stay empty.
 
 ## Graphical verification
 
-The two-client `native-production-hud` recording passed all 16 capture checks
-under `run-data/artifacts/20261018T185413Z-3943b687f197/`. Its
+The two-client `native-production-hud` recording passed all 17 capture checks
+under `run-data/artifacts/20261018T204345Z-7711c91fdf68/`. Its
 `building-hud-gallery/` contains a labeled screenshot for each of the seven
 building windows, including live camera viewports and the shared 3×3 card.
 The same directory contains Barracks and Factory training screenshots, accepted
 native result screenshots, and `combined.mp4`. Both clients observed the same
 Larva, its incomplete Egg, and the distinct Zergling pair. The recording also
 confirmed accepted Marine and Vulture training and native results reaching the
-HUD. The scenario fixture and generated licensed images remain under ignored
-`run-data/`; they are not source assets.
+HUD. The before and after Armory demolition screenshots show the ordinary park
+removal closing the inspector after native synchronization, with no stale
+window left on screen. The scenario fixture and generated licensed images
+remain under ignored `run-data/`; they are not source assets.
 
 The current bridge exposes executable training commands only. BWAPI's existing
 research and upgrade support has not been routed through the command contract,
 so Academy, Armory, Supply Depot, and Spawning Pool show native status with
-empty command slots. The capture does not provide a dedicated screenshot of
-inspector closure on combat demolition; target invalidation is covered by the
-building inspector regressions.
+empty command slots. The Armory capture exercises ordinary park demolition;
+combat demolition target invalidation is covered by the building inspector
+regressions.
 
 ## Final verification
 
