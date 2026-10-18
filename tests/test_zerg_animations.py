@@ -30,6 +30,14 @@ SEQUENCES = {
                    "attack": [14, 13, 12, 11, 12, 13, 14],
                    "death": list(range(255, 265))},
 }
+LIFECYCLE_SEQUENCES = {
+    "larva": {"idle": [0], "walk": [0, 17, 34, 51, 68],
+              "death": list(range(9))},
+    "egg": {"morph": [20, 21, 22, 23] + list(range(9)), "idle": list(range(12)),
+            "hatch": [11] + list(range(12, 20)), "death": list(range(12))},
+}
+DEATH_WAITS = {"larva": [2] * 6 + [25] * 3,
+               "egg": [2] * 9 + [25] * 3}
 G2_BASELINE_COUNT = 1092
 G2_BASELINE_SHA256 = "4904158f6f070aea1d855f36c807a5fe868b68d4c6c4ba6440425325514991dc"
 GAME = Path(os.environ.get("STARCRAFT_DATA_DIR", "/home/pi/games/starcraft"))
@@ -94,6 +102,21 @@ def original_zerg_scripts(images: bytes, iscript: bytes) -> dict[str, dict[str, 
 
 
 class ZergAnimationTests(unittest.TestCase):
+    def test_larva_egg_lifecycle_declarations(self):
+        for unit, states in LIFECYCLE_SEQUENCES.items():
+            declaration = json.loads((ROOT / f"bridge-protocol/entities/zerg_{unit}.json").read_text())
+            animations = declaration["visual"]["animations"]
+            for state, source_frames in states.items():
+                animation = animations[state]
+                selected = animation.get("frames", [bank * 17 for bank in animation.get("banks", [])])
+                self.assertEqual(selected, source_frames, (unit, state))
+            self.assertEqual(animations["death"]["frame_ticks"], DEATH_WAITS[unit])
+            self.assertFalse(declaration["controllable"])
+        egg = json.loads((ROOT / "bridge-protocol/entities/zerg_egg.json").read_text())
+        self.assertTrue(egg["visible_incomplete"])
+        self.assertEqual(egg["visual"]["attachments"][0]["animations"]["morph"]["frames"],
+                         list(range(5)))
+
     @unittest.skipUnless(shutil.which("smpq") and all(
         (GAME / archive).is_file()
         for archive in ("Patch_rt.mpq", "BrooDat.mpq")),

@@ -27,6 +27,8 @@
         zerg_zergling: { name: "Zergling", visual: "zerg_zergling", race: "zerg", controllable: false, movement: "ground", spawnable: true, commands: [] },
         zerg_hydralisk: { name: "Hydralisk", visual: "zerg_hydralisk", race: "zerg", controllable: false, movement: "ground", spawnable: true, commands: [] },
         zerg_ultralisk: { name: "Ultralisk", visual: "zerg_ultralisk", race: "zerg", controllable: false, movement: "ground", spawnable: true, commands: [] },
+        zerg_larva: { name: "Larva", visual: "zerg_larva", race: "zerg", controllable: false, movement: "ground", spawnable: false, commands: [] },
+        zerg_egg: { name: "Egg", visual: "zerg_egg", race: "zerg", controllable: false, movement: "ground", spawnable: false, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
         terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat", "terran_medic"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
@@ -34,10 +36,11 @@
         terran_supply_depot: { name: "Terran Supply Depot", objectID: "starcoaster.scenery_large.terran_supply_depot", width: 3, height: 2, maxHealth: 500, production: [], animation: null },
         terran_factory: { name: "Terran Factory", objectID: "starcoaster.scenery_large.terran_factory", width: 4, height: 3, maxHealth: 1250, production: ["terran_vulture", "terran_goliath"], animation: null },
         terran_armory: { name: "Terran Armory", objectID: "starcoaster.scenery_large.terran_armory", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
-        zerg_hatchery: { name: "Zerg Hatchery", objectID: "starcoaster.scenery_large.zerg_hatchery", width: 4, height: 3, maxHealth: 1250, production: [], animation: null },
+        zerg_hatchery: { name: "Zerg Hatchery", objectID: "starcoaster.scenery_large.zerg_hatchery", width: 4, height: 3, maxHealth: 1250, production: ["zerg_zergling"], animation: null },
         zerg_spawning_pool: { name: "Zerg Spawning Pool", objectID: "starcoaster.scenery_large.zerg_spawning_pool", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
     });
     // END GENERATED STARCRAFT TYPES
+    const COMMAND_ICON_IMAGES = Object.freeze({"terran_firebat": 30696, "terran_goliath": 30697, "terran_marine": 30698, "terran_medic": 30699, "terran_vulture": 30700, "zerg_zergling": 30701});
     const buildingByObject = {};
     Object.keys(BUILDING_TYPES).forEach(function (id) {
         const definition = BUILDING_TYPES[id];
@@ -952,7 +955,8 @@
                 && (unit.aim_facing === undefined || Number.isInteger(unit.aim_facing)
                     && unit.aim_facing >= 0 && unit.aim_facing <= 255)
                 && (unit.motion === "idle" || unit.motion === "walk" || unit.motion === "attack"
-                    || unit.motion === "heal" || unit.motion === "death")
+                    || unit.motion === "heal" || unit.motion === "morph"
+                    || unit.motion === "hatch" || unit.motion === "death")
                 && (UNIT_TYPES[unit.kind]
                     && Number.isInteger(unit.owner) && unit.owner >= 0 && unit.owner <= 11
                     && Number.isInteger(unit.hp) && unit.hp >= 0
@@ -1000,6 +1004,9 @@
         let pendingClientRefresh = false;
         let onActorRemoved = function () {};
         let commanderPlayer = -1;
+        function mayCommandBuilding(native) {
+            return !!native && native.command_authorized;
+        }
         let commandSerial = 0;
         let worldCommandSender = null;
         let worldSpawnSender = null;
@@ -1383,7 +1390,7 @@
                         commanderPlayer = clients.length ? clients[0] : network.currentPlayer.id;
                     }
                     if (event.player !== commanderPlayer)
-                        return { error: 1, errorMessage: "Only the Terran commander may order units" };
+                        return { error: 1, errorMessage: "Only the authorized commander may order this unit" };
                 }
                 if (!args || args.session !== controlSession || !Number.isSafeInteger(args.request)
                     || args.request < 1 || !Array.isArray(args.unit_ids)
@@ -1397,10 +1404,15 @@
                     const id = args.target_entity_id;
                     const building = BUILDING_TYPES[targetBuildingID(id, worldTargetIds[id])];
                     const requested = args.unit_type || "terran_marine";
-                    if (typeof id !== "string" || !/^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(id)
+                    if (typeof id !== "string" || !(/^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(id)
+                        || /^scenario:[a-z0-9-]{1,64}$/.test(id))
                         || targetCatalogSession !== args.session || !worldTargetIds[id]
                         || !building || !building.production.includes(requested) || !UNIT_TYPES[requested]
-                        || !buildingStates[id] || buildingStates[id].owner !== terranOwner
+                        || !buildingStates[id] || !buildingStates[id].command_authorized
+                        || !buildingStates[id].commands.some(function (command) {
+                            return command.action === "unit.train" && command.unit_type === requested
+                                && command.ready;
+                        })
                         || buildingStates[id].health < 1)
                         return { error: 1, errorMessage: "Production building is unavailable" };
                 }
@@ -1526,11 +1538,17 @@
                         || /^scenario:[a-z0-9-]{1,64}$/.test(args.id || ""))
                     && /^openbw:[0-9]+$/.test(args.native_id || "")
                     && ["owner", "health", "queue", "remaining_frames", "minerals", "gas",
-                        "supply_used", "supply_total", "larva_count"].every(function (field) {
+                        "supply_used", "supply_total"].every(function (field) {
                         return Number.isInteger(args[field]) && args[field] >= 0;
                     }) && args.health <= 1000000
                     && ["Terran", "Zerg", "Protoss"].includes(args.race)
-                    && typeof args.completed === "boolean" && args.larva_count <= 3
+                    && typeof args.completed === "boolean"
+                    && (args.larva_count === undefined || (Number.isInteger(args.larva_count)
+                        && args.larva_count >= 0 && args.larva_count <= 3))
+                    && ["morph_count", "morph_remaining_frames", "supply_provided"].every(function (field) {
+                        return args[field] === undefined || (Number.isInteger(args[field]) && args[field] >= 0);
+                    })
+                    && typeof args.command_authorized === "boolean"
                     && (args.max_health === undefined || (Number.isInteger(args.max_health)
                         && args.max_health >= args.health && args.max_health <= 1000000))
                     && args.queue <= 5
@@ -2139,7 +2157,7 @@
                         onClick: function () {
                             const native = buildingStates[buildingInfoID];
                             const command = native && native.commands ? native.commands[slot] : null;
-                            if (!command || !command.ready || native.owner !== terranOwner
+                            if (!command || !command.ready || !mayCommandBuilding(native)
                                 || command.action !== "unit.train") return;
                             const request = ++nextRequest;
                             pendingTrainTypes[request] = commandText(command);
@@ -2181,7 +2199,10 @@
                             "building-status": native ? (native.completed ? "Complete" : "Constructing")
                                 + "  Queue: " + native.queue
                                 + (native.remaining_frames ? "  Remaining: " + native.remaining_frames + " frames" : "")
-                                + (native.larva_count ? "  Larvae: " + native.larva_count : "")
+                                + (Number.isInteger(native.larva_count) ? "  Larvae: " + native.larva_count : "")
+                                + (native.morph_count ? "  Eggs: " + native.morph_count
+                                    + " (" + native.morph_remaining_frames + " frames)" : "")
+                                + (native.supply_provided ? "  Provides: " + (native.supply_provided / 2) + " supply" : "")
                                 : "Native status: synchronizing",
                             "building-resources": resources ? "Minerals: " + resources.minerals + "  Gas: " + resources.gas
                                 + "  Supply: " + (resources.supply_used / 2) + "/" + (resources.supply_total / 2) : "",
@@ -2195,10 +2216,13 @@
                             const widget = buildingInfoWindow.findWidget("building-command-" + slot);
                             const command = native && native.commands ? native.commands[slot] : null;
                             if (!widget) continue;
-                            widget.text = commandText(command);
+                            const image = command && COMMAND_ICON_IMAGES[command.unit_type];
+                            widget.image = image || 0;
+                            widget.text = image ? "" : commandText(command);
                             widget.isDisabled = !target || !native || native.health < 1
-                                || native.owner !== terranOwner || !command || !command.ready;
-                            widget.tooltip = command ? (command.ready ? "Train " + command.label
+                                || !mayCommandBuilding(native) || !command || !command.ready;
+                            widget.tooltip = command ? (!mayCommandBuilding(native) ? "Read-only building"
+                                : command.ready ? "Train " + command.label
                                 : nativeReason(command)) : "";
                         }
                     }, widgets: [

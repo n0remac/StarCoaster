@@ -12,6 +12,7 @@
 #include "WorldMedicVultureProbe.h"
 #include "WorldGoliathProbe.h"
 #include "WorldZergProductionProbe.h"
+#include "WorldBuildingState.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -78,6 +79,10 @@ public:
         }
         pendingCreations_.erase(unit->getID());
         publishedActors_.erase(unit->getID());
+        publishedActorStates_.erase(unit->getID());
+        if (auto last = lastActors_.find(unit->getID()); last != lastActors_.end())
+            if (const auto* type = worldUnitType(unit->getType()))
+                last->second.first["kind"] = type->id;
         const auto id = actorRegistry_.id(unit);
         for (auto& [key, spawn] : nativeSpawns_) {
             if (spawn.actorID != id || spawn.state != "created") continue;
@@ -150,6 +155,20 @@ public:
         if (!ready_) return;
         publishRuntimeEvents(frame);
         publishSpawnOutcomes(frame);
+        if (!session_.empty() && frame % 24 == 0 && game->self()) {
+            send("player.resources", {{"owner", game->self()->getID()},
+                {"minerals", game->self()->minerals()}, {"gas", game->self()->gas()},
+                {"supply_used", game->self()->supplyUsed()},
+                {"supply_total", game->self()->supplyTotal()}}, revision_, frame);
+            for (const auto& [id, target] : targets_) {
+                auto unit = target.unit;
+                if (!unit || !unit->exists() || unit->getPlayer() != game->self()) continue;
+                const auto* building = worldBuildingType(unit->getType());
+                if (!building) continue;
+                send("building.state", worldBuildingState(game, unit, *building, id,
+                    "openbw:" + std::to_string(target.proxyID)), revision_, frame);
+            }
+        }
         const char* spawnAt = std::getenv("BRIDGE_TEST_SPAWN_MARINE_FRAME");
         if (!testMarineSpawnRequested_ && spawnAt && *spawnAt) {
             char* end = nullptr;
@@ -291,7 +310,7 @@ private:
             {"map_width",game->mapWidth()},{"map_height",game->mapHeight()}},1,0);
         std::cerr << "[world] connected to bridge service" << std::endl;
     }
-    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); maskReceiver_.reset(); maskValid_=false; pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; for (auto& [id, target] : targets_) if (target.lifecycle=="destroyed_in_openbw") target.reported=false; ready_=false; }
+    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); publishedActorStates_.clear(); maskReceiver_.reset(); maskValid_=false; pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; for (auto& [id, target] : targets_) if (target.lifecycle=="destroyed_in_openbw") target.reported=false; ready_=false; }
     void flush() {
         while (socket_>=0 && !outgoing_.empty()) {
             const ssize_t n=::send(socket_,outgoing_.data(),outgoing_.size(),MSG_NOSIGNAL);
@@ -315,6 +334,64 @@ private:
         const std::string kind=message.value("kind","");
         const auto& payload=message.at("payload");
         if (kind=="world.ack") return;
+        if (kind=="combat.command") {
+            const std::string commandID = payload.value("command_id", "");
+            const std::string prefix = session_ + ":";
+            const std::string serial = commandID.compare(0, prefix.size(), prefix) == 0
+                ? commandID.substr(prefix.size()) : "";
+            bool accepted = !session_.empty() && ready_ && game->self()
+                && message.value("source", "") == "bridge"
+                && message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() == revision_
+                && payload.value("verb", "") == "unit.train"
+                && payload.value("unit_ids", json::array()).empty()
+                && !serial.empty() && serial.size() <= 20
+                && serial.find_first_not_of("0123456789") == std::string::npos;
+            std::string reason = accepted ? "ok" : "invalid_command";
+            uint64_t number = 0;
+            if (accepted) {
+                try { number = std::stoull(serial); }
+                catch (...) { accepted = false; reason = "invalid_command"; }
+                if (accepted && number <= lastCommandSerial_) {
+                    accepted = false; reason = "duplicate_command";
+                }
+            }
+            BWAPI::Unit target = nullptr;
+            const auto targetID = payload.value("target_id", "");
+            const auto* requested = worldUnitType(payload.value("unit_type", ""));
+            if (accepted) {
+                const auto found = targets_.find(targetID);
+                if (found != targets_.end()) target = found->second.unit;
+                if (!target || !target->exists() || !requested
+                    || found->second.lifecycle != "active"
+                    || payload.value("target_proxy_id", "") !=
+                        "openbw:" + std::to_string(found->second.proxyID)
+                    || target->getPlayer() != game->self() || !target->isCompleted()
+                    || target->getHitPoints() < 1) {
+                    accepted = false; reason = "production_unavailable";
+                } else {
+                    const auto* building = worldBuildingType(target->getType());
+                    if (!building || !worldCanProduce(*building, requested->id)) {
+                        accepted = false; reason = "unsupported_unit_type";
+                    }
+                }
+            }
+            if (accepted) {
+                lastCommandSerial_ = number;
+                accepted = target->canTrain(requested->native)
+                    && target->train(requested->native);
+                if (!accepted) reason = "native_train_rejected";
+                std::cerr << "[world] native production command=" << commandID
+                          << " building=" << target->getID() << " unit_type=" << requested->id
+                          << " accepted=" << accepted << " frame=" << game->getFrameCount()
+                          << " minerals=" << game->self()->minerals() << std::endl;
+            }
+            send("combat.result", {{"command_id", commandID},
+                {"player_id", payload.value("player_id", -1)},
+                {"request_id", payload.value("request_id", -1)},
+                {"accepted", accepted}, {"reason", reason}}, revision_, game->getFrameCount());
+            return;
+        }
         if (kind=="navigation.mask.cancel") {
             const auto revision = message.at("revision").get<uint64_t>();
             const auto hash = payload.value("hash", "");
@@ -684,6 +761,7 @@ private:
         for (auto& pending : pending_)
             if (newSession || !desired.entities.count(pending.id)) pending.id.clear();
         desired_ = desired;
+        if (session_ != desired.session) lastCommandSerial_ = 0;
         session_ = desired.session;
         revision_ = desired.revision;
         width_ = desired.width;
@@ -715,6 +793,7 @@ private:
             {"engine", "openbw"},
             {"type", worldUnitType(type)->id},
             {"owner", actor.unit->getPlayer()->getID()},
+            {"phase", actor.unit->isCompleted() ? "complete" : "incomplete"},
             {"generation", actor.generation}, {"session", session_}};
     }
     json runtimeBinding(const WorldActorRegistry::RuntimeActor& actor) const {
@@ -855,9 +934,12 @@ private:
             const auto creation = it->second;
             if (!creation.unit || !creation.unit->exists()) { it = pendingCreations_.erase(it); continue; }
             if (actorRegistry_.known(creation.unit)) { it = pendingCreations_.erase(it); continue; }
-            // OpenBW creates a training unit when the queue starts. It is not
-            // a selectable actor until the native production timer completes.
-            if (!creation.unit->isCompleted()) { ++it; continue; }
+            // Conventional training becomes visible at completion. Types
+            // explicitly marked for incomplete presentation (such as eggs)
+            // enter the visible registry while native production continues.
+            const auto* observedType = worldUnitType(creation.unit->getType());
+            if (!observedType || (!creation.unit->isCompleted()
+                && !observedType->visibleIncomplete)) { ++it; continue; }
             const int canonical = 3000 + runtimeSerial_ + 1;
             if (!actorRegistry_.registerRuntime(creation.unit, canonical,
                     static_cast<uint64_t>(runtimeSerial_ + 1), creation.frame)) { ++it; continue; }
@@ -883,10 +965,25 @@ private:
     }
     void publishRuntimeEvents(int frame) {
         for (const auto& [canonical, actor] : actorRegistry_.runtime()) {
-            if (!actor.unit || !actor.unit->exists() || publishedActors_.count(actor.unit->getID())) continue;
-            send("actor.spawn", runtimeIdentity(actor), revision_, frame);
-            send("actor.bind", runtimeBinding(actor), revision_, frame);
-            if (socket_ >= 0) publishedActors_.insert(actor.unit->getID());
+            if (!actor.unit || !actor.unit->exists()) continue;
+            const auto identity = runtimeIdentity(actor);
+            const auto nativeID = actor.unit->getID();
+            const std::pair<std::string, std::string> state{
+                identity.at("type").get<std::string>(), identity.at("phase").get<std::string>()};
+            if (!publishedActors_.count(nativeID)) {
+                send("actor.spawn", identity, revision_, frame);
+                send("actor.bind", runtimeBinding(actor), revision_, frame);
+                if (socket_ >= 0) {
+                    publishedActors_.insert(nativeID);
+                    publishedActorStates_[nativeID] = state;
+                }
+            } else if (auto prior = publishedActorStates_.find(nativeID);
+                       prior != publishedActorStates_.end() && prior->second != state) {
+                send("actor.morph", {{"id", identity.at("id")}, {"session", session_},
+                    {"generation", actor.generation}, {"from_type", prior->second.first},
+                    {"type", state.first}, {"phase", state.second}}, revision_, frame);
+                prior->second = state;
+            }
         }
     }
     void publishSpawnOutcomes(int frame) {
@@ -915,6 +1012,9 @@ private:
             if (actor.unit && actor.unit->exists()) {
                 send("actor.bind", runtimeBinding(actor), revision_, frame);
                 publishedActors_.insert(actor.unit->getID());
+                const auto identity = runtimeIdentity(actor);
+                publishedActorStates_[actor.unit->getID()] = {
+                    identity.at("type").get<std::string>(), identity.at("phase").get<std::string>()};
             }
     }
     void retireTarget(BWAPI::Game* game, const std::string& id, const std::string& reason) {
@@ -1250,6 +1350,10 @@ private:
             if (!definition) continue;
             const auto actorID=actorRegistry_.id(unit);
             if (actorID.empty()) continue;
+            auto& observedType = observedActorTypes_[unit->getID()];
+            if (observedType.first != definition->id) {
+                observedType = {definition->id, frame};
+            }
             ++total;
             observed.insert(unit->getID());
             if (units.size()>=256) continue;
@@ -1273,11 +1377,17 @@ private:
             const bool healing = type == BWAPI::UnitTypes::Terran_Medic
                 && lastHealFrame_.count(unit->getID())
                 && frame - lastHealFrame_[unit->getID()] <= 4;
+            const char* motion = healing ? "heal" : unit->isAttacking() ? "attack"
+                : unit->isMoving() ? "walk" : "idle";
+            if (type == BWAPI::UnitTypes::Zerg_Egg)
+                motion = frame - observedType.second < 25 ? "morph"
+                    : unit->getRemainingBuildTime() == 0 ? "hatch" : "idle";
             json actor={{"id",actorID},
                 {"kind",definition->id},
                 {"owner",unit->getPlayer()?unit->getPlayer()->getID():0},
                 {"x",position.x},{"y",position.y},{"facing",facing},{"aim_facing",aimFacing},
-                {"motion",healing?"heal":unit->isAttacking()?"attack":unit->isMoving()?"walk":"idle"},
+                {"motion",motion}, {"completed",unit->isCompleted()},
+                {"remaining_build_frames",unit->getRemainingBuildTime()},
                 {"hp",hp},{"max_hp",type.maxHitPoints()},{"alive",true},
                 {"energy",unit->getEnergy()},
                 {"attack_frames",attackFrames_[unit->getID()]},
@@ -1288,9 +1398,11 @@ private:
         }
         for (auto it=lastActors_.begin();it!=lastActors_.end();) {
             if (observed.count(it->first)) { ++it; continue; }
-            if (frame-it->second.second>16) {
+            const auto* deathType = worldUnitType(it->second.first.value("kind", ""));
+            if (frame-it->second.second > (deathType ? deathType->deathDisplayFrames : 16)) {
                 attackFrames_.erase(it->first);
                 lastHealFrame_.erase(it->first);
+                observedActorTypes_.erase(it->first);
                 it=lastActors_.erase(it); continue;
             }
             if (units.size()<256) {
@@ -1331,6 +1443,7 @@ private:
     WorldZergProductionProbe zergProductionProbe_{true};
     std::map<int, PendingCreation> pendingCreations_;
     std::set<int> publishedActors_;
+    std::map<int, std::pair<std::string, std::string>> publishedActorStates_;
     std::map<std::string, NativeSpawn> nativeSpawns_;
     std::string activeSpawn_, spawnError_;
     std::map<std::string, int> spawnOwnerIDs_;
@@ -1352,4 +1465,6 @@ private:
     std::map<int,int> attackFrames_;
     std::map<int,int> lastHealFrame_;
     std::map<int,std::pair<json,int>> lastActors_;
+    uint64_t lastCommandSerial_ = 0;
+    std::map<int,std::pair<std::string,int>> observedActorTypes_;
 };

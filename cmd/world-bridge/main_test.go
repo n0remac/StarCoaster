@@ -459,6 +459,48 @@ func TestGeneralizedTrainingCommand(t *testing.T) {
 	}
 }
 
+func TestZergProductionRequiresScenarioAuthorityAndRoutesToOwner(t *testing.T) {
+	s := testService()
+	e := testEntity()
+	e.ID, e.SourceID, e.Kind, e.Type, e.Owner = "openrct2:large_scenery:7:1:1#1", "large_scenery:7:1:1", "structure", "zerg_hatchery", 0
+	e.Geometry.Rects = []world.Rect{{X: 32, Y: 32, Width: 128, Height: 96}}
+	e.Combat.Health = 1250
+	if err := s.registry.Replace("session-a", 1, 8, 8, []world.Entity{e}, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.ready = true
+	s.proxies[e.ID] = "openbw:77"
+	s.controller = &peer{}
+	command := worldCommand{CommandID: "session-a:1", PlayerID: 2, RequestID: 1,
+		Verb: "unit.train", UnitType: "zerg_zergling", TargetID: e.ID, UnitIDs: []string{}}
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:zerg:denied", "openrct2", 1, command))
+	if len(s.commands) != 0 {
+		t.Fatal("enemy Hatchery accepted without scenario command authority")
+	}
+	s.scenario = &world.Scenario{ProductionControlOwners: []int{0}}
+	bridge, native := net.Pipe()
+	defer bridge.Close()
+	defer native.Close()
+	s.bw = &peer{Conn: bridge}
+	forwarded := make(chan world.Envelope, 1)
+	go func() {
+		var m world.Envelope
+		_ = json.Unmarshal([]byte(readLine(native)), &m)
+		forwarded <- m
+	}()
+	s.parkMessage(nil, world.Message("combat.command", "session-a", "park:zerg:allowed", "openrct2", 1, command))
+	select {
+	case message := <-forwarded:
+		var actual worldCommand
+		if message.Kind != "combat.command" || message.Decode(&actual) != nil ||
+			actual.UnitType != "zerg_zergling" || actual.TargetProxyID != "openbw:77" {
+			t.Fatalf("Zerg command was not routed to native owner: %+v", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("authorized Zerg command was not forwarded")
+	}
+}
+
 func TestAcademyBuildingStateWithoutProduction(t *testing.T) {
 	s := testService()
 	e := testEntity()

@@ -1,0 +1,44 @@
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -161,7 +161,8 @@
+             if (previousVisual != previous->visual.end())
+             {
+                 visual.flameStartTick = previousVisual->second.flameStartTick;
+-                if (actor.motion == old->second.motion && actor.attackFrames == old->second.attackFrames)
++                if (actor.kind == old->second.kind && actor.motion == old->second.motion
++                    && actor.attackFrames == old->second.attackFrames)
+                     visual.animationStartTick = previousVisual->second.animationStartTick;
+                 const auto source = VisualPosition(old->second, previousVisual->second);
+                 const int64_t dx = static_cast<int64_t>(actor.x) - old->second.x;
+@@ -550,6 +551,8 @@
+                 }
+             if (!animation)
+             {
++                if (layer.optional)
++                    continue;
+                 if (actor.motion == "death")
+                     continue; // An attachment without death art leaves with its body.
+                 for (size_t animationIndex = 0; animationIndex < layer.count; ++animationIndex)
+@@ -561,7 +564,7 @@
+             }
+             if (!animation || animation->count == 0)
+                 continue;
+-            const uint32_t pose = actor.motion == "death"
++            const uint32_t pose = actor.motion == "death" || actor.motion == "morph" || actor.motion == "hatch"
+                 ? std::min<uint32_t>(animation->count - 1, elapsed / std::max<uint32_t>(1, animation->ticks))
+                 : (elapsed / std::max<uint32_t>(1, animation->ticks)) % animation->count;
+             PaintAddImageAsParent(session, ImageId(animation->images[pose][layer.targetFacing ? targetDirection : direction]), { 0, 0, z }, actorBounds);
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -774,7 +774,8 @@
+             && BridgeReadInt(ctx, unit, "facing", facing) && facing >= 0 && facing <= 255
+             && BridgeReadString(ctx, unit, "motion", parsed.motion)
+             && (parsed.motion == "idle" || parsed.motion == "walk" || parsed.motion == "attack"
+-                || parsed.motion == "heal" || parsed.motion == "death")
++                || parsed.motion == "heal" || parsed.motion == "morph"
++                || parsed.motion == "hatch" || parsed.motion == "death")
+             && BridgeReadInt(ctx, unit, "owner", owner) && owner >= 0 && owner <= 11
+             && BridgeReadInt(ctx, unit, "hp", hp) && hp >= 0 && hp <= 10000
+             && BridgeReadInt(ctx, unit, "max_hp", maxHp) && maxHp >= hp && maxHp <= 10000

@@ -156,6 +156,26 @@ def ensure_target_facing_attachments(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_native_morph_visuals(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0015-native-morph-visuals.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected actor renderer changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
+def ensure_native_animation_timing(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0016-native-animation-timing.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected actor renderer changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
@@ -167,7 +187,9 @@ if __name__ == "__main__":
                     ROOT / "openrct2-patches/0011-medic-vulture-effects.patch",
                     ROOT / "openrct2-patches/0012-generic-visual-registry.patch",
                     ROOT / "openrct2-patches/0013-generic-actor-validation.patch",
-                    ROOT / "openrct2-patches/0014-target-facing-attachments.patch"]
+                    ROOT / "openrct2-patches/0014-target-facing-attachments.patch",
+                    ROOT / "openrct2-patches/0015-native-morph-visuals.patch",
+                    ROOT / "openrct2-patches/0016-native-animation-timing.patch"]
         # Reconciliation temporarily reverses and reapplies overlays. Keep
         # unchanged file mtimes so an ordinary rebuild does not recompile all
         # SpriteIds.h dependents merely because the check ran.
@@ -197,7 +219,9 @@ if __name__ == "__main__":
                   ("Medic, Vulture, and effects", ensure_medic_vulture_effects),
                   ("Generic visual registry", ensure_generic_visual_registry),
                   ("Generic actor validation", ensure_generic_actor_validation),
-                  ("Target-facing attachments", ensure_target_facing_attachments)]
+                  ("Target-facing attachments", ensure_target_facing_attachments),
+                  ("Native morph visuals", ensure_native_morph_visuals),
+                  ("Native animation timing", ensure_native_animation_timing)]
         for index, (label, ensure) in enumerate(checks):
             removed = []
             for overlay in reversed(overlays[index + 1:]):

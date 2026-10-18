@@ -134,6 +134,20 @@ func supportedNativeBuilding(id string) bool {
 	return ok
 }
 
+func (s *service) mayOrderProduction(owner int) bool {
+	if owner == 1 {
+		return true
+	}
+	if s.scenario != nil {
+		for _, allowed := range s.scenario.ProductionControlOwners {
+			if allowed == owner {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type targetLink struct {
 	ID      string `json:"id"`
 	ProxyID string `json:"proxy_id"`
@@ -996,6 +1010,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.ack(p, m, false, "invalid_or_unavailable_command")
 			return
 		}
+		recipient := s.controller
 		for _, id := range command.UnitIDs {
 			if !unitIDPattern.MatchString(id) {
 				s.ack(p, m, false, "invalid_unit_id")
@@ -1009,6 +1024,10 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 					return
 				}
 				if known {
+					if !s.actors.CombatCommandable(id) {
+						s.ack(p, m, false, "actor_not_commandable")
+						return
+					}
 					unit, supported := world.SupportedUnit(record.Identity.Type)
 					allowed := false
 					for _, verb := range unit.Commands {
@@ -1047,11 +1066,15 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			}
 			if len(command.UnitIDs) != 0 || !exists || entity.Kind != "structure" ||
 				!supported || !supportedUnit || !trainable || entity.Owner < 0 ||
+				!s.mayOrderProduction(entity.Owner) ||
 				s.registry.Destroyed[command.TargetID] || s.proxies[command.TargetID] == "" {
 				s.ack(p, m, false, "production_unavailable")
 				return
 			}
 			command.TargetProxyID = s.proxies[command.TargetID]
+			if entity.Owner == 0 {
+				recipient = s.bw
+			}
 		case "unit.move", "unit.attack_move":
 			if len(command.UnitIDs) == 0 {
 				s.ack(p, m, false, "missing_units")
@@ -1099,7 +1122,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		if s.commands == nil {
 			s.commands = map[string]worldCommand{}
 		}
-		if err := s.emit(s.controller, "combat.command", m.Session, m.Revision, command); err != nil {
+		if err := s.emit(recipient, "combat.command", m.Session, m.Revision, command); err != nil {
 			s.ack(p, m, false, "controller_disconnected")
 			return
 		}
@@ -1213,6 +1236,27 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		return
 	}
 	switch m.Kind {
+	case "building.state", "player.resources":
+		var report struct {
+			Owner int `json:"owner"`
+		}
+		if m.Decode(&report) != nil || report.Owner != 0 {
+			return
+		}
+		s.controllerMessage(p, m)
+	case "combat.result":
+		var report struct {
+			CommandID string `json:"command_id"`
+		}
+		if m.Decode(&report) != nil {
+			return
+		}
+		command, ok := s.commands[report.CommandID]
+		if !ok || command.Verb != "unit.train" ||
+			s.registry.Entities[command.TargetID].Owner != 0 {
+			return
+		}
+		s.controllerMessage(p, m)
 	case "actor.spawn":
 		var identity world.ActorIdentity
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -1227,6 +1271,17 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			s.reconciledActors[identity.ID] = true
 		}
 		_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
+	case "actor.morph":
+		var change world.ActorMorph
+		if s.actors == nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || m.Decode(&change) != nil ||
+			s.actors.Morph(change) != nil {
+			s.ack(p, m, false, "invalid_actor_morph")
+			return
+		}
+		s.ack(p, m, true, "")
+		_ = s.emit(s.controller, "actor.morph", m.Session, m.Revision, change)
+		_ = s.emit(s.park, "actor.morph", m.Session, m.Revision, change)
 	case "actor.reconcile":
 		var state world.ActorReconcile
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -1651,9 +1706,10 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 				Reason      string `json:"reason"`
 				Requirement string `json:"requirement"`
 			} `json:"commands"`
-			LarvaCount int `json:"larva_count"`
-			SupplyUsed  int `json:"supply_used"`
-			SupplyTotal int `json:"supply_total"`
+			LarvaCount        int  `json:"larva_count"`
+			SupplyUsed        int  `json:"supply_used"`
+			SupplyTotal       int  `json:"supply_total"`
+			CommandAuthorized bool `json:"command_authorized"`
 		}
 		if m.Decode(&state) != nil {
 			return
@@ -1691,6 +1747,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 				return
 			}
 		}
+		state.CommandAuthorized = s.mayOrderProduction(entity.Owner)
 		_ = s.emit(s.park, "building.state", m.Session, m.Revision, state)
 	case "player.resources":
 		var resources struct {

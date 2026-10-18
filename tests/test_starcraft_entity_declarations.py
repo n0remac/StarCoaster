@@ -94,7 +94,9 @@ class EntityDeclarationTests(unittest.TestCase):
         self.assertEqual([(unit["id"], unit["native_type"], unit["spawnable"], unit["legacy_static_base"])
                           for unit in catalog["units"][len(established):]],
                          [("zerg_hydralisk", "Zerg_Hydralisk", True, 0),
-                          ("zerg_ultralisk", "Zerg_Ultralisk", True, 0)])
+                          ("zerg_ultralisk", "Zerg_Ultralisk", True, 0),
+                          ("zerg_larva", "Zerg_Larva", False, 0),
+                          ("zerg_egg", "Zerg_Egg", False, 0)])
         visuals = json.loads((self.root / OUTPUTS[1]).read_text())["units"]
         for name, order in (("hydralisk", 7), ("ultralisk", 8)):
             self.assertEqual(visuals["zerg_" + name]["g2_order"], order)

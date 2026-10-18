@@ -30,8 +30,11 @@ type Scenario struct {
 		NativeOverlord    [2]int `json:"native_overlord,omitempty"`
 	} `json:"production_fixture,omitempty"`
 	InitialStructures []ScenarioStructure `json:"initial_structures,omitempty"`
-	Objectives        []ScenarioObjective `json:"objectives"`
-	InitialAI         struct {
+	// Native owners whose production the scenario commander may order. An
+	// absent list retains ordinary Terran-only player control.
+	ProductionControlOwners []int               `json:"production_control_owners,omitempty"`
+	Objectives              []ScenarioObjective `json:"objectives"`
+	InitialAI               struct {
 		Strategy    string `json:"strategy"`
 		Objective   string `json:"objective"`
 		DelayFrames int    `json:"delay_frames"`
@@ -188,6 +191,13 @@ func LoadScenario(path string) (*Scenario, error) {
 			(scenario.ProductionFixture.NativeOverlord[0] < 1 || scenario.ProductionFixture.NativeOverlord[0] > 254 ||
 				scenario.ProductionFixture.NativeOverlord[1] < 1 || scenario.ProductionFixture.NativeOverlord[1] > 254)) {
 		return nil, fmt.Errorf("invalid production fixture")
+	}
+	controlOwners := map[int]bool{}
+	for _, owner := range scenario.ProductionControlOwners {
+		if owner < 0 || owner > 15 || controlOwners[owner] {
+			return nil, fmt.Errorf("invalid production control owner")
+		}
+		controlOwners[owner] = true
 	}
 	if scenario.ProductionFixture.TerranMinerals > 0 {
 		x, y := scenario.ProductionFixture.NativeSupplyDepot[0], scenario.ProductionFixture.NativeSupplyDepot[1]

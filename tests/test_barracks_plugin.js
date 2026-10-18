@@ -132,7 +132,7 @@ assert.equal(info.findWidget('building-health').text, 'HP: awaiting native state
 const nativeState = { session: 'a'.repeat(32), id: targetID, native_id: 'openbw:8',
     owner: 1, race: 'Terran', completed: true, health: 1000, max_health: 1000,
     queue: 1, remaining_frames: 240, minerals: 450, gas: 250,
-    supply_used: 12, supply_total: 16, larva_count: 0,
+    supply_used: 12, supply_total: 16, larva_count: 0, command_authorized: true,
     availability: { terran_marine: { ready: true, reason: 'ready', requirement: '' },
         terran_firebat: { ready: false, reason: 'requires_building', requirement: 'Terran_Academy' },
         terran_medic: { ready: true, reason: 'ready', requirement: '' } },

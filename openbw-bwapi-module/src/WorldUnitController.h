@@ -9,6 +9,7 @@
 #include "WorldMedicVultureProbe.h"
 #include "WorldGoliathProbe.h"
 #include "WorldZergProductionProbe.h"
+#include "WorldBuildingState.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -42,7 +43,7 @@ public:
         if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
         if (!worldUnitType(type)) return;
-        creationCandidates_[unit->getID()] = {unit, frame};
+        creationCandidates_[unit->getID()] = {unit, frame, worldUnitType(type)->id};
         std::vector<std::string> pending;
         for (const auto& [id, binding] : publisherBindings_) pending.push_back(id);
         for (const auto& id : pending) tryBind(id);
@@ -142,17 +143,9 @@ public:
                         || !worldBuildingType(unit->getType())
                         || "openbw:" + std::to_string(unit->getID()) != link.proxyID) continue;
                     const auto* building = worldBuildingType(unit->getType());
-                    const auto availability = productionAvailability(game, unit, *building);
-                    json commands = json::array();
-                    for (const auto& unitID : building->trainable) {
-                        const auto* requested = worldUnitType(unitID);
-                        if (!requested || commands.size() >= 9) continue;
-                        const auto& status = availability.at(unitID);
-                        commands.push_back({{"slot", commands.size()}, {"action", "unit.train"},
-                            {"unit_type", unitID}, {"label", requested->native.getName()},
-                            {"ready", status.at("ready")}, {"reason", status.at("reason")},
-                            {"requirement", status.at("requirement")}});
-                    }
+                    if (unit->getPlayer() != game->self()) continue;
+                    const auto state = worldBuildingState(game, unit, *building, id, link.proxyID);
+                    const auto& availability = state.at("availability");
                     const std::string availabilityKey = availability.dump();
                     if (lastAvailability_[id] != availabilityKey) {
                         lastAvailability_[id] = availabilityKey;
@@ -162,23 +155,7 @@ public:
                                   << " gas=" << unit->getPlayer()->gas() << std::endl;
                     }
                     send("building.state", session_, revision_ ? revision_ : 1,
-                        {{"id", id}, {"native_id", link.proxyID},
-                         {"owner", unit->getPlayer()->getID()},
-                         {"race", unit->getPlayer()->getRace().getName()},
-                         {"completed", unit->isCompleted()},
-                         {"health", unit->getHitPoints()},
-                         {"max_health", unit->getType().maxHitPoints()},
-                         {"queue", unit->getTrainingQueue().size()},
-                         {"remaining_frames", unit->getRemainingTrainTime()},
-                         {"minerals", unit->getPlayer()->minerals()},
-                         {"gas", unit->getPlayer()->gas()},
-                         {"availability", availability},
-                         {"commands", commands},
-                         {"larva_count", unit->getType().producesLarva()
-                             ? unit->getLarva().size() : 0},
-                         {"supply_used", unit->getPlayer()->supplyUsed()},
-                         {"supply_total", unit->getPlayer()->supplyTotal()}},
-                        game->getFrameCount());
+                         state, game->getFrameCount());
                     break;
                 }
             }
@@ -186,50 +163,6 @@ public:
         flush();
     }
 private:
-    json productionAvailability(BWAPI::Game* game, BWAPI::Unit producer,
-                                const WorldBuildingType& building) const {
-        json result = json::object();
-        const auto owner = producer->getPlayer();
-        for (const auto& unitID : building.trainable) {
-            const auto* requested = worldUnitType(unitID);
-            if (!requested) continue;
-            const bool ready = producer->isCompleted() && producer->getHitPoints() > 0
-                && producer->canTrain(requested->native);
-            std::string reason = ready ? "ready" : "native_unavailable";
-            std::string requirement;
-            if (!ready) {
-                if (!producer->isCompleted() || producer->getHitPoints() < 1)
-                    reason = "building_unavailable";
-                else {
-                    for (const auto& [required, count] : requested->native.requiredUnits()) {
-                        int completed = 0;
-                        for (auto candidate : game->getAllUnits())
-                            if (candidate && candidate->exists() && candidate->isCompleted()
-                                && candidate->getPlayer() == owner
-                                && candidate->getType() == required) ++completed;
-                        if (completed < count) {
-                            reason = "requires_building";
-                            requirement = required.getName();
-                            break;
-                        }
-                    }
-                    if (reason == "native_unavailable") {
-                        if (owner->minerals() < requested->native.mineralPrice())
-                            reason = "insufficient_minerals";
-                        else if (owner->gas() < requested->native.gasPrice())
-                            reason = "insufficient_gas";
-                        else if (owner->supplyUsed() + requested->native.supplyRequired()
-                            > owner->supplyTotal()) reason = "supply_limit";
-                        else if (producer->getTrainingQueue().size() >= 5)
-                            reason = "queue_full";
-                    }
-                }
-            }
-            result[unitID] = {{"ready", ready}, {"reason", reason},
-                              {"requirement", requirement}};
-        }
-        return result;
-    }
     void probeNativeBarracks(BWAPI::Game* game) {
         const char* requested = std::getenv("BRIDGE_TEST_NATIVE_BARRACKS_POSITION");
         if (!requested || !*requested || appliedMaskHash_.empty() || !game->self()) return;
@@ -342,7 +275,7 @@ private:
     }
     struct TargetLink { std::string proxyID; int x = 0, y = 0; };
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
-    struct CreationCandidate { BWAPI::Unit unit = nullptr; int frame = 0; };
+    struct CreationCandidate { BWAPI::Unit unit = nullptr; int frame = 0; std::string createdType; };
     void tryBind(const std::string& id) {
         if (ambiguousActors_.count(id)) return;
         const auto actor = identities_.find(id), published = publisherBindings_.find(id);
@@ -357,11 +290,12 @@ private:
         int matches = 0;
         for (const auto& [native, candidate] : creationCandidates_) {
             if (candidate.frame != frame || !candidate.unit || !candidate.unit->exists()
-                || !candidate.unit->isCompleted()
                 || !candidate.unit->getPlayer()
                 || candidate.unit->getPlayer()->getID() != identity.value("owner", -1)) continue;
             const auto* type = worldUnitType(candidate.unit->getType());
-            if (!type || identity.value("type", "") != type->id) continue;
+            if (!type || (!candidate.unit->isCompleted() && !type->visibleIncomplete)
+                || (identity.value("type", "") != type->id
+                    && identity.value("type", "") != candidate.createdType)) continue;
             match = candidate.unit; ++matches;
         }
         if (matches != 1) {
@@ -585,6 +519,18 @@ private:
             if (id.empty()) return;
             publisherBindings_[id] = binding;
             tryBind(id);
+            return;
+        }
+        if (kind == "actor.morph") {
+            const auto& change = message.at("payload");
+            if (message.value("session", "") != session_ || change.value("session", "") != session_) return;
+            const auto id = change.value("id", "");
+            if (auto found = identities_.find(id); found != identities_.end()
+                && found->second.value("generation", uint64_t(0))
+                    == change.value("generation", uint64_t(0))) {
+                found->second["type"] = change.at("type");
+                found->second["phase"] = change.at("phase");
+            }
             return;
         }
         if (kind == "actor.despawn") {

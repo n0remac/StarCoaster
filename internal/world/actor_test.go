@@ -81,6 +81,93 @@ func TestActorLifecycleAndNativeBindings(t *testing.T) {
 	}
 }
 
+func TestNativeMorphKeepsCanonicalIDAndBindings(t *testing.T) {
+	identity := ActorIdentity{ID: "openbw:3001", Engine: "openbw", Type: "zerg_larva",
+		Owner: 0, Phase: "complete", Generation: 17, Session: "park-session"}
+	actors := NewActorRegistry(identity.Session)
+	if err := actors.Spawn(identity); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"publisher", "controller"} {
+		if err := actors.Bind(ActorBinding{ID: identity.ID, Session: identity.Session,
+			Generation: identity.Generation, Participant: role, NativeID: map[string]string{
+				"publisher": "11", "controller": "45"}[role], CreationFrame: 120}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !actors.Commandable(identity.ID) || actors.CombatCommandable(identity.ID) {
+		t.Fatal("visible larva should be bound but not combat commandable")
+	}
+	egg := ActorMorph{ID: identity.ID, Session: identity.Session, Generation: 17,
+		FromType: "zerg_larva", Type: "zerg_egg", Phase: "incomplete"}
+	if err := actors.Morph(egg); err != nil {
+		t.Fatal(err)
+	}
+	if err := actors.Morph(egg); err == nil {
+		t.Fatal("stale morph accepted")
+	}
+	record, _ := actors.Lookup(identity.ID)
+	if record.Identity.Type != "zerg_egg" || record.Identity.Phase != "incomplete" ||
+		len(record.Bindings) != 2 || record.State != ActorActive || actors.CombatCommandable(identity.ID) {
+		t.Fatal("morph lost identity, bindings, or command protection")
+	}
+	// Same-session recovery can observe a later native type before the bridge
+	// receives the individual morph event.
+	identity.Type, identity.Phase = "zerg_zergling", "complete"
+	if err := actors.Reconcile(identity.Session, []ActorIdentity{identity}); err != nil {
+		t.Fatal(err)
+	}
+	record, _ = actors.Lookup(identity.ID)
+	if record.Identity.Type != "zerg_zergling" || len(record.Bindings) != 2 {
+		t.Fatal("reconciliation replaced a morphing native unit")
+	}
+	actors.UnbindParticipant("controller")
+	if actors.Commandable(identity.ID) {
+		t.Fatal("controller reconnect left a single binding active")
+	}
+	if err := actors.Bind(ActorBinding{ID: identity.ID, Session: identity.Session,
+		Generation: 17, Participant: "controller", NativeID: "45", CreationFrame: 120}); err != nil {
+		t.Fatal(err)
+	}
+	if !actors.Commandable(identity.ID) {
+		t.Fatal("controller reconnect did not restore the same actor")
+	}
+}
+
+func TestIncompleteCombatActorCannotBeCommanded(t *testing.T) {
+	identity := testActor()
+	identity.Phase = "incomplete"
+	actors := NewActorRegistry(identity.Session)
+	if err := actors.Spawn(identity); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"publisher", "controller"} {
+		if err := actors.Bind(ActorBinding{ID: identity.ID, Session: identity.Session,
+			Generation: identity.Generation, Participant: role, NativeID: role,
+			CreationFrame: 153}); err == nil {
+			t.Fatal("invalid native ID accepted")
+		}
+	}
+	for role, native := range map[string]string{"publisher": "12", "controller": "89"} {
+		if err := actors.Bind(ActorBinding{ID: identity.ID, Session: identity.Session,
+			Generation: identity.Generation, Participant: role, NativeID: native,
+			CreationFrame: 153}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if actors.CombatCommandable(identity.ID) {
+		t.Fatal("incomplete native actor accepted a combat order")
+	}
+	if err := actors.Morph(ActorMorph{ID: identity.ID, Session: identity.Session,
+		Generation: identity.Generation, FromType: identity.Type, Type: identity.Type,
+		Phase: "complete"}); err != nil {
+		t.Fatal(err)
+	}
+	if !actors.CombatCommandable(identity.ID) {
+		t.Fatal("completed native combat actor remained unavailable")
+	}
+}
+
 func TestActorReconciliationAndSessionIsolation(t *testing.T) {
 	identity := testActor()
 	actors := NewActorRegistry(identity.Session)

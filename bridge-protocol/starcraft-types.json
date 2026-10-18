@@ -133,6 +133,33 @@
       "legacy_static_base": 0,
       "commands": [],
       "visual": "zerg_ultralisk"
+    },
+    {
+      "id": "zerg_larva",
+      "native_type": "Zerg_Larva",
+      "race": "zerg",
+      "ownership": "enemy",
+      "display_name": "Larva",
+      "controllable": false,
+      "movement": "ground",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [],
+      "visual": "zerg_larva"
+    },
+    {
+      "id": "zerg_egg",
+      "native_type": "Zerg_Egg",
+      "race": "zerg",
+      "ownership": "enemy",
+      "display_name": "Egg",
+      "controllable": false,
+      "movement": "ground",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [],
+      "visual": "zerg_egg",
+      "visible_incomplete": true
     }
   ],
   "buildings": [
@@ -212,7 +239,9 @@
       "height": 3,
       "max_health": 1250,
       "visual": "zerg_hatchery",
-      "production": []
+      "production": [
+        "zerg_zergling"
+      ]
     },
     {
       "id": "zerg_spawning_pool",

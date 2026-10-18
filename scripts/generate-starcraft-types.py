@@ -29,7 +29,7 @@ COMMON = {"schema_version", "kind", "id", "registry_order", "native_type",
           "display_name", "visual"}
 UNIT_FIELDS = COMMON | {"race", "ownership", "controllable", "movement",
                         "spawnable", "legacy_static_base", "commands", "produced_at",
-                        "owned_effects"}
+                        "owned_effects", "visible_incomplete"}
 BUILDING_FIELDS = COMMON | {"object_id", "width", "height", "max_health",
                             "animation", "conventional_training"}
 UNIT_VISUAL_FIELDS = {"asset", "g2_order", "source", "image", "canvas",
@@ -37,7 +37,7 @@ UNIT_VISUAL_FIELDS = {"asset", "g2_order", "source", "image", "canvas",
                       "health_offset", "bounds", "attachments", "effect"}
 BUILDING_VISUAL_FIELDS = {"image", "asset", "source_size", "frame_count",
                           "output_size", "preview_size", "preview_offset", "art_method"}
-ANIMATION_FIELDS = {"banks", "frames", "ticks", "fallback", "source", "canvas",
+ANIMATION_FIELDS = {"banks", "frames", "ticks", "frame_ticks", "fallback", "source", "canvas",
                     "name_without_zero"}
 ATTACHMENT_FIELDS = {"name", "image", "source", "canvas", "frame_count", "stride",
                      "facing", "layer", "animations"}
@@ -68,23 +68,29 @@ def validate_animation(profile, label, required_death=True):
             or not isinstance(profile.get("canvas", [32, 32]), list)):
         raise ValueError(f"Invalid visual source: {label}")
     animations = profile.get("animations")
-    if not isinstance(animations, dict) or "idle" not in animations or (required_death and "death" not in animations):
+    if not isinstance(animations, dict) or not animations or (required_death and
+            ("idle" not in animations or "death" not in animations)):
         raise ValueError(f"Missing required visual state: {label}")
     for state, animation in animations.items():
-        if state not in {"idle", "walk", "attack", "heal", "death"} or not isinstance(animation, dict):
+        if state not in {"idle", "walk", "attack", "heal", "death", "morph", "hatch"} or not isinstance(animation, dict):
             raise ValueError(f"Unsupported visual state: {label}.{state}")
         if "fallback" in animation:
             if animation["fallback"] not in animations or "fallback" in animations[animation["fallback"]]:
                 raise ValueError(f"Invalid visual fallback: {label}.{state}")
             continue
         frames = animation.get("banks", animation.get("frames"))
-        if (not isinstance(frames, list) or not 1 <= len(frames) <= 10
+        if (not isinstance(frames, list) or not 1 <= len(frames) <= 16
                 or any(not isinstance(frame, int) or frame < 0 for frame in frames)
                 or not isinstance(animation.get("ticks"), int) or not 0 <= animation["ticks"] <= 120
                 or ("banks" in animation and any(frame * profile["stride"] + 16 >=
                     profile.get("frame_count", profile.get("minimum_frame_count", 0)) for frame in frames)
                     and "source" not in animation)):
             raise ValueError(f"Invalid visual frames: {label}.{state}")
+        durations = animation.get("frame_ticks")
+        if durations is not None and (not isinstance(durations, list)
+                or len(durations) != len(frames)
+                or any(type(ticks) is not int or not 1 <= ticks <= 120 for ticks in durations)):
+            raise ValueError(f"Invalid visual frame timing: {label}.{state}")
     for attachment in profile.get("attachments", []):
         if attachment.get("facing") not in {"body", "native_target"} or attachment.get("layer") != "above_body":
             raise ValueError(f"Unsupported visual attachment: {label}")
@@ -117,7 +123,9 @@ def validate(catalog, visuals=None, root=ROOT):
             raise ValueError(f"Invalid unit race: {item['id']}")
         if item["ownership"] not in {"player", "enemy"} or item.get("movement") != "ground":
             raise ValueError(f"Unsupported unit capability: {item['id']}")
-        if not isinstance(item.get("controllable"), bool) or not isinstance(item.get("spawnable"), bool):
+        if (not isinstance(item.get("controllable"), bool)
+                or not isinstance(item.get("spawnable"), bool)
+                or not isinstance(item.get("visible_incomplete", False), bool)):
             raise ValueError(f"Invalid unit capability: {item['id']}")
         commands = item.get("commands")
         if (not isinstance(commands, list) or len(commands) != len(set(commands))
@@ -219,9 +227,9 @@ def validate_entities(entities, root=ROOT):
         kind = entity.get("kind")
         if kind not in ("unit", "building"):
             raise ValueError(f"{label}: kind: expected 'unit' or 'building'")
-        _fields(entity, UNIT_FIELDS - {"produced_at", "owned_effects"} if kind == "unit"
+        _fields(entity, UNIT_FIELDS - {"produced_at", "owned_effects", "visible_incomplete"} if kind == "unit"
                 else BUILDING_FIELDS - {"animation"},
-                {"produced_at", "owned_effects"} if kind == "unit" else {"animation"}, label)
+                {"produced_at", "owned_effects", "visible_incomplete"} if kind == "unit" else {"animation"}, label)
         if type(entity["schema_version"]) is not int or entity["schema_version"] != 1:
             raise ValueError(f"{label}: schema_version: only version 1 is supported")
         ident = entity["id"]
@@ -260,6 +268,8 @@ def validate_entities(entities, root=ROOT):
                 raise ValueError(f"{label}: ownership: unsupported owner")
             if type(entity["spawnable"]) is not bool or type(entity["controllable"]) is not bool:
                 raise ValueError(f"{label}: spawnable/controllable: explicit booleans required")
+            if type(entity.get("visible_incomplete", False)) is not bool:
+                raise ValueError(f"{label}: visible_incomplete: expected boolean")
             if (not isinstance(entity["commands"], list) or any(not isinstance(c, str) for c in entity["commands"])
                     or len(entity["commands"]) != len(set(entity["commands"]))
                     or not set(entity["commands"]) <= COMMANDS
@@ -368,8 +378,11 @@ def validate_entities(entities, root=ROOT):
             target = by_id.get(producer)
             if target is None or target["kind"] != "building":
                 raise ValueError(f"{path}: produced_at: unknown building producer {producer!r}")
-            if not target["conventional_training"]:
-                raise ValueError(f"{path}: produced_at: producer {producer!r} does not support conventional training")
+            # `produced_at` identifies native production. Hatcheries forward
+            # BWAPI train requests to larvae without a conventional queue.
+            if not target["conventional_training"] and not (
+                    target["native_type"] == "Zerg_Hatchery" and entity["race"] == "zerg"):
+                raise ValueError(f"{path}: produced_at: producer has no supported native path")
         effect = entity["visual"].get("effect")
         if effect and effect not in seen["effect"]:
             raise ValueError(f"{path}: visual.effect: unowned effect {effect!r}")
@@ -416,7 +429,9 @@ def project_catalogs(entities, root=ROOT):
     catalog = {"units": [], "buildings": []}
     visuals = {"directions": DIRECTIONS, "units": {}, "effects": {}, "buildings": {}}
     for unit in units:
-        catalog["units"].append({key: unit[key] for key in UNIT_CATALOG_KEYS} | {"visual": unit["id"]})
+        catalog["units"].append({key: unit[key] for key in UNIT_CATALOG_KEYS}
+                                | {"visual": unit["id"],
+                                   **({"visible_incomplete": True} if unit.get("visible_incomplete") else {})})
         visuals["units"][unit["id"]] = unit["visual"]
         visuals["effects"].update(unit.get("owned_effects", {}))
     for building in buildings:
@@ -437,6 +452,7 @@ def go_definitions(catalog):
             ("Movement", "movement"))]
         fields.append(f'Controllable: {str(unit["controllable"]).lower()}')
         fields.append(f'Spawnable: {str(unit["spawnable"]).lower()}')
+        fields.append(f'VisibleIncomplete: {str(unit.get("visible_incomplete", False)).lower()}')
         fields.append(f'LegacyStaticBase: {unit["legacy_static_base"]}')
         fields.append('Commands: []string{' + ', '.join(map(quoted, unit["commands"])) + '}')
         lines.append(f'\t{quoted(unit["id"])}: {{' + ', '.join(fields) + '},')
@@ -482,13 +498,17 @@ def replace_block(path, rendered, check, begin=BEGIN, end_marker=END):
         path.write_text(updated)
 
 
-def native_units(catalog):
+def native_units(catalog, visuals):
     lines = []
     for unit in catalog["units"]:
+        death = visuals["units"][unit["visual"]]["animations"]["death"]
+        frames = death.get("frames", death.get("banks"))
+        death_display_frames = sum(death.get("frame_ticks", [max(1, death["ticks"])] * len(frames)))
         lines.append(f'        {{{quoted(unit["id"])}, BWAPI::UnitTypes::{unit["native_type"]}, '
                      f'{quoted(unit["race"])}, {quoted(unit["ownership"])}, '
                      f'{str(unit["controllable"]).lower()}, {str(unit["spawnable"]).lower()}, '
-                     f'{quoted(unit["visual"])}, {unit["legacy_static_base"]}}},')
+                     f'{str(unit.get("visible_incomplete", False)).lower()}, '
+                     f'{quoted(unit["visual"])}, {unit["legacy_static_base"]}, {death_display_frames}}},')
     return '\n'.join(lines) + '\n'
 
 
@@ -503,9 +523,11 @@ def native_buildings(catalog):
     return '\n'.join(lines) + '\n'
 
 
-def check_native(catalog, root=ROOT):
+def check_native(catalog, visuals=None, root=ROOT):
+    if visuals is None:
+        visuals = json.loads((root / 'bridge-protocol/starcraft-visuals.json').read_text())
     header = root / 'openbw-bwapi-module/src/WorldStarcraftTypes.h'
-    replace_block(header, native_units(catalog), True,
+    replace_block(header, native_units(catalog, visuals), True,
                   'BEGIN GENERATED STARCRAFT UNITS', 'END GENERATED STARCRAFT UNITS')
     replace_block(header, native_buildings(catalog), True,
                   'BEGIN GENERATED STARCRAFT BUILDINGS', 'END GENERATED STARCRAFT BUILDINGS')
@@ -569,7 +591,7 @@ def render_generated_outputs(root=ROOT):
     for path, rendered, begin, end in (
         (root / 'internal/world/starcraft_types.go', go_definitions(catalog), BEGIN, END),
         (root / 'openrct2-plugin/rts-bridge.js', javascript_definitions(catalog), BEGIN, END),
-        (root / 'openbw-bwapi-module/src/WorldStarcraftTypes.h', native_units(catalog),
+        (root / 'openbw-bwapi-module/src/WorldStarcraftTypes.h', native_units(catalog, visuals),
          'BEGIN GENERATED STARCRAFT UNITS', 'END GENERATED STARCRAFT UNITS'),
         (root / 'openbw-bwapi-module/src/WorldStarcraftTypes.h', native_buildings(catalog),
          'BEGIN GENERATED STARCRAFT BUILDINGS', 'END GENERATED STARCRAFT BUILDINGS'),

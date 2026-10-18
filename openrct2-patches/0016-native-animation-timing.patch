@@ -1,0 +1,23 @@
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -564,9 +564,17 @@
+             }
+             if (!animation || animation->count == 0)
+                 continue;
+-            const uint32_t pose = actor.motion == "death" || actor.motion == "morph" || actor.motion == "hatch"
+-                ? std::min<uint32_t>(animation->count - 1, elapsed / std::max<uint32_t>(1, animation->ticks))
+-                : (elapsed / std::max<uint32_t>(1, animation->ticks)) % animation->count;
++            uint32_t cycleTicks = 0;
++            for (uint32_t frameIndex = 0; frameIndex < animation->count; ++frameIndex)
++                cycleTicks += std::max<uint32_t>(1, animation->frameTicks[frameIndex]);
++            const bool terminal = actor.motion == "death" || actor.motion == "morph" || actor.motion == "hatch";
++            uint32_t phase = terminal ? std::min<uint32_t>(elapsed, cycleTicks - 1) : elapsed % cycleTicks;
++            uint32_t pose = 0;
++            while (pose + 1 < animation->count && phase >= animation->frameTicks[pose])
++            {
++                phase -= animation->frameTicks[pose];
++                ++pose;
++            }
+             PaintAddImageAsParent(session, ImageId(animation->images[pose][layer.targetFacing ? targetDirection : direction]), { 0, 0, z }, actorBounds);
+         }
+         if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")

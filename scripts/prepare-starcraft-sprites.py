@@ -248,7 +248,8 @@ def prepare_profile_pack(kind: str, profile: dict, game_dir: Path, output: Path)
                         frame_image(data, resource, frame, frame_canvas, filename, mirror)
                         names.append(filename)
                     frames[direction] = names
-                results[state] = {"frames": frames, "ticks_per_frame": animation["ticks"]}
+                results[state] = {"frames": frames, "ticks_per_frame": animation["ticks"],
+                                  "frame_ticks": animation.get("frame_ticks", [animation["ticks"]] * len(animation["banks"]))}
             else:
                 names = []
                 for pose, frame in enumerate(animation["frames"]):
@@ -258,6 +259,7 @@ def prepare_profile_pack(kind: str, profile: dict, game_dir: Path, output: Path)
                     frame_image(data, resource, frame, frame_canvas, filename, False)
                     names.append(filename)
                 results[state] = {"frames": names, "ticks_per_frame": animation["ticks"],
+                                  "frame_ticks": animation.get("frame_ticks", [animation["ticks"]] * len(names)),
                                   "directional": False}
         return results
 

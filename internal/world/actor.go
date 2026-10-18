@@ -20,6 +20,7 @@ type ActorIdentity struct {
 	Engine     string `json:"engine"`
 	Type       string `json:"type"`
 	Owner      int    `json:"owner"`
+	Phase      string `json:"phase,omitempty"`
 	Generation uint64 `json:"generation"`
 	Session    string `json:"session"`
 }
@@ -37,6 +38,17 @@ type ActorDespawn struct {
 	ID         string `json:"id"`
 	Session    string `json:"session"`
 	Generation uint64 `json:"generation"`
+}
+
+// ActorMorph records a native type or completion change on an existing ID.
+// The same canonical ID and both participant bindings survive the transition.
+type ActorMorph struct {
+	ID         string `json:"id"`
+	Session    string `json:"session"`
+	Generation uint64 `json:"generation"`
+	FromType   string `json:"from_type"`
+	Type       string `json:"type"`
+	Phase      string `json:"phase"`
 }
 
 type ActorReconcile struct {
@@ -79,7 +91,8 @@ func (identity ActorIdentity) Validate(session string) error {
 	if identity.Session != session || !identifier.MatchString(identity.Session) ||
 		!actorID.MatchString(identity.ID) || identity.Engine != "openbw" ||
 		!supportedActorType(identity.Type) ||
-		identity.Owner < 0 || identity.Owner > 15 || identity.Generation == 0 {
+		identity.Owner < 0 || identity.Owner > 15 || identity.Generation == 0 ||
+		(identity.Phase != "" && identity.Phase != "complete" && identity.Phase != "incomplete") {
 		return errors.New("invalid actor identity or session")
 	}
 	return nil
@@ -102,6 +115,15 @@ func (binding ActorBinding) Validate(session string) error {
 func (event ActorDespawn) Validate(session string) error {
 	if event.Session != session || !actorID.MatchString(event.ID) || event.Generation == 0 {
 		return errors.New("invalid actor despawn")
+	}
+	return nil
+}
+
+func (event ActorMorph) Validate(session string) error {
+	if event.Session != session || !actorID.MatchString(event.ID) || event.Generation == 0 ||
+		!supportedActorType(event.FromType) || !supportedActorType(event.Type) ||
+		(event.Phase != "complete" && event.Phase != "incomplete") {
+		return errors.New("invalid actor morph")
 	}
 	return nil
 }
@@ -179,6 +201,20 @@ func (r *ActorRegistry) Despawn(event ActorDespawn) error {
 	return nil
 }
 
+func (r *ActorRegistry) Morph(event ActorMorph) error {
+	if err := event.Validate(r.Session); err != nil {
+		return err
+	}
+	record := r.records[event.ID]
+	if record == nil || record.State == ActorRemoved ||
+		record.Identity.Generation != event.Generation || record.Identity.Type != event.FromType {
+		return errors.New("unknown actor or stale morph")
+	}
+	record.Identity.Type = event.Type
+	record.Identity.Phase = event.Phase
+	return nil
+}
+
 func (r *ActorRegistry) Lookup(id string) (ActorRecord, bool) {
 	record := r.records[id]
 	if record == nil {
@@ -212,6 +248,15 @@ func (r *ActorRegistry) Commandable(id string) bool {
 	return record != nil && record.State == ActorActive
 }
 
+func (r *ActorRegistry) CombatCommandable(id string) bool {
+	record := r.records[id]
+	if record == nil || record.State != ActorActive || record.Identity.Phase == "incomplete" {
+		return false
+	}
+	unit, ok := SupportedUnit(record.Identity.Type)
+	return ok && unit.Controllable
+}
+
 func (r *ActorRegistry) UnbindParticipant(participant string) {
 	for _, record := range r.records {
 		if binding, ok := record.Bindings[participant]; ok {
@@ -240,13 +285,18 @@ func (r *ActorRegistry) Reconcile(session string, living []ActorIdentity) error 
 		if err := identity.Validate(session); err != nil {
 			return err
 		}
-		if prior := r.records[identity.ID]; prior != nil &&
-			(prior.Identity != identity || prior.State == ActorRemoved) {
-			return errors.New("actor ID already used")
+		if prior := r.records[identity.ID]; prior != nil {
+			old := prior.Identity
+			if prior.State == ActorRemoved || old.ID != identity.ID || old.Engine != identity.Engine ||
+				old.Owner != identity.Owner || old.Generation != identity.Generation || old.Session != identity.Session {
+				return errors.New("actor ID already used")
+			}
 		}
 	}
 	for _, identity := range living {
-		if err := r.Spawn(identity); err != nil {
+		if prior := r.records[identity.ID]; prior != nil {
+			prior.Identity = identity
+		} else if err := r.Spawn(identity); err != nil {
 			return err
 		}
 	}

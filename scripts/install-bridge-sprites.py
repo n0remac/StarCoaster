@@ -538,6 +538,48 @@ def main() -> None:
             if count != 1:
                 raise SystemExit(f"Missing or duplicate health g2 entry: {name}")
             prepared.append((path, "health/" + name))
+    # Command icons are original GRP frames prepared from the user's local
+    # installation. Append them after all actor images to keep existing IDs.
+    icons_dir = ROOT / "run-data/generated-assets/starcraft/command-icons"
+    icon_manifest = icons_dir / "manifest.json"
+    if pack == "starcraft-local" and only_unit is None and not icon_manifest.is_file():
+        raise SystemExit("Missing original command icons; run scripts/prepare-starcraft-command-icons.py")
+    icon_frames = json.loads(icon_manifest.read_text())["icons"] if icon_manifest.is_file() and only_unit is None else {}
+    entries = json.loads(contents)
+    icon_ids = {}
+    for kind, meta in sorted(icon_frames.items()):
+        path = icons_dir / meta["file"]
+        with Image.open(path) as icon:
+            icon.load()
+            if icon.mode != "RGBA" or icon.size != (meta["width"], meta["height"]) \
+                    or any(alpha not in (0, 255) or (alpha and (red, green, blue) not in colours)
+                           for red, green, blue, alpha in icon.getdata()):
+                raise SystemExit(f"Incompatible command icon: {path}")
+        key = "bridge/command/" + meta["file"]
+        matches = [index for index, entry in enumerate(entries) if entry["path"] == key]
+        if len(matches) > 1:
+            raise SystemExit(f"Duplicate command icon G2 path: {key}")
+        if matches:
+            index = matches[0]
+        else:
+            index = len(entries)
+            entries.append({"path": key, "x": 0, "y": 0})
+        icon_ids[kind] = 29357 + index  # SPR_G2_BEGIN in the pinned OpenRCT2.
+        prepared.append((path, "command/" + meta["file"]))
+    if icon_ids:
+        # Preserve the existing hand-formatted G2 file and append only new IDs.
+        for entry in entries[len(json.loads(contents)):]:
+            contents = contents.rstrip()[:-1].rstrip()
+            contents += ("," if not contents.endswith("[") else "") + "\n    " + json.dumps(entry) + "\n]\n"
+        plugin = ROOT / "openrct2-plugin/rts-bridge.js"
+        plugin_text = plugin.read_text()
+        replacement = "    const COMMAND_ICON_IMAGES = Object.freeze(" + json.dumps(icon_ids, sort_keys=True) + ");"
+        pattern = re.compile(r"^    const COMMAND_ICON_IMAGES = Object\.freeze\(.*\);$", re.MULTILINE)
+        plugin_text, count = pattern.subn(replacement, plugin_text)
+        if count != 1:
+            raise SystemExit("Missing generated command icon mapping in plugin")
+        if plugin.read_text() != plugin_text:
+            plugin.write_text(plugin_text)
     target = upstream / "resources/g2/bridge"
     target.mkdir(parents=True, exist_ok=True)
     changed = False

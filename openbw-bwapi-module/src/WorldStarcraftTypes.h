@@ -13,8 +13,10 @@ struct WorldUnitType {
     const char* ownership;
     bool controllable;
     bool spawnable;
+    bool visibleIncomplete;
     const char* visual;
     int legacyStaticBase;
+    int deathDisplayFrames;
 };
 
 struct WorldBuildingType {
@@ -31,14 +33,16 @@ struct WorldBuildingType {
 inline const std::vector<WorldUnitType>& worldUnitTypes() {
     static const std::vector<WorldUnitType> types = {
         // BEGIN GENERATED STARCRAFT UNITS
-        {"terran_marine", BWAPI::UnitTypes::Terran_Marine, "terran", "player", true, true, "terran_marine", 1000},
-        {"terran_firebat", BWAPI::UnitTypes::Terran_Firebat, "terran", "player", true, false, "terran_firebat", 0},
-        {"terran_medic", BWAPI::UnitTypes::Terran_Medic, "terran", "player", true, false, "terran_medic", 0},
-        {"terran_vulture", BWAPI::UnitTypes::Terran_Vulture, "terran", "player", true, false, "terran_vulture", 0},
-        {"terran_goliath", BWAPI::UnitTypes::Terran_Goliath, "terran", "player", true, false, "terran_goliath", 0},
-        {"zerg_zergling", BWAPI::UnitTypes::Zerg_Zergling, "zerg", "enemy", false, true, "zerg_zergling", 2000},
-        {"zerg_hydralisk", BWAPI::UnitTypes::Zerg_Hydralisk, "zerg", "enemy", false, true, "zerg_hydralisk", 0},
-        {"zerg_ultralisk", BWAPI::UnitTypes::Zerg_Ultralisk, "zerg", "enemy", false, true, "zerg_ultralisk", 0},
+        {"terran_marine", BWAPI::UnitTypes::Terran_Marine, "terran", "player", true, true, false, "terran_marine", 1000, 16},
+        {"terran_firebat", BWAPI::UnitTypes::Terran_Firebat, "terran", "player", true, false, false, "terran_firebat", 0, 16},
+        {"terran_medic", BWAPI::UnitTypes::Terran_Medic, "terran", "player", true, false, false, "terran_medic", 0, 16},
+        {"terran_vulture", BWAPI::UnitTypes::Terran_Vulture, "terran", "player", true, false, false, "terran_vulture", 0, 16},
+        {"terran_goliath", BWAPI::UnitTypes::Terran_Goliath, "terran", "player", true, false, false, "terran_goliath", 0, 16},
+        {"zerg_zergling", BWAPI::UnitTypes::Zerg_Zergling, "zerg", "enemy", false, true, false, "zerg_zergling", 2000, 14},
+        {"zerg_hydralisk", BWAPI::UnitTypes::Zerg_Hydralisk, "zerg", "enemy", false, true, false, "zerg_hydralisk", 0, 16},
+        {"zerg_ultralisk", BWAPI::UnitTypes::Zerg_Ultralisk, "zerg", "enemy", false, true, false, "zerg_ultralisk", 0, 20},
+        {"zerg_larva", BWAPI::UnitTypes::Zerg_Larva, "zerg", "enemy", false, false, false, "zerg_larva", 0, 87},
+        {"zerg_egg", BWAPI::UnitTypes::Zerg_Egg, "zerg", "enemy", false, false, true, "zerg_egg", 0, 93},
 
         // END GENERATED STARCRAFT UNITS
     };
@@ -63,7 +67,7 @@ inline const std::vector<WorldBuildingType>& worldBuildingTypes() {
         {"terran_supply_depot", BWAPI::UnitTypes::Terran_Supply_Depot, "starcoaster.scenery_large.terran_supply_depot", 3, 2, "Terran Supply Depot", false, {}},
         {"terran_factory", BWAPI::UnitTypes::Terran_Factory, "starcoaster.scenery_large.terran_factory", 4, 3, "Terran Factory", true, {"terran_vulture", "terran_goliath"}},
         {"terran_armory", BWAPI::UnitTypes::Terran_Armory, "starcoaster.scenery_large.terran_armory", 3, 2, "Terran Armory", false, {}},
-        {"zerg_hatchery", BWAPI::UnitTypes::Zerg_Hatchery, "starcoaster.scenery_large.zerg_hatchery", 4, 3, "Zerg Hatchery", false, {}},
+        {"zerg_hatchery", BWAPI::UnitTypes::Zerg_Hatchery, "starcoaster.scenery_large.zerg_hatchery", 4, 3, "Zerg Hatchery", true, {"zerg_zergling"}},
         {"zerg_spawning_pool", BWAPI::UnitTypes::Zerg_Spawning_Pool, "starcoaster.scenery_large.zerg_spawning_pool", 3, 2, "Zerg Spawning Pool", false, {}},
 
         // END GENERATED STARCRAFT BUILDINGS

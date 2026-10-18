@@ -82,7 +82,8 @@ public:
     bool registerRuntime(BWAPI::Unit unit, int canonical, uint64_t generation, int creationFrame) {
         if (!prepared_ || !unit || !unit->exists() || canonical < 3000 || generation == 0
             || creationFrame < 1 || known(unit) || canonicalToUnit_.count(canonical)
-            || !unit->isCompleted() || !worldUnitType(unit->getType())) return false;
+            || !worldUnitType(unit->getType())
+            || (!unit->isCompleted() && !worldUnitType(unit->getType())->visibleIncomplete)) return false;
         canonicalToUnit_[canonical] = unit;
         localToCanonical_[unit->getID()] = canonical;
         runtime_[canonical] = {canonical, unit, generation, creationFrame};

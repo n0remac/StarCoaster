@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "unit",
+  "id": "zerg_egg",
+  "registry_order": 100,
+  "native_type": "Zerg_Egg",
+  "race": "zerg",
+  "ownership": "enemy",
+  "display_name": "Egg",
+  "controllable": false,
+  "movement": "ground",
+  "spawnable": false,
+  "visible_incomplete": true,
+  "legacy_static_base": 0,
+  "commands": [],
+  "visual": {
+    "asset": "egg",
+    "g2_order": 10,
+    "image": "Egg",
+    "source": "unit/zerg/egg.grp",
+    "canvas": [96, 96],
+    "frame_count": 24,
+    "stride": 1,
+    "animations": {
+      "morph": {"frames": [20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8], "ticks": 2,
+        "frame_ticks": [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1]},
+      "idle": {"frames": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "ticks": 2},
+      "hatch": {"frames": [11, 12, 13, 14, 15, 16, 17, 18, 19], "ticks": 2,
+        "frame_ticks": [1, 2, 2, 2, 2, 2, 2, 2, 2]},
+      "death": {"source": "unit/zerg/zegDeath.grp", "canvas": [96, 96],
+        "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "ticks": 2,
+        "frame_ticks": [2, 2, 2, 2, 2, 2, 2, 2, 2, 25, 25, 25]}
+    },
+    "attachments": [{
+      "name": "spawn",
+      "image": "Egg_Spawn",
+      "source": "unit/zerg/zegspawn.grp",
+      "canvas": [96, 96],
+      "frame_count": 5,
+      "stride": 1,
+      "facing": "body",
+      "layer": "above_body",
+      "animations": {"morph": {"frames": [0, 1, 2, 3, 4], "ticks": 5}}
+    }],
+    "health_offset": [-10, -42],
+    "bounds": [32, 32, 32]
+  }
+}

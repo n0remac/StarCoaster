@@ -471,11 +471,6 @@ const waveStatus = registered.get('rtsbridge.waveStatus');
 assert.ok(waveStatus.query({ player: 2, args: { session: sid, request_id: waveArgs.request_id,
     accepted: true, wave_id: 'manual-0001', state: 'queued', reason: '' } }).error,
     'client cannot forge wave feedback');
-socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
-    payload: { scenario_id: 'frontier-outpost', state: 'victory', objective_id: 'openrct2:ride:17#1' } }) + '\n');
-assert.equal(actions.filter(a => a.name === 'rtsbridge.worldOutcome').length, 1,
-    'authoritative outcome uses a replicated OpenRCT2 action');
-assert.match(command.query({ player: 1, args: squadArgs }).errorMessage, /ended/);
 const rideEntity = all.find(e => e.kind === 'ride');
 const event = { id: 'death:1', entity_id: rideEntity.id, proxy_id: 'openbw:8', type: 'destruction', health: 0 };
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid, payload: event }) + '\n');
@@ -611,20 +606,24 @@ const hudTargets = starcraftBuildings.map((type, index) => ({
 }));
 applyCatalog(catalog(100, hudTargets)[0]);
 const buildingState = registered.get('rtsbridge.buildingState');
+const hudStates = [];
 for (const [index, type] of starcraftBuildings.entries()) {
     at(index, 7).push({ type: 'large_scenery', object: 100 + index,
         baseHeight: 14, baseZ: 112, direction: 0 });
     const commands = type === 'terran_barracks' ? ['terran_marine', 'terran_firebat', 'terran_medic']
-        : type === 'terran_factory' ? ['terran_vulture', 'terran_goliath'] : [];
+        : type === 'terran_factory' ? ['terran_vulture', 'terran_goliath']
+            : type === 'zerg_hatchery' ? ['zerg_zergling'] : [];
     const availability = Object.fromEntries(commands.map(unit => [unit,
         { ready: true, reason: 'ready', requirement: '' }]));
     const state = { session: sid, id: hudTargets[index].id, native_id: 'openbw:' + (100 + index),
         owner: type.startsWith('zerg_') ? 0 : 1, race: type.startsWith('zerg_') ? 'Zerg' : 'Terran',
         completed: true, health: 500, max_health: 500, queue: 0, remaining_frames: 0,
         minerals: 500, gas: 250, supply_used: 0, supply_total: 18, larva_count: 0,
+        command_authorized: !type.startsWith('zerg_'),
         availability, commands: commands.map((unit, slot) => ({ slot, action: 'unit.train',
             unit_type: unit, label: unit.replace('_', ' '), ready: true,
             reason: 'ready', requirement: '' })) };
+    hudStates.push(state);
     assert.equal(buildingState.query({ player: 1, args: state }).error, undefined);
     buildingState.execute({ player: 1, args: state });
     const event = { screenCoords: { x: 16, y: 16 },
@@ -637,9 +636,27 @@ for (const [index, type] of starcraftBuildings.entries()) {
     assert.equal(window.widgets.filter(widget => widget.type === 'viewport').length, 1);
     window.onUpdate();
     const card = window.widgets.filter(widget => widget.name.startsWith('building-command-'));
-    assert.equal(card.filter(widget => !widget.isDisabled).length, commands.length);
-    assert.equal(card.filter(widget => widget.text === '').length, 9 - commands.length);
+    assert.equal(card.filter(widget => !widget.isDisabled).length,
+        type.startsWith('zerg_') ? 0 : commands.length);
+    assert.equal(card.filter(widget => widget.text === '' && !widget.image).length,
+        9 - commands.length);
+    assert.ok(card.slice(0, commands.length).every(widget => widget.text || widget.image),
+        'native command slots have a label or a staged original icon');
     assert.deepEqual(JSON.parse(JSON.stringify(window.widgets.find(widget => widget.name === 'building-camera').viewport.centre)),
         { x: index * 32 + 16, y: 7 * 32 + 16, z: 112 });
 }
+const scenarioHatchery = { ...hudStates[5], command_authorized: true };
+assert.equal(buildingState.query({ player: 1, args: scenarioHatchery }).error, undefined);
+buildingState.execute({ player: 1, args: scenarioHatchery });
+const zergOrder = { session: sid, request: 981, unit_ids: [], verb: 'train',
+    unit_type: 'zerg_zergling', target_entity_id: hudTargets[5].id };
+assert.equal(command.query({ player: 1, args: zergOrder }).error, undefined,
+    'authorized scenario server can order native Hatchery production');
+assert.match(command.query({ player: 2, args: zergOrder }).errorMessage, /commander/,
+    'Terran client cannot order enemy Hatchery production');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
+    payload: { scenario_id: 'frontier-outpost', state: 'victory', objective_id: 'openrct2:ride:17#1' } }) + '\n');
+assert.equal(actions.filter(a => a.name === 'rtsbridge.worldOutcome').length, 1,
+    'authoritative outcome uses a replicated OpenRCT2 action');
+assert.match(command.query({ player: 1, args: squadArgs }).errorMessage, /ended/);
 console.log('world plugin discovery and lifecycle validation passed');

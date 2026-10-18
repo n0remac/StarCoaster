@@ -11,12 +11,17 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 DIRECTIONS = ("east", "southeast", "south", "southwest", "west",
               "northwest", "north", "northeast")
-UNITS = ("zergling", "hydralisk", "ultralisk")
+UNITS = ("zergling", "hydralisk", "ultralisk", "larva", "egg")
 
 
-def draw_sheet(unit: str, state: str, source: Path, output: Path) -> None:
+def draw_sheet(unit: str, state: str, source: Path, output: Path,
+               attachment: str | None = None) -> None:
     manifest = json.loads((source / "manifest.json").read_text())
-    animation = manifest["registry"][f"zerg_{unit}"][state]["frames"]
+    registry = manifest["registry"][f"zerg_{unit}"]
+    if attachment:
+        registry = registry["attachments"][attachment]
+    animation = registry[state]["frames"]
+    durations = registry[state].get("frame_ticks", [])
     rows = [(direction, animation[direction]) for direction in DIRECTIONS] if isinstance(animation, dict) \
         else [("all facings", animation)]
     canvas_width, canvas_height = manifest["canvas"]
@@ -24,7 +29,7 @@ def draw_sheet(unit: str, state: str, source: Path, output: Path) -> None:
     columns = max(len(names) for _, names in rows)
     sheet = Image.new("RGB", (120 + columns * tile_width, 34 + len(rows) * tile_height), "#252b35")
     draw = ImageDraw.Draw(sheet)
-    draw.text((12, 8), f"{unit.upper()} / {state.upper()}", fill="white")
+    draw.text((12, 8), f"{unit.upper()} / {attachment.upper() + ' / ' if attachment else ''}{state.upper()}", fill="white")
     for row, (direction, names) in enumerate(rows):
         y = 34 + row * tile_height
         draw.text((8, y + tile_height // 2), direction, fill="#d6dfec")
@@ -36,7 +41,8 @@ def draw_sheet(unit: str, state: str, source: Path, output: Path) -> None:
                 sheet.paste(sprite, (x + tile_width // 2 + meta["x"],
                                      y + 8 + canvas_height // 2 + meta["y"]), sprite)
             draw.text((x + 4, y + tile_height - 21),
-                      f"{column}: GRP {meta['source_frame']}", fill="white")
+                      f"{column}: GRP {meta['source_frame']}"
+                      + (f" / {durations[column]}t" if column < len(durations) else ""), fill="white")
     output.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(output)
 
@@ -48,10 +54,19 @@ def main() -> None:
                         default=ROOT / "run-data/artifacts/zerg-animation-contact-sheets")
     args = parser.parse_args()
     for unit in UNITS:
-        for state in ("idle", "walk", "attack", "death"):
+        manifest = json.loads((args.source / unit / "manifest.json").read_text())
+        registry = manifest["registry"][f"zerg_{unit}"]
+        for state, entry in registry.items():
+            if state == "attachments" or "frames" not in entry:
+                continue
             target = args.output / f"{unit}-{state}.png"
             draw_sheet(unit, state, args.source / unit, target)
             print(target)
+        for attachment, states in registry.get("attachments", {}).items():
+            for state in states:
+                target = args.output / f"{unit}-{attachment}-{state}.png"
+                draw_sheet(unit, state, args.source / unit, target, attachment)
+                print(target)
 
 
 if __name__ == "__main__":

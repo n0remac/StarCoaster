@@ -176,6 +176,8 @@ def parse_args(argv=None):
                         help="capture native Medic and Vulture production with two graphical clients")
     parser.add_argument("--armory-goliath-probe", action="store_true",
                         help="capture Armory construction and native Goliath gameplay with two graphical clients")
+    parser.add_argument("--native-production-hud", action="store_true",
+                        help="capture the seven-building fixture and native Larva-to-Zergling lifecycle")
     parser.add_argument("--marine-screen-probe", action="store_true",
                         help="check Marine drag selection across Mt. Zergling rotations and zoom levels")
     parser.add_argument("--world-256", action="store_true", help="capture the separate 256x256 scale fixture")
@@ -230,6 +232,10 @@ def parse_args(argv=None):
     if args.armory_goliath_probe and (args.academy_firebat_probe or args.barracks_training_probe
                                      or args.medic_vulture_probe):
         parser.error("Choose one graphical production probe")
+    if args.native_production_hud and (scenario_id != "native-production-hud"
+                                      or args.video_layout == "single" or args.duration < 80
+                                      or (args.display_width, args.display_height) != (1280, 800)):
+        parser.error("--native-production-hud requires the native-production-hud scenario, two 1280x800 clients, and at least 80 seconds")
     if args.academy_firebat_probe:
         args.barracks_production = True
     if args.marine_screen_probe and (scenario_id != "mt-zergling" or args.mt_zergling_playthrough):
@@ -500,6 +506,10 @@ def main():
             if args.armory_goliath_probe and name == "client-a":
                 (data_dir / "plugin/live-armory-goliath-probe.js").write_text(
                     (ROOT / "scripts/live-armory-goliath-probe.js").read_text())
+            if args.native_production_hud:
+                source = (ROOT / "scripts/native-production-hud-capture.js").read_text()
+                prefix = "var STARCOASTER_HUD_DRIVER = true;\n" if name == "client-a" else ""
+                (data_dir / "plugin/native-production-hud-capture.js").write_text(prefix + source)
             if args.marine_screen_probe and name == "client-a":
                 (data_dir / "plugin/marine-screen-probe.js").write_text(
                     (ROOT / "scripts/marine-screen-probe.js").read_text())
@@ -564,6 +574,35 @@ def main():
         if recorder:
             recorder.start()
             recording = True
+        if args.native_production_hud:
+            wait_for(out / "client-a.log", "NATIVE_HUD_CAPTURE_READY", session, 30)
+            display_env = env | {"DISPLAY": ":91"}
+            gallery = out / "building-hud-gallery"
+            gallery.mkdir(exist_ok=True)
+            labels = ("Hatchery", "Spawning Pool", "Barracks", "Academy",
+                      "Supply Depot", "Factory", "Armory")
+            for index, label in enumerate(labels):
+                if index:
+                    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+h"],
+                                   env=display_env, check=True)
+                time.sleep(1.2)
+                subprocess.run(["xdotool", "mousemove", "640", "400", "click", "1"],
+                               env=display_env, check=True)
+                time.sleep(0.5)
+                filename = label.lower().replace(" ", "-") + ".png"
+                subprocess.run(["scrot", "-z", "-o", str(gallery / filename)],
+                               env=display_env, check=True)
+                if recorder:
+                    recorder.event("building_hud_gallery", client="client-a",
+                                   building=label, filename="building-hud-gallery/" + filename)
+            subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+shift+h"],
+                           env=display_env, check=True)
+            time.sleep(1)
+            subprocess.run(["xdotool", "mousemove", "640", "400", "click", "1"],
+                           env=display_env, check=True)
+            (gallery / "README.md").write_text("# Universal StarCraft building HUD\n\n"
+                + "\n".join(f"- [{label}]({label.lower().replace(' ', '-')}.png)"
+                            for label in labels) + "\n")
         if args.barracks_training_probe:
             display_env = env | {"DISPLAY": ":91"}
 

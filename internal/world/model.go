@@ -168,7 +168,8 @@ func (m Envelope) Validate() error {
 	if m.Revision == 0 || len(m.Payload) == 0 || len(m.Payload) > 1048576 {
 		return errors.New("invalid revision or payload")
 	}
-	if m.Kind == "actor.spawn" || m.Kind == "actor.bind" || m.Kind == "actor.despawn" || m.Kind == "actor.reconcile" {
+	if m.Kind == "actor.spawn" || m.Kind == "actor.bind" || m.Kind == "actor.despawn" ||
+		m.Kind == "actor.morph" || m.Kind == "actor.reconcile" {
 		if m.Source != "openbw" {
 			return errors.New("invalid actor authority")
 		}
@@ -187,6 +188,12 @@ func (m Envelope) Validate() error {
 			return binding.Validate(m.Session)
 		case "actor.despawn":
 			var event ActorDespawn
+			if err := decodeActorPayload(m.Payload, &event); err != nil {
+				return err
+			}
+			return event.Validate(m.Session)
+		case "actor.morph":
+			var event ActorMorph
 			if err := decodeActorPayload(m.Payload, &event); err != nil {
 				return err
 			}
