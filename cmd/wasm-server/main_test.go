@@ -74,3 +74,19 @@ func TestLoopbackOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicFunnelTarget(t *testing.T) {
+	config := []byte(`{"AllowFunnel":{"pi.example.ts.net:443":true},"Web":{"pi.example.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8080"}}}}}`)
+	for _, test := range []struct {
+		listen string
+		public bool
+	}{
+		{"127.0.0.1:8080", true},
+		{"127.0.0.1:8091", false},
+	} {
+		public, err := funnelTargetsListen(config, test.listen)
+		if err != nil || public != test.public {
+			t.Errorf("listener %s: public=%t, err=%v", test.listen, public, err)
+		}
+	}
+}

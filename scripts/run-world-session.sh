@@ -74,7 +74,7 @@ if [[ "${BRIDGE_SERVE_WASM:-0}" == 1 ]]; then
     wasm_log="${BRIDGE_WASM_LOG_FILE:-$project_dir/run-data/world-base/wasm-server.log}"
     mkdir -p "$(dirname "$wasm_log")"
     "$project_dir/scripts/serve-wasm.sh" --bundle "$wasm_bundle" \
-        --listen "${WASM_LISTEN_ADDRESS:-127.0.0.1:8080}" \
+        --listen "${WASM_LISTEN_ADDRESS:-127.0.0.1:8091}" \
         --native "127.0.0.1:${OPENRCT2_PORT:-11753}" >> "$wasm_log" 2>&1 &
     wasm_pid=$!
 fi
