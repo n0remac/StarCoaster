@@ -529,6 +529,20 @@ func (s *service) publishReady() {
 		s.startedSession = s.registry.Session
 	}
 	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
+	if len(s.pending) != 0 {
+		ids := make([]string, 0, len(s.pending))
+		for id := range s.pending {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			event := s.pending[id]
+			if s.emit(s.park, "combat.event", s.registry.Session, s.registry.Revision, event) == nil {
+				s.registry.RemovalState[event.EntityID] = "removal_pending"
+				log.Printf("replayed combat demolition id=%s entity=%s", id, event.EntityID)
+			}
+		}
+	}
 	s.publishScenarioStatus(true)
 	log.Printf("OpenBW ready targets=%d unsupported=%d", ready.Targets, ready.UnsupportedTotal)
 	if s.scenario == nil || s.scenario.Version == 1 {
@@ -722,6 +736,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			return
 		}
 		previousSession := s.registry.Session
+		pendingCombat, pendingCombatFrames := s.pending, s.pendingFrames
 		s.failCommands("world_resynchronized")
 		if err := s.registry.Replace(m.Session, m.Revision, s.stage.begin.Width, s.stage.begin.Height, s.stage.entities, s.stage.terrain); err != nil {
 			s.ack(p, m, false, err.Error())
@@ -740,6 +755,14 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.stage = nil
 		s.pending = map[string]world.CombatEvent{}
 		s.pendingFrames = map[string]int{}
+		if previousSession == m.Session {
+			for id, event := range pendingCombat {
+				if s.registry.Entities[event.EntityID].ID != "" && !s.registry.Destroyed[event.EntityID] {
+					s.pending[id] = event
+					s.pendingFrames[id] = pendingCombatFrames[id]
+				}
+			}
+		}
 		if previousSession != m.Session {
 			s.proxies = map[string]string{}
 			s.targetLinks = map[string]targetLink{}

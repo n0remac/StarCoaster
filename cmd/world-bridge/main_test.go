@@ -15,6 +15,62 @@ func testService() *service {
 	return &service{registry: world.NewRegistry(), mapping: world.DefaultMapping(), pending: map[string]world.CombatEvent{}, proxies: map[string]string{}}
 }
 
+func TestSameSessionSnapshotReplaysPendingCombatDemolition(t *testing.T) {
+	s := testService()
+	entity := world.Entity{ID: "scenario:western-hatchery", Source: "openrct2",
+		SourceID: "large_scenery:7:256:992", Kind: "structure", Type: "zerg_hatchery", Owner: 0,
+		Position: world.Point{X: 64, Y: 96}, Elevation: 112,
+		Geometry: world.Geometry{Cells: []world.Point{{X: 2, Y: 3}},
+			Rects: []world.Rect{{X: 64, Y: 96, Width: 32, Height: 32}}},
+		Destructible: true, Combat: world.Combat{Targetable: true, Health: 1250}, Revision: 1}
+	if err := s.registry.Replace("session-a", 1, 8, 8, []world.Entity{entity}, nil); err != nil {
+		t.Fatal(err)
+	}
+	event := world.CombatEvent{ID: "session-a:100:destruction:1", EntityID: entity.ID,
+		ProxyID: "openbw:8", Type: "destruction", Health: 0}
+	s.pending[event.ID] = event
+	s.pendingFrames = map[string]int{event.ID: 100}
+	s.proxies[entity.ID] = event.ProxyID
+	s.parkMessage(nil, world.Message("world.snapshot.begin", "session-a", "begin", "openrct2", 1,
+		world.SnapshotBegin{Width: 8, Height: 8, Chunks: 1}))
+	s.parkMessage(nil, world.Message("world.snapshot.chunk", "session-a", "chunk", "openrct2", 1,
+		world.SnapshotChunk{Index: 0, Entities: []world.Entity{entity}}))
+	s.parkMessage(nil, world.Message("world.snapshot.end", "session-a", "end", "openrct2", 1,
+		world.SnapshotEnd{Entities: 1}))
+	if s.pending[event.ID] != event || s.pendingFrames[event.ID] != 100 {
+		t.Fatal("same-session snapshot discarded a native destruction awaiting park removal")
+	}
+	bridge, park := net.Pipe()
+	defer bridge.Close()
+	defer park.Close()
+	s.park = &peer{Conn: bridge}
+	s.controller = &peer{}
+	s.publisherNavigationReady, s.controllerNavigationReady, s.actorReconcileComplete = true, true, true
+	s.pendingReady = &world.Ready{}
+	forwarded := make(chan []world.Envelope, 1)
+	go func() {
+		messages := make([]world.Envelope, 2)
+		for index := range messages {
+			_ = json.Unmarshal([]byte(readLine(park)), &messages[index])
+		}
+		forwarded <- messages
+	}()
+	s.publishReady()
+	select {
+	case messages := <-forwarded:
+		if messages[0].Kind != "world.ready" || messages[1].Kind != "combat.event" ||
+			messages[1].Session != "session-a" || messages[1].Revision != 1 {
+			t.Fatalf("pending demolition not replayed after readiness: %+v", messages)
+		}
+		var replay world.CombatEvent
+		if err := messages[1].Decode(&replay); err != nil || replay != event {
+			t.Fatalf("wrong replayed demolition: %+v, %v", replay, err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending demolition replay timed out")
+	}
+}
+
 func TestParkPatchStagesWithoutAdvancingConfirmedWorld(t *testing.T) {
 	s := testService()
 	if err := s.registry.Replace("session-a", 1, 8, 8, nil, nil); err != nil {
