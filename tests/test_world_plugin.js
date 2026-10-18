@@ -621,7 +621,8 @@ for (const [index, type] of starcraftBuildings.entries()) {
         minerals: 500, gas: 250, supply_used: 0, supply_total: 18, larva_count: 0,
         command_authorized: !type.startsWith('zerg_'),
         availability, commands: commands.map((unit, slot) => ({ slot, action: 'unit.train',
-            unit_type: unit, label: unit.replace('_', ' '), ready: true,
+            unit_type: unit, label: unit === 'zerg_zergling' ? 'Zerg_Zergling'
+                : unit.replace('_', ' '), ready: true,
             reason: 'ready', requirement: '' })) };
     hudStates.push(state);
     assert.equal(buildingState.query({ player: 1, args: state }).error, undefined);
@@ -647,6 +648,9 @@ for (const [index, type] of starcraftBuildings.entries()) {
         'native command icons remain intact after HUD updates');
     assert.ok(labels.slice(0, commands.length).every(widget => widget.text),
         'native command slots have short labels');
+    assert.ok(labels.slice(0, commands.length).every(widget =>
+        !/^(Terran|Zerg|Protoss)[ _]/.test(widget.text)),
+    'command labels omit the faction prefix');
     assert.deepEqual(JSON.parse(JSON.stringify(window.widgets.find(widget => widget.name === 'building-camera').viewport.centre)),
         { x: index * 32 + 16, y: 7 * 32 + 16, z: 122 });
 }

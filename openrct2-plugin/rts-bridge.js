@@ -2143,7 +2143,7 @@
                     native_unavailable: "Unavailable" };
                 function commandText(command) {
                     if (!command) return "";
-                    return command.label.replace(/^Terran |^Zerg |^Protoss /, "");
+                    return command.label.replace(/^(Terran|Zerg|Protoss)[ _]/, "");
                 }
                 function nativeReason(command) {
                     if (!command) return "";
