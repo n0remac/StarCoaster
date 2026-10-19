@@ -125,3 +125,53 @@ func TestDefenseSpawnPointRejectsInteriorAndBlockedTiles(t *testing.T) {
 		t.Fatal("blocked anchor accepted")
 	}
 }
+
+func TestDefenseEscalationKeepsSelectedZone(t *testing.T) {
+	s := defenseService(t)
+	s.scenario.ParkDefense.WaveTiers = []world.WaveTier{
+		{FromWave: 1, Groups: []world.WaveTierGroup{{UnitType: "zerg_zergling", Count: 8}}},
+		{FromWave: 3, Groups: []world.WaveTierGroup{{UnitType: "zerg_zergling", Count: 7}, {UnitType: "zerg_hydralisk", Count: 2}}},
+		{FromWave: 6, Groups: []world.WaveTierGroup{{UnitType: "zerg_zergling", Count: 7}, {UnitType: "zerg_hydralisk", Count: 2}, {UnitType: "zerg_ultralisk", Count: 1}}},
+	}
+	enabled, anchor := true, [2]int{4, 30}
+	s.parkDefenseConfig(nil, world.Message("scenario.defense.request", s.registry.Session, "enable", "openrct2", 1,
+		defenseConfigRequest{PlayerID: 2, CommanderID: 2, Enabled: &enabled, Anchor: &anchor}))
+	if !s.runtime.DefenseEnabled {
+		t.Fatal("defense was not enabled")
+	}
+	wantTypes := []map[string]int{
+		{"zerg_zergling": 8}, {"zerg_zergling": 8},
+		{"zerg_zergling": 7, "zerg_hydralisk": 2},
+		{"zerg_zergling": 7, "zerg_hydralisk": 2},
+		{"zerg_zergling": 7, "zerg_hydralisk": 2},
+		{"zerg_zergling": 7, "zerg_hydralisk": 2, "zerg_ultralisk": 1},
+	}
+	for index, expected := range wantTypes {
+		s.runtime.LastFrame = s.runtime.NextAutomaticFrame
+		if !s.runtime.Trigger(s.scenario) {
+			t.Fatalf("wave %d was not scheduled", index+1)
+		}
+		wave := &s.runtime.Waves[index]
+		if wave.SpawnZone != "selected" || len(wave.FixedZone.Tiles) != len(s.runtime.FixedSpawnZone.Tiles) {
+			t.Fatalf("wave %d lost its fixed zone", index+1)
+		}
+		for tileIndex, tile := range wave.FixedZone.Tiles {
+			if tile != s.runtime.FixedSpawnZone.Tiles[tileIndex] {
+				t.Fatalf("wave %d changed spawn tile %d", index+1, tileIndex)
+			}
+		}
+		counts := map[string]int{}
+		for _, unit := range wave.Units {
+			counts[unit.UnitType]++
+		}
+		if len(counts) != len(expected) {
+			t.Fatalf("wave %d composition: %v", index+1, counts)
+		}
+		for kind, count := range expected {
+			if counts[kind] != count {
+				t.Fatalf("wave %d composition: %v", index+1, counts)
+			}
+		}
+		wave.State = "active"
+	}
+}
