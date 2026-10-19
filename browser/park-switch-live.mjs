@@ -9,9 +9,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const url = process.env.WASM_LIVE_URL || 'http://127.0.0.1:8091/';
 const profile = process.env.WASM_LIVE_PROFILE || path.join(root, 'run-data/park-switch-browser-profile');
 const target = process.env.PARK_SWITCH_TARGET || 'frontier-outpost-playable.park';
-const artifacts = path.join(root, 'run-data/verification/browser-park-switch');
-const resultPath = path.join(root, 'run-data/verification/browser-park-switch.json');
-const report = { result: 'failed', url, target, started_at: new Date().toISOString(), events: [] };
+const decision = process.env.PARK_SWITCH_DECISION || 'discard';
+const suffix = decision === 'save' ? '-save' : '';
+const artifacts = path.join(root, `run-data/verification/browser-park-switch${suffix}`);
+const resultPath = path.join(root, `run-data/verification/browser-park-switch${suffix}.json`);
+const report = { result: 'failed', url, target, decision, started_at: new Date().toISOString(), events: [] };
 let context;
 let page;
 let screencast;
@@ -20,7 +22,8 @@ const frameWrites = [];
 let frameCount = 0;
 await mkdir(artifacts, { recursive: true });
 try {
-  const parkProbe = `var PARK_SWITCH_PROBE_TARGET = ${JSON.stringify(target)};\n` +
+  const parkProbe = `var PARK_SWITCH_PROBE_TARGET = ${JSON.stringify(target)};\n`
+    + `var PARK_SWITCH_PROBE_DECISION = ${JSON.stringify(decision)};\n` +
     'var PARK_SWITCH_PROBE_DELAY_MS = 30000;\n' +
     await readFile(path.join(root, 'browser/park-switch-probe.js'), 'utf8');
   const defenseProbe = 'var UNIVERSAL_DEFENSE_ANCHOR = [44, 56];\n' +

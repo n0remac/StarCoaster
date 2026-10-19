@@ -5,6 +5,8 @@ registerPlugin({ name: "StarCoaster park switch probe", version: "1.0.0",
     var scenario = null, catalog = null, readyAt = 0, cameraAt = 0, cameraStage = 0, focusId = "";
     var requested = false, menuSeen = false;
     var target = typeof PARK_SWITCH_PROBE_TARGET === "string" ? PARK_SWITCH_PROBE_TARGET : "";
+    var decision = typeof PARK_SWITCH_PROBE_DECISION === "string"
+        ? PARK_SWITCH_PROBE_DECISION : "discard";
     var delay = typeof PARK_SWITCH_PROBE_DELAY_MS === "number" ? PARK_SWITCH_PROBE_DELAY_MS : 90000;
     context.subscribe("action.execute", function (event) {
         if (event.action === "rtsbridge.scenarioStatus") scenario = event.args;
@@ -63,7 +65,7 @@ registerPlugin({ name: "StarCoaster park switch probe", version: "1.0.0",
         requested = true;
         console.log("PARK_SWITCH_BROWSER_BEFORE units=" + rtsBridge.getActors().units.length);
         context.executeAction("rtsbridge.loadPark", { session: scenario.session,
-            generation: catalog.generation, park: target, decision: "discard" }, function (result) {
+            generation: catalog.generation, park: target, decision: decision }, function (result) {
             console.log("PARK_SWITCH_BROWSER_REQUEST accepted=" + !result.error
                 + " reason=" + (result.errorMessage || "ok"));
         });
