@@ -43,10 +43,12 @@ func TestParkLoadRequiresCommanderCurrentGenerationAndNativeReadiness(t *testing
 	request.Generation = "generation-a"
 	s.ready = false
 	s.parkLoad(nil, world.Message("park.load.request", s.registry.Session, "not-ready", "openrct2", 1, request))
+	s.ready = true
+	s.parkLoad(nil, world.Message("park.load.request", "previous-session", "old-session", "openrct2", 1, request))
+	s.parkLoad(nil, world.Message("park.load.request", s.registry.Session, "old-revision", "openrct2", 2, request))
 	if loads.Load() != 0 {
 		t.Fatal("unready or unauthorized park load reached supervisor")
 	}
-	s.ready = true
 	s.parkLoad(nil, world.Message("park.load.request", s.registry.Session, "accepted", "openrct2", 1, request))
 	if loads.Load() != 1 {
 		t.Fatalf("expected one authorized load, got %d", loads.Load())

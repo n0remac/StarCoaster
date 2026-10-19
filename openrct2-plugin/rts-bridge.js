@@ -1518,6 +1518,9 @@
                     && parkCatalog.generation === event.args.generation)
                     parkCatalog = Object.assign({}, parkCatalog,
                         { phase: "preparing", pending: event.args.park });
+                if (event.args.accepted && typeof ui !== "undefined")
+                    ui.showError("StarCoaster: changing park",
+                        "Preparing " + event.args.park + ". Native clients can reconnect at the same server address when ready.");
                 return {};
             });
             context.registerAction(PARK_LOAD_ACTION, function (event) {

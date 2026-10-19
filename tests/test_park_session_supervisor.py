@@ -109,6 +109,13 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.assertEqual(restarted.source_for("Park A.park").read_bytes(), b"PARKsaved")
         self.assertEqual((self.library / "Park A.park").read_bytes(), b"PARKpark")
 
+    def test_last_active_park_survives_supervisor_restart(self):
+        self.supervisor.current = "Park B.park"
+        self.supervisor.persist_current()
+        restarted = ParkSessionSupervisor(self.library, self.root / "runtime", "Park A.park",
+                                          start_browser=False)
+        self.assertEqual(restarted.initial, "Park B.park")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,7 @@ class ParkSessionSupervisor:
         self.pending = ""
         self.error = ""
         self.session = None
+        self.transition_thread = None
         self.plan = None
         self.browser = None
         self.start_browser = start_browser
@@ -45,6 +46,24 @@ class ParkSessionSupervisor:
         self.runtime.mkdir(parents=True, exist_ok=True)
         if initial not in self.catalog():
             raise ValueError("initial park is not in the private library")
+        selection = self.runtime / "active-park.json"
+        if selection.is_file():
+            try:
+                saved = json.loads(selection.read_text()).get("park")
+                if saved in self.catalog():
+                    self.initial = saved
+            except (ValueError, OSError, TypeError):
+                pass
+
+    def persist_current(self):
+        path = self.runtime / "active-park.json"
+        temporary = path.with_suffix(".json.tmp")
+        try:
+            temporary.write_text(json.dumps({"park": self.current}) + "\n")
+            os.replace(temporary, path)
+        except OSError as error:
+            print("supervisor: could not record active park: " + str(error), flush=True)
+            temporary.unlink(missing_ok=True)
 
     def catalog(self):
         parks = {}
@@ -59,7 +78,7 @@ class ParkSessionSupervisor:
     def state(self):
         with self.lock:
             return {"phase": self.phase, "current": self.current, "generation": self.generation,
-                    "pending": self.pending, "error": self.error,
+                    "pending": self.pending, "error": self.error[:240],
                     "parks": list(self.catalog())}
 
     def source_for(self, name):
@@ -75,7 +94,35 @@ class ParkSessionSupervisor:
         plan = prepare(str(self.source_for(name)), directory)
         ensure_park(plan)
         build_native_map(plan)
+        self.preflight_native_map(generation, plan)
         return generation, plan
+
+    def preflight_native_map(self, generation, plan):
+        # Run the actual three-participant synchronization in a private network
+        # namespace. OpenBW rebuilds its regions after the park collision mask
+        # arrives, so loading the .scm in isolation cannot validate navigation.
+        preflight = dict(plan)
+        directory = self.runtime / "sessions" / generation / "preflight"
+        preflight["spawn_journal"] = str(directory / "spawn-queue.json")
+        preflight["server_data"] = str(directory / "server")
+        preflight["client_data"] = str(directory / "client")
+        environment = session_environment(preflight, {
+            "BRIDGE_RUNTIME_DIR": str(ROOT / "run-data/ps" / generation[:16] / "check"),
+            "BRIDGE_SERVER_DATA_DIR": preflight["server_data"],
+            "BRIDGE_CLIENT_DATA_DIR": preflight["client_data"],
+            "BRIDGE_PARK_SUPERVISOR_SOCKET": "", "BRIDGE_PARK_GENERATION": "",
+            "BRIDGE_SERVE_WASM": "0", "BRIDGE_LAUNCH_CLIENT": "0",
+        })
+        log_path = directory / "session.log"
+        directory.mkdir(parents=True, exist_ok=True)
+        with log_path.open("ab", buffering=0) as log:
+            process = subprocess.Popen(["unshare", "-Urn", str(ROOT / "scripts/run-isolated-world-preflight.sh"),
+                                        plan["park"]], cwd=ROOT, env=environment,
+                                       stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            self.await_ready(process, log_path, timeout=150)
+        finally:
+            self.stop(process)
 
     def start_wasm(self):
         if not self.start_browser:
@@ -95,7 +142,8 @@ class ParkSessionSupervisor:
 
     def launch(self, generation, plan):
         environment = session_environment(plan, {
-            "BRIDGE_RUNTIME_DIR": str(self.runtime / "sessions" / generation / "native"),
+            # OpenBW's Unix socket names must fit the platform's short sun_path.
+            "BRIDGE_RUNTIME_DIR": str(ROOT / "run-data/ps" / generation[:16]),
             "BRIDGE_SERVER_DATA_DIR": plan["server_data"],
             "BRIDGE_CLIENT_DATA_DIR": plan["client_data"],
             "BRIDGE_PARK_SUPERVISOR_SOCKET": str(self.socket_path),
@@ -116,7 +164,10 @@ class ParkSessionSupervisor:
         marker = b"WORLD_SCENARIO_STATUS scenario="
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                raise RuntimeError("new game session exited before native readiness")
+                lines = log_path.read_text(errors="replace").splitlines()[-20:]
+                errors = [line for line in lines if "Error:" in line or "WORLD_ERROR" in line]
+                raise RuntimeError("native session exited before readiness: "
+                                   + (errors[-1] if errors else "see " + str(log_path)))
             if log_path.exists() and marker in log_path.read_bytes():
                 return
             time.sleep(.3)
@@ -140,11 +191,13 @@ class ParkSessionSupervisor:
             with self.lock:
                 self.phase = "starting"
             process, log_path = self.launch(generation, plan)
+            self.session = process
             self.await_ready(process, log_path)
             with self.lock:
                 self.session, self.plan = process, plan
                 self.generation, self.current, self.phase = generation, self.initial, "ready"
-        except Exception as error:
+                self.persist_current()
+        except BaseException as error:
             self.stop(process)
             with self.lock:
                 self.phase, self.error = "failed", str(error)
@@ -163,7 +216,9 @@ class ParkSessionSupervisor:
             if decision == "save" and (not re.fullmatch(r"starcoaster-switch-[0-9a-f]{16}\.park", save_name)):
                 raise ValueError("invalid_save_name")
             self.phase, self.pending, self.error = "preparing", park, ""
-        threading.Thread(target=self.transition, args=(park, decision, save_name), daemon=True).start()
+        self.transition_thread = threading.Thread(target=self.transition,
+                                                  args=(park, decision, save_name))
+        self.transition_thread.start()
         return self.state()
 
     def archive_save(self, name, save_name):
@@ -204,6 +259,7 @@ class ParkSessionSupervisor:
                 self.session, self.plan = process, plan
                 self.generation, self.current = generation, park
                 self.pending, self.phase = "", "ready"
+                self.persist_current()
         except Exception as error:
             with self.lock:
                 self.phase, self.error = "failed", str(error)
@@ -222,11 +278,14 @@ class ParkSessionSupervisor:
                     self.generation, self.current = generation, old_name
                     self.pending, self.phase = "", "ready"
                     self.error = "new park failed; restored prior park: " + self.error
+                    self.persist_current()
             except Exception as recovery:
                 with self.lock:
                     self.error += "; recovery failed: " + str(recovery)
 
     def close(self):
+        if self.transition_thread is not None and self.transition_thread.is_alive():
+            self.transition_thread.join()
         self.stop(self.session)
         self.stop(self.browser)
 
