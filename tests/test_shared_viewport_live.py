@@ -117,6 +117,9 @@ def main():
             f"--rct2-data-path={env['RCT2_DATA_DIR']}",
             f"--openrct2-data-path={ROOT / 'build/openrct2-stage/usr/local/share/openrct2'}",
             f"--user-data-path={run / 'client'}"])
+        if os.geteuid() == 0:
+            wait(lambda: "zenity --title=OpenRCT2 --info" in source(), 20)
+            mouse("key", "Return")
         wait(lambda: "RTS Bridge apply tick=" in source(), 45)
         window_id = subprocess.check_output(["xdotool", "search", "--onlyvisible", "--pid", str(player.pid)],
                                             env=env, text=True, stderr=subprocess.DEVNULL).splitlines()[-1]
