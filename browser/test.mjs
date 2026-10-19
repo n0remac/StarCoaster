@@ -199,42 +199,53 @@ try {
       console.log('PASS: private Pi provisioned licensed RCT2 data without a prompt');
     }
     await page.waitForTimeout(15000);
-    await page.screenshot({ path: path.join(artifacts, 'openrct2.png') });
+    await page.screenshot({ path: path.join(artifacts, 'openrct2.png'), timeout: 120000 });
     if (records.some((record) => record.kind === 'pageerror'))
       throw new Error('Browser reported a JavaScript exception after licensed asset import');
     console.log(`PASS: licensed RCT2 ${privateAssets ? 'private provisioning' : rct2Dir ? 'folder' : 'ZIP'} and graphical canvas startup`);
-    if (parkFile) {
-      await stat(parkFile);
-      const parkAssets = await page.evaluate(() => {
-        const fs = window.Module.FS;
-        const file = (name) => fs.analyzePath(name).exists ? fs.stat(name).size : -1;
-        return { legacyObject: file('/RCT/ObjData/C3D.DAT'),
-          g1: file('/RCT/Data/g1.dat'),
-          objectCatalog: fs.analyzePath('/OpenRCT2/object/rct2/ride').exists
-            ? fs.readdir('/OpenRCT2/object/rct2/ride').length : -1 };
+    if (parkFile) await stat(parkFile);
+    const parkAssets = await page.evaluate(() => {
+      const fs = window.Module.FS;
+      const file = (name) => fs.analyzePath(name).exists ? fs.stat(name).size : -1;
+      return { legacyObject: file('/RCT/ObjData/C3D.DAT'),
+        g1: file('/RCT/Data/g1.dat'),
+        objectCatalog: fs.analyzePath('/OpenRCT2/object/rct2/ride').exists
+          ? fs.readdir('/OpenRCT2/object/rct2/ride').length : -1 };
+    });
+    records.push({ kind: 'park-assets', ...parkAssets });
+    if (parkAssets.legacyObject < 1 || parkAssets.g1 < 1 || parkAssets.objectCatalog < 100)
+      throw new Error(`Persisted park assets are incomplete: ${JSON.stringify(parkAssets)}`);
+    if (records.some((record) => record.kind === 'console' &&
+      record.text.includes('Building object index'))) {
+      await new Promise((resolve, reject) => {
+        const deadline = setTimeout(() => { clearInterval(check); reject(new Error('OpenRCT2 object index build timed out')); }, 600000);
+        const check = setInterval(() => {
+          if (records.some((record) => record.kind === 'console' &&
+            record.text.includes('Finished building object index'))) {
+            clearTimeout(deadline);
+            clearInterval(check);
+            resolve();
+          }
+        }, 1000);
       });
-      records.push({ kind: 'park-assets', ...parkAssets });
-      if (parkAssets.legacyObject < 1 || parkAssets.g1 < 1 || parkAssets.objectCatalog < 100)
-        throw new Error(`Persisted park assets are incomplete: ${JSON.stringify(parkAssets)}`);
-      if (records.some((record) => record.kind === 'console' &&
-        record.text.includes('Building object index'))) {
-        await new Promise((resolve, reject) => {
-          const deadline = setTimeout(() => { clearInterval(check); reject(new Error('OpenRCT2 object index build timed out')); }, 600000);
-          const check = setInterval(() => {
-            if (records.some((record) => record.kind === 'console' &&
-              record.text.includes('Finished building object index'))) {
-              clearTimeout(deadline);
-              clearInterval(check);
-              resolve();
-            }
-          }, 1000);
-        });
-      } else {
-        await page.waitForFunction(() =>
-          window.Module?.FS?.analyzePath('/persistent/objects.idx').exists,
-        null, { timeout: 600000 });
-      }
-      console.log('PASS: OpenRCT2 object index is ready');
+    } else {
+      await page.waitForFunction(() =>
+        window.Module?.FS?.analyzePath('/persistent/objects.idx').exists,
+      null, { timeout: 600000 });
+    }
+    console.log('PASS: OpenRCT2 object index is ready');
+    await page.waitForTimeout(45000);
+    const mainMenu = await page.screenshot({
+      path: path.join(artifacts, 'main-menu.png'), timeout: 120000,
+    });
+    if (mainMenu.length < 50000)
+      throw new Error('OpenRCT2 did not reach its graphical main menu');
+    console.log('PASS: OpenRCT2 main menu captured without joining a park');
+    await page.mouse.click(514, 688);
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: path.join(artifacts, 'scenario-browser.png'), timeout: 120000 });
+    console.log('CAPTURE: New Game menu interaction');
+    if (parkFile) {
       const parkName = `test-park${path.extname(parkFile)}`;
       await page.route(`**/${parkName}`, (route) => route.fulfill({
         path: parkFile, contentType: 'application/octet-stream',
@@ -245,11 +256,11 @@ try {
         Module.FS.writeFile(`/persistent/${name}`, new Uint8Array(park));
         Module.ccall('LoadGameCallback', null, ['string', 'number'], [`/persistent/${name}`, 0]);
       }, parkName);
-      await page.waitForTimeout(25000);
+      await page.waitForTimeout(45000);
       const parkLogs = records.slice(parkLogStart).filter((record) => record.kind === 'console');
       if (parkLogs.some((record) => /Unable to open park|An assertion failed/.test(record.text)))
         throw new Error('OpenRCT2 reported a park loading failure');
-      await page.screenshot({ path: path.join(artifacts, 'park.png') });
+      await page.screenshot({ path: path.join(artifacts, 'park.png'), timeout: 120000 });
       console.log('PASS: OpenRCT2 accepted the existing park file callback');
     }
   } else {

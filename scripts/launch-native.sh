@@ -17,12 +17,8 @@ test -d "$game_data" || {
     printf 'RCT2 data directory is missing: %s\n' "$game_data" >&2
     exit 1
 }
-mkdir -p "$user_data/plugin" "$user_data/object"
+mkdir -p "$user_data/plugin"
 cp "$project_dir/openrct2-plugin/rts-bridge.js" "$user_data/plugin/rts-bridge.js"
-for object in "$openrct2_data"/object/starcoaster/scenery_large/*.parkobj; do
-    test -f "$object" || continue
-    cp "$object" "$user_data/object/$(basename "$object")"
-done
 exec "$project_dir/build/openrct2/openrct2" \
     --rct2-data-path="$(realpath "$game_data")" \
     --openrct2-data-path="$openrct2_data" \
