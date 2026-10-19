@@ -106,6 +106,9 @@ func (s *service) fixedDefenseZone(anchor [2]int) (world.SpawnZone, error) {
 		(x >= edgeBand && y >= edgeBand && x < width-edgeBand && y < height-edgeBand) {
 		return world.SpawnZone{}, errors.New("spawn_point_outside_park_edge_band")
 	}
+	if _, ok := s.scenarioZoneCandidate(world.SpawnZone{Tiles: [][2]int{anchor}}, nil); !ok {
+		return world.SpawnZone{}, errors.New("spawn_anchor_obstructed")
+	}
 	zone := world.SpawnZone{}
 	for radius := 0; radius <= 2; radius++ {
 		for dy := -radius; dy <= radius; dy++ {

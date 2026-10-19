@@ -100,6 +100,12 @@ func TestDefenseSpawnPointRejectsInteriorAndBlockedTiles(t *testing.T) {
 	if _, err := s.fixedDefenseZone([2]int{30, 30}); err == nil {
 		t.Fatal("interior anchor accepted")
 	}
+	anchorX, anchorY := s.transform.X(4*32+16), s.transform.Y(30*32+16)
+	s.nativeOccupants = []world.NativeOccupant{{X: anchorX, Y: anchorY}}
+	if _, err := s.fixedDefenseZone([2]int{4, 30}); err == nil {
+		t.Fatal("occupied anchor accepted because its neighbors were clear")
+	}
+	s.nativeOccupants = nil
 	for y := 26; y <= 34; y++ {
 		for x := 2; x <= 8; x++ {
 			nativeX := s.transform.X(x*32 + 16)
