@@ -20,6 +20,8 @@ The build writes `build/openrct2-wasm/` and `build/wasm-client/`. The bundle con
 
 The Pi can host an existing park through the user service in `deploy/starcoaster-game.service`. Install it once with `scripts/install-pi-game-service.sh --park /absolute/path/to/park.park`, then run `scripts/update-pi-game.sh --force` for the first deployment. The installer records the selected park in ignored `run-data/pi-park-path` and creates a private bare Git repository at `run-data/pi-push.git` with a `post-receive` hook. The game serves the private browser bundle on loopback port 8091 and the native multiplayer host on loopback port 11753. Keep the existing private Tailscale Serve route on port 10001; do not enable Funnel for it.
 
+While connected to this game, OpenRCT2's File → New Game and File → Load Game open the StarCoaster server park picker. Choose a `.park` save from the Pi's configured private park directory, then save or discard the current park before switching. Starting a local OpenRCT2 game after leaving multiplayer does not start OpenBW or show the SC construction button; reconnect to the StarCoaster host to play with StarCraft controls.
+
 From a development machine with SSH access to the Pi, add the private push remote and send `main`:
 
 ```sh

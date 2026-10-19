@@ -47,3 +47,8 @@ immediately under Emscripten's WebSocket-backed POSIX layer. Native TCP behavior
 and the OpenRCT2 multiplayer packet protocol remain unchanged.
 `0019-network-future-include.patch` supplies the standard `<future>` declaration
 needed when multiplayer is enabled in the browser build.
+
+`0021-authoritative-new-game-menu.patch` sends the connected client's File → New
+Game and File → Load Game actions to the existing StarCoaster park picker. Local
+OpenRCT2 games retain the standard file menu. The server still validates park
+names and performs the fresh OpenBW session transition.
