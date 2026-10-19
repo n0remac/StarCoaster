@@ -40,6 +40,20 @@ class ExistingParkDefenseTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "256x256"):
                     prepare_existing_defense.prepare(str(source))
 
+    def test_preserves_stock_scenario_and_save_formats(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(prepare_existing_defense, "ROOT", root), \
+                    patch.object(prepare_existing_defense, "inspect_existing_park", return_value=(128, 128)):
+                for suffix in (".SC6", ".SV6", ".sc4", ".sv4"):
+                    source = root / f"existing{suffix}"
+                    source.write_bytes(b"source data")
+                    plan = prepare_existing_defense.prepare(str(source))
+                    self.assertEqual(Path(plan["park"]).suffix, suffix.lower())
+                    self.assertEqual(Path(plan["source"]).read_bytes(), source.read_bytes())
+                    definition = json.loads(Path(plan["scenario"]).read_text())
+                    self.assertEqual(Path(definition["park_file"]).suffix, suffix.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

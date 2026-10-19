@@ -228,7 +228,10 @@
             return { x: offset.x, y: offset.y };
         }
         function rideCollisionVolumes(element, ride, x, y, groundHeight) {
-            const trackType = Number.isInteger(element.trackType) ? element.trackType : -1;
+            // Entrance elements share this geometry path but OpenRCT2 logs a
+            // scripting error when a TrackElement-only property is read.
+            const trackType = element.type === "track" && Number.isInteger(element.trackType)
+                ? element.trackType : -1;
             const sequence = Number.isInteger(element.sequence) ? element.sequence : 0;
             const direction = Number.isInteger(element.direction) ? element.direction : 0;
             const baseZ = Number.isInteger(element.baseZ) ? element.baseZ : element.baseHeight * 8;

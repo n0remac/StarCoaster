@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Prepare a private StarCraft Defense package for an existing OpenRCT2 park."""
+"""Prepare the default StarCraft gameplay layer for an OpenRCT2 map."""
 import hashlib
 import json
 import shutil
 from pathlib import Path
 
-from scenario_package import ROOT, inspect_existing_park
+from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, inspect_existing_park
 
 
 def prepare(source: str, workspace: Path | None = None) -> dict:
@@ -13,8 +13,8 @@ def prepare(source: str, workspace: Path | None = None) -> dict:
     if directory is not None and not directory.is_relative_to((ROOT / "run-data").resolve()):
         raise ValueError("session workspace must be inside run-data")
     original = Path(source).expanduser().resolve(strict=True)
-    if original.suffix.lower() != ".park" or not original.is_file():
-        raise ValueError("--park requires an existing .park save")
+    if original.suffix.lower() not in SUPPORTED_PARK_FORMATS or not original.is_file():
+        raise ValueError("source must be a supported OpenRCT2 scenario or save")
     width, height = inspect_existing_park(original)
     if width > 256 or height > 256:
         raise ValueError(f"existing park exceeds 256x256 native map: {width}x{height}")
@@ -28,7 +28,7 @@ def prepare(source: str, workspace: Path | None = None) -> dict:
     scenario = {
         "version": 2, "scenario_id": scenario_id, "mode": "park_defense",
         "display_name": f"StarCraft Defense: {original.stem}"[:128],
-        "park_file": str((directory / "save" / f"{scenario_id}.park").relative_to(ROOT)),
+        "park_file": str((directory / "save" / f"{scenario_id}{original.suffix.lower()}").relative_to(ROOT)),
         "park_size": [width, height], "starting_units": {"marines": [], "zerglings": []},
         "production_fixture": {"terran_minerals": 50000, "terran_gas": 50000,
                                "native_supply_depot": [1, 1]},
@@ -57,7 +57,7 @@ def prepare(source: str, workspace: Path | None = None) -> dict:
     output = (ROOT / "run-data/scenarios" / scenario_id) if workspace is None else directory
     return {"scenario_id": scenario_id, "scenario": str(scenario_path),
             "mapping": str(mapping_path),
-            "park": str(directory / "save" / f"{scenario_id}.park"),
+            "park": str(directory / "save" / f"{scenario_id}{original.suffix.lower()}"),
             "fixture": None, "navigation": None, "generator": None, "layout": None,
             "source": str(source_copy), "native_map": str(output / "map" / f"{scenario_id}.scm"),
             "spawn_journal": str(output / "spawn-queue.json"),

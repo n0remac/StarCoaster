@@ -13,6 +13,7 @@ from park_layout import load as load_layout
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUPPORTED_PARK_FORMATS = frozenset({".park", ".sc6", ".sc4", ".sv6", ".sv4"})
 GENERATOR_INPUTS = ("scripts/park-assault-generator.js", "scripts/create-park-assault.py",
                     "scripts/park_navigation.py", "scripts/park_layout.py")
 
@@ -62,7 +63,7 @@ def resolve(scenario_id: str) -> dict:
     elif generator == "existing-park":
         value = metadata.get("source")
         expected = ROOT / "run-data" / scenario_id / "source"
-        if (not isinstance(value, str) or not value.endswith(".park") or
+        if (not isinstance(value, str) or Path(value).suffix.lower() not in SUPPORTED_PARK_FORMATS or
                 Path(value).is_absolute() or ".." in Path(value).parts or
                 Path(value).parts[:3] != ("run-data", scenario_id, "source")):
             raise ValueError("invalid existing park source path")
@@ -79,7 +80,8 @@ def resolve(scenario_id: str) -> dict:
         raise ValueError("unrecognized park generator")
     isolated = layout is not None or source is not None
     park = output_path(scenario.get("park_file"), "park_file", isolated)
-    if isolated and park != str(ROOT / "run-data" / scenario_id / "save" / f"{scenario_id}.park"):
+    expected_suffix = source.suffix.lower() if source else ".park"
+    if isolated and park != str(ROOT / "run-data" / scenario_id / "save" / f"{scenario_id}{expected_suffix}"):
         raise ValueError("isolated park output does not match package")
     fixture = output_path(metadata.get("fixture"), "fixture", isolated) if source is None else None
     navigation = output_path(metadata.get("navigation"), "navigation", isolated) if source is None else None
@@ -111,10 +113,11 @@ def ensure_park(plan: dict, force: bool = False) -> None:
         source, park = Path(plan["source"]), Path(plan["park"])
         if not source.is_file():
             raise RuntimeError(f"missing existing park source: {source}")
-        with source.open("rb") as stream:
-            signature = stream.read(4)
-        if signature != b"PARK":
-            raise RuntimeError(f"invalid OpenRCT2 park source: {source}")
+        if source.suffix.lower() == ".park":
+            with source.open("rb") as stream:
+                signature = stream.read(4)
+            if signature != b"PARK":
+                raise RuntimeError(f"invalid OpenRCT2 park source: {source}")
         scenario_path = Path(plan["scenario"])
         scenario = json.loads(scenario_path.read_text())
         inputs = [source, scenario_path]
