@@ -2,7 +2,7 @@
 // The private Pi origin provisions licensed RCT2 data on first use; other origins
 // need an existing local import in this browser profile.
 import { chromium } from 'playwright-core';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,6 +25,7 @@ const demolitionProbe = process.env.WASM_DEMOLITION_PROBE === '1';
 const defenseProbe = process.env.WASM_DEFENSE_PROBE === '1';
 const defenseConfigure = process.env.WASM_DEFENSE_CONFIGURE === '1';
 const recordVideo = process.env.WASM_LIVE_RECORD === '1';
+const recordScreencast = process.env.WASM_LIVE_SCREENCAST === '1';
 const secondOrderDelayMs = Number(process.env.WASM_SECOND_ORDER_DELAY_MS || 0);
 const captureIntervalMs = Number(process.env.WASM_CAPTURE_INTERVAL_MS || 30000);
 const records = [];
@@ -32,6 +33,7 @@ const metrics = { origin: url, startedAt: new Date().toISOString(), websocketFra
   websocketFramesOut: 0, websocketBytesIn: 0, websocketBytesOut: 0, workers: 0 };
 let outcome = 'failed';
 let context;
+let screencast;
 let statusTimer;
 const capture = (page, filename) => page.screenshot({
   path: path.join(artifacts, filename), timeout: 120000,
@@ -63,7 +65,8 @@ try {
     const source = await readFile(path.join(root, productionProbe || demolitionProbe
       ? 'scripts/native-production-hud-capture.js' : 'browser/live-camera.js'), 'utf8');
     const cameraSource = defenseProbe
-      ? source.replaceAll('terran_marine', 'zerg_zergling')
+      ? 'var STARCOASTER_CAMERA_NO_MOVE = true;\n'
+        + source.replaceAll('terran_marine', 'zerg_zergling')
       : demolitionProbe
       ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 6;\nvar STARCOASTER_HUD_DRIVER = true;\n' + source
       : productionProbe ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 2;\n'
@@ -73,6 +76,7 @@ try {
     const defenseSource = defenseConfigure
       ? 'var UNIVERSAL_DEFENSE_ANCHOR = ' + JSON.stringify(
         (process.env.WASM_DEFENSE_ANCHOR || '44,56').split(',').map(Number)) + ';\n'
+        + (process.env.WASM_DEFENSE_MANUAL === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_MANUAL = true;\n' : '')
         + await readFile(path.join(root, 'tests/universal-defense-probe.js'), 'utf8') : '';
     await page.addInitScript(({ cameraSource, defenseSource }) => {
       Object.defineProperty(window, 'Module', {
@@ -84,6 +88,9 @@ try {
             module.FS.mkdirTree('/persistent/plugin');
             module.FS.writeFile('/persistent/plugin/wasm-live-camera.js', cameraSource);
             if (defenseSource) module.FS.writeFile('/persistent/plugin/wasm-defense-probe.js', defenseSource);
+            else {
+              try { module.FS.unlink('/persistent/plugin/wasm-defense-probe.js'); } catch (_) {}
+            }
             original(args);
           };
         },
@@ -161,6 +168,27 @@ try {
     }
   } else {
     await page.waitForTimeout(15000);
+  }
+  if (recordScreencast) {
+    const frames = path.join(artifacts, 'screencast');
+    await rm(frames, { recursive: true, force: true });
+    await mkdir(frames, { recursive: true });
+    screencast = await context.newCDPSession(page);
+    let frameNumber = 0;
+    screencast.on('Page.screencastFrame', async ({ data, sessionId }) => {
+      try {
+        if (frameNumber < 120) {
+          frameNumber++;
+          await writeFile(path.join(frames, `frame-${String(frameNumber).padStart(4, '0')}.jpg`),
+            Buffer.from(data, 'base64'));
+        }
+      } finally {
+        await screencast.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
+      }
+    });
+    await screencast.send('Page.startScreencast', {
+      format: 'jpeg', quality: 70, maxWidth: 640, maxHeight: 400, everyNthFrame: 10,
+    });
   }
   const frameSample = await page.evaluate(() => new Promise((resolve) => {
     const started = performance.now();
@@ -457,6 +485,7 @@ try {
   console.error(`FAIL: ${error.message || error}`);
 } finally {
   clearInterval(statusTimer);
+  if (screencast) await screencast.send('Page.stopScreencast').catch(() => {});
   await context?.close();
   await writeFile(path.join(artifacts, 'runtime.json'), JSON.stringify({ outcome, metrics, records }, null, 2) + '\n');
 }

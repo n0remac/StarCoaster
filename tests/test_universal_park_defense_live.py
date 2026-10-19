@@ -7,9 +7,11 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("UNIVERSAL_DEFENSE_SOURCE",
@@ -17,12 +19,17 @@ SOURCE = Path(os.environ.get("UNIVERSAL_DEFENSE_SOURCE",
 ANCHOR = [int(value) for value in os.environ.get("UNIVERSAL_DEFENSE_ANCHOR", "44,56").split(",")]
 if len(ANCHOR) != 2:
     raise SystemExit("UNIVERSAL_DEFENSE_ANCHOR must contain x,y")
-BUILD = "--build" in sys.argv
+FACTORY = "--factory" in sys.argv
+BUILD = "--build" in sys.argv or FACTORY
 MANUAL = "--manual" in sys.argv or BUILD
 MIXED = "--wasm" in sys.argv
+CAPTURE_ONLY = "--capture-only" in sys.argv
+OBSERVE_COMBAT = "--observe-combat" in sys.argv
 if MANUAL and MIXED:
     raise SystemExit("choose --manual or --wasm")
-RUN = ROOT / "run-data/universal-park-defense-live" / ("construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic")
+if CAPTURE_ONLY and not MIXED:
+    raise SystemExit("--capture-only requires --wasm")
+RUN = ROOT / "run-data/universal-park-defense-live" / ("factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic")
 TEST_SOURCE = RUN / f"source-{int(time.time())}-{os.getpid()}.park"
 SCENARIO_ID = "park-defense-" + hashlib.sha256(str(TEST_SOURCE).encode()).hexdigest()[:16]
 JOURNAL = ROOT / "run-data/scenarios" / SCENARIO_ID / "spawn-queue.json.scenario.json"
@@ -64,10 +71,11 @@ def main():
         (client / "plugin/universal-defense-probe.js").write_text(
             ("var UNIVERSAL_DEFENSE_VERIFY_MANUAL = true;\n" if MANUAL else "")
             + ("var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n" if BUILD else "")
+            + ("var UNIVERSAL_DEFENSE_VERIFY_FACTORY = true;\n" if FACTORY else "")
             + "var UNIVERSAL_DEFENSE_ANCHOR = " + json.dumps(ANCHOR) + ";\n"
             + (ROOT / "tests/universal-defense-probe.js").read_text())
     # The host distributes the production bridge plugin through multiplayer.
-    report = {"status": "failed", "mode": "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
+    report = {"status": "failed", "mode": "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
               "source": str(SOURCE), "checks": {}, "artifacts": {
         "session_log": str(RUN / "session.log"), "client_log": str(RUN / "client.log"),
         "journal": str(JOURNAL)}}
@@ -97,11 +105,21 @@ def main():
         if first.get("defense_enabled") or first.get("waves"):
             raise AssertionError("Zerg waves started before the player enabled defense")
         report["checks"]["disabled_default"] = "passed"
+        if MIXED:
+            def browser_gateway_ready():
+                try:
+                    with socket.create_connection(("127.0.0.1", 49123), timeout=.25):
+                        return True
+                except OSError:
+                    return False
+            wait_for(browser_gateway_ready, 90, "private browser gateway", processes)
         browser_env = env | {"WASM_LIVE_URL": "http://127.0.0.1:49123/",
                              "WASM_LIVE_PROFILE": str(ROOT / "run-data/wasm-defense-profile-fixed"),
                              "WASM_LIVE_CAMERA": "1", "WASM_DEFENSE_PROBE": "1",
                              "WASM_DEFENSE_CONFIGURE": "1", "WASM_DEFENSE_ANCHOR": ",".join(map(str, ANCHOR)),
-                             "WASM_LIVE_RECORD": "0", "WASM_LIVE_DURATION_MS": "20000",
+                             "WASM_DEFENSE_MANUAL": "1" if MIXED else "0",
+                             "WASM_LIVE_RECORD": "0", "WASM_LIVE_SCREENCAST": "1",
+                             "WASM_LIVE_DURATION_MS": "20000",
                              "WASM_CAPTURE_INTERVAL_MS": "10000"}
         if MIXED:
             stream = (RUN / "browser-first.log").open("w")
@@ -134,13 +152,14 @@ def main():
         report["anchor"] = configured["spawn_anchor"]
         if MIXED:
             joined = join_native()
-        origin = "manual" if MANUAL else "periodic"
+        origin = "manual" if MANUAL or MIXED else "periodic"
         wave = wait_for(lambda: next((wave for wave in runtime().get("waves") or []
                                      if wave.get("origin") == origin), None),
-                        100 if BUILD else 60 if MANUAL else 180, f"first {origin} wave", processes)
+                        180 if FACTORY else 100 if BUILD else 60 if MANUAL else 180,
+                        f"first {origin} wave", processes)
         if wave["sequence"] != 1 or wave.get("spawn_zone") != "selected":
             raise AssertionError(f"{origin} wave sequence or zone differs")
-        if not MANUAL and wave["triggered_frame"] < configured["next_automatic_frame"]:
+        if origin == "periodic" and wave["triggered_frame"] < configured["next_automatic_frame"]:
             raise AssertionError("automatic wave started before preparation deadline")
         if len(wave.get("units") or []) != 8 or any(unit["unit_type"] != "zerg_zergling"
                                                    for unit in wave["units"]):
@@ -157,6 +176,18 @@ def main():
             raise AssertionError("wave attempted a spawn outside the selected zone")
         report["checks"]["eight_native_zerglings_in_fixed_zone"] = "passed"
         report["wave_ids"] = [wave["id"]]
+        if OBSERVE_COMBAT:
+            wait_for(lambda: "WORLD_REMOVAL id=" in (RUN / "session.log").read_text(errors="replace"),
+                     90, "first native combat demolition", [session, joined])
+            time.sleep(30)
+            combat_log = (RUN / "session.log").read_text(errors="replace")
+            report["combat_observation"] = {
+                "ordered_patches": combat_log.count("WORLD_COMBAT_PATCH_SYNC"),
+                "resync_reasons": re.findall(r"WORLD_RESYNC reason=([^'\s]+)", combat_log),
+                "snapshots": combat_log.count("WORLD_SNAPSHOT session=")}
+            if report["combat_observation"]["resync_reasons"] or report["combat_observation"]["snapshots"] != 1:
+                raise AssertionError("combat triggered a park resnapshot")
+            report["checks"]["combat_demolition_without_resnapshot"] = "passed"
         if BUILD:
             log = (RUN / "session.log").read_text(errors="replace")
             if "UNIVERSAL_DEFENSE_BUILD id=" not in (RUN / "client.log").read_text(errors="replace"):
@@ -174,6 +205,15 @@ def main():
                                          "supply_total": int(trained.group(3)),
                                          "frame": int(trained.group(4)),
                                          "gas_after": int(trained.group(5))}
+            if FACTORY:
+                if "UNIVERSAL_DEFENSE_FACTORY id=" not in (RUN / "client.log").read_text(errors="replace"):
+                    raise AssertionError("Factory was not constructed")
+                vulture = re.search(r"\[world-control\] train command=.*accepted=1 queue=1 "
+                                    r"minerals=(\d+) supply=(\d+)/(\d+) frame=(\d+) "
+                                    r"unit_type=terran_vulture gas=(\d+)", log)
+                if not vulture:
+                    raise AssertionError("OpenBW did not accept Factory Vulture training")
+                report["checks"]["factory_construction_and_native_vulture_training"] = "passed"
         if MIXED:
             wait_for(lambda: browser.poll() is not None, 480, "browser gameplay capture", [session, joined])
             if browser.returncode != 0:
@@ -195,11 +235,48 @@ def main():
                     shutil.copy2(source, destination)
                     first_images.append(str(destination))
             report["artifacts"]["browser_first_images"] = first_images
+            final_image = browser_artifacts / "final.png"
+            with Image.open(final_image) as screenshot:
+                screenshot = screenshot.convert("RGB")
+                width, height = screenshot.size
+                sample = [screenshot.getpixel((x, y))
+                          for y in range(height * 3 // 8, height * 7 // 8, 8)
+                          for x in range(width // 4, width * 15 // 16, 8)]
+            visible_park = sum(green > 45 and green > red * 1.25 and green > blue * 1.2
+                               for red, green, blue in sample) / len(sample)
+            report["visible_park_fraction"] = round(visible_park, 3)
+            if visible_park < .05:
+                raise AssertionError("browser viewport is dark; gameplay recording is not visible")
+            report["checks"]["browser_park_visible_during_wave"] = "passed"
             report["artifacts"]["recording"] = []
+            frames = sorted((browser_artifacts / "screencast").glob("frame-*.jpg"))
+            if len(frames) >= 3:
+                recording = RUN / "browser-gameplay.mp4"
+                try:
+                    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "2",
+                        "-i", str(browser_artifacts / "screencast/frame-%04d.jpg"),
+                        "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(recording)],
+                        check=True, timeout=120)
+                    report["checks"]["short_browser_gameplay_recording"] = "passed"
+                    report["artifacts"]["recording"] = [str(recording)]
+                    report["recording_frames"] = len(frames)
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                    report["checks"]["short_browser_gameplay_recording"] = "failed"
+                    report["recording_error"] = str(exc)
+            else:
+                report["checks"]["short_browser_gameplay_recording"] = "failed"
+                report["recording_error"] = "fewer than three browser frames"
+            if CAPTURE_ONLY:
+                if report["checks"]["short_browser_gameplay_recording"] != "passed":
+                    raise AssertionError(report["recording_error"])
+                report["status"] = "passed"
+                return
             stream = (RUN / "browser-reconnect.log").open("w")
             streams.append(stream)
             reconnect = subprocess.Popen(["node", "browser/live-test.mjs"], cwd=ROOT,
-                env=browser_env | {"WASM_LIVE_RECORD": "0", "WASM_LIVE_DURATION_MS": "10000"},
+                env=browser_env | {"WASM_LIVE_SCREENCAST": "0", "WASM_LIVE_DURATION_MS": "10000",
+                                   "WASM_DEFENSE_CONFIGURE": "0"},
                 stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
             processes.append(reconnect)
             wait_for(lambda: reconnect.poll() is not None, 480, "browser reconnect", [session, joined])
@@ -218,6 +295,8 @@ def main():
             if reconnect_image.is_file():
                 shutil.copy2(reconnect_image, RUN / "browser-reconnect-connected.png")
                 report["artifacts"]["browser_reconnect_image"] = str(RUN / "browser-reconnect-connected.png")
+            if report["checks"]["short_browser_gameplay_recording"] != "passed":
+                raise AssertionError(report["recording_error"])
         report["status"] = "passed"
     except Exception as exc:
         report["error"] = str(exc)

@@ -8,6 +8,8 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
     const sweep = typeof STARCOASTER_CAMERA_SWEEP !== "undefined" && STARCOASTER_CAMERA_SWEEP;
     const allActors = typeof STARCOASTER_CAMERA_ALL_ACTORS !== "undefined"
         && STARCOASTER_CAMERA_ALL_ACTORS;
+    const noMove = typeof STARCOASTER_CAMERA_NO_MOVE !== "undefined"
+        && STARCOASTER_CAMERA_NO_MOVE;
     const sweepTargets = [
         { x: 1024, y: 1024, z: 128, zoom: 0 },
         { x: 1536, y: 1536, z: 128, zoom: 0 },
@@ -37,16 +39,18 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
                 : surface && Number.isInteger(surface.baseHeight) ? surface.baseHeight * 8 : 112;
             const focus = { x: marine.x, y: marine.y, z: z };
             marineFocus = focus;
-            ui.mainViewport.rotation = 0;
-            ui.mainViewport.zoom = sweep ? sweepTargets[0].zoom : 0;
-            ui.mainViewport.moveTo(focus);
+            if (!noMove) {
+                ui.mainViewport.rotation = 0;
+                ui.mainViewport.zoom = sweep ? sweepTargets[0].zoom : 0;
+                ui.mainViewport.moveTo(focus);
+            }
             console.log("WASM_CAMERA_READY session=" + snapshot.session
                 + " units=" + snapshot.units.length + " marine=" + JSON.stringify(marine)
                 + " map=" + JSON.stringify(map.size)
                 + " focus=" + JSON.stringify(focus)
                 + " centre=" + JSON.stringify(ui.mainViewport.getCentrePosition()));
         } else {
-            if (!sweep && ticks % 200 === 1 && focusCount++ < 50) {
+            if (!sweep && !noMove && ticks % 200 === 1 && focusCount++ < 50) {
                 ui.mainViewport.moveTo(marineFocus);
                 const current = rtsBridge.actorScreenPosition(trackedId);
                 if (focusCount <= 3 || focusCount % 10 === 0)

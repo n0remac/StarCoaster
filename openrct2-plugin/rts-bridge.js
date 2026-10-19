@@ -775,6 +775,7 @@
                 inFlight = null; sendNext();
             } else if (message.kind === "world.resync") {
                 if (recoveringRejectedBarracks) return;
+                console.log("WORLD_RESYNC reason=" + ((message.payload && message.payload.reason) || "unspecified"));
                 queue.length = 0; inFlight = null; patchInFlight = null; combatSyncID = ""; snapshot();
             }
             else if (message.kind === "world.patch.status" && message.payload && combatSyncID

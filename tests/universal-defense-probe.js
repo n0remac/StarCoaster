@@ -4,17 +4,23 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
     main: function () {
         var ticks = 0, anchorSent = false, enabledSent = false, waveSent = false;
         var buildPending = false, buildingID = "", trainPending = false, trainSent = false;
+        var factoryID = "", vulturePending = false, vultureSent = false;
         var lastTrainReason = "";
         var buildMode = typeof UNIVERSAL_DEFENSE_VERIFY_BUILD !== "undefined"
             && UNIVERSAL_DEFENSE_VERIFY_BUILD;
+        var factoryMode = typeof UNIVERSAL_DEFENSE_VERIFY_FACTORY !== "undefined"
+            && UNIVERSAL_DEFENSE_VERIFY_FACTORY;
         var barracks = buildMode && objectManager.getAllObjects("large_scenery").find(function (item) {
             return item.identifier === "starcoaster.scenery_large.terran_barracks";
         });
-        function placeBarracks() {
-            if (buildPending || !barracks) return;
+        var factory = factoryMode && objectManager.getAllObjects("large_scenery").find(function (item) {
+            return item.identifier === "starcoaster.scenery_large.terran_factory";
+        });
+        function placeBuilding(object, label, onPlaced, minX) {
+            if (buildPending || !object) return;
             var sites = [];
             for (var y = 8; y + 3 < map.size.y - 4; y++) {
-                for (var x = 8; x + 4 < map.size.x - 4; x++) {
+                for (var x = minX || 8; x + 4 < map.size.x - 4; x++) {
                     var height = null, clear = true;
                     for (var dy = 0; dy < 3 && clear; dy++) for (var dx = 0; dx < 4; dx++) {
                         var tile = map.getTile(x + dx, y + dy), surface = null;
@@ -32,25 +38,32 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
                         }
                     }
                     if (clear) sites.push({ x: x * 32, y: y * 32, z: height, direction: 0,
-                        object: barracks.index, primaryColour: 0, secondaryColour: 0, tertiaryColour: 0 });
+                        object: object.index, primaryColour: 0, secondaryColour: 0, tertiaryColour: 0 });
                 }
             }
             buildPending = true;
             function next(index) {
-                if (index >= sites.length) { buildPending = false; console.log("UNIVERSAL_DEFENSE_BUILD no_site"); return; }
+                if (index >= sites.length) { buildPending = false; console.log(label + " no_site"); return; }
                 var args = sites[index];
                 context.queryAction("largesceneryplace", args, function (query) {
                     if (query.error) { next(index + 1); return; }
                     context.executeAction("largesceneryplace", args, function (result) {
                         if (result.error) { next(index + 1); return; }
-                        buildingID = "openrct2:large_scenery:" + barracks.index + ":" + args.x
+                        var id = "openrct2:large_scenery:" + object.index + ":" + args.x
                             + ":" + args.y + ":" + args.z + ":0#1";
-                        console.log("UNIVERSAL_DEFENSE_BUILD id=" + buildingID + " cost=" + query.cost);
+                        onPlaced(id);
+                        console.log(label + " id=" + id + " cost=" + query.cost);
                         buildPending = false;
                     });
                 });
             }
             next(0);
+        }
+        function placeBarracks() {
+            placeBuilding(barracks, "UNIVERSAL_DEFENSE_BUILD", function (id) { buildingID = id; });
+        }
+        function placeFactory() {
+            placeBuilding(factory, "UNIVERSAL_DEFENSE_FACTORY", function (id) { factoryID = id; }, 20);
         }
         function trainMarine(session) {
             if (trainPending || trainSent || !buildingID) return;
@@ -63,6 +76,21 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
                 if (trainSent || result.errorMessage !== lastTrainReason) {
                     lastTrainReason = result.errorMessage;
                     console.log("UNIVERSAL_DEFENSE_TRAIN local_accepted=" + trainSent
+                        + " reason=" + (result.errorMessage || "ok"));
+                }
+            });
+        }
+        function trainVulture(session) {
+            if (vulturePending || vultureSent || !factoryID) return;
+            var args = { session: session, request: 40002, unit_ids: [], verb: "train",
+                unit_type: "terran_vulture", target_entity_id: factoryID };
+            vulturePending = true;
+            context.executeAction("rtsbridge.marineCommand", args, function (result) {
+                vulturePending = false;
+                vultureSent = !result.error;
+                if (vultureSent || result.errorMessage !== lastTrainReason) {
+                    lastTrainReason = result.errorMessage;
+                    console.log("UNIVERSAL_DEFENSE_VULTURE local_accepted=" + vultureSent
                         + " reason=" + (result.errorMessage || "ok"));
                 }
             });
@@ -92,6 +120,14 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
                 trainMarine(state.session);
             } else if (buildMode && !state.units.some(function (unit) {
                 return unit.kind === "terran_marine" && unit.hp > 0;
+            })) {
+                return;
+            } else if (factoryMode && !factoryID) {
+                placeFactory();
+            } else if (factoryMode && !vultureSent) {
+                trainVulture(state.session);
+            } else if (factoryMode && !state.units.some(function (unit) {
+                return unit.kind === "terran_vulture" && unit.hp > 0;
             })) {
                 return;
             } else if (typeof UNIVERSAL_DEFENSE_VERIFY_MANUAL !== "undefined"
