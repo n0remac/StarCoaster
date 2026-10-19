@@ -97,10 +97,24 @@
             throw new Error("Browser storage is too small for the Pi's licensed RCT2 data.");
         setStatus(`Loading your RCT2 assets from the private Pi… 0/${manifest.files.length}`);
         clearDirectory(fs, "/RCT");
-        let next = 0, completed = 0;
-        await Promise.all(Array.from({ length: 4 }, async () => {
-            while (next < manifest.files.length) {
-                const file = manifest.files[next++];
+        let completed = 0;
+        // Chromium can reject a single IndexedDB transaction containing the
+        // full licensed installation. Commit small verified batches instead.
+        const batches = [];
+        let batch = [], batchBytes = 0;
+        for (const file of manifest.files) {
+            if (batch.length && (batchBytes + file.size > 64 * 1024 * 1024 || batch.length >= 256)) {
+                batches.push(batch); batch = []; batchBytes = 0;
+            }
+            batch.push(file);
+            batchBytes += file.size;
+        }
+        if (batch.length) batches.push(batch);
+        for (const files of batches) {
+            let next = 0;
+            await Promise.all(Array.from({ length: 4 }, async () => {
+                while (next < files.length) {
+                    const file = files[next++];
                 const url = "/private/rct2/files/" + file.path.split("/").map(encodeURIComponent).join("/");
                 const data = await (await fetchRequired(url)).arrayBuffer();
                 if (data.byteLength !== file.size || await hash(data) !== file.sha256)
@@ -115,8 +129,10 @@
                 completed++;
                 if (completed % 100 === 0 || completed === manifest.files.length)
                     setStatus(`Loading your RCT2 assets from the private Pi… ${completed}/${manifest.files.length}`);
-            }
-        }));
+                }
+            }));
+            await sync(fs, false);
+        }
         if (!fs.analyzePath("/RCT/Data/ch.dat").exists)
             throw new Error("The Pi's RCT2 installation is missing Data/ch.dat.");
         fs.writeFile("/RCT/starcoaster-licensed-version", manifest.version);
@@ -180,11 +196,15 @@
         }
         if (!fs.analyzePath("/OpenRCT2/g2.dat").exists)
             throw new Error("Patched g2.dat is missing from the installed assets.");
+        // The object index stores filesystem metadata that IDBFS can change
+        // while restoring files. Rebuild it from the installed objects.
+        if (fs.analyzePath("/persistent/objects.idx").exists)
+            fs.unlink("/persistent/objects.idx");
         const rct2Manifest = await privateRct2Manifest();
         let installedRct2Version = "";
         try { installedRct2Version = fs.readFile("/RCT/starcoaster-licensed-version", { encoding: "utf8" }); } catch (_) {}
         if (rct2Manifest && (!fs.analyzePath("/RCT/Data/ch.dat").exists ||
-            installedRct2Version && installedRct2Version !== rct2Manifest.version)) {
+            installedRct2Version !== rct2Manifest.version)) {
             await provisionPrivateRct2(fs, rct2Manifest);
         } else if (!fs.analyzePath("/RCT/Data/ch.dat").exists) {
             setStatus("Import your locally licensed RCT2 data to continue.");

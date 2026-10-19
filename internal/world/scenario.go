@@ -206,7 +206,7 @@ func LoadScenario(path string) (*Scenario, error) {
 		x, y := scenario.ProductionFixture.NativeSupplyDepot[0], scenario.ProductionFixture.NativeSupplyDepot[1]
 		parkX, parkY := (256-scenario.ParkSize[0])/2, (256-scenario.ParkSize[1])/2
 		if x < parkX+scenario.ParkSize[0] && x+3 > parkX &&
-			y < parkY+scenario.ParkSize[1] && y+2 > parkY {
+			y < parkY+scenario.ParkSize[1] && y+2 > parkY && !scenario.UnlimitedResources {
 			return nil, fmt.Errorf("production fixture overlaps mapped park")
 		}
 	}

@@ -197,6 +197,17 @@ try {
     console.log(`PASS: licensed RCT2 ${privateAssets ? 'private provisioning' : rct2Dir ? 'folder' : 'ZIP'} and graphical canvas startup`);
     if (parkFile) {
       await stat(parkFile);
+      const parkAssets = await page.evaluate(() => {
+        const fs = window.Module.FS;
+        const file = (name) => fs.analyzePath(name).exists ? fs.stat(name).size : -1;
+        return { legacyObject: file('/RCT/ObjData/C3D.DAT'),
+          g1: file('/RCT/Data/g1.dat'),
+          objectCatalog: fs.analyzePath('/OpenRCT2/object/rct2/ride').exists
+            ? fs.readdir('/OpenRCT2/object/rct2/ride').length : -1 };
+      });
+      records.push({ kind: 'park-assets', ...parkAssets });
+      if (parkAssets.legacyObject < 1 || parkAssets.g1 < 1 || parkAssets.objectCatalog < 100)
+        throw new Error(`Persisted park assets are incomplete: ${JSON.stringify(parkAssets)}`);
       if (records.some((record) => record.kind === 'console' &&
         record.text.includes('Building object index'))) {
         await new Promise((resolve, reject) => {
@@ -231,7 +242,7 @@ try {
       if (parkLogs.some((record) => /Unable to open park|An assertion failed/.test(record.text)))
         throw new Error('OpenRCT2 reported a park loading failure');
       await page.screenshot({ path: path.join(artifacts, 'park.png') });
-      console.log('PASS: existing park loaded through OpenRCT2 file callback');
+      console.log('PASS: OpenRCT2 accepted the existing park file callback');
     }
   } else {
     console.log('SKIP: licensed graphical startup (set WASM_RCT2_DIR or WASM_RCT2_ZIP)');

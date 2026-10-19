@@ -1038,14 +1038,26 @@
         let pendingTargetCatalog = null;
         let publishingTargetVersion = 0;
         let publishingTargetSession = "";
+        let targetCatalogPublishing = false;
+        let queuedTargetCatalog = null;
         const retiredTargetSessions = {};
         let publishedTargets = [];
         function publishTargetCatalog(session, targets) {
+            publishedTargets = targets.slice();
+            queuedTargetCatalog = { session: session, targets: publishedTargets };
+            if (targetCatalogPublishing) return;
+            publishNextTargetCatalog();
+        }
+        function publishNextTargetCatalog() {
+            if (!queuedTargetCatalog) return;
+            const request = queuedTargetCatalog;
+            queuedTargetCatalog = null;
+            const session = request.session, targets = request.targets;
+            targetCatalogPublishing = true;
             if (session !== publishingTargetSession) {
                 publishingTargetSession = session;
                 publishingTargetVersion = 0;
             }
-            publishedTargets = targets.slice();
             const chunks = [];
             let chunk = [];
             targets.forEach(function (target) {
@@ -1057,16 +1069,25 @@
             if (chunk.length || !chunks.length) chunks.push(chunk);
             if (chunks.length > 512) {
                 console.log("WORLD_TARGET_CATALOG_ERROR too_many_chunks");
+                targetCatalogPublishing = false;
                 return;
             }
             const version = publishingTargetVersion = Math.max(publishingTargetVersion,
                 session === targetCatalogSession ? targetCatalogVersion : 0) + 1;
-            chunks.forEach(function (items, index) {
+            function sendChunk(index) {
+                const items = chunks[index];
                 context.executeAction(TARGET_ACTION, { session: session, version: version,
                     index: index, chunks: chunks.length, targets: items }, function (result) {
                     if (result.error) console.log("WORLD_TARGET_CATALOG_ERROR " + result.errorMessage);
+                    if (!result.error && index + 1 < chunks.length) {
+                        sendChunk(index + 1);
+                    } else {
+                        targetCatalogPublishing = false;
+                        if (queuedTargetCatalog) publishNextTargetCatalog();
+                    }
                 });
-            });
+            }
+            sendChunk(0);
         }
         function publishActorLifecycle(session, id, generation, state) {
             context.executeAction(ACTOR_LIFECYCLE_ACTION, { session: session, id: id,

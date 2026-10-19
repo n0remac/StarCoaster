@@ -11,10 +11,24 @@ wasm_bundle="${WASM_DEPLOY_DIR:-$project_dir/run-data/wasm-deploy}/current"
 if [[ "${BRIDGE_SERVE_WASM:-0}" == 1 ]]; then
     test -s "$wasm_bundle/manifest.json" || { printf 'Missing deployed WASM bundle: %s\n' "$wasm_bundle" >&2; exit 1; }
 fi
+python3 - "${OPENRCT2_PORT:-11753}" <<'PY'
+import socket
+import sys
+
+for port in (40010, int(sys.argv[1])):
+    with socket.socket() as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            raise SystemExit(f"StarCoaster session port {port} is already in use; stop the other session before launching a new park")
+PY
 
 export BRIDGE_SCENARIO=world
 export OPENBW_LAN_MODE=LOCAL
-export OPENBW_LOCAL_PATH="${OPENBW_LOCAL_PATH:-$project_dir/run-data/world-base/openbw-local.socket}"
+runtime_root="${BRIDGE_RUNTIME_DIR:-$project_dir/run-data/world-base}"
+if [[ -n "${BRIDGE_SPAWN_JOURNAL:-}" ]]; then runtime_root="${BRIDGE_RUNTIME_DIR:-$(dirname "$BRIDGE_SPAWN_JOURNAL")}"; fi
+mkdir -p "$runtime_root"
+export OPENBW_LOCAL_PATH="${OPENBW_LOCAL_PATH:-$runtime_root/openbw-local.socket}"
 mkdir -p "$(dirname "$OPENBW_LOCAL_PATH")"
 rm -f "$OPENBW_LOCAL_PATH"
 if [[ ! -f "$project_dir/run-data/world-base/world-base-v5-256.scm" ]]; then
@@ -61,14 +75,14 @@ bridge_pid=$!
 (
   export BRIDGE_BWAPI_MENU=MULTI_PLAYER BRIDGE_BWAPI_SLOT=0 BRIDGE_BWAPI_RACE=Zerg
   export BRIDGE_WORLD_ROLE=publisher
-  export BRIDGE_BWAPI_RUNTIME_DIR="$project_dir/run-data/world-base/openbw-zerg"
+  export BRIDGE_BWAPI_RUNTIME_DIR="$runtime_root/openbw-zerg"
   exec "$project_dir/scripts/run-bwapi.sh"
 ) &
 bw_pid=$!
 (
   export BRIDGE_BWAPI_MENU=MULTI_PLAYER BRIDGE_BWAPI_SLOT=1 BRIDGE_BWAPI_RACE=Terran
   export BRIDGE_WORLD_ROLE=controller
-  export BRIDGE_BWAPI_RUNTIME_DIR="$project_dir/run-data/world-base/openbw-terran"
+  export BRIDGE_BWAPI_RUNTIME_DIR="$runtime_root/openbw-terran"
   exec "$project_dir/scripts/run-bwapi.sh"
 ) &
 controller_pid=$!
@@ -76,7 +90,7 @@ controller_pid=$!
 park_pid=$!
 wasm_pid=""
 if [[ "${BRIDGE_SERVE_WASM:-0}" == 1 ]]; then
-    wasm_log="${BRIDGE_WASM_LOG_FILE:-$project_dir/run-data/world-base/wasm-server.log}"
+    wasm_log="${BRIDGE_WASM_LOG_FILE:-$runtime_root/wasm-server.log}"
     mkdir -p "$(dirname "$wasm_log")"
     "$project_dir/scripts/serve-wasm.sh" --bundle "$wasm_bundle" \
         --listen "${WASM_LISTEN_ADDRESS:-127.0.0.1:8091}" \
