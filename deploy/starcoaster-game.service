@@ -10,8 +10,8 @@ Environment=BRIDGE_SERVE_WASM=1
 Environment=BRIDGE_LAUNCH_CLIENT=0
 Environment=BRIDGE_WASM_LOG_FILE=/media/pi/media1/rts-bridge/build/wasm-playable-server.log
 ExecStart=/bin/bash scripts/run-pi-game.sh
-Restart=on-failure
-RestartSec=5s
+Restart=always
+RestartSec=10s
 TimeoutStopSec=30s
 
 [Install]

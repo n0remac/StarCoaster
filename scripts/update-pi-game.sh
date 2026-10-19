@@ -67,6 +67,17 @@ if [[ "$ready" != 1 ]]; then
     log 'Game or private browser bundle failed health check'
     exit 1
 fi
+game_pid="$(systemctl --user show starcoaster-game.service --property=MainPID --value)"
+sleep 30
+if [[ "$game_pid" == 0 ]] || \
+    [[ "$(systemctl --user show starcoaster-game.service --property=MainPID --value)" != "$game_pid" ]] || \
+    ! systemctl --user is-active --quiet starcoaster-game.service || \
+    ! curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8091/manifest.json \
+        -o run-data/pi-served-manifest.json || \
+    ! cmp -s run-data/pi-served-manifest.json build/wasm-client/manifest.json; then
+    log 'Game did not remain healthy for 30 seconds'
+    exit 1
+fi
 printf '%s\n' "$revision" > "$marker.tmp"
 mv -f "$marker.tmp" "$marker"
 log "Deployed and serving $revision"
