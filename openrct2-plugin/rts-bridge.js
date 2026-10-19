@@ -2155,6 +2155,8 @@
                 ui.registerMenuItem("StarCraft Defense", openDefenseWindow);
                 ui.registerMenuItem("StarCoaster: Load Park", openLoadParkWindow);
             }
+            ui.registerShortcut({ id: "starcoaster.load-park", text: "Load a server park",
+                bindings: ["CTRL+SHIFT+L"], callback: openLoadParkWindow });
             context.subscribe("interval.tick", function () {
                 if (loadParkWindow && parkCatalog) {
                     const current = loadParkWindow.findWidget("park-current");

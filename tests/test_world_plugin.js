@@ -771,6 +771,7 @@ const parks = { phase: 'ready', current: 'Park A.park', pending: '', error: '',
     generation: 'a'.repeat(32), parks: ['Park A.park', 'Park B.park'] };
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'park.catalog', session: sid, payload: parks }) + '\n');
 assert.ok(menuItems.has('StarCoaster: Load Park'), 'park switching menu is registered');
+assert.ok(shortcuts.has('starcoaster.load-park'), 'park picker has a keyboard shortcut');
 const loadAction = registered.get('rtsbridge.loadPark');
 const loadArgs = { session: sid, generation: parks.generation, park: 'Park B.park', decision: 'discard' };
 assert.match(loadAction.query({ player: 2, args: loadArgs }).errorMessage, /commander or host/);
