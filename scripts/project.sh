@@ -24,6 +24,9 @@ case "$command" in
     start)
         exec scripts/start.sh "$@"
         ;;
+    launch)
+        exec scripts/launch-native.sh "$@"
+        ;;
     build)
         go_bin="$(command -v go || true)"
         go_bin="${go_bin:-/usr/local/go/bin/go}"
@@ -140,7 +143,7 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {start|build|prepare-wasm-arm64|build-wasm|serve-wasm|deploy-wasm|test-wasm|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
+Usage: scripts/project.sh {launch|start|build|prepare-wasm-arm64|build-wasm|serve-wasm|deploy-wasm|test-wasm|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
 
 start [--scenario ID|--park FILE] [--headless|--client] [--browser|--browser-bundle DIR]
                                         Fetch, build, stage, and play.
@@ -149,6 +152,7 @@ park [ID]                               Force-generate a park (Frontier default)
 record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
 validate-scenario ID                    Validate scenario configuration.
 build, test, test-live                   Build and run offline or licensed live tests.
+launch                                   Open the native graphical main menu.
 build-wasm                               Build the patched graphical OpenRCT2 WASM client.
 prepare-wasm-arm64                      Install the pinned Emscripten toolchain and dependencies on the build drive.
 serve-wasm [server flags]                Serve the private bundle on localhost with browser headers.

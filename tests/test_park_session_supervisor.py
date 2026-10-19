@@ -20,6 +20,20 @@ class Process:
 
 
 class ParkSessionSupervisorTest(unittest.TestCase):
+    def test_idle_supervisor_needs_no_initial_park(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "run-data") as directory:
+            root = Path(directory)
+            library = root / "library"
+            library.mkdir()
+            supervisor = ParkSessionSupervisor(library, root / "runtime", start_browser=False)
+            self.assertEqual(supervisor.state()["phase"], "idle")
+            self.assertEqual(supervisor.state()["current"], "")
+            self.assertEqual(supervisor.state()["parks"], [])
+            with mock.patch.object(supervisor, "prepare") as prepare:
+                supervisor.start_initial()
+                prepare.assert_not_called()
+            self.assertFalse(supervisor.ready_session_exited())
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(dir=ROOT / "run-data")
         self.root = Path(self.directory.name)

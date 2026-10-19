@@ -6,24 +6,6 @@
     const message = document.getElementById("message");
     const canvas = document.getElementById("canvas");
     const setStatus = (value) => { message.textContent = value; };
-    const parkSession = async () => {
-        const response = await fetch("/private/park-session", { cache: "no-store" });
-        if (response.status === 404) return null;
-        if (!response.ok) throw new Error(`Park supervisor: HTTP ${response.status}`);
-        const state = await response.json();
-        if (!state || typeof state.phase !== "string" || typeof state.generation !== "string")
-            throw new Error("Park supervisor returned invalid status.");
-        return state;
-    };
-    const waitForPark = async () => {
-        while (true) {
-            const state = await parkSession();
-            if (!state || state.phase === "ready") return state;
-            if (state.phase === "failed") throw new Error(`Park startup failed: ${state.error}`);
-            setStatus(`Preparing ${state.pending || state.current || "the park"}… ${state.phase}`);
-            await new Promise((resolve) => setTimeout(resolve, 1500));
-        }
-    };
     const fail = (error) => {
         console.error("StarCoaster startup failed:", error);
         if (!status.isConnected) document.body.appendChild(status);
@@ -214,6 +196,12 @@
         }
         if (!fs.analyzePath("/OpenRCT2/g2.dat").exists)
             throw new Error("Patched g2.dat is missing from the installed assets.");
+        const plugin = fs.readFile("/OpenRCT2/plugin/rts-bridge.js");
+        if (await hash(plugin) !== manifest.plugin_sha256)
+            throw new Error("StarCoaster plugin differs from the bundle manifest.");
+        ensureDir(fs, "/persistent/plugin");
+        fs.writeFile("/persistent/plugin/rts-bridge.js", plugin);
+        await sync(fs, false);
         // The object index stores filesystem metadata that IDBFS can change
         // while restoring files. Rebuild it from the installed objects.
         if (fs.analyzePath("/persistent/objects.idx").exists)
@@ -262,38 +250,18 @@
             await sync(fs, false);
             document.getElementById("import").style.display = "none";
         }
-        const joinedPark = await waitForPark();
         setStatus("Starting OpenRCT2…");
         canvas.style.display = "block";
-        const startupArgs = manifest.network_enabled ? ["join", "127.0.0.1", "--port=11753"] : [];
+        // Explicit development runs may exercise the existing multiplayer
+        // harness. Ordinary visits always enter OpenRCT2's main menu.
+        const startupArgs = manifest.network_enabled
+            && new URLSearchParams(window.location.search).has("starcoaster-test-join")
+            ? ["join", "127.0.0.1", "--port=11753"] : [];
         startupArgs.push("--rct2-data-path=/RCT", "--user-data-path=/persistent/", "--openrct2-data-path=/OpenRCT2/");
         if (new URLSearchParams(window.location.search).has("verbose")) startupArgs.push("--verbose");
         module.callMain(startupArgs);
         status.remove();
         canvas.focus();
-        if (joinedPark) {
-            let checking = false;
-            setInterval(async () => {
-                if (checking) return;
-                checking = true;
-                try {
-                    const state = await parkSession();
-                    if (!state) return;
-                    if (state.phase === "ready" && state.generation !== joinedPark.generation) {
-                        window.location.reload();
-                        return;
-                    }
-                    if (state.phase === "switching" || state.phase === "starting") {
-                        if (!status.isConnected) document.body.appendChild(status);
-                        setStatus(`Changing to ${state.pending || "the selected park"}…`);
-                    } else if (state.phase === "ready" && status.isConnected) {
-                        status.remove();
-                    }
-                } catch (error) {
-                    console.warn("Park transition status unavailable:", error);
-                } finally { checking = false; }
-            }, 2000);
-        }
     } catch (error) {
         fail(error);
     }

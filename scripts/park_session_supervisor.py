@@ -25,14 +25,14 @@ PARK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}\.park$")
 
 
 class ParkSessionSupervisor:
-    def __init__(self, library: Path, runtime: Path, initial: str, start_browser=True):
+    def __init__(self, library: Path, runtime: Path, initial: str = "", start_browser=True):
         self.library = library.resolve(strict=True)
         self.runtime = runtime.resolve()
         if not self.library.is_dir() or not self.runtime.is_relative_to((ROOT / "run-data").resolve()):
             raise ValueError("park library must exist and runtime must be inside run-data")
         self.initial = initial
         self.lock = threading.RLock()
-        self.phase = "preparing"
+        self.phase = "preparing" if initial else "idle"
         self.current = ""
         self.generation = ""
         self.pending = ""
@@ -44,10 +44,10 @@ class ParkSessionSupervisor:
         self.start_browser = start_browser
         self.socket_path = self.runtime / "control.sock"
         self.runtime.mkdir(parents=True, exist_ok=True)
-        if initial not in self.catalog():
+        if initial and initial not in self.catalog():
             raise ValueError("initial park is not in the private library")
         selection = self.runtime / "active-park.json"
-        if selection.is_file():
+        if initial and selection.is_file():
             try:
                 saved = json.loads(selection.read_text()).get("park")
                 if saved in self.catalog():
@@ -189,6 +189,8 @@ class ParkSessionSupervisor:
             process.wait(timeout=5)
 
     def start_initial(self):
+        if not self.initial:
+            return
         process = None
         try:
             generation, plan = self.prepare(self.initial)
@@ -335,7 +337,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parks", type=Path, required=True, help="private directory containing eligible .park files")
-    parser.add_argument("--initial", required=True, help="park filename within --parks")
+    parser.add_argument("--initial", default="", help="optional development park filename within --parks")
     parser.add_argument("--runtime", type=Path, default=ROOT / "run-data/park-supervisor")
     args = parser.parse_args()
     supervisor = ParkSessionSupervisor(args.parks, args.runtime, args.initial)

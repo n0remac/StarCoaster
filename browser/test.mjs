@@ -179,6 +179,14 @@ try {
     null, { timeout: 180000 });
     if (await page.locator('#status.error').count())
       throw new Error(await page.locator('#status.error #message').textContent());
+    const installedPlugin = await page.evaluate(async () => {
+      const bytes = Module.FS.readFile('/persistent/plugin/rts-bridge.js');
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    });
+    const browserManifest = await (await context.request.get(new URL('manifest.json', url).href)).json();
+    if (installedPlugin !== browserManifest.plugin_sha256)
+      throw new Error('The local StarCoaster plugin was not installed for browser parks');
     if (privateAssets) {
       const hosted = await page.evaluate(async () => {
         const manifest = await (await fetch('/private/rct2/manifest.json')).json();

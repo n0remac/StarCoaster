@@ -43,13 +43,11 @@ if [[ "$force" == 0 && -f "$marker" && "$(cat "$marker")" == "$revision" ]]; the
     log "Already running $revision"
     exit 0
 fi
-park_file=run-data/pi-park-path
-test -s "$park_file" || { log "Missing park selection: $park_file"; exit 1; }
-IFS= read -r park_path < "$park_file"
-test -f "$park_path" || { log "Park not found: $park_path"; exit 1; }
-log "Building $revision for $park_path"
+log "Building $revision"
+BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-1}" scripts/project.sh build
+scripts/install-openrct2-local.sh
 OPENRCT2_WASM_LOCAL=1 BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-1}" \
-    scripts/project.sh start --park "$park_path" --browser --prepare-only
+    scripts/project.sh build-wasm
 log 'Running offline and browser checks'
 scripts/project.sh test
 scripts/project.sh test-wasm
@@ -77,7 +75,9 @@ assert served['visual_source'] == 'starcraft-local'
 assert served['plugin_sha256'] == hashlib.sha256(
     Path('openrct2-plugin/rts-bridge.js').read_bytes()).hexdigest()
 session = json.loads(Path('run-data/pi-served-park-session.json').read_text())
-assert session['phase'] == 'ready' and session['generation'] and session['current']
+assert session['phase'] in ('idle', 'ready')
+if session['phase'] == 'ready':
+    assert session['generation'] and session['current']
 PY
     then ready=1; break; fi
     sleep 2

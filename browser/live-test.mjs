@@ -155,7 +155,9 @@ try {
     });
   });
   const start = Date.now();
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  const testUrl = new URL(url);
+  testUrl.searchParams.set('starcoaster-test-join', '1');
+  await page.goto(testUrl.href, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() =>
     document.getElementById('canvas')?.style.display === 'block' ||
     document.getElementById('status')?.classList.contains('error'),

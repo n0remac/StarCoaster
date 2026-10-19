@@ -107,6 +107,7 @@ def main() -> int:
         for path in sorted(STAGE.rglob("*")):
             if path.is_file():
                 add_zip(archive, path, path.relative_to(STAGE).as_posix())
+        add_zip(archive, require(ROOT / "openrct2-plugin/rts-bridge.js"), "plugin/rts-bridge.js")
 
     manifest = {
         "schema": 1,

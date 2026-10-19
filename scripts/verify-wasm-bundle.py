@@ -53,6 +53,8 @@ def main() -> int:
     with zipfile.ZipFile(bundle / "assets.zip") as assets:
         if hashlib.sha256(assets.read("g2.dat")).hexdigest() != manifest["g2_sha256"]:
             raise ValueError("Bundled g2.dat differs from the manifest")
+        if hashlib.sha256(assets.read("plugin/rts-bridge.js")).hexdigest() != manifest["plugin_sha256"]:
+            raise ValueError("Bundled StarCoaster plugin differs from the manifest")
         for name, expected_hash in manifest.get("visual_asset_sha256", {}).items():
             if name.startswith("sprites/"):
                 continue  # source manifests are private build inputs, not bundled
