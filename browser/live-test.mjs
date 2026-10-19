@@ -22,6 +22,9 @@ const controlProbe = process.env.WASM_CONTROL_PROBE === '1';
 const productionProbe = process.env.WASM_PRODUCTION_PROBE === '1';
 const constructionProbe = process.env.WASM_CONSTRUCTION_PROBE === '1';
 const demolitionProbe = process.env.WASM_DEMOLITION_PROBE === '1';
+const defenseProbe = process.env.WASM_DEFENSE_PROBE === '1';
+const defenseConfigure = process.env.WASM_DEFENSE_CONFIGURE === '1';
+const recordVideo = process.env.WASM_LIVE_RECORD === '1';
 const secondOrderDelayMs = Number(process.env.WASM_SECOND_ORDER_DELAY_MS || 0);
 const captureIntervalMs = Number(process.env.WASM_CAPTURE_INTERVAL_MS || 30000);
 const records = [];
@@ -39,6 +42,7 @@ try {
   context = await chromium.launchPersistentContext(profile, {
     executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true,
     viewport: { width: 1280, height: 800 },
+    ...(recordVideo ? { recordVideo: { dir: artifacts, size: { width: 640, height: 400 } } } : {}),
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const page = await context.newPage();
@@ -58,13 +62,19 @@ try {
       throw new Error('Choose one live camera, production, or demolition probe');
     const source = await readFile(path.join(root, productionProbe || demolitionProbe
       ? 'scripts/native-production-hud-capture.js' : 'browser/live-camera.js'), 'utf8');
-    const cameraSource = demolitionProbe
+    const cameraSource = defenseProbe
+      ? source.replaceAll('terran_marine', 'zerg_zergling')
+      : demolitionProbe
       ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 6;\nvar STARCOASTER_HUD_DRIVER = true;\n' + source
       : productionProbe ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 2;\n'
       + (constructionProbe ? 'var STARCOASTER_HUD_CONSTRUCTION_PROBE = true;\n' : '') + source
       : cameraSweep ? 'var STARCOASTER_CAMERA_SWEEP = true;\n' + source
       : controlProbe ? 'var STARCOASTER_CAMERA_ALL_ACTORS = true;\n' + source : source;
-    await page.addInitScript((source) => {
+    const defenseSource = defenseConfigure
+      ? 'var UNIVERSAL_DEFENSE_ANCHOR = ' + JSON.stringify(
+        (process.env.WASM_DEFENSE_ANCHOR || '44,56').split(',').map(Number)) + ';\n'
+        + await readFile(path.join(root, 'tests/universal-defense-probe.js'), 'utf8') : '';
+    await page.addInitScript(({ cameraSource, defenseSource }) => {
       Object.defineProperty(window, 'Module', {
         configurable: true,
         set(module) {
@@ -72,12 +82,13 @@ try {
           const original = module.callMain.bind(module);
           module.callMain = (args) => {
             module.FS.mkdirTree('/persistent/plugin');
-            module.FS.writeFile('/persistent/plugin/wasm-live-camera.js', source);
+            module.FS.writeFile('/persistent/plugin/wasm-live-camera.js', cameraSource);
+            if (defenseSource) module.FS.writeFile('/persistent/plugin/wasm-defense-probe.js', defenseSource);
             original(args);
           };
         },
       });
-    }, cameraSource);
+    }, { cameraSource, defenseSource });
   }
   let resolveCamera;
   const cameraReady = new Promise((resolve) => { resolveCamera = resolve; });
@@ -100,7 +111,8 @@ try {
     if (line.includes('WASM_ACTOR_MOVED') && metrics.secondOrderSentAt &&
       metrics.secondActorMoveLatencyMs === undefined)
       metrics.secondActorMoveLatencyMs = Date.now() - metrics.secondOrderSentAt;
-    if (/index|network|plugin|WORLD_|RTS Bridge|WASM_CAMERA|WASM_ACTOR|NATIVE_HUD|Failed to connect/i.test(line))
+    if (!line.includes('Paint.Entity.cpp')
+      && /index|network|plugin|WORLD_|RTS Bridge|UNIVERSAL_DEFENSE|WASM_CAMERA|WASM_ACTOR|NATIVE_HUD|Failed to connect/i.test(line))
       console.log(`CLIENT: ${line}`);
   });
   page.on('pageerror', (error) => records.push({ kind: 'pageerror', text: error.message }));
