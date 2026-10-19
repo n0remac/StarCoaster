@@ -46,3 +46,18 @@ Pi game service remains online. Session and preflight logs stay under the
 reported ignored `run-data/park-switch-live-*` directory. Browser gameplay
 checks and captures use the private origin and ignored browser profile described
 in `docs/wasm-browser.md`.
+
+With Park A active on the Pi and Park B in the private catalog, capture the
+browser menu transition and fresh client session with:
+
+```sh
+WASM_LIVE_URL=http://127.0.0.1:8091/ \
+WASM_LIVE_PROFILE="$PWD/run-data/park-switch-browser-profile" \
+node browser/park-switch-live.mjs
+```
+
+The capture uses the same synchronized `rtsbridge.loadPark` action as the Load
+Park window. It builds a Barracks, trains a unit, requests a Zerg wave, and
+checks that Park B starts with a new session and no surviving units. Results
+are written to ignored `run-data/verification/browser-park-switch.json`; the
+screenshots and video are in `run-data/verification/browser-park-switch/`.
