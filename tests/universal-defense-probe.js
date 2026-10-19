@@ -3,6 +3,7 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
     type: "local", licence: "MIT", targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         var ticks = 0, anchorSent = false, enabledSent = false, waveSent = false;
+        var wavePending = false;
         var defensePending = false;
         var buildPending = false, buildingID = "", trainPending = false, trainSent = false;
         var factoryID = "", vulturePending = false, vultureSent = false;
@@ -144,10 +145,12 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
             })) {
                 return;
             } else if (typeof UNIVERSAL_DEFENSE_VERIFY_MANUAL !== "undefined"
-                && UNIVERSAL_DEFENSE_VERIFY_MANUAL && !waveSent) {
+                && UNIVERSAL_DEFENSE_VERIFY_MANUAL && !waveSent && !wavePending) {
+                wavePending = true;
                 context.executeAction("rtsbridge.requestWave", { session: state.session,
                     request: 1, request_id: state.session + ":wave:" + network.currentPlayer.id + ":1" },
                     function (result) {
+                        wavePending = false;
                         console.log("UNIVERSAL_DEFENSE_MANUAL local_accepted=" + !result.error
                             + " reason=" + (result.errorMessage || "ok"));
                         if (!result.error) waveSent = true;

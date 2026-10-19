@@ -24,6 +24,7 @@ const constructionProbe = process.env.WASM_CONSTRUCTION_PROBE === '1';
 const demolitionProbe = process.env.WASM_DEMOLITION_PROBE === '1';
 const defenseProbe = process.env.WASM_DEFENSE_PROBE === '1';
 const defenseConfigure = process.env.WASM_DEFENSE_CONFIGURE === '1';
+const defenseMenu = process.env.WASM_DEFENSE_MENU === '1';
 const recordVideo = process.env.WASM_LIVE_RECORD === '1';
 const recordScreencast = process.env.WASM_LIVE_SCREENCAST === '1';
 const secondOrderDelayMs = Number(process.env.WASM_SECOND_ORDER_DELAY_MS || 0);
@@ -59,18 +60,22 @@ try {
       }
     } catch (_) {}
   }, 5000);
-  if (cameraProbe || productionProbe || demolitionProbe) {
-    if ([cameraProbe, productionProbe, demolitionProbe].filter(Boolean).length !== 1)
+  {
+    if ([cameraProbe, productionProbe, demolitionProbe, defenseMenu].filter(Boolean).length > 1)
       throw new Error('Choose one live camera, production, or demolition probe');
-    const source = await readFile(path.join(root, productionProbe || demolitionProbe
-      ? 'scripts/native-production-hud-capture.js' : 'browser/live-camera.js'), 'utf8');
-    const cameraSource = defenseProbe
+    const source = cameraProbe || productionProbe || demolitionProbe || defenseMenu
+      ? await readFile(path.join(root, defenseMenu ? 'browser/defense-menu-probe.js'
+      : productionProbe || demolitionProbe ? 'scripts/native-production-hud-capture.js'
+      : 'browser/live-camera.js'), 'utf8') : '';
+    const cameraSource = defenseMenu ? source : defenseProbe
       ? 'var STARCOASTER_CAMERA_NO_MOVE = true;\n'
         + source.replaceAll('terran_marine', 'zerg_zergling')
       : demolitionProbe
       ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 6;\nvar STARCOASTER_HUD_DRIVER = true;\n' + source
       : productionProbe ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 2;\n'
       + (constructionProbe ? 'var STARCOASTER_HUD_CONSTRUCTION_PROBE = true;\n' : '') + source
+      : process.env.WASM_LIVE_NO_MOVE === '1'
+        ? 'var STARCOASTER_CAMERA_NO_MOVE = true;\n' + source
       : cameraSweep ? 'var STARCOASTER_CAMERA_SWEEP = true;\n' + source
       : controlProbe ? 'var STARCOASTER_CAMERA_ALL_ACTORS = true;\n' + source : source;
     const defenseSource = defenseConfigure
@@ -88,7 +93,10 @@ try {
           const original = module.callMain.bind(module);
           module.callMain = (args) => {
             module.FS.mkdirTree('/persistent/plugin');
-            module.FS.writeFile('/persistent/plugin/wasm-live-camera.js', cameraSource);
+            if (cameraSource) module.FS.writeFile('/persistent/plugin/wasm-live-camera.js', cameraSource);
+            else {
+              try { module.FS.unlink('/persistent/plugin/wasm-live-camera.js'); } catch (_) {}
+            }
             if (defenseSource) module.FS.writeFile('/persistent/plugin/wasm-defense-probe.js', defenseSource);
             else {
               try { module.FS.unlink('/persistent/plugin/wasm-defense-probe.js'); } catch (_) {}
@@ -151,7 +159,7 @@ try {
   await page.waitForFunction(() =>
     document.getElementById('canvas')?.style.display === 'block' ||
     document.getElementById('status')?.classList.contains('error'),
-  null, { timeout: 180000 });
+  null, { timeout: Number(process.env.WASM_LIVE_BOOT_TIMEOUT_MS || 180000) });
   if (await page.locator('#status.error').count())
     throw new Error(await page.locator('#status.error #message').textContent());
   metrics.canvasMs = Date.now() - start;
@@ -179,7 +187,7 @@ try {
     let frameNumber = 0;
     screencast.on('Page.screencastFrame', async ({ data, sessionId }) => {
       try {
-        if (frameNumber < 120) {
+        if (frameNumber < 300) {
           frameNumber++;
           await writeFile(path.join(frames, `frame-${String(frameNumber).padStart(4, '0')}.jpg`),
             Buffer.from(data, 'base64'));
@@ -189,7 +197,7 @@ try {
       }
     });
     await screencast.send('Page.startScreencast', {
-      format: 'jpeg', quality: 70, maxWidth: 640, maxHeight: 400, everyNthFrame: 10,
+      format: 'jpeg', quality: 70, maxWidth: 640, maxHeight: 400, everyNthFrame: 30,
     });
   }
   const frameSample = await page.evaluate(() => new Promise((resolve) => {
@@ -211,6 +219,38 @@ try {
   });
   console.log(`CANVAS: ${JSON.stringify(metrics.canvas)}`);
   await capture(page, 'connected.png');
+  if (defenseMenu) {
+    for (let elapsed = 0; elapsed < 90000; elapsed += 1000) {
+      if (records.some((record) => record.kind === 'console'
+        && record.text.includes('WORLD_SCENARIO_STATUS scenario='))) break;
+      await page.waitForTimeout(1000);
+    }
+    if (!records.some((record) => record.kind === 'console'
+      && record.text.includes('WORLD_SCENARIO_STATUS scenario=')))
+      throw new Error('The browser did not receive authoritative defense status');
+    await page.mouse.click(1105, 12);
+    let construction;
+    for (let elapsed = 0; elapsed < 15000; elapsed += 1000) {
+      const line = records.find((record) => record.kind === 'console'
+        && record.text.includes('DEFENSE_CONSTRUCTION_WINDOW x='))?.text;
+      const match = /DEFENSE_CONSTRUCTION_WINDOW x=(\d+) y=(\d+) width=(\d+) height=(\d+)/.exec(line || '');
+      if (match) { construction = { x: Number(match[1]), y: Number(match[2]),
+        width: Number(match[3]), height: Number(match[4]) }; break; }
+      await page.waitForTimeout(1000);
+    }
+    if (!construction) throw new Error('The SC toolbar did not open Construction');
+    await capture(page, 'starcraft-construction.png');
+    await page.mouse.click(construction.x + 120, construction.y + construction.height - 30);
+    for (let elapsed = 0; elapsed < 15000; elapsed += 1000) {
+      if (records.some((record) => record.kind === 'console'
+        && record.text.includes('DEFENSE_WINDOW x='))) break;
+      await page.waitForTimeout(1000);
+    }
+    if (!records.some((record) => record.kind === 'console'
+      && record.text.includes('DEFENSE_WINDOW x=')))
+      throw new Error('Construction did not open StarCraft Defense');
+    await capture(page, 'starcraft-defense.png');
+  }
   if (controlProbe) {
     if (!cameraProbe) throw new Error('WASM_CONTROL_PROBE requires WASM_LIVE_CAMERA=1');
     let actors;
