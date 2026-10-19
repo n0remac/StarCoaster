@@ -47,14 +47,15 @@ async function listFiles(directory, prefix = '') {
 }
 
 await mkdir(artifacts, { recursive: true });
-const port = process.env.WASM_TEST_PORT ? Number(process.env.WASM_TEST_PORT) : await unusedPort();
-const url = `http://127.0.0.1:${port}/`;
-const server = spawn(serverBinary, ['--bundle', bundle, '--listen', `127.0.0.1:${port}`], {
+const externalUrl = process.env.WASM_TEST_URL;
+const port = externalUrl ? null : process.env.WASM_TEST_PORT ? Number(process.env.WASM_TEST_PORT) : await unusedPort();
+const url = externalUrl || `http://127.0.0.1:${port}/`;
+const server = externalUrl ? null : spawn(serverBinary, ['--bundle', bundle, '--listen', `127.0.0.1:${port}`], {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
-server.stdout.on('data', (data) => records.push({ kind: 'server', text: String(data) }));
-server.stderr.on('data', (data) => records.push({ kind: 'server', text: String(data) }));
+server?.stdout.on('data', (data) => records.push({ kind: 'server', text: String(data) }));
+server?.stderr.on('data', (data) => records.push({ kind: 'server', text: String(data) }));
 let browser;
 let context;
 let outcome = 'failed';
@@ -255,7 +256,7 @@ try {
   clearInterval(statusTimer);
   await context?.close();
   await browser?.close();
-  server.kill('SIGTERM');
+  server?.kill('SIGTERM');
   await writeFile(path.join(artifacts, 'runtime.json'), JSON.stringify({ outcome, records }, null, 2) + '\n');
 }
 if (outcome !== 'passed') process.exitCode = 1;

@@ -4,6 +4,16 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
+project_real="$(realpath "$project_dir")"
+task_tmp="$(realpath -m "${TMPDIR:-$(dirname "$project_real")/.starcoaster-tmp}")"
+# Patch probes use `git -C` on temporary source trees. Keep those trees
+# outside this checkout so Git cannot discover the project repository above
+# them. The sibling directory remains on the same drive as the checkout.
+if [[ "$task_tmp" == "$project_real" || "$task_tmp" == "$project_real/"* ]]; then
+    task_tmp="$(dirname "$project_real")/.starcoaster-tmp"
+fi
+mkdir -p "$task_tmp"
+export TMPDIR="$task_tmp"
 command="${1:-help}"
 if (( $# )); then shift; fi
 
@@ -46,6 +56,7 @@ case "$command" in
         node --check browser/index.js
         node --check browser/test.mjs
         node --check browser/live-test.mjs
+        node --check browser/live-camera.js
         node --check browser/test-socket.mjs
         scripts/test-wasm-sockets.sh
         if [[ -f build/wasm-client/manifest.json ]]; then
@@ -56,6 +67,9 @@ case "$command" in
                 fi
                 "$go_bin" build -o build/wasm-server ./cmd/wasm-server
                 node browser/test.mjs
+                if [[ -n "${WASM_LIVE_URL:-}" ]]; then
+                    node browser/live-test.mjs
+                fi
             else
                 printf 'SKIP: browser automation requires Chromium\n'
             fi

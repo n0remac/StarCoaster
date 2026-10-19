@@ -106,12 +106,23 @@ if [[ "${BRIDGE_LAUNCH_CLIENT:-0}" == 1 ]]; then
 fi
 
 cleanup() {
-    if [[ -n "$wasm_pid" ]]; then kill "$wasm_pid" 2>/dev/null || true; fi
-    if [[ -n "$client_pid" ]]; then kill "$client_pid" 2>/dev/null || true; fi
-    kill "$park_pid" "$bw_pid" "$controller_pid" "$bridge_pid" 2>/dev/null || true
-    if [[ -n "$client_pid" ]]; then wait "$client_pid" 2>/dev/null || true; fi
-    wait "$park_pid" "$bw_pid" "$controller_pid" "$bridge_pid" 2>/dev/null || true
-    if [[ -n "$wasm_pid" ]]; then wait "$wasm_pid" 2>/dev/null || true; fi
+    trap - EXIT INT TERM
+    local pids=("$park_pid" "$bw_pid" "$controller_pid" "$bridge_pid")
+    if [[ -n "$client_pid" ]]; then pids+=("$client_pid"); fi
+    if [[ -n "$wasm_pid" ]]; then pids+=("$wasm_pid"); fi
+    kill "${pids[@]}" 2>/dev/null || true
+    for (( attempt = 0; attempt < 50; attempt++ )); do
+        local active=0
+        for pid in "${pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then active=1; break; fi
+        done
+        if (( !active )); then break; fi
+        sleep 0.1
+    done
+    for pid in "${pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+    done
+    wait "${pids[@]}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 # A bridge restart must not tear down either authoritative engine.
