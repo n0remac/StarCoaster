@@ -22,6 +22,8 @@ type ScenarioRuntime struct {
 	LastFrame          int               `json:"last_frame"`
 	LastSeq            uint64            `json:"last_seq"`
 	NextAutomaticFrame int               `json:"next_automatic_frame,omitempty"`
+	WaveIntervalFrames int               `json:"wave_interval_frames,omitempty"`
+	WaveDifficulty     string            `json:"wave_difficulty,omitempty"`
 	DefenseEnabled     bool              `json:"defense_enabled,omitempty"`
 	SpawnAnchor        *[2]int           `json:"spawn_anchor,omitempty"`
 	FixedSpawnZone     SpawnZone         `json:"fixed_spawn_zone,omitempty"`
@@ -89,6 +91,12 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 		return errors.New("scenario_session_or_hash_mismatch")
 	}
 	if s.Mode == "park_defense" {
+		if r.WaveIntervalFrames != 0 && (r.WaveIntervalFrames < 24*30 || r.WaveIntervalFrames > 24*600) {
+			return errors.New("scenario_journal_interval_invalid")
+		}
+		if r.WaveDifficulty != "" && r.WaveDifficulty != "easy" && r.WaveDifficulty != "standard" && r.WaveDifficulty != "hard" {
+			return errors.New("scenario_journal_difficulty_invalid")
+		}
 		if r.NextWaveSequence < 1 || r.TotalTriggered < 0 {
 			return errors.New("scenario_journal_sequence_invalid")
 		}
@@ -114,6 +122,20 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 				return errors.New("scenario_journal_wave_zone_missing")
 			}
 			groups := s.ParkDefense.GroupsForWave(wave.Sequence)
+			if len(wave.Composition) > 0 {
+				matched := false
+				for _, difficulty := range []string{"easy", "standard", "hard"} {
+					candidate := defenseWaveGroups(groups, difficulty)
+					if equalWaveGroups(wave.Composition, candidate) {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					return errors.New("scenario_journal_composition_invalid")
+				}
+				groups = wave.Composition
+			}
 			if err := validateRuntimeUnits(*wave, groups, r.Session); err != nil {
 				return err
 			}
@@ -268,7 +290,7 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 		}
 		r.newParkDefenseWave(s, "periodic")
 		// A late complete frame creates one attack, with no outage burst.
-		r.NextAutomaticFrame = r.LastFrame + s.ParkDefense.IntervalFrames
+		r.NextAutomaticFrame = r.LastFrame + r.IntervalFrames(s)
 		return true
 	}
 	changed := false
@@ -319,7 +341,7 @@ func (r *ScenarioRuntime) newParkDefenseWave(s *Scenario, origin string) string 
 	if s.ParkDefense.FixedSpawn {
 		wave.FixedZone = SpawnZone{Tiles: append([][2]int(nil), r.FixedSpawnZone.Tiles...)}
 	}
-	for gi, group := range s.ParkDefense.GroupsForWave(sequence) {
+	for gi, group := range defenseWaveGroups(s.ParkDefense.GroupsForWave(sequence), r.WaveDifficulty) {
 		wave.Composition = append(wave.Composition, group)
 		for index := 0; index < group.Count; index++ {
 			wave.Units = append(wave.Units, RuntimeUnit{GroupIndex: gi, UnitIndex: index, UnitType: group.UnitType, State: "planned"})
@@ -327,6 +349,42 @@ func (r *ScenarioRuntime) newParkDefenseWave(s *Scenario, origin string) string 
 	}
 	r.Waves = append(r.Waves, wave)
 	return id
+}
+
+func (r *ScenarioRuntime) IntervalFrames(s *Scenario) int {
+	if r.WaveIntervalFrames > 0 {
+		return r.WaveIntervalFrames
+	}
+	return s.ParkDefense.IntervalFrames
+}
+
+func defenseWaveGroups(base []WaveTierGroup, difficulty string) []WaveTierGroup {
+	groups := make([]WaveTierGroup, len(base))
+	copy(groups, base)
+	remaining := 64
+	for i := range groups {
+		switch difficulty {
+		case "easy":
+			groups[i].Count = max(1, (groups[i].Count*3+3)/4)
+		case "hard":
+			groups[i].Count = min(64, (groups[i].Count*3+1)/2)
+		}
+		groups[i].Count = min(groups[i].Count, remaining-(len(groups)-i-1))
+		remaining -= groups[i].Count
+	}
+	return groups
+}
+
+func equalWaveGroups(a, b []WaveTierGroup) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // RequestManual records one durable extra wave without changing the automatic

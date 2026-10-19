@@ -24,6 +24,7 @@ type scenarioStatus struct {
 	DefenseEnabled        bool    `json:"defense_enabled,omitempty"`
 	SpawnAnchor           *[2]int `json:"spawn_anchor,omitempty"`
 	WaveIntervalSeconds   int     `json:"wave_interval_seconds,omitempty"`
+	WaveDifficulty        string  `json:"wave_difficulty,omitempty"`
 	UnlimitedResources    bool    `json:"unlimited_resources,omitempty"`
 	DefenseConfigurable   bool    `json:"defense_configurable,omitempty"`
 }
@@ -35,9 +36,14 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 	if s.scenario.Mode == "park_defense" {
 		status.Objective = "Manage and defend the park"
 		status.WaveIntervalSeconds = (s.scenario.ParkDefense.IntervalFrames + 23) / 24
+		status.WaveDifficulty = "standard"
 		status.UnlimitedResources = s.scenario.UnlimitedResources
 		status.DefenseConfigurable = s.scenario.ParkDefense.ManualActivation
 		if s.runtime != nil {
+			status.WaveIntervalSeconds = (s.runtime.IntervalFrames(s.scenario) + 23) / 24
+			if s.runtime.WaveDifficulty != "" {
+				status.WaveDifficulty = s.runtime.WaveDifficulty
+			}
 			status.DefenseEnabled = !s.scenario.ParkDefense.ManualActivation || s.runtime.DefenseEnabled
 			status.SpawnAnchor = s.runtime.SpawnAnchor
 			status.TotalTriggered = s.runtime.TotalTriggered

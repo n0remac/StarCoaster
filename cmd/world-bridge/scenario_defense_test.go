@@ -54,6 +54,13 @@ func TestDefenseConfigPersistsAndKeepsOneFixedZone(t *testing.T) {
 	if s.runtime.NextAutomaticFrame != 2980 {
 		t.Fatal("idempotent enable reset countdown")
 	}
+	interval, difficulty := 90, "hard"
+	s.parkDefenseConfig(nil, world.Message("scenario.defense.request", session, "settings", "openrct2", 1,
+		defenseConfigRequest{PlayerID: 2, CommanderID: 2, IntervalSeconds: &interval, Difficulty: &difficulty}))
+	if s.runtime.WaveIntervalFrames != 2160 || s.runtime.WaveDifficulty != "hard" ||
+		s.runtime.NextAutomaticFrame != 2980 {
+		t.Fatal("wave settings did not persist without resetting preparation")
+	}
 	s.runtime.LastFrame = 2979
 	if s.runtime.Trigger(s.scenario) {
 		t.Fatal("wave started before preparation ended")
@@ -63,6 +70,9 @@ func TestDefenseConfigPersistsAndKeepsOneFixedZone(t *testing.T) {
 		t.Fatal("first wave missing")
 	}
 	first := s.runtime.Waves[0]
+	if len(first.Units) != 12 || first.Composition[0].Count != 12 || s.runtime.NextAutomaticFrame != 5140 {
+		t.Fatal("hard wave composition or configured interval missing")
+	}
 	if first.SpawnZone != "selected" || len(first.FixedZone.Tiles) != len(s.runtime.FixedSpawnZone.Tiles) {
 		t.Fatal("wave did not preserve selected zone")
 	}

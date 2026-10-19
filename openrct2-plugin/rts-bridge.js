@@ -1368,6 +1368,7 @@
                         || (args.defense_enabled !== undefined && typeof args.defense_enabled !== "boolean")
                         || (args.unlimited_resources !== undefined && typeof args.unlimited_resources !== "boolean")
                         || (args.wave_interval_seconds !== undefined && (!Number.isInteger(args.wave_interval_seconds) || args.wave_interval_seconds < 1))
+                        || (args.wave_difficulty !== undefined && !["easy", "standard", "hard"].includes(args.wave_difficulty))
                         || (args.spawn_anchor !== undefined && (!Array.isArray(args.spawn_anchor) || args.spawn_anchor.length !== 2
                             || args.spawn_anchor.some(function (n) { return !Number.isInteger(n) || n < 0 || n > 256; })))
                         || (args.commander_player !== undefined && !Number.isInteger(args.commander_player))))
@@ -1439,14 +1440,19 @@
                 }
                 if (args.session !== controlSession || !missionStatus
                     || missionStatus.mode !== "park_defense"
-                    || (typeof args.enabled !== "boolean" && args.anchor === undefined)
+                    || (typeof args.enabled !== "boolean" && args.anchor === undefined
+                        && args.interval_seconds === undefined && args.difficulty === undefined)
                     || (args.anchor !== undefined && (!Array.isArray(args.anchor) || args.anchor.length !== 2
-                        || args.anchor.some(function (n) { return !Number.isInteger(n) || n < 0 || n > 256; }))))
+                        || args.anchor.some(function (n) { return !Number.isInteger(n) || n < 0 || n > 256; })))
+                    || (args.interval_seconds !== undefined && (!Number.isInteger(args.interval_seconds)
+                        || args.interval_seconds < 30 || args.interval_seconds > 600 || args.interval_seconds % 30 !== 0))
+                    || (args.difficulty !== undefined && !["easy", "standard", "hard"].includes(args.difficulty)))
                     return { error: 1, errorMessage: "Invalid defense setting" };
                 return {};
             }, function (event) {
                 if (network.mode === "server") worldDefenseSender({ player_id: event.player,
-                    commander_id: commanderPlayer, enabled: event.args.enabled, anchor: event.args.anchor });
+                    commander_id: commanderPlayer, enabled: event.args.enabled, anchor: event.args.anchor,
+                    interval_seconds: event.args.interval_seconds, difficulty: event.args.difficulty });
                 return {};
             });
             context.registerAction(DEFENSE_RESULT_ACTION, function (event) {
@@ -1908,7 +1914,7 @@
                     : Object.keys(BUILDING_TYPES);
                 const extraHeight = Math.max(0, catalog.length - 1) * 29;
                 constructionWindow = ui.openWindow({ classification: "starcoaster-construction",
-                    width: 238, height: 134 + extraHeight, title: "StarCraft Construction",
+                    width: 238, height: 164 + extraHeight, title: "StarCraft Construction",
                     onClose: function () {
                         constructionWindow = null;
                         if (usingBuildingTool()) ui.tool.cancel();
@@ -1923,7 +1929,10 @@
                     }), [
                         { type: "label", name: "barracks-status", x: 8,
                             y: 93 + extraHeight, width: 220, height: 28,
-                            text: barracksPreviewStatus }
+                            text: barracksPreviewStatus },
+                        { type: "button", name: "open-defense", x: 8, y: 121 + extraHeight,
+                            width: 220, height: 26, text: "StarCraft Defense...",
+                            onClick: openDefenseWindow }
                     ]) });
             }
             let defenseWindow = null;
@@ -1963,7 +1972,7 @@
                 }
                 if (defenseWindow) { defenseWindow.bringToFront(); return; }
                 defenseWindow = ui.openWindow({ classification: "starcoaster-defense",
-                    width: 258, height: 198, title: "StarCraft Defense",
+                    width: 258, height: 240, title: "StarCraft Defense",
                     onClose: function () { defenseWindow = null; }, widgets: [
                         { type: "button", name: "defense-toggle", x: 8, y: 19, width: 118, height: 24,
                             text: "Enable Zerg Waves", onClick: function () {
@@ -1972,12 +1981,25 @@
                         { type: "button", x: 132, y: 19, width: 118, height: 24,
                             text: "Select Spawn Point", onClick: selectDefenseSpawn },
                         { type: "label", name: "defense-spawn", x: 8, y: 50, width: 242, height: 14, text: "Spawn: none" },
-                        { type: "label", name: "defense-interval", x: 8, y: 69, width: 242, height: 14, text: "Wave interval: 120s" },
-                        { type: "label", name: "defense-next", x: 8, y: 88, width: 242, height: 14, text: "Next wave: disabled" },
-                        { type: "label", name: "defense-current", x: 8, y: 107, width: 242, height: 14, text: "Current wave: 0" },
-                        { type: "button", x: 8, y: 129, width: 118, height: 24,
+                        { type: "button", name: "defense-interval", x: 8, y: 69, width: 242, height: 22,
+                            text: "Wave interval: 120s", onClick: function () {
+                                if (!missionStatus) return;
+                                const options = [60, 90, 120, 180, 240, 300];
+                                const current = options.indexOf(missionStatus.wave_interval_seconds);
+                                configureDefense({ interval_seconds: options[(current + 1) % options.length] });
+                            } },
+                        { type: "button", name: "defense-difficulty", x: 8, y: 94, width: 242, height: 22,
+                            text: "Wave difficulty: Standard", onClick: function () {
+                                if (!missionStatus) return;
+                                const options = ["easy", "standard", "hard"];
+                                const current = options.indexOf(missionStatus.wave_difficulty || "standard");
+                                configureDefense({ difficulty: options[(current + 1) % options.length] });
+                            } },
+                        { type: "label", name: "defense-next", x: 8, y: 122, width: 242, height: 14, text: "Next wave: disabled" },
+                        { type: "label", name: "defense-current", x: 8, y: 141, width: 242, height: 14, text: "Current wave: 0" },
+                        { type: "button", x: 8, y: 163, width: 118, height: 24,
                             text: "Spawn Wave Now", onClick: requestWave },
-                        { type: "label", name: "defense-resources", x: 8, y: 161, width: 242, height: 14,
+                        { type: "label", name: "defense-resources", x: 8, y: 199, width: 242, height: 14,
                             text: "Minerals: Unlimited | Gas: Unlimited" }
                     ] });
             }
@@ -1997,6 +2019,7 @@
                 setText("defense-spawn", "Spawn: " + (status.spawn_anchor
                     ? status.spawn_anchor.join(", ") : "select a park edge"));
                 setText("defense-interval", "Wave interval: " + status.wave_interval_seconds + "s");
+                setText("defense-difficulty", "Wave difficulty: " + (status.wave_difficulty || "standard"));
                 setText("defense-next", status.defense_enabled
                     ? "Next wave: " + status.next_wave_seconds + "s" : "Next wave: disabled");
                 setText("defense-current", "Current wave: " + status.wave_ordinal + " | "

@@ -10,10 +10,12 @@ import (
 // checked event.player against the current commander. The bridge checks the
 // forwarded identity, session, revision and native readiness again.
 type defenseConfigRequest struct {
-	PlayerID    int     `json:"player_id"`
-	CommanderID int     `json:"commander_id"`
-	Enabled     *bool   `json:"enabled,omitempty"`
-	Anchor      *[2]int `json:"anchor,omitempty"`
+	PlayerID        int     `json:"player_id"`
+	CommanderID     int     `json:"commander_id"`
+	Enabled         *bool   `json:"enabled,omitempty"`
+	Anchor          *[2]int `json:"anchor,omitempty"`
+	IntervalSeconds *int    `json:"interval_seconds,omitempty"`
+	Difficulty      *string `json:"difficulty,omitempty"`
 }
 
 type defenseConfigResponse struct {
@@ -33,7 +35,7 @@ func (s *service) respondDefense(p *peer, m world.Envelope, err error) {
 
 func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 	var request defenseConfigRequest
-	if m.Decode(&request) != nil || (request.Anchor == nil && request.Enabled == nil) ||
+	if m.Decode(&request) != nil || (request.Anchor == nil && request.Enabled == nil && request.IntervalSeconds == nil && request.Difficulty == nil) ||
 		request.PlayerID < 0 || request.PlayerID != request.CommanderID {
 		s.respondDefense(p, m, errors.New("invalid_or_unauthorized_defense_request"))
 		return
@@ -54,6 +56,21 @@ func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 		return
 	}
 	prior := *s.runtime
+	if request.IntervalSeconds != nil {
+		if *request.IntervalSeconds < 30 || *request.IntervalSeconds > 600 || *request.IntervalSeconds%30 != 0 {
+			s.respondDefense(p, m, errors.New("invalid_wave_interval"))
+			return
+		}
+		s.runtime.WaveIntervalFrames = *request.IntervalSeconds * 24
+	}
+	if request.Difficulty != nil {
+		if *request.Difficulty != "easy" && *request.Difficulty != "standard" && *request.Difficulty != "hard" {
+			*s.runtime = prior
+			s.respondDefense(p, m, errors.New("invalid_wave_difficulty"))
+			return
+		}
+		s.runtime.WaveDifficulty = *request.Difficulty
+	}
 	if request.Anchor != nil {
 		if s.runtime.SpawnAnchor != nil && *request.Anchor == *s.runtime.SpawnAnchor {
 			// Replaying an accepted selection leaves the zone and countdown intact.

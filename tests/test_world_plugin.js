@@ -752,12 +752,16 @@ assert.equal(actions.filter(action => action.name === 'rtsbridge.buildingState')
 assert.equal(actions.filter(action => action.name === 'rtsbridge.playerResources').length - resourceReplayStart,
     1, 'late client readiness replays native player resources');
 const defenseStatus = { ...parkStatus, defense_configurable: true, defense_enabled: false,
-    wave_interval_seconds: 120, unlimited_resources: true, commander_player: 1 };
+    wave_interval_seconds: 120, wave_difficulty: 'standard', unlimited_resources: true, commander_player: 1 };
 missionAction.execute({ player: 1, args: defenseStatus });
 assert.ok(menuItems.has('StarCraft Defense'), 'defense menu is registered');
 menuItems.get('StarCraft Defense')();
 const defenseWindow = openedWindows.at(-1);
 assert.equal(defenseWindow.title, 'StarCraft Defense');
+menuItems.get('StarCraft Construction')();
+const constructionWindow = openedWindows.at(-1);
+assert.ok(constructionWindow.widgets.some(widget => widget.name === 'open-defense'),
+    'visible SC construction control links to defense on ordinary parks');
 const defenseAction = registered.get('rtsbridge.configureDefense');
 assert.match(defenseAction.query({ player: 2, args: { session: sid, enabled: true } }).errorMessage,
     /commander/, 'other clients cannot configure defense');
@@ -765,6 +769,14 @@ defenseWindow.widgets.find(widget => widget.name === 'defense-toggle').onClick()
 drain();
 assert.equal(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.enabled,
     true, 'menu sends the authenticated defense request through the bridge');
+defenseWindow.widgets.find(widget => widget.name === 'defense-interval').onClick();
+drain();
+assert.equal(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.interval_seconds,
+    180, 'menu sends the chosen wave interval');
+defenseWindow.widgets.find(widget => widget.name === 'defense-difficulty').onClick();
+drain();
+assert.equal(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.difficulty,
+    'hard', 'menu sends the chosen wave difficulty');
 defenseWindow.widgets.find(widget => widget.text === 'Select Spawn Point').onClick();
 assert.equal(activeTool.id, 'starcoaster.defense-spawn');
 activeTool.onDown({ mapCoords: { x: 4 * 32, y: 4 * 32 } });
