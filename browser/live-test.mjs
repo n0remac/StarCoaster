@@ -17,6 +17,9 @@ let haveOrder = process.env.WASM_ORDER_X !== undefined && process.env.WASM_ORDER
 const cameraProbe = process.env.WASM_LIVE_CAMERA === '1';
 const autoOrder = process.env.WASM_AUTO_ORDER === '1';
 const cameraSweep = process.env.WASM_CAMERA_SWEEP === '1';
+const productionProbe = process.env.WASM_PRODUCTION_PROBE === '1';
+const constructionProbe = process.env.WASM_CONSTRUCTION_PROBE === '1';
+const demolitionProbe = process.env.WASM_DEMOLITION_PROBE === '1';
 const secondOrderDelayMs = Number(process.env.WASM_SECOND_ORDER_DELAY_MS || 0);
 const captureIntervalMs = Number(process.env.WASM_CAPTURE_INTERVAL_MS || 30000);
 const records = [];
@@ -48,9 +51,16 @@ try {
       }
     } catch (_) {}
   }, 5000);
-  if (cameraProbe) {
-    const source = await readFile(path.join(root, 'browser', 'live-camera.js'), 'utf8');
-    const cameraSource = cameraSweep ? 'var STARCOASTER_CAMERA_SWEEP = true;\n' + source : source;
+  if (cameraProbe || productionProbe || demolitionProbe) {
+    if ([cameraProbe, productionProbe, demolitionProbe].filter(Boolean).length !== 1)
+      throw new Error('Choose one live camera, production, or demolition probe');
+    const source = await readFile(path.join(root, productionProbe || demolitionProbe
+      ? 'scripts/native-production-hud-capture.js' : 'browser/live-camera.js'), 'utf8');
+    const cameraSource = demolitionProbe
+      ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 6;\nvar STARCOASTER_HUD_DRIVER = true;\n' + source
+      : productionProbe ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 2;\n'
+      + (constructionProbe ? 'var STARCOASTER_HUD_CONSTRUCTION_PROBE = true;\n' : '') + source
+      : cameraSweep ? 'var STARCOASTER_CAMERA_SWEEP = true;\n' + source : source;
     await page.addInitScript((source) => {
       Object.defineProperty(window, 'Module', {
         configurable: true,
@@ -74,6 +84,7 @@ try {
     const line = message.text();
     records.push({ kind: 'console', text: line, at: Date.now() });
     if (line.includes('WASM_CAMERA_READY')) resolveCamera();
+    if (line.includes('NATIVE_HUD_CAPTURE_READY')) resolveCamera();
     const screen = /WASM_ACTOR_SCREEN id=([^ ]+) x=([\d.]+) y=([\d.]+)/.exec(line);
     if (screen) resolveActorScreen({ id: screen[1], x: Number(screen[2]), y: Number(screen[3]) });
     if (line.includes('WASM_ACTOR_MOVED') && metrics.orderSentAt && metrics.actorMoveLatencyMs === undefined)
@@ -81,7 +92,7 @@ try {
     if (line.includes('WASM_ACTOR_MOVED') && metrics.secondOrderSentAt &&
       metrics.secondActorMoveLatencyMs === undefined)
       metrics.secondActorMoveLatencyMs = Date.now() - metrics.secondOrderSentAt;
-    if (/index|network|plugin|WORLD_|RTS Bridge|WASM_CAMERA|WASM_ACTOR|Failed to connect/i.test(line))
+    if (/index|network|plugin|WORLD_|RTS Bridge|WASM_CAMERA|WASM_ACTOR|NATIVE_HUD|Failed to connect/i.test(line))
       console.log(`CLIENT: ${line}`);
   });
   page.on('pageerror', (error) => records.push({ kind: 'pageerror', text: error.message }));
@@ -109,11 +120,11 @@ try {
   if (await page.locator('#status.error').count())
     throw new Error(await page.locator('#status.error #message').textContent());
   metrics.canvasMs = Date.now() - start;
-  if (cameraProbe) {
+  if (cameraProbe || productionProbe || demolitionProbe) {
     let timeout;
     try {
       await Promise.race([cameraReady, new Promise((_, reject) => {
-        timeout = setTimeout(() => reject(new Error('The live camera did not observe a Marine snapshot')), 420000);
+        timeout = setTimeout(() => reject(new Error('The live probe did not observe a native snapshot')), 420000);
       })]);
     } finally { clearTimeout(timeout); }
     const mixedClientDelayMs = Number(process.env.WASM_MIXED_CLIENT_DELAY_MS || 0);
@@ -143,6 +154,105 @@ try {
   });
   console.log(`CANVAS: ${JSON.stringify(metrics.canvas)}`);
   await capture(page, 'connected.png');
+  if (demolitionProbe) {
+    for (const point of [[640, 400], [630, 390], [650, 410]]) {
+      await page.mouse.click(...point);
+      await page.waitForTimeout(1200);
+      if (records.some((record) => record.kind === 'console' &&
+        record.text.includes('NATIVE_HUD_INSPECTOR_OPEN building=Armory'))) break;
+    }
+    if (!records.some((record) => record.kind === 'console' &&
+      record.text.includes('NATIVE_HUD_INSPECTOR_OPEN building=Armory')))
+      throw new Error('The browser did not open the Armory inspector');
+    await capture(page, 'armory-inspector.png');
+    await page.keyboard.press('Control+Shift+D');
+    for (let elapsed = 0; elapsed < 60000; elapsed += 1000) {
+      if (records.some((record) => record.kind === 'console' &&
+        record.text.includes('NATIVE_HUD_DEMOLISH accepted=true'))) break;
+      await page.waitForTimeout(1000);
+    }
+    if (!records.some((record) => record.kind === 'console' &&
+      record.text.includes('NATIVE_HUD_DEMOLISH accepted=true')))
+      throw new Error('The browser Armory demolition action was rejected');
+    metrics.demolitionAccepted = true;
+    await page.waitForTimeout(3000);
+    await capture(page, 'armory-demolished.png');
+  }
+  if (productionProbe) {
+    for (const point of [[640, 400], [630, 390], [650, 410]]) {
+      await page.mouse.click(...point);
+      console.log(`BUILDING_CLICK: ${JSON.stringify(point)}`);
+      await page.waitForTimeout(1500);
+      if (records.some((record) => record.kind === 'console' &&
+        record.text.includes('NATIVE_HUD_INSPECTOR_OPEN building=Barracks'))) break;
+    }
+    if (!records.some((record) => record.kind === 'console' &&
+      record.text.includes('NATIVE_HUD_INSPECTOR_OPEN building=Barracks')))
+      throw new Error('The browser did not open the Barracks inspector');
+    for (let elapsed = 0; elapsed < 120000; elapsed += 1000) {
+      if (records.some((record) => record.kind === 'console' &&
+        record.text.includes('NATIVE_HUD_INSPECTOR_READY building=Barracks'))) break;
+      await page.waitForTimeout(1000);
+    }
+    if (!records.some((record) => record.kind === 'console' &&
+      record.text.includes('NATIVE_HUD_INSPECTOR_READY building=Barracks')))
+      throw new Error('The browser Barracks did not receive native production state');
+    await capture(page, 'barracks-inspector.png');
+    await page.mouse.click(1147, 80);
+    console.log('BUILDING_TRAIN: Marine');
+    let accepted = false;
+    for (let elapsed = 0; elapsed < 90000; elapsed += 1000) {
+      await page.waitForTimeout(1000);
+      if (records.some((record) => record.kind === 'console' &&
+        record.text.includes('WORLD_TRAIN_RESULT id=scenario:hud-barracks accepted=true'))) {
+        accepted = true;
+        break;
+      }
+    }
+    if (!accepted) throw new Error('The browser Barracks did not receive an accepted native training result');
+    metrics.productionAccepted = true;
+    await capture(page, 'barracks-training.png');
+    if (constructionProbe) {
+      await page.mouse.click(1272, 37);
+      await page.mouse.click(1076, 12);
+      let menu;
+      for (let elapsed = 0; elapsed < 15000; elapsed += 1000) {
+        const line = records.find((record) => record.kind === 'console' &&
+          record.text.includes('NATIVE_HUD_CONSTRUCTION_WINDOW x='))?.text;
+        const match = /NATIVE_HUD_CONSTRUCTION_WINDOW x=(\d+) y=(\d+) width=(\d+)/.exec(line || '');
+        if (match) { menu = { x: Number(match[1]), y: Number(match[2]) }; break; }
+        await page.waitForTimeout(1000);
+      }
+      if (!menu) throw new Error('The StarCraft construction toolbar did not open');
+      await capture(page, 'construction-menu.png');
+      await page.mouse.click(menu.x + 120, menu.y + 48);
+      let site;
+      for (const point of [[760, 550], [900, 550], [750, 650], [500, 500]]) {
+        const movedAt = Date.now();
+        await page.mouse.move(...point);
+        await page.waitForTimeout(1800);
+        if (records.some((record) => record.kind === 'console' && record.at >= movedAt &&
+          record.text.includes('NATIVE_HUD_CONSTRUCTION_STATUS text=Valid site - click to build'))) {
+          site = point;
+          break;
+        }
+      }
+      if (!site) throw new Error('No candidate Barracks site passed native park clearance');
+      metrics.constructionSite = site;
+      await capture(page, 'construction-preview.png');
+      await page.mouse.click(...site);
+      for (let elapsed = 0; elapsed < 60000; elapsed += 1000) {
+        if (records.some((record) => record.kind === 'console' &&
+          record.text.includes('NATIVE_HUD_CONSTRUCTION_STATUS text=Terran Barracks constructed'))) break;
+        await page.waitForTimeout(1000);
+      }
+      if (!records.some((record) => record.kind === 'console' &&
+        record.text.includes('NATIVE_HUD_CONSTRUCTION_STATUS text=Terran Barracks constructed')))
+        throw new Error('The browser Barracks placement was not accepted');
+      metrics.constructionAccepted = true;
+      await capture(page, 'construction-placed.png');
+    }
+  }
   if (autoOrder) {
     if (!cameraProbe) throw new Error('WASM_AUTO_ORDER requires WASM_LIVE_CAMERA=1');
     let timeout;
