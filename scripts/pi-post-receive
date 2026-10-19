@@ -13,4 +13,10 @@ export STARCOASTER_PUSH_REPO="$(git rev-parse --absolute-git-dir)"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 mkdir -p "$project_dir/build"
-"$project_dir/scripts/update-pi-game.sh" --from-push >> "$project_dir/build/pi-update-service.log" 2>&1
+if "$project_dir/scripts/update-pi-game.sh" --from-push >> "$project_dir/build/pi-update-service.log" 2>&1; then
+    printf 'StarCoaster deployed: %s\n' "$(cat "$project_dir/run-data/pi-deployed-revision")"
+else
+    printf 'StarCoaster deployment failed; recent log follows:\n' >&2
+    tail -n 20 "$project_dir/build/pi-update-service.log" >&2
+    exit 1
+fi
