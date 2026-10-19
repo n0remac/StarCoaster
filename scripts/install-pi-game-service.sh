@@ -9,7 +9,7 @@ if [[ "${1:-}" != --park || $# != 2 ]]; then
 fi
 park_path="$(realpath "$2")"
 test -f "$park_path" || { printf 'Park not found: %s\n' "$park_path" >&2; exit 1; }
-test "${park_path,,}" == *.park || { printf 'Expected a .park save: %s\n' "$park_path" >&2; exit 1; }
+[[ "${park_path,,}" == *.park ]] || { printf 'Expected a .park save: %s\n' "$park_path" >&2; exit 1; }
 scripts/project.sh play --park "$park_path" --plan >/dev/null
 mkdir -p run-data "$HOME/.config/systemd/user"
 printf '%s\n' "$park_path" > run-data/pi-park-path
