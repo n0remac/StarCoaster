@@ -149,7 +149,8 @@ def main():
         ready = wait_for(lambda: next((item for item in runtime().get("waves") or []
                                       if item.get("id") == wave["id"] and
                                       sum(unit.get("state") == "ready" for unit in item.get("units") or []) == 8), None),
-                         60, "native Zerg spawn completion", processes)
+                         60, "native Zerg spawn completion",
+                         [session, joined] if MIXED else processes)
         zone = set(map(tuple, ready["fixed_zone"]["tiles"]))
         if any((attempt["x"] // 32, attempt["y"] // 32) not in zone
                for unit in ready["units"] for attempt in unit.get("attempts") or []):

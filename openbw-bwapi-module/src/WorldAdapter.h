@@ -60,7 +60,8 @@ public:
         if (!unit || !unit->exists() || actorRegistry_.known(unit) || frame < 2) return;
         const auto type = unit->getType();
         if (!worldUnitType(type)) return;
-        pendingCreations_[unit->getID()] = {unit, frame};
+        const auto position = unit->getPosition();
+        pendingCreations_[unit->getID()] = {unit, frame, position.x, position.y};
     }
     void onUnitDestroy(BWAPI::Unit unit, int frame) {
         if (!unit) return;
@@ -803,7 +804,7 @@ private:
             {"participant", "publisher"}, {"native_id", std::to_string(actor.unit->getID())},
             {"creation_frame", actor.creationFrame}};
     }
-    struct PendingCreation { BWAPI::Unit unit = nullptr; int frame = 0; };
+    struct PendingCreation { BWAPI::Unit unit = nullptr; int frame = 0, x = 0, y = 0; };
     bool executeNativeSpawn(BWAPI::Game* game, const json& payload, bool fixture) {
         spawnError_ = "invalid_spawn_execution";
         if (!payload.is_object() || !payload.contains("request_id")
@@ -925,8 +926,11 @@ private:
         }
         const auto creation = pendingCreations_.at(first.second.front());
         const auto expected = starcoaster::compactSpawnPosition(spawn.x, spawn.y, spawn.index);
-        const auto actual = creation.unit->getPosition();
-        if (std::abs(actual.x - expected.x) <= 16 && std::abs(actual.y - expected.y) <= 16)
+        // The unit can already be moving when this frame is processed. Match
+        // the creation event's position, allowing one tile for native collision
+        // resolution, rather than its later position near the park interior.
+        if (std::abs(creation.x - expected.x) <= 32 &&
+            std::abs(creation.y - expected.y) <= 32)
             spawn.candidateID = first.second.front();
     }
     void registerPendingCreations() {
@@ -948,9 +952,8 @@ private:
             if (!activeSpawn_.empty()) {
                 auto& spawn = nativeSpawns_.at(activeSpawn_);
                 if (spawn.state == "issued" && spawn.candidateID == creation.unit->getID()) {
-                    const auto position = creation.unit->getPosition();
                     spawn.state = "created"; spawn.actorID = "openbw:" + std::to_string(canonical);
-                    spawn.actualX = position.x; spawn.actualY = position.y;
+                    spawn.actualX = creation.x; spawn.actualY = creation.y;
                     spawn.reported = false;
                     activeSpawn_.clear();
                 }
