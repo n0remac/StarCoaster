@@ -53,6 +53,7 @@ OPENRCT2_WASM_LOCAL=1 BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-1}" \
 log 'Running offline and browser checks'
 scripts/project.sh test
 scripts/project.sh test-wasm
+"${GO_BIN:-/usr/local/go/bin/go}" build -o build/wasm-server ./cmd/wasm-server
 log 'Deploying private browser bundle'
 scripts/project.sh deploy-wasm
 log 'Restarting StarCoaster game'
@@ -62,6 +63,8 @@ for attempt in $(seq 1 45); do
     if systemctl --user is-active --quiet starcoaster-game.service && \
         curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8091/manifest.json \
             -o run-data/pi-served-manifest.json 2>/dev/null && \
+        curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8091/private/park-session \
+            -o run-data/pi-served-park-session.json 2>/dev/null && \
         python3 - <<'PY'
 import hashlib
 import json
@@ -73,6 +76,8 @@ assert served == local
 assert served['visual_source'] == 'starcraft-local'
 assert served['plugin_sha256'] == hashlib.sha256(
     Path('openrct2-plugin/rts-bridge.js').read_bytes()).hexdigest()
+session = json.loads(Path('run-data/pi-served-park-session.json').read_text())
+assert session['phase'] == 'ready' and session['generation'] and session['current']
 PY
     then ready=1; break; fi
     sleep 2

@@ -39,7 +39,6 @@ class ParkSessionSupervisor:
         self.error = ""
         self.session = None
         self.plan = None
-        self.saved = {}
         self.browser = None
         self.start_browser = start_browser
         self.socket_path = self.runtime / "control.sock"
@@ -67,7 +66,8 @@ class ParkSessionSupervisor:
         source = self.catalog().get(name)
         if source is None:
             raise ValueError("park_not_in_private_library")
-        return self.saved.get(name, source)
+        saved = self.runtime / "saved" / name
+        return saved if saved.is_file() else source
 
     def prepare(self, name):
         generation = uuid.uuid4().hex
@@ -96,6 +96,8 @@ class ParkSessionSupervisor:
     def launch(self, generation, plan):
         environment = session_environment(plan, {
             "BRIDGE_RUNTIME_DIR": str(self.runtime / "sessions" / generation / "native"),
+            "BRIDGE_SERVER_DATA_DIR": plan["server_data"],
+            "BRIDGE_CLIENT_DATA_DIR": plan["client_data"],
             "BRIDGE_PARK_SUPERVISOR_SOCKET": str(self.socket_path),
             "BRIDGE_PARK_GENERATION": generation,
             "BRIDGE_SERVE_WASM": "0", "BRIDGE_LAUNCH_CLIENT": "0",
@@ -132,6 +134,7 @@ class ParkSessionSupervisor:
             process.wait(timeout=5)
 
     def start_initial(self):
+        process = None
         try:
             generation, plan = self.prepare(self.initial)
             with self.lock:
@@ -142,6 +145,7 @@ class ParkSessionSupervisor:
                 self.session, self.plan = process, plan
                 self.generation, self.current, self.phase = generation, self.initial, "ready"
         except Exception as error:
+            self.stop(process)
             with self.lock:
                 self.phase, self.error = "failed", str(error)
             raise
@@ -178,7 +182,6 @@ class ParkSessionSupervisor:
         temporary = destination.with_suffix(".park.tmp")
         shutil.copy2(source, temporary)
         os.replace(temporary, destination)
-        self.saved[name] = destination
 
     def transition(self, park, decision, save_name):
         old_name, old_process, old_plan = self.current, self.session, self.plan
@@ -287,6 +290,8 @@ def main():
         supervisor.start_wasm()
         supervisor.start_initial()
         while supervisor.browser is None or supervisor.browser.poll() is None:
+            if supervisor.session is not None and supervisor.session.poll() is not None:
+                raise RuntimeError("native game session exited")
             time.sleep(.5)
         raise RuntimeError("private browser server exited")
     except KeyboardInterrupt:

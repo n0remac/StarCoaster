@@ -91,6 +91,24 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.assertEqual(self.supervisor.state()["generation"], "recovered-generation")
         self.assertIn("restored prior park", self.supervisor.state()["error"])
 
+    def test_concurrent_request_is_rejected_before_transition_finishes(self):
+        with mock.patch("park_session_supervisor.threading.Thread.start"):
+            accepted = self.supervisor.request("Park B.park", "discard", "old-generation")
+            self.assertEqual(accepted["phase"], "preparing")
+            with self.assertRaisesRegex(ValueError, "park_transition_busy"):
+                self.supervisor.request("Park A.park", "discard", "old-generation")
+        self.assertFalse(self.old.stopped)
+
+    def test_authoritative_save_is_reused_after_supervisor_restart(self):
+        save_dir = Path(self.supervisor.plan["server_data"]) / "save"
+        save_dir.mkdir(parents=True)
+        (save_dir / "starcoaster-switch-0123456789abcdef.park").write_bytes(b"PARKsaved")
+        self.supervisor.archive_save("Park A.park", "starcoaster-switch-0123456789abcdef.park")
+        restarted = ParkSessionSupervisor(self.library, self.root / "runtime", "Park A.park",
+                                          start_browser=False)
+        self.assertEqual(restarted.source_for("Park A.park").read_bytes(), b"PARKsaved")
+        self.assertEqual((self.library / "Park A.park").read_bytes(), b"PARKpark")
+
 
 if __name__ == "__main__":
     unittest.main()
