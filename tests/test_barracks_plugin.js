@@ -77,7 +77,7 @@ const sandbox = {
     objectManager: { getAllObjects(kind) { return kind === 'large_scenery'
         ? [barracks, academy, depot, factory, armory] : []; } },
     network: { mode: 'client', currentPlayer: { id: 1 }, players: [{ id: 1 }] },
-    rtsBridge: { version: 5, assetVersion: 4, applySnapshot() {},
+    rtsBridge: { version: 5, assetVersion: 4, applySnapshot() {}, clearSnapshot() {},
         invalidateAnimation() {}, setBuildingAnimations(state) { buildingAnimations.push(state); },
         actorScreenPosition() { return null; }, cursorWorld() { return null; } },
     ui, context, console: { log() {} }, registerPlugin(plugin) { plugin.main(); },
@@ -351,7 +351,7 @@ function discoverAfterLoad() {
                 } };
             return socket;
         } },
-        rtsBridge: { version: 5, assetVersion: 4, applySnapshot() {},
+        rtsBridge: { version: 5, assetVersion: 4, applySnapshot() {}, clearSnapshot() {},
             invalidateAnimation() {}, setBuildingAnimations() {}, actorScreenPosition() {} },
         context: { getParkStorage() { return { get(key, fallback) { return savedStorage[key] || fallback; },
             set(key, value) { savedStorage[key] = structuredClone(value); } }; },
