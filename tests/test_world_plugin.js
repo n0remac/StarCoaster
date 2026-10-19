@@ -776,8 +776,8 @@ assert.deepEqual(Array.from(sent.filter(message => message.kind === 'scenario.de
 const parks = { phase: 'ready', current: 'Park A.park', pending: '', error: '',
     generation: 'a'.repeat(32), parks: ['Park A.park', 'Park B.park'] };
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'park.catalog', session: sid, payload: parks }) + '\n');
-assert.ok(menuItems.has('StarCoaster: Load Park'), 'park switching menu is registered');
-assert.ok(shortcuts.has('starcoaster.load-park'), 'park picker has a keyboard shortcut');
+assert.ok(!menuItems.has('StarCoaster: Load Park'), 'the custom park picker is absent');
+assert.ok(!shortcuts.has('starcoaster.load-park'), 'the custom park shortcut is absent');
 const loadAction = registered.get('rtsbridge.loadPark');
 const loadArgs = { session: sid, generation: parks.generation, park: 'Park B.park', decision: 'discard' };
 assert.match(loadAction.query({ player: 2, args: loadArgs }).errorMessage, /commander or host/);
@@ -785,27 +785,8 @@ assert.ok(loadAction.query({ player: 1, args: { ...loadArgs, generation: 'b'.rep
     'old park generations cannot request a transition');
 assert.ok(loadAction.query({ player: 1, args: { ...loadArgs, park: '../secrets.park' } }).error,
     'the menu cannot send a path outside the private park library');
-menuItems.get('StarCoaster: Load Park')();
-const loadWindow = openedWindows.find(window => window.classification === 'starcoaster-load-park');
-assert.deepEqual(Array.from(loadWindow.widgets.find(widget => widget.name === 'park-list').items), parks.parks);
-loadWindow.widgets.find(widget => widget.name === 'park-list').onChange(1);
-loadWindow.widgets.find(widget => widget.text === 'Load selected park').onClick();
-let confirmation = openedWindows.filter(window => window.classification === 'starcoaster-load-confirm').at(-1);
-assert.ok(confirmation.widgets.some(widget => widget.text === 'Cancel'), 'switch can be canceled');
-confirmation.widgets.find(widget => widget.text === 'Discard changes and switch').onClick();
-drain();
-assert.equal(sent.filter(message => message.kind === 'park.load.request').at(-1).payload.park, 'Park B.park');
-assert.equal(sent.filter(message => message.kind === 'park.load.request').at(-1).payload.decision, 'discard');
-assert.ok(!savedGames.length, 'discard does not save the host park');
-registered.get('rtsbridge.parkCatalog').execute({ player: 1, args: parks });
-loadWindow.widgets.find(widget => widget.text === 'Load selected park').onClick();
-confirmation = openedWindows.filter(window => window.classification === 'starcoaster-load-confirm').at(-1);
-confirmation.widgets.find(widget => widget.text === 'Save and switch').onClick();
-drain();
-const savedLoad = sent.filter(message => message.kind === 'park.load.request').at(-1).payload;
-assert.match(savedLoad.save_name, /^starcoaster-switch-[0-9a-f]{16}\.park$/);
-assert.equal(savedGames.at(-1) + '.park', savedLoad.save_name,
-    'the authoritative host saves using OpenRCT2 before switching');
+assert.ok(!openedWindows.some(window => window.classification === 'starcoaster-load-park'
+    || window.classification === 'starcoaster-load-confirm'));
 subscriptions.get('map.change')();
 assert.ok(clearedSnapshots >= 2, 'map unload clears native StarCraft rendering');
 assert.ok(command.query({ player: 1, args: squadArgs }).error,

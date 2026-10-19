@@ -1032,7 +1032,6 @@
         let controlSession = "";
         let clearUiForMap = function () {};
         context.subscribe("map.change", function () {
-            const warned = controlSession && parkCatalog && parkCatalog.phase === "ready";
             rtsBridge.clearSnapshot();
             controlSession = "";
             controlUnits = {};
@@ -1065,9 +1064,6 @@
             Object.keys(productionFeedback).forEach(function (id) { delete productionFeedback[id]; });
             Object.keys(pendingTrainTypes).forEach(function (id) { delete pendingTrainTypes[id]; });
             clearUiForMap();
-            if (warned && typeof ui !== "undefined")
-                ui.showError("StarCoaster park session",
-                    "Use StarCoaster: Load Park to change the shared game. Reconnect if you loaded a local save.");
         });
         let controlUnits = {};
         let occupancyUnits = {};
@@ -2133,9 +2129,6 @@
                             text: "" }
                     ] });
             }
-            let loadParkWindow = null;
-            let confirmParkWindow = null;
-            let selectedPark = "";
             clearUiForMap = function () {
                 if (ui.tool) ui.tool.cancel();
                 selected = [];
@@ -2150,73 +2143,12 @@
                 if (constructionWindow) constructionWindow.close();
                 if (buildingInfoWindow) buildingInfoWindow.close();
                 if (defenseWindow) defenseWindow.close();
-                if (loadParkWindow) loadParkWindow.close();
-                if (confirmParkWindow) confirmParkWindow.close();
             };
-            function requestParkLoad(park, decision) {
-                if (!parkCatalog || parkCatalog.phase !== "ready" || !controlSession) return;
-                context.executeAction(PARK_LOAD_ACTION, { session: controlSession,
-                    generation: parkCatalog.generation, park: park, decision: decision }, function (result) {
-                    if (result.error) ui.showError("Load Park", result.errorMessage);
-                });
-                if (confirmParkWindow) confirmParkWindow.close();
-            }
-            function confirmParkLoad() {
-                if (!parkCatalog || !parkCatalog.parks.includes(selectedPark)) return;
-                if (confirmParkWindow) { confirmParkWindow.bringToFront(); return; }
-                confirmParkWindow = ui.openWindow({ classification: "starcoaster-load-confirm",
-                    width: 276, height: 137, title: "Switch to " + selectedPark,
-                    onClose: function () { confirmParkWindow = null; }, widgets: [
-                        { type: "label", x: 8, y: 21, width: 260, height: 28,
-                            text: "Save changes to the current park?" },
-                        { type: "button", x: 8, y: 55, width: 260, height: 22,
-                            text: "Save and switch", onClick: function () { requestParkLoad(selectedPark, "save"); } },
-                        { type: "button", x: 8, y: 80, width: 260, height: 22,
-                            text: "Discard changes and switch", onClick: function () { requestParkLoad(selectedPark, "discard"); } },
-                        { type: "button", x: 8, y: 105, width: 260, height: 22,
-                            text: "Cancel", onClick: function () { confirmParkWindow.close(); } }
-                    ] });
-            }
-            function openLoadParkWindow() {
-                if (!parkCatalog) {
-                    ui.showError("Load Park", "Park library is unavailable; wait for the game to connect");
-                    return;
-                }
-                if (loadParkWindow) { loadParkWindow.bringToFront(); return; }
-                const choices = parkCatalog.parks.slice();
-                selectedPark = choices.includes(selectedPark) ? selectedPark : choices[0] || "";
-                loadParkWindow = ui.openWindow({ classification: "starcoaster-load-park",
-                    width: 298, height: 139, title: "StarCoaster: Load Park",
-                    onClose: function () { loadParkWindow = null; }, widgets: [
-                        { type: "label", name: "park-current", x: 8, y: 20, width: 282, height: 14,
-                            text: "Current: " + parkCatalog.current },
-                        { type: "label", x: 8, y: 40, width: 282, height: 14,
-                            text: "Available parks on this server:" },
-                        { type: "dropdown", name: "park-list", x: 8, y: 58, width: 282, height: 18,
-                            items: choices, selectedIndex: Math.max(0, choices.indexOf(selectedPark)),
-                            onChange: function (index) { selectedPark = choices[index] || ""; } },
-                        { type: "button", x: 8, y: 83, width: 282, height: 22,
-                            text: "Load selected park", onClick: confirmParkLoad },
-                        { type: "label", name: "park-transition", x: 8, y: 112, width: 282, height: 18,
-                            text: "Status: " + parkCatalog.phase }
-                    ] });
-            }
             if (typeof ui.registerMenuItem === "function") {
                 ui.registerMenuItem("StarCraft Construction", openConstructionWindow);
                 ui.registerMenuItem("StarCraft Defense", openDefenseWindow);
-                ui.registerMenuItem("StarCoaster: Load Park", openLoadParkWindow);
             }
-            ui.registerShortcut({ id: "starcoaster.load-park", text: "Load a server park",
-                bindings: ["CTRL+SHIFT+L"], callback: openLoadParkWindow });
             context.subscribe("interval.tick", function () {
-                if (loadParkWindow && parkCatalog) {
-                    const current = loadParkWindow.findWidget("park-current");
-                    const transition = loadParkWindow.findWidget("park-transition");
-                    if (current) current.text = "Current: " + parkCatalog.current;
-                    if (transition) transition.text = "Status: " + parkCatalog.phase
-                        + (parkCatalog.pending ? " " + parkCatalog.pending : "")
-                        + (parkCatalog.error ? " | " + parkCatalog.error : "");
-                }
                 if (!defenseWindow) return;
                 const status = missionStatus;
                 if (!status) return;

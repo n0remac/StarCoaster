@@ -48,7 +48,5 @@ and the OpenRCT2 multiplayer packet protocol remain unchanged.
 `0019-network-future-include.patch` supplies the standard `<future>` declaration
 needed when multiplayer is enabled in the browser build.
 
-`0021-authoritative-new-game-menu.patch` sends the connected client's File → New
-Game and File → Load Game actions to the existing StarCoaster park picker. Local
-OpenRCT2 games retain the standard file menu. The server still validates park
-names and performs the fresh OpenBW session transition.
+OpenRCT2's standard New Game and Load Game actions remain available. The
+native bridge clears StarCraft rendering when a map changes.
