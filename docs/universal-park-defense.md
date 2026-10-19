@@ -66,8 +66,12 @@ check confirms ordered demolition without repeated park snapshots. The
 browser-build check confirms Barracks placement and Marine training issued by
 the browser commander and accepted by OpenBW. Run
 `scripts/project.sh test` and private `scripts/project.sh test-wasm` for offline
-and asset-provisioning coverage. All recordings, browser profiles, generated
-parks, and licensed assets stay in ignored directories.
+and asset-provisioning coverage. `tests/test_mt_zergling_gameplay_live.py`
+exercises six native waves, including Hydralisks at wave three and an
+Ultralisk at wave six; `tests/test_mixed_zerg_restart_live.py` checks actor
+identity and request continuity after a Go bridge restart. All recordings,
+browser profiles, generated parks, and licensed assets stay in ignored
+directories.
 
 The playable graphical check uses a 64 × 64 park. Highly fragmented saves can
 reach OpenBW's native region-count limit before the 256 × 256 size limit; the
