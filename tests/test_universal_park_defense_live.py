@@ -23,13 +23,16 @@ FACTORY = "--factory" in sys.argv
 BUILD = "--build" in sys.argv or FACTORY
 MANUAL = "--manual" in sys.argv or BUILD
 MIXED = "--wasm" in sys.argv
+BROWSER_BUILD = "--browser-build" in sys.argv
 CAPTURE_ONLY = "--capture-only" in sys.argv
 OBSERVE_COMBAT = "--observe-combat" in sys.argv
 if MANUAL and MIXED:
     raise SystemExit("choose --manual or --wasm")
 if CAPTURE_ONLY and not MIXED:
     raise SystemExit("--capture-only requires --wasm")
-RUN = ROOT / "run-data/universal-park-defense-live" / ("factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic")
+if BROWSER_BUILD and not MIXED:
+    raise SystemExit("--browser-build requires --wasm")
+RUN = ROOT / "run-data/universal-park-defense-live" / ("factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic")
 TEST_SOURCE = RUN / f"source-{int(time.time())}-{os.getpid()}.park"
 SCENARIO_ID = "park-defense-" + hashlib.sha256(str(TEST_SOURCE).encode()).hexdigest()[:16]
 JOURNAL = ROOT / "run-data/scenarios" / SCENARIO_ID / "spawn-queue.json.scenario.json"
@@ -118,6 +121,7 @@ def main():
                              "WASM_LIVE_CAMERA": "1", "WASM_DEFENSE_PROBE": "1",
                              "WASM_DEFENSE_CONFIGURE": "1", "WASM_DEFENSE_ANCHOR": ",".join(map(str, ANCHOR)),
                              "WASM_DEFENSE_MANUAL": "1" if MIXED else "0",
+                             "WASM_DEFENSE_BUILD": "1" if BROWSER_BUILD else "0",
                              "WASM_LIVE_RECORD": "0", "WASM_LIVE_SCREENCAST": "1",
                              "WASM_LIVE_DURATION_MS": "20000",
                              "WASM_CAPTURE_INTERVAL_MS": "10000"}
@@ -218,6 +222,15 @@ def main():
             wait_for(lambda: browser.poll() is not None, 480, "browser gameplay capture", [session, joined])
             if browser.returncode != 0:
                 raise RuntimeError("first browser gameplay capture failed")
+            if BROWSER_BUILD:
+                browser_log = (RUN / "browser-first.log").read_text(errors="replace")
+                host_log = (RUN / "session.log").read_text(errors="replace")
+                if "UNIVERSAL_DEFENSE_BUILD id=" not in browser_log or \
+                   "UNIVERSAL_DEFENSE_TRAIN local_accepted=true" not in browser_log or \
+                   "unit_type=terran_marine" not in host_log or \
+                   "WORLD_BUILDING_RECEIVED id=openrct2:large_scenery:" not in host_log:
+                    raise AssertionError("browser Barracks construction and native Marine training did not synchronize")
+                report["checks"]["browser_barracks_and_native_marine_training"] = "passed"
             browser_artifacts = ROOT / "build/wasm-live-test"
             first_report = json.loads((browser_artifacts / "runtime.json").read_text())
             if first_report.get("outcome") != "passed" or not any(
