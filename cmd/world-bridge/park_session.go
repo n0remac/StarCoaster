@@ -88,13 +88,17 @@ func (s *service) supervisorRequest(method, route string, body any) (parkSession
 }
 
 func (s *service) parkCatalogRequest(p *peer, m world.Envelope) {
-	if m.Session != s.registry.Session || m.Revision != s.registry.Revision || s.parkSupervisorSocket == "" {
+	if m.Session != s.registry.Session || m.Revision != s.registry.Revision {
 		s.ack(p, m, false, "stale_or_unavailable_park_session")
+		return
+	}
+	if s.parkSupervisorSocket == "" {
+		s.ack(p, m, true, "")
 		return
 	}
 	state, err := s.supervisorRequest(http.MethodGet, "/state", nil)
 	if err != nil {
-		s.ack(p, m, false, err.Error())
+		s.ack(p, m, true, "")
 		return
 	}
 	s.ack(p, m, true, "")

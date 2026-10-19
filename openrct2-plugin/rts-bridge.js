@@ -78,6 +78,7 @@
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
         let revision = 1, serial = 0, socket = null, buffer = "", inFlight = null, lastCombatSeq = 0, retryTicks = 0;
+        let parkCatalogAvailable = false;
         let inFlightTicks = 0;
         const queue = [], generations = {}, activeKeys = {}, activeItems = {}, entities = {}, completed = {};
         const parkStorage = typeof context.getParkStorage === "function" ? context.getParkStorage() : null;
@@ -838,7 +839,10 @@
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
             else if (message.kind === "scenario.defense.result" && message.payload) onDefenseResult(message.payload);
-            else if (message.kind === "park.catalog" && message.payload) onParkCatalog(message.payload);
+            else if (message.kind === "park.catalog" && message.payload) {
+                parkCatalogAvailable = true;
+                onParkCatalog(message.payload);
+            }
             else if (message.kind === "park.load.status" && message.payload) {
                 onParkLoadStatus(message.payload);
                 if (!message.payload.accepted) send("park.catalog.request", {});
@@ -958,6 +962,8 @@
                 send("world.patch.query", { patch_id: patchInFlight.id }, patchInFlight.base + 1);
             if (socket && combatSyncID && !inFlight && constructionTick % 120 === 0)
                 send("world.patch.query", { patch_id: combatSyncID }, revision);
+            if (socket && parkCatalogAvailable && constructionTick % 120 === 0)
+                send("park.catalog.request", {});
             if (recoveringRejectedBarracks) return;
             if (dirtySince >= 0 && constructionTick - dirtySince >= CONSTRUCTION_DEBOUNCE_TICKS
                 && !snapshotWorld) detectConstruction();
