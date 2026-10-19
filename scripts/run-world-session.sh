@@ -17,6 +17,9 @@ import sys
 
 for port in (40010, int(sys.argv[1])):
     with socket.socket() as probe:
+        # Go listeners set SO_REUSEADDR. Allow their recently closed sockets
+        # to leave TIME_WAIT while still rejecting an active listener.
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind(("127.0.0.1", port))
         except OSError:
