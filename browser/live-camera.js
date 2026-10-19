@@ -6,6 +6,8 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
     let focusCount = 0, marineFocus = null;
     let sweepIndex = 0;
     const sweep = typeof STARCOASTER_CAMERA_SWEEP !== "undefined" && STARCOASTER_CAMERA_SWEEP;
+    const allActors = typeof STARCOASTER_CAMERA_ALL_ACTORS !== "undefined"
+        && STARCOASTER_CAMERA_ALL_ACTORS;
     const sweepTargets = [
         { x: 1024, y: 1024, z: 128, zoom: 0 },
         { x: 1536, y: 1536, z: 128, zoom: 0 },
@@ -66,6 +68,15 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
                 screenReported = true;
                 console.log("WASM_ACTOR_SCREEN id=" + trackedId + " x=" + screen.x
                     + " y=" + screen.y + " scale=" + (screen.scale || 1));
+                if (allActors) console.log("WASM_ACTOR_SCREENS " + JSON.stringify(snapshot.units
+                    .filter(function (unit) { return unit.kind === "terran_marine" && unit.hp > 0; })
+                    .map(function (unit) {
+                        const position = rtsBridge.actorScreenPosition(unit.id);
+                        return position && { id: unit.id, x: position.x, y: position.y };
+                    }).filter(function (position) {
+                        return position && position.x > 260 && position.x < 1240
+                            && position.y > 80 && position.y < 760;
+                    })));
             }
             if (tracked) {
                 const position = tracked.x + "," + tracked.y;

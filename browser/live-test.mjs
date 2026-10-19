@@ -17,6 +17,7 @@ let haveOrder = process.env.WASM_ORDER_X !== undefined && process.env.WASM_ORDER
 const cameraProbe = process.env.WASM_LIVE_CAMERA === '1';
 const autoOrder = process.env.WASM_AUTO_ORDER === '1';
 const cameraSweep = process.env.WASM_CAMERA_SWEEP === '1';
+const controlProbe = process.env.WASM_CONTROL_PROBE === '1';
 const productionProbe = process.env.WASM_PRODUCTION_PROBE === '1';
 const constructionProbe = process.env.WASM_CONSTRUCTION_PROBE === '1';
 const demolitionProbe = process.env.WASM_DEMOLITION_PROBE === '1';
@@ -60,7 +61,8 @@ try {
       ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 6;\nvar STARCOASTER_HUD_DRIVER = true;\n' + source
       : productionProbe ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 2;\n'
       + (constructionProbe ? 'var STARCOASTER_HUD_CONSTRUCTION_PROBE = true;\n' : '') + source
-      : cameraSweep ? 'var STARCOASTER_CAMERA_SWEEP = true;\n' + source : source;
+      : cameraSweep ? 'var STARCOASTER_CAMERA_SWEEP = true;\n' + source
+      : controlProbe ? 'var STARCOASTER_CAMERA_ALL_ACTORS = true;\n' + source : source;
     await page.addInitScript((source) => {
       Object.defineProperty(window, 'Module', {
         configurable: true,
@@ -78,13 +80,18 @@ try {
   }
   let resolveCamera;
   const cameraReady = new Promise((resolve) => { resolveCamera = resolve; });
+  let resolveEarlyDisconnect;
+  const earlyDisconnect = new Promise((resolve) => { resolveEarlyDisconnect = resolve; });
+  let snapshotReady = false;
   let resolveActorScreen;
   const actorScreenReady = new Promise((resolve) => { resolveActorScreen = resolve; });
   page.on('console', (message) => {
     const line = message.text();
     records.push({ kind: 'console', text: line, at: Date.now() });
-    if (line.includes('WASM_CAMERA_READY')) resolveCamera();
-    if (line.includes('NATIVE_HUD_CAPTURE_READY')) resolveCamera();
+    if (line.includes('WASM_CAMERA_READY') || line.includes('NATIVE_HUD_CAPTURE_READY')) {
+      snapshotReady = true;
+      resolveCamera();
+    }
     const screen = /WASM_ACTOR_SCREEN id=([^ ]+) x=([\d.]+) y=([\d.]+)/.exec(line);
     if (screen) resolveActorScreen({ id: screen[1], x: Number(screen[2]), y: Number(screen[3]) });
     if (line.includes('WASM_ACTOR_MOVED') && metrics.orderSentAt && metrics.actorMoveLatencyMs === undefined)
@@ -108,8 +115,14 @@ try {
       metrics.websocketFramesOut++;
       metrics.websocketBytesOut += Buffer.byteLength(frame.payload);
     });
-    socket.on('socketerror', (error) => records.push({ kind: 'websocketerror', text: String(error) }));
-    socket.on('close', () => records.push({ kind: 'websocketclose', url: socket.url() }));
+    socket.on('socketerror', (error) => {
+      records.push({ kind: 'websocketerror', text: String(error) });
+      if (!snapshotReady) resolveEarlyDisconnect(`Multiplayer WebSocket error before native snapshot: ${error}`);
+    });
+    socket.on('close', () => {
+      records.push({ kind: 'websocketclose', url: socket.url() });
+      if (!snapshotReady) resolveEarlyDisconnect('Multiplayer WebSocket closed before native snapshot');
+    });
   });
   const start = Date.now();
   await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -123,7 +136,8 @@ try {
   if (cameraProbe || productionProbe || demolitionProbe) {
     let timeout;
     try {
-      await Promise.race([cameraReady, new Promise((_, reject) => {
+      await Promise.race([cameraReady, earlyDisconnect.then((message) => { throw new Error(message); }),
+        new Promise((_, reject) => {
         timeout = setTimeout(() => reject(new Error('The live probe did not observe a native snapshot')), 420000);
       })]);
     } finally { clearTimeout(timeout); }
@@ -154,6 +168,88 @@ try {
   });
   console.log(`CANVAS: ${JSON.stringify(metrics.canvas)}`);
   await capture(page, 'connected.png');
+  if (controlProbe) {
+    if (!cameraProbe) throw new Error('WASM_CONTROL_PROBE requires WASM_LIVE_CAMERA=1');
+    let actors;
+    for (let elapsed = 0; elapsed < 60000; elapsed += 1000) {
+      const line = records.find((record) => record.kind === 'console' &&
+        record.text.includes('WASM_ACTOR_SCREENS '))?.text;
+      if (line) {
+        const start = line.indexOf('[', line.indexOf('WASM_ACTOR_SCREENS '));
+        actors = JSON.parse(line.slice(start, line.lastIndexOf(']') + 1));
+        break;
+      }
+      await page.waitForTimeout(1000);
+    }
+    if (!actors || actors.length < 2) throw new Error('The browser did not render two controllable Marines');
+    metrics.controlActors = actors;
+    const left = Math.floor(Math.min(...actors.map((actor) => actor.x)) - 20);
+    const top = Math.floor(Math.min(...actors.map((actor) => actor.y)) - 32);
+    const right = Math.ceil(Math.max(...actors.map((actor) => actor.x)) + 20);
+    const bottom = Math.ceil(Math.max(...actors.map((actor) => actor.y)) + 14);
+    const selectionCount = () => {
+      const line = records.filter((record) => record.kind === 'console' &&
+        record.text.includes('RTS Bridge selected units=')).at(-1)?.text || '';
+      return line.split('selected units=')[1]?.split(',').filter(Boolean).length || 0;
+    };
+    await page.mouse.move(left, top);
+    await page.mouse.down();
+    await page.mouse.move(right, bottom, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(1000);
+    metrics.rectangleSelected = selectionCount();
+    if (metrics.rectangleSelected < 2) throw new Error('Browser rectangle selection missed the Marines');
+    await capture(page, 'rectangle-selected.png');
+    const isolated = actors.reduce((best, actor) => {
+      const nearest = Math.min(...actors.filter((other) => other !== actor).map((other) =>
+        Math.hypot(other.x - actor.x, other.y - actor.y)));
+      return !best || nearest > best.nearest ? { actor, nearest } : best;
+    }, null).actor;
+    await page.keyboard.down('Shift');
+    await page.mouse.click(isolated.x, isolated.y - 8);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(700);
+    metrics.shiftRemoved = selectionCount();
+    if (metrics.shiftRemoved !== metrics.rectangleSelected - 1)
+      throw new Error('Shift-click did not remove one Marine from the selection');
+    await page.keyboard.down('Shift');
+    await page.mouse.click(isolated.x, isolated.y - 8);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(700);
+    if (selectionCount() !== metrics.rectangleSelected)
+      throw new Error('Shift-click did not restore the Marine selection');
+    const beforeAlt = records.length;
+    await page.keyboard.down('Alt');
+    await page.mouse.click(isolated.x, isolated.y - 8);
+    await page.keyboard.up('Alt');
+    await page.waitForTimeout(700);
+    if (records.slice(beforeAlt).some((record) => record.kind === 'console' &&
+      record.text.includes('RTS Bridge selected units=')))
+      throw new Error('Alt-click changed Marine selection instead of passing to the park');
+    const waitAccepted = async (after, label) => {
+      for (let elapsed = 0; elapsed < 30000; elapsed += 1000) {
+        if (records.slice(after).some((record) => record.kind === 'console' &&
+          /RTS Bridge Marine command request=.* accepted=true/.test(record.text))) return;
+        await page.waitForTimeout(1000);
+      }
+      throw new Error(`Browser ${label} order received no accepted result`);
+    };
+    const target = [Math.min(1100, isolated.x + 30), Math.min(700, isolated.y + 85)];
+    let after = records.length;
+    await page.keyboard.press('a');
+    await page.mouse.click(...target, { button: 'right' });
+    await waitAccepted(after, 'attack-move');
+    metrics.attackMoveAccepted = true;
+    after = records.length;
+    await page.keyboard.press('s');
+    await waitAccepted(after, 'stop');
+    metrics.stopAccepted = true;
+    after = records.length;
+    await page.keyboard.press('h');
+    await waitAccepted(after, 'hold');
+    metrics.holdAccepted = true;
+    await capture(page, 'controls-complete.png');
+  }
   if (demolitionProbe) {
     for (const point of [[640, 400], [630, 390], [650, 410]]) {
       await page.mouse.click(...point);
