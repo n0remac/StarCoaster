@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -17,11 +19,94 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+type licensedFile struct {
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
+type licensedManifest struct {
+	Schema  int            `json:"schema"`
+	Version string         `json:"version"`
+	Files   []licensedFile `json:"files"`
+}
+
+type licensedAssets struct {
+	root     string
+	manifest []byte
+	files    map[string]struct{}
+}
+
+func loadLicensedAssets(root string) (*licensedAssets, error) {
+	if root == "" {
+		return nil, nil
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, fmt.Errorf("RCT2 data path: %w", err)
+	}
+	if info, err := os.Stat(filepath.Join(resolved, "Data", "ch.dat")); err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("RCT2 data path %s must contain Data/ch.dat", resolved)
+	}
+	assets := &licensedAssets{root: resolved, files: make(map[string]struct{})}
+	entryList := make([]licensedFile, 0, 2500)
+	err = filepath.WalkDir(resolved, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("RCT2 data contains an unsupported file: %s", path)
+		}
+		relative, err := filepath.Rel(resolved, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		digest := sha256.New()
+		size, copyErr := io.Copy(digest, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		entryList = append(entryList, licensedFile{Path: relative, Size: size,
+			SHA256: hex.EncodeToString(digest.Sum(nil))})
+		assets.files[relative] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("inventory RCT2 data: %w", err)
+	}
+	sort.Slice(entryList, func(i, j int) bool { return entryList[i].Path < entryList[j].Path })
+	version := sha256.New()
+	for _, entry := range entryList {
+		_, _ = io.WriteString(version, entry.Path+"\x00"+strconv.FormatInt(entry.Size, 10)+"\x00"+entry.SHA256+"\n")
+	}
+	manifest, err := json.Marshal(licensedManifest{Schema: 1, Version: hex.EncodeToString(version.Sum(nil)), Files: entryList})
+	if err != nil {
+		return nil, err
+	}
+	assets.manifest = manifest
+	return assets, nil
+}
 
 func sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
@@ -105,9 +190,34 @@ func checkTailscaleFunnel(listen string) error {
 	return nil
 }
 
-func handler(bundle, native string) http.Handler {
+func handler(bundle, native string, assets *licensedAssets) http.Handler {
 	upgrader := websocket.Upgrader{CheckOrigin: sameOrigin, Subprotocols: []string{"binary"}}
 	mux := http.NewServeMux()
+	if assets != nil {
+		mux.HandleFunc("/private/rct2/manifest.json", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				http.Error(w, "GET required", http.StatusMethodNotAllowed)
+				return
+			}
+			w.Header().Set("Cache-Control", "private, no-store")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(assets.manifest)
+		})
+		mux.HandleFunc("/private/rct2/files/", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				http.Error(w, "GET required", http.StatusMethodNotAllowed)
+				return
+			}
+			relative := strings.TrimPrefix(r.URL.Path, "/private/rct2/files/")
+			if _, allowed := assets.files[relative]; !allowed {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Cache-Control", "private, no-store")
+			w.Header().Set("Content-Type", "application/octet-stream")
+			http.ServeFile(w, r, filepath.Join(assets.root, filepath.FromSlash(relative)))
+		})
+	}
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)
@@ -187,6 +297,7 @@ func main() {
 	bundle := flag.String("bundle", "build/wasm-client", "private browser bundle directory")
 	listen := flag.String("listen", "127.0.0.1:8091", "loopback HTTP listen address")
 	native := flag.String("native", "127.0.0.1:11753", "loopback native OpenRCT2 server address")
+	rct2Data := flag.String("rct2-data-path", "", "private licensed RCT2 installation to provision to this browser origin")
 	flag.Parse()
 	for _, address := range []string{*listen, *native} {
 		if err := loopbackAddress(address); err != nil {
@@ -199,7 +310,14 @@ func main() {
 	if _, err := os.Stat(filepath.Join(*bundle, "manifest.json")); err != nil {
 		log.Fatalf("bundle unavailable: %v", err)
 	}
-	server := &http.Server{Addr: *listen, Handler: handler(*bundle, *native), ReadHeaderTimeout: 10 * time.Second}
+	assets, err := loadLicensedAssets(*rct2Data)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if assets != nil {
+		log.Printf("private RCT2 provisioning enabled: %d licensed files", len(assets.files))
+	}
+	server := &http.Server{Addr: *listen, Handler: handler(*bundle, *native, assets), ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {

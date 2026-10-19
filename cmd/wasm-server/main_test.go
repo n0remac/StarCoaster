@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -32,7 +33,7 @@ func TestHeadersAndFixedGateway(t *testing.T) {
 			go func() { defer conn.Close(); _, _ = io.Copy(conn, conn) }()
 		}
 	}()
-	server := httptest.NewServer(handler(dir, tcp.Addr().String()))
+	server := httptest.NewServer(handler(dir, tcp.Addr().String(), nil))
 	defer server.Close()
 	response, err := http.Get(server.URL + "/client.wasm")
 	if err != nil {
@@ -64,6 +65,68 @@ func TestHeadersAndFixedGateway(t *testing.T) {
 	}
 	if kind != websocket.BinaryMessage || string(returned) != string(payload) {
 		t.Fatalf("gateway corrupted bytes: %v", returned)
+	}
+}
+
+func TestPrivateLicensedProvisioning(t *testing.T) {
+	root := t.TempDir()
+	for name, contents := range map[string]string{
+		"Data/ch.dat": "licensed game data", "ObjData/ride.dat": "object data",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assets, err := loadLicensedAssets(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler(t.TempDir(), "127.0.0.1:11753", assets))
+	defer server.Close()
+	response, err := http.Get(server.URL + "/private/rct2/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest licensedManifest
+	if err := json.NewDecoder(response.Body).Decode(&manifest); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || manifest.Schema != 1 || len(manifest.Files) != 2 ||
+		len(manifest.Version) != 64 || response.Header.Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("private RCT2 manifest invalid: status=%d manifest=%+v", response.StatusCode, manifest)
+	}
+	response, err = http.Get(server.URL + "/private/rct2/files/Data/ch.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || response.StatusCode != http.StatusOK || string(contents) != "licensed game data" ||
+		response.Header.Get("Cross-Origin-Embedder-Policy") != "require-corp" {
+		t.Fatalf("private RCT2 file invalid: status=%d data=%q err=%v", response.StatusCode, contents, err)
+	}
+	response, err = http.Get(server.URL + "/private/rct2/files/unlisted.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("unlisted RCT2 file status=%d", response.StatusCode)
+	}
+	withoutAssets := httptest.NewServer(handler(t.TempDir(), "127.0.0.1:11753", nil))
+	defer withoutAssets.Close()
+	response, err = http.Get(withoutAssets.URL + "/private/rct2/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("unconfigured RCT2 manifest status=%d", response.StatusCode)
 	}
 }
 
