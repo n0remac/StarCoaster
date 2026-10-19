@@ -10,6 +10,7 @@ at(1, 0)[0].waterHeight = 128;
 let ride = { id: 17, name: 'Café 🎢 Carousel', type: 33, classification: 'ride',
     object: { identifier: 'rct2.ride.mgr1' }, status: 'closed', isEmpty: true };
 let rejectNextRideDemolition = false;
+let deferNextRideDemolition = false, completeRideDemolition = null;
 at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
     clearanceZ: 160, occupiedQuadrants: 15, trackType: 0, sequence: 0, direction: 0 });
 at(1, 2).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
@@ -88,9 +89,16 @@ const sandbox = {
                     return;
                 }
                 assert.equal(args.ride, 17); ride = null;
-                for (const elements of tiles.values()) for (let i = elements.length - 1; i >= 0; i--)
-                    if (elements[i].type === 'track') elements.splice(i, 1);
-                callback({}); return;
+                const finish = () => {
+                    for (const elements of tiles.values()) for (let i = elements.length - 1; i >= 0; i--)
+                        if (elements[i].type === 'track') elements.splice(i, 1);
+                    callback({});
+                };
+                if (deferNextRideDemolition) {
+                    deferNextRideDemolition = false;
+                    completeRideDemolition = finish;
+                } else finish();
+                return;
             }
             if (name === 'wallremove') {
                 const elements = at(5, 1);
@@ -489,7 +497,14 @@ assert.ok(waveStatus.query({ player: 2, args: { session: sid, request_id: button
     'client cannot forge wave feedback');
 const rideEntity = all.find(e => e.kind === 'ride');
 const event = { id: 'death:1', entity_id: rideEntity.id, proxy_id: 'openbw:8', type: 'destruction', health: 0 };
+const wallDeath = { id: 'death:wall', entity_id: wallTarget.id, proxy_id: 'openbw:10',
+    type: 'destruction', health: 0 };
+deferNextRideDemolition = true;
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid, payload: event }) + '\n');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid, payload: wallDeath }) + '\n');
+assert.equal(actions.filter(a => a.name === 'wallremove').length, 0,
+    'second destruction waits for the first OpenRCT2 callback');
+completeRideDemolition();
 drain();
 assert.equal(actions.filter(a => a.name === 'ridedemolish').length, 1);
 assert.equal(sent.find(m => m.kind === 'combat.result').payload.state, 'removal_confirmed');
@@ -497,9 +512,13 @@ assert.equal(sent.find(m => m.kind === 'combat.result').revision, 2);
 assert.ok(at(4, 1).some(element => element.type === 'small_scenery'));
 assert.ok(at(5, 1).some(element => element.type === 'wall'));
 assert.ok(at(5, 2).some(element => element.type === 'footpath'));
-socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.event', session: sid,
-    payload: { id: 'death:wall', entity_id: wallTarget.id, proxy_id: 'openbw:10',
-        type: 'destruction', health: 0 } }) + '\n');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.patch.status', session: sid,
+    revision: 2, payload: { patch_id: 'combat:death:1', state: 'synchronized' } }) + '\n');
+drain();
+assert.equal(actions.filter(a => a.name === 'wallremove').length, 1,
+    'queued destruction runs after the first revision synchronizes');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.patch.status', session: sid,
+    revision: 3, payload: { patch_id: 'combat:death:wall', state: 'synchronized' } }) + '\n');
 drain();
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'entity.remove', session: sid,
     payload: { id: wallTarget.id } }) + '\n');

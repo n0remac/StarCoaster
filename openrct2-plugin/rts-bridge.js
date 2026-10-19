@@ -670,6 +670,10 @@
         function combatEvent(message) {
             const event = message.payload, tracked = entities[event.entity_id];
             if (message.session !== session || !tracked || completed[event.id] || event.health !== 0 || event.type !== "destruction") return;
+            // Lock the ordered park revision before the OpenRCT2 action runs.
+            // Its callback may arrive on a later tick, while other native
+            // destruction events are already waiting in the socket buffer.
+            combatSyncID = "combat:" + event.id;
             const fresh = discover(), present = fresh.entities.filter(function (e) { return e.id === tracked.id; })[0];
             if (!present || JSON.stringify(present.geometry.cells) !== JSON.stringify(tracked.entity.geometry.cells)
                 || present.type !== tracked.entity.type || !tracked.removal.action) {
@@ -685,7 +689,6 @@
                 const confirmed = !result.error && !remaining;
                 if (confirmed) {
                     revision++;
-                    combatSyncID = "combat:" + event.id;
                     activeKeys[tracked.key] = false;
                     if (publishedWorld) publishedWorld = {
                         entities: publishedWorld.entities.filter(function (entity) { return entity.id !== tracked.id; }),

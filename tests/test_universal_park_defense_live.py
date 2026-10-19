@@ -187,7 +187,15 @@ def main():
             shutil.copy2(browser_artifacts / "runtime.json", RUN / "browser-first.json")
             report["checks"]["wasm_native_zergling_and_multiplayer"] = "passed"
             report["artifacts"]["browser_first"] = str(RUN / "browser-first.json")
-            report["artifacts"]["recording"] = [str(path) for path in browser_artifacts.glob("*.webm")]
+            first_images = []
+            for name in ("connected.png", "progress-10000.png", "final.png"):
+                source = browser_artifacts / name
+                if source.is_file():
+                    destination = RUN / ("browser-first-" + name)
+                    shutil.copy2(source, destination)
+                    first_images.append(str(destination))
+            report["artifacts"]["browser_first_images"] = first_images
+            report["artifacts"]["recording"] = []
             stream = (RUN / "browser-reconnect.log").open("w")
             streams.append(stream)
             reconnect = subprocess.Popen(["node", "browser/live-test.mjs"], cwd=ROOT,
@@ -200,11 +208,16 @@ def main():
             reconnect_report = json.loads((browser_artifacts / "runtime.json").read_text())
             if reconnect_report.get("outcome") != "passed":
                 raise AssertionError("browser reconnect did not recover gameplay")
-            if [item["id"] for item in runtime().get("waves") or []] != [wave["id"]]:
+            recovered_ids = [item["id"] for item in runtime().get("waves") or []]
+            if recovered_ids.count(wave["id"]) != 1 or len(recovered_ids) != len(set(recovered_ids)):
                 raise AssertionError("browser reconnect duplicated a wave")
             shutil.copy2(browser_artifacts / "runtime.json", RUN / "browser-reconnect.json")
             report["checks"]["browser_reconnect_no_duplicate_wave"] = "passed"
             report["artifacts"]["browser_reconnect"] = str(RUN / "browser-reconnect.json")
+            reconnect_image = browser_artifacts / "connected.png"
+            if reconnect_image.is_file():
+                shutil.copy2(reconnect_image, RUN / "browser-reconnect-connected.png")
+                report["artifacts"]["browser_reconnect_image"] = str(RUN / "browser-reconnect-connected.png")
         report["status"] = "passed"
     except Exception as exc:
         report["error"] = str(exc)
