@@ -19,6 +19,9 @@ func TestHeadersAndFixedGateway(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "client.wasm"), []byte("wasm"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("app"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	tcp, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +47,14 @@ func TestHeadersAndFixedGateway(t *testing.T) {
 		response.Header.Get("Cross-Origin-Opener-Policy") != "same-origin" ||
 		response.Header.Get("Cross-Origin-Embedder-Policy") != "require-corp" {
 		t.Fatalf("browser response headers: %v", response.Header)
+	}
+	app, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Body.Close()
+	if app.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("browser entrypoint may be cached: %v", app.Header)
 	}
 	endpoint := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 	_, denied, err := websocket.DefaultDialer.Dial(endpoint, http.Header{"Origin": []string{"https://other.example"}})

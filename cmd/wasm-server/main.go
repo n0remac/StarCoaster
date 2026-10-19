@@ -286,6 +286,10 @@ func handler(bundle, native string, assets *licensedAssets) http.Handler {
 		w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		switch r.URL.Path {
+		case "/", "/index.html", "/index.js", "/manifest.json":
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		if filepath.Ext(r.URL.Path) == ".wasm" {
 			w.Header().Set("Content-Type", "application/wasm")
 		}
