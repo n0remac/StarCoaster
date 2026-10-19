@@ -1650,7 +1650,10 @@
         if (typeof ui !== "undefined") {
             let selected = [];
             let highlightedTiles = "";
-            let nextRequest = 0;
+            // A remote plugin is restarted on reconnect while the server keeps
+            // its command and spawn deduplication journals for this session.
+            const requestEpoch = Date.now();
+            let nextRequest = requestEpoch;
             let selectingMultiple = false;
             let selectionSession = "";
             let dragStart = null;
@@ -1659,8 +1662,8 @@
             let spawnMode = false;
             let spawnPreview = null;
             let spawnCount = 5;
-            let nextSpawnRequest = 0;
-            let nextWaveRequest = 0;
+            let nextSpawnRequest = requestEpoch;
+            let nextWaveRequest = requestEpoch;
             let constructionWindow = null;
             let buildingInfoWindow = null;
             let buildingInfoID = "";

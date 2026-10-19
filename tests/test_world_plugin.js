@@ -475,10 +475,13 @@ const waveButton = squadWidgets.find(widget => widget.name === 'spawn-wave');
 assert.equal(waveButton.text, 'Spawn Wave');
 waveButton.onClick();
 drain();
-assert.ok(sent.some(message => message.kind === 'scenario.wave.request'
-    && message.payload.request_id === waveArgs.request_id), 'button routes a wave through the server bridge');
+const buttonWave = sent.filter(message => message.kind === 'scenario.wave.request').at(-1);
+assert.ok(buttonWave && buttonWave.payload.request_id.startsWith(`${sid}:wave:1:`),
+    'button routes a wave through the server bridge');
+assert.ok(Number(buttonWave.payload.request_id.split(':').at(-1)) > 1_000_000_000_000,
+    'new plugin instances start request IDs beyond prior reconnect journals');
 const waveStatus = registered.get('rtsbridge.waveStatus');
-assert.ok(waveStatus.query({ player: 2, args: { session: sid, request_id: waveArgs.request_id,
+assert.ok(waveStatus.query({ player: 2, args: { session: sid, request_id: buttonWave.payload.request_id,
     accepted: true, wave_id: 'manual-0001', state: 'queued', reason: '' } }).error,
     'client cannot forge wave feedback');
 const rideEntity = all.find(e => e.kind === 'ride');
