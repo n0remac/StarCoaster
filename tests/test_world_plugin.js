@@ -32,6 +32,7 @@ at(6, 6).push({ type: 'footpath', object: 4, surfaceObject: 4,
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
 const shortcuts = new Map();
 const menuItems = new Map();
+const savedGames = [];
 let selectionTool, activeTool = null;
 const actorScreens = new Map();
 let squadWidgets;
@@ -64,13 +65,13 @@ const sandbox = {
                     payload: { op_id: m.op_id, accepted: true } }) + '\n');
             } }; return socket;
     } },
-    rtsBridge: { version: 5, assetVersion: 4, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, applySnapshot(snapshot) { applied.push(snapshot); },
+    rtsBridge: { version: 5, assetVersion: 4, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, clearSnapshot() {}, applySnapshot(snapshot) { applied.push(snapshot); },
         actorScreenPosition(id) { return actorScreens.get(id) || null; },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
     ui: { tileSelection: { tiles: [] }, get tool() { return activeTool; }, openWindow(desc) { squadWidgets = desc.widgets;
             openedWindows.push(desc);
             const camera = { zoom: 1, rotation: 0, moveTo(position) { this.centre = position; } };
-            return { findWidget(name) { const widget = desc.widgets.find(item => item.name === name);
+            return { bringToFront() {}, findWidget(name) { const widget = desc.widgets.find(item => item.name === name);
                     if (widget && name === 'building-camera') widget.viewport = camera;
                     return widget; }, close() { if (desc.onClose) desc.onClose(); } }; },
         registerShortcut(shortcut) { shortcuts.set(shortcut.id, shortcut); },
@@ -78,7 +79,8 @@ const sandbox = {
         registerViewportInteraction(handler) { selectionTool = handler; },
         activateTool(tool) { if (activeTool) activeTool.cancel(); activeTool = tool;
             tool.cancel = function () { activeTool = null; if (tool.onFinish) tool.onFinish(); }; }, showError() {} },
-    context: { registerAction(name, query, execute) { registered.set(name, { query, execute }); },
+    context: { saveGame(options) { savedGames.push(options.filename); },
+        registerAction(name, query, execute) { registered.set(name, { query, execute }); },
         subscribe(name, callback) { const previous = subscriptions.get(name);
             subscriptions.set(name, previous ? function (event) { previous(event); callback(event); } : callback);
         }, executeAction(name, args, callback) { actions.push({ name, args });
@@ -342,38 +344,11 @@ const wallTarget = all.find(e => e.kind === 'wall');
 const sceneryTarget = all.find(e => e.kind === 'small_scenery');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.ready', session: sid,
     payload: { entities: 8, targets: 3, target_ids: [rideTarget.id, wallTarget.id, sceneryTarget.id], navigation: 'native' } }) + '\n');
-const spawnAction = registered.get('rtsbridge.spawnMarine');
-const spawnArgs = { session: sid, request_id: sid + ':spawn:1:1', count: 5, x: 96, y: 96 };
-assert.equal(spawnAction.query({ player: 1, args: spawnArgs }).error, undefined,
-    'current commander may request reinforcements');
-assert.ok(spawnAction.query({ player: 2, args: spawnArgs }).error,
-    'another player cannot request Marine reinforcements');
-assert.ok(spawnAction.query({ player: 1, args: { ...spawnArgs, count: 6 } }).error,
-    'spawn action caps batches at five');
-assert.ok(spawnAction.query({ player: 1, args: { ...spawnArgs, x: 9999 } }).error,
-    'spawn action rejects locations outside the park');
-squadWidgets.find(widget => widget.name === 'spawn-mode').onClick();
-assert.equal(activeTool.id, 'starcoaster.spawn-marine', 'spawn button activates park placement tool');
-activeTool.onMove({ mapCoords: { x: 96, y: 96 } });
-assert.equal(sandbox.ui.tileSelection.tiles.length, 1, 'spawn placement is highlighted');
-activeTool.onDown({ mapCoords: { x: 96, y: 96 } });
-drain();
-const spawnRequest = sent.filter(message => message.kind === 'unit.spawn.request').at(-1);
-assert.ok(spawnRequest && spawnRequest.payload.count === 5 && spawnRequest.payload.unit_type === 'terran_marine');
-assert.equal(activeTool, null, 'placement restores park interaction and passive selection');
-socket.handlers.data(JSON.stringify({ v: 1, kind: 'unit.spawn.status', session: sid,
-    payload: { request_id: spawnRequest.payload.request_id, state: 'ready', units: [
-        { index: 0, state: 'ready', actor_id: 'openbw:3001' },
-        { index: 1, state: 'ready', actor_id: 'openbw:3002' } ] } }) + '\n');
-assert.ok(actions.some(action => action.name === 'rtsbridge.spawnStatus' && action.args.state === 'ready'),
-    'spawn progress is synchronized to clients');
-const requestsBeforeCancel = sent.filter(message => message.kind === 'unit.spawn.request').length;
-squadWidgets.find(widget => widget.name === 'spawn-mode').onClick();
-activeTool.cancel();
-subscriptions.get('interval.tick')();
-assert.equal(sent.filter(message => message.kind === 'unit.spawn.request').length, requestsBeforeCancel,
-    'canceling placement does not issue a spawn request');
-assert.equal(activeTool, null, 'spawn cancellation restores park interaction');
+assert.ok(!openedWindows.some(window => window.classification === 'starcoaster-squad'),
+    'legacy Marine and wave window does not open');
+assert.ok(!openedWindows.flatMap(window => window.widgets).some(widget =>
+    widget.name === 'spawn-mode' || widget.name === 'spawn-count' || widget.name === 'spawn-wave'),
+    'legacy spawning controls are absent');
 assert.ok(actions.filter(a => a.name === 'rtsbridge.targetCatalog').at(-1).args.targets
     .some(target => target.id === rideTarget.id));
 const structureArgs = { session: sid, request: 10003, unit_ids: ['openbw:1000'],
@@ -468,28 +443,29 @@ const parkStatus = { session: sid, scenario_id: 'mt-zergling', display_name: 'Mt
     mode: 'park_defense', objective: 'Manage and defend the park', wave_ordinal: 0, wave_total: 0,
     wave_state: 'pending', outcome: '', error: '', total_triggered: 0, next_wave_seconds: 120,
     active_zerglings: 0, manual_cooldown_seconds: 0, manual_eligible: true,
-    defense_enabled: true };
+    defense_enabled: true, defense_configurable: true, wave_interval_seconds: 120,
+    wave_difficulty: 'standard', active_enemies: 0, unlimited_resources: true };
 assert.equal(missionAction.query({ player: 1, args: parkStatus }).error, undefined);
 missionAction.execute({ player: 1, args: parkStatus });
-missionAction.execute({ player: 1, args: { ...parkStatus, error: 'spawn_zones_temporarily_blocked' } });
+const spawnAction = registered.get('rtsbridge.spawnMarine');
+const spawnArgs = { session: sid, request_id: sid + ':spawn:1:1', count: 5, x: 96, y: 96 };
+assert.match(spawnAction.query({ player: 1, args: spawnArgs }).errorMessage, /Train Marines/,
+    'ordinary park defense refuses direct player Marine spawns');
+menuItems.get('StarCraft Defense')();
+const defenseWidgets = openedWindows.find(window => window.classification === 'starcoaster-defense').widgets;
 subscriptions.get('interval.tick')();
-assert.equal(squadWidgets.find(widget => widget.name === 'wave-feedback').text,
-    'Spawn edges occupied; retrying', 'temporarily blocked waves show a retry message');
-missionAction.execute({ player: 1, args: parkStatus });
 const waveArgs = { session: sid, request: 1, request_id: `${sid}:wave:1:1` };
 assert.equal(waveAction.query({ player: 1, args: waveArgs }).error, undefined);
 assert.match(waveAction.query({ player: 2, args: { ...waveArgs, request_id: `${sid}:wave:2:1` } }).errorMessage,
     /commander/, 'only the authorized commander can request an extra wave');
 assert.ok(waveAction.query({ player: 1, args: { ...waveArgs, session: 'stale' } }).error,
     'stale wave request is rejected');
-const waveButton = squadWidgets.find(widget => widget.name === 'spawn-wave');
-assert.equal(waveButton.text, 'Spawn Wave');
+const waveButton = defenseWidgets.find(widget => widget.text === 'Spawn Wave Now');
+assert.ok(waveButton, 'extra wave is available from StarCraft Defense');
 missionAction.execute({ player: 1, args: { ...parkStatus, defense_enabled: false,
     manual_eligible: false } });
 subscriptions.get('interval.tick')();
-assert.equal(squadWidgets.find(widget => widget.name === 'wave-countdown').text, 'Next: disabled');
-assert.equal(squadWidgets.find(widget => widget.name === 'wave-feedback').text,
-    'Enable waves in StarCraft Defense');
+assert.equal(defenseWidgets.find(widget => widget.name === 'defense-next').text, 'Next wave: disabled');
 missionAction.execute({ player: 1, args: parkStatus });
 waveButton.onClick();
 drain();
@@ -764,7 +740,7 @@ const defenseStatus = { ...parkStatus, defense_configurable: true, defense_enabl
 missionAction.execute({ player: 1, args: defenseStatus });
 assert.ok(menuItems.has('StarCraft Defense'), 'defense menu is registered');
 menuItems.get('StarCraft Defense')();
-const defenseWindow = openedWindows.at(-1);
+const defenseWindow = openedWindows.find(window => window.classification === 'starcoaster-defense');
 assert.equal(defenseWindow.title, 'StarCraft Defense');
 menuItems.get('StarCraft Construction')();
 const constructionWindow = openedWindows.at(-1);
@@ -791,4 +767,36 @@ activeTool.onDown({ mapCoords: { x: 4 * 32, y: 4 * 32 } });
 drain();
 assert.deepEqual(Array.from(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.anchor),
     [4, 4], 'spawn tool forwards the chosen tile');
+const parks = { phase: 'ready', current: 'Park A.park', pending: '', error: '',
+    generation: 'a'.repeat(32), parks: ['Park A.park', 'Park B.park'] };
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'park.catalog', session: sid, payload: parks }) + '\n');
+assert.ok(menuItems.has('StarCoaster: Load Park'), 'park switching menu is registered');
+const loadAction = registered.get('rtsbridge.loadPark');
+const loadArgs = { session: sid, generation: parks.generation, park: 'Park B.park', decision: 'discard' };
+assert.match(loadAction.query({ player: 2, args: loadArgs }).errorMessage, /commander or host/);
+assert.ok(loadAction.query({ player: 1, args: { ...loadArgs, generation: 'b'.repeat(32) } }).error,
+    'old park generations cannot request a transition');
+assert.ok(loadAction.query({ player: 1, args: { ...loadArgs, park: '../secrets.park' } }).error,
+    'the menu cannot send a path outside the private park library');
+menuItems.get('StarCoaster: Load Park')();
+const loadWindow = openedWindows.find(window => window.classification === 'starcoaster-load-park');
+assert.deepEqual(Array.from(loadWindow.widgets.find(widget => widget.name === 'park-list').items), parks.parks);
+loadWindow.widgets.find(widget => widget.name === 'park-list').onChange(1);
+loadWindow.widgets.find(widget => widget.text === 'Load selected park').onClick();
+let confirmation = openedWindows.filter(window => window.classification === 'starcoaster-load-confirm').at(-1);
+assert.ok(confirmation.widgets.some(widget => widget.text === 'Cancel'), 'switch can be canceled');
+confirmation.widgets.find(widget => widget.text === 'Discard changes and switch').onClick();
+drain();
+assert.equal(sent.filter(message => message.kind === 'park.load.request').at(-1).payload.park, 'Park B.park');
+assert.equal(sent.filter(message => message.kind === 'park.load.request').at(-1).payload.decision, 'discard');
+assert.ok(!savedGames.length, 'discard does not save the host park');
+registered.get('rtsbridge.parkCatalog').execute({ player: 1, args: parks });
+loadWindow.widgets.find(widget => widget.text === 'Load selected park').onClick();
+confirmation = openedWindows.filter(window => window.classification === 'starcoaster-load-confirm').at(-1);
+confirmation.widgets.find(widget => widget.text === 'Save and switch').onClick();
+drain();
+const savedLoad = sent.filter(message => message.kind === 'park.load.request').at(-1).payload;
+assert.match(savedLoad.save_name, /^starcoaster-switch-[0-9a-f]{16}\.park$/);
+assert.equal(savedGames.at(-1) + '.park', savedLoad.save_name,
+    'the authoritative host saves using OpenRCT2 before switching');
 console.log('world plugin discovery and lifecycle validation passed');

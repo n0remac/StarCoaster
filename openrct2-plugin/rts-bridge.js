@@ -18,6 +18,9 @@
     const WAVE_STATUS_ACTION = "rtsbridge.waveStatus";
     const DEFENSE_ACTION = "rtsbridge.configureDefense";
     const DEFENSE_RESULT_ACTION = "rtsbridge.defenseResult";
+    const PARK_CATALOG_ACTION = "rtsbridge.parkCatalog";
+    const PARK_LOAD_ACTION = "rtsbridge.loadPark";
+    const PARK_LOAD_STATUS_ACTION = "rtsbridge.parkLoadStatus";
     // Supported integration types only. Native rules remain in OpenBW.
     // BEGIN GENERATED STARCRAFT TYPES
     const UNIT_TYPES = Object.freeze({
@@ -69,7 +72,8 @@
     }
 
     function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor,
-                               onSpawnSender, onSpawnStatus, onWaveSender, onWaveStatus, onDefenseSender, onDefenseResult) {
+                               onSpawnSender, onSpawnStatus, onWaveSender, onWaveStatus, onDefenseSender, onDefenseResult,
+                               onParkSender, onParkCatalog, onParkLoadStatus) {
         const session = Array.from({ length: 4 }, function () {
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
@@ -215,6 +219,7 @@
         });
         onWaveSender(function (payload) { send("scenario.wave.request", payload); });
         onDefenseSender(function (payload) { send("scenario.defense.request", payload); });
+        onParkSender(function (payload) { send("park.load.request", payload); });
         function rotate(offset, direction) {
             if (direction === 1) return { x: offset.y, y: -offset.x };
             if (direction === 2) return { x: -offset.x, y: -offset.y };
@@ -833,6 +838,11 @@
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
             else if (message.kind === "scenario.defense.result" && message.payload) onDefenseResult(message.payload);
+            else if (message.kind === "park.catalog" && message.payload) onParkCatalog(message.payload);
+            else if (message.kind === "park.load.status" && message.payload) {
+                onParkLoadStatus(message.payload);
+                if (!message.payload.accepted) send("park.catalog.request", {});
+            }
             else if (message.kind === "combat.snapshot") {
                 const state = message.payload;
                 if (!state || !Number.isSafeInteger(state.seq) || state.seq <= lastCombatSeq
@@ -856,6 +866,7 @@
                 Object.keys(entities).forEach(function (id) { entities[id].activeTarget = false; });
                 targets.forEach(function (item) { entities[item.id].activeTarget = true; });
                 onTargets(session, targets);
+                send("park.catalog.request", {});
                 console.log("WORLD_READY entities=" + message.payload.entities
                     + " targets=" + message.payload.targets + " obstacles=" + message.payload.obstacles
                     + " navigation=" + message.payload.navigation
@@ -987,11 +998,13 @@
     function main() {
         if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 4
             || typeof rtsBridge.applySnapshot !== "function"
+            || typeof rtsBridge.clearSnapshot !== "function"
             || typeof rtsBridge.invalidateAnimation !== "function"
             || typeof rtsBridge.setBuildingAnimations !== "function"
             || typeof rtsBridge.actorScreenPosition !== "function") {
             throw new Error("RTS Bridge needs the matching native OpenRCT2 build and asset pack");
         }
+        rtsBridge.clearSnapshot();
 
         const buildingObjects = {};
         if (typeof objectManager === "object") {
@@ -1011,6 +1024,13 @@
         }
 
         let controlSession = "";
+        context.subscribe("map.change", function () {
+            rtsBridge.clearSnapshot();
+            if (controlSession && parkCatalog && parkCatalog.phase === "ready"
+                && typeof ui !== "undefined")
+                ui.showError("StarCoaster park session",
+                    "Use StarCoaster: Load Park to change the shared game. Reconnect if you loaded a local save.");
+        });
         let controlUnits = {};
         let occupancyUnits = {};
         let actorLifecycleSession = "";
@@ -1031,10 +1051,12 @@
         let worldSpawnSender = null;
         let worldWaveSender = null;
         let worldDefenseSender = null;
+        let worldParkSender = null;
+        let parkCatalog = null;
+        let parkLoadStatus = null;
         let defenseFeedback = "";
         let waveFeedback = "";
         let waveFeedbackUntil = 0;
-        let spawnFeedback = "";
         const spawnStatuses = {};
         let worldTargetIds = {};
         let targetCatalogSession = "";
@@ -1150,17 +1172,8 @@
         }, function (event) {
             const args = event.args;
             spawnStatuses[args.request_id] = args;
-            const ready = args.units.filter(function (unit) { return unit.state === "ready"; });
-            const failure = args.units.filter(function (unit) {
-                return (unit.state === "failed" || unit.state === "rejected") && unit.reason;
-            })[0];
-            const reason = args.reason || (failure ? failure.reason : "");
-            spawnFeedback = args.state === "ready" && ready.length ? ready.length + " Marines ready ("
-                + ready[0].actor_id + " to " + ready[ready.length - 1].actor_id + ")"
-                : "Spawn " + args.state + (reason ? ": " + reason : "")
-                + (args.units.length ? " (" + ready.length + "/" + args.units.length + " ready)" : "");
             console.log("WORLD_SPAWN_STATUS request=" + args.request_id + " state=" + args.state
-                + " ready=" + ready.length + " ids=" + ready.map(function (unit) { return unit.actor_id; }).join(","));
+                + " ready=" + args.units.filter(function (unit) { return unit.state === "ready"; }).length);
             return {};
         });
         context.registerAction(ACTION, function (event) {
@@ -1388,6 +1401,8 @@
             });
             context.registerAction(WAVE_ACTION, function (event) {
                 const args = event.args || {};
+                if (parkCatalog && parkCatalog.phase !== "ready")
+                    return { error: 1, errorMessage: "Park is changing" };
                 if (!Array.isArray(network.players) || !network.players.some(function (player) {
                     return player.id === event.player;
                 })) return { error: 1, errorMessage: "Player is not connected" };
@@ -1419,6 +1434,8 @@
             });
             context.registerAction(DEFENSE_ACTION, function (event) {
                 const args = event.args || {};
+                if (parkCatalog && parkCatalog.phase !== "ready")
+                    return { error: 1, errorMessage: "Park is changing" };
                 if (!Array.isArray(network.players) || !network.players.some(function (player) {
                     return player.id === event.player;
                 })) return { error: 1, errorMessage: "Player is not connected" };
@@ -1465,6 +1482,73 @@
                 defenseFeedback = event.args.accepted ? "Defense settings saved" : "Defense: " + event.args.reason;
                 return {};
             });
+            context.registerAction(PARK_CATALOG_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may report available parks" };
+                return ["running", "preparing", "switching", "starting", "ready", "failed"].includes(args.phase)
+                    && typeof args.current === "string" && typeof args.pending === "string"
+                    && typeof args.generation === "string" && /^[0-9a-f]{32}$/.test(args.generation)
+                    && typeof args.error === "string" && args.error.length < 256
+                    && Array.isArray(args.parks) && args.parks.length <= 256
+                    && args.parks.every(function (name) {
+                        return typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}\.park$/.test(name);
+                    }) ? {} : { error: 1, errorMessage: "Invalid park catalog" };
+            }, function (event) {
+                parkCatalog = event.args;
+                return {};
+            });
+            context.registerAction(PARK_LOAD_STATUS_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may report park changes" };
+                return typeof args.accepted === "boolean" && typeof args.reason === "string"
+                    && args.reason.length <= 128 && typeof args.park === "string"
+                    && typeof args.generation === "string"
+                    ? {} : { error: 1, errorMessage: "Invalid park transition status" };
+            }, function (event) {
+                parkLoadStatus = event.args;
+                if (event.args.accepted && parkCatalog
+                    && parkCatalog.generation === event.args.generation)
+                    parkCatalog = Object.assign({}, parkCatalog,
+                        { phase: "preparing", pending: event.args.park });
+                return {};
+            });
+            context.registerAction(PARK_LOAD_ACTION, function (event) {
+                const args = event.args || {};
+                if (!Array.isArray(network.players) || !network.players.some(function (player) {
+                    return player.id === event.player;
+                })) return { error: 1, errorMessage: "Player is not connected" };
+                if (network.mode === "server") {
+                    electCommander();
+                    if (event.player !== commanderPlayer && event.player !== network.currentPlayer.id)
+                        return { error: 1, errorMessage: "Only the commander or host may load a park" };
+                    if (!worldParkSender) return { error: 1, errorMessage: "Park supervisor disconnected" };
+                }
+                if (!parkCatalog || parkCatalog.phase !== "ready"
+                    || args.session !== controlSession || args.generation !== parkCatalog.generation
+                    || !parkCatalog.parks.includes(args.park)
+                    || !["save", "discard"].includes(args.decision))
+                    return { error: 1, errorMessage: "Invalid or busy park transition" };
+                return {};
+            }, function (event) {
+                if (network.mode !== "server") return {};
+                const args = event.args;
+                let saveName = "";
+                if (args.decision === "save") {
+                    const token = Array.from({ length: 4 }, function () {
+                        return Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+                    }).join("");
+                    saveName = "starcoaster-switch-" + token + ".park";
+                    context.saveGame({ filename: saveName.slice(0, -5) });
+                }
+                worldParkSender({ park: args.park, decision: args.decision,
+                    generation: args.generation, save_name: saveName,
+                    player_id: event.player, commander_id: event.player });
+                parkCatalog = Object.assign({}, parkCatalog, { phase: "preparing", pending: args.park });
+                context.executeAction(PARK_CATALOG_ACTION, parkCatalog, function () {});
+                return {};
+            });
             context.registerAction(WAVE_STATUS_ACTION, function (event) {
                 const args = event.args || {};
                 if (network.mode === "server" && event.player !== network.currentPlayer.id)
@@ -1483,6 +1567,8 @@
             });
             context.registerAction(COMMAND_ACTION, function (event) {
                 const args = event.args;
+                if (parkCatalog && parkCatalog.phase !== "ready")
+                    return { error: 1, errorMessage: "Park is changing" };
                 if (outcomeState) return { error: 1, errorMessage: "Battle has ended" };
                 if (network.mode === "server" && (!Array.isArray(network.players)
                     || !network.players.some(function (player) { return player.id === event.player; })))
@@ -1573,6 +1659,9 @@
             });
             context.registerAction(SPAWN_ACTION, function (event) {
                 const args = event.args || {};
+                if (missionStatus && missionStatus.mode === "park_defense"
+                    && missionStatus.defense_configurable)
+                    return { error: 1, errorMessage: "Train Marines at a Barracks" };
                 if (outcomeState) return { error: 1, errorMessage: "Battle has ended" };
                 if (!Array.isArray(network.players) || !network.players.some(function (player) {
                     return player.id === event.player;
@@ -1750,6 +1839,8 @@
                 });
                 if (missionStatus && missionStatus.session === controlSession)
                     context.executeAction(SCENARIO_STATUS_ACTION, missionStatus, function () {});
+                if (parkCatalog)
+                    context.executeAction(PARK_CATALOG_ACTION, parkCatalog, function () {});
             }
             if (network.mode === "client"
                 && (!controlSession || clientReadySession !== controlSession) && !clientReadyPending
@@ -1784,10 +1875,6 @@
             let dragStart = null;
             let dragEnd = null;
             let attackMove = false;
-            let spawnMode = false;
-            let spawnPreview = null;
-            let spawnCount = 5;
-            let nextSpawnRequest = requestEpoch;
             let nextWaveRequest = requestEpoch;
             let constructionWindow = null;
             let buildingInfoWindow = null;
@@ -2003,11 +2090,71 @@
                             text: "Minerals: Unlimited | Gas: Unlimited" }
                     ] });
             }
+            let loadParkWindow = null;
+            let confirmParkWindow = null;
+            let selectedPark = "";
+            function requestParkLoad(park, decision) {
+                if (!parkCatalog || parkCatalog.phase !== "ready" || !controlSession) return;
+                context.executeAction(PARK_LOAD_ACTION, { session: controlSession,
+                    generation: parkCatalog.generation, park: park, decision: decision }, function (result) {
+                    if (result.error) ui.showError("Load Park", result.errorMessage);
+                });
+                if (confirmParkWindow) confirmParkWindow.close();
+            }
+            function confirmParkLoad() {
+                if (!parkCatalog || !parkCatalog.parks.includes(selectedPark)) return;
+                if (confirmParkWindow) { confirmParkWindow.bringToFront(); return; }
+                confirmParkWindow = ui.openWindow({ classification: "starcoaster-load-confirm",
+                    width: 276, height: 137, title: "Switch to " + selectedPark,
+                    onClose: function () { confirmParkWindow = null; }, widgets: [
+                        { type: "label", x: 8, y: 21, width: 260, height: 28,
+                            text: "Save changes to the current park?" },
+                        { type: "button", x: 8, y: 55, width: 260, height: 22,
+                            text: "Save and switch", onClick: function () { requestParkLoad(selectedPark, "save"); } },
+                        { type: "button", x: 8, y: 80, width: 260, height: 22,
+                            text: "Discard changes and switch", onClick: function () { requestParkLoad(selectedPark, "discard"); } },
+                        { type: "button", x: 8, y: 105, width: 260, height: 22,
+                            text: "Cancel", onClick: function () { confirmParkWindow.close(); } }
+                    ] });
+            }
+            function openLoadParkWindow() {
+                if (!parkCatalog) {
+                    ui.showError("Load Park", "Park library is unavailable; wait for the game to connect");
+                    return;
+                }
+                if (loadParkWindow) { loadParkWindow.bringToFront(); return; }
+                const choices = parkCatalog.parks.slice();
+                selectedPark = choices.includes(selectedPark) ? selectedPark : choices[0] || "";
+                loadParkWindow = ui.openWindow({ classification: "starcoaster-load-park",
+                    width: 298, height: 139, title: "StarCoaster: Load Park",
+                    onClose: function () { loadParkWindow = null; }, widgets: [
+                        { type: "label", name: "park-current", x: 8, y: 20, width: 282, height: 14,
+                            text: "Current: " + parkCatalog.current },
+                        { type: "label", x: 8, y: 40, width: 282, height: 14,
+                            text: "Available parks on this server:" },
+                        { type: "dropdown", name: "park-list", x: 8, y: 58, width: 282, height: 18,
+                            items: choices, selectedIndex: Math.max(0, choices.indexOf(selectedPark)),
+                            onChange: function (index) { selectedPark = choices[index] || ""; } },
+                        { type: "button", x: 8, y: 83, width: 282, height: 22,
+                            text: "Load selected park", onClick: confirmParkLoad },
+                        { type: "label", name: "park-transition", x: 8, y: 112, width: 282, height: 18,
+                            text: "Status: " + parkCatalog.phase }
+                    ] });
+            }
             if (typeof ui.registerMenuItem === "function") {
                 ui.registerMenuItem("StarCraft Construction", openConstructionWindow);
                 ui.registerMenuItem("StarCraft Defense", openDefenseWindow);
+                ui.registerMenuItem("StarCoaster: Load Park", openLoadParkWindow);
             }
             context.subscribe("interval.tick", function () {
+                if (loadParkWindow && parkCatalog) {
+                    const current = loadParkWindow.findWidget("park-current");
+                    const transition = loadParkWindow.findWidget("park-transition");
+                    if (current) current.text = "Current: " + parkCatalog.current;
+                    if (transition) transition.text = "Status: " + parkCatalog.phase
+                        + (parkCatalog.pending ? " " + parkCatalog.pending : "")
+                        + (parkCatalog.error ? " | " + parkCatalog.error : "");
+                }
                 if (!defenseWindow) return;
                 const status = missionStatus;
                 if (!status) return;
@@ -2027,36 +2174,6 @@
                 setText("defense-resources", status.unlimited_resources
                     ? "Minerals: Unlimited | Gas: Unlimited" : "Resources: native balance");
             });
-            const squadWindow = ui.openWindow({ classification: "starcoaster-squad",
-                width: 248, height: 231, title: "Frontier Outpost", widgets: [
-                    { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
-                        text: "Waiting for battlefield" },
-                    { type: "label", x: 8, y: 38, width: 232, height: 14,
-                        text: "Drag select | A attack | H hold | S stop" },
-                    { type: "label", name: "objective", x: 8, y: 57, width: 232, height: 14,
-                        text: "Defend Frontier Carousel" },
-                    { type: "label", name: "command", x: 8, y: 75, width: 232, height: 14,
-                        text: "Select units to issue orders" },
-                    { type: "dropdown", name: "spawn-count", x: 8, y: 96, width: 72, height: 14,
-                        items: ["1 Marine", "2 Marines", "3 Marines", "4 Marines", "5 Marines"],
-                        selectedIndex: 4, onChange: function (index) { spawnCount = index + 1; } },
-                    { type: "button", name: "spawn-mode", x: 88, y: 94, width: 152, height: 20,
-                        text: "Spawn Marine", onClick: function () { activateSpawnTool(); } },
-                    { type: "button", name: "select-mode", x: 8, y: 119, width: 72, height: 20,
-                        text: "Select", onClick: function () { if (ui.tool) ui.tool.cancel(); } },
-                    { type: "label", name: "spawn-status", x: 88, y: 121, width: 152, height: 14,
-                        text: "Call in reinforcements" },
-                    { type: "label", name: "spawn-detail", x: 8, y: 144, width: 232, height: 14,
-                        text: "Alt-click: park objects beneath units" },
-                    { type: "button", name: "spawn-wave", x: 8, y: 164, width: 84, height: 20,
-                        text: "Spawn Wave", onClick: function () { requestWave(); } },
-                    { type: "label", name: "wave-countdown", x: 100, y: 167, width: 140, height: 14,
-                        text: "Waiting for wave status" },
-                    { type: "label", name: "wave-feedback", x: 8, y: 188, width: 232, height: 14,
-                        text: "" },
-                    { type: "label", name: "player-resources", x: 8, y: 207, width: 232, height: 14,
-                        text: "" }
-                ] });
             function requestWave() {
                 if (!controlSession || !missionStatus || missionStatus.mode !== "park_defense"
                     || !missionStatus.manual_eligible) {
@@ -2082,7 +2199,6 @@
                     selectionSession = controlSession; selected = [];
                     Object.keys(controlGroups).forEach(function (number) { delete controlGroups[number]; });
                     commandFeedback = "";
-                    spawnFeedback = "";
                     waveFeedback = "";
                     waveFeedbackUntil = 0;
                 }
@@ -2099,68 +2215,17 @@
 
                     const tiles = usingBuildingTool() && barracksPreview
                         ? barracksPreview.tiles.map(function (tile) { return { x: tile.x * 32, y: tile.y * 32 }; })
-                        : spawnMode && spawnPreview ? [spawnPreview] : selected.map(function (id) {
+                        : selected.map(function (id) {
                         const unit = controlUnits[id];
                         return { x: Math.floor(unit.x / 32) * 32, y: Math.floor(unit.y / 32) * 32 };
                     });
                     const key = JSON.stringify(tiles);
-                    if (ui.tool && !spawnMode && !usingBuildingTool()) highlightedTiles = "";
+                    if (ui.tool && !usingBuildingTool()) highlightedTiles = "";
                     else if (key !== highlightedTiles) {
                         ui.tileSelection.tiles = tiles;
                         highlightedTiles = key;
                     }
 
-                if (squadWindow) {
-                    if (waveFeedback && Date.now() >= waveFeedbackUntil) waveFeedback = "";
-                    if (missionStatus && missionStatus.session === controlSession)
-                        squadWindow.title = missionStatus.display_name;
-                    const info = squadWindow.findWidget("selection");
-                    const selectionName = selected.length && selected.every(function (id) {
-                        return controlUnits[id].kind === controlUnits[selected[0]].kind;
-                    }) ? UNIT_TYPES[controlUnits[selected[0]].kind].name : "Unit";
-                    if (info) info.text = selected.length + " " + selectionName + (selected.length === 1 ? "" : "s")
-                        + " selected" + (selected.length === 1 ? " | HP " + controlUnits[selected[0]].hp : "");
-                    const resources = squadWindow.findWidget("player-resources");
-                    const report = playerResources[terranOwner];
-                    if (resources) resources.text = report ? (missionStatus && missionStatus.unlimited_resources
-                        ? "Minerals: Unlimited  Gas: Unlimited  Supply: "
-                        : "Minerals: " + report.minerals + "  Gas: " + report.gas + "  Supply: ")
-                        + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
-                    const objective = squadWindow.findWidget("objective");
-                    if (objective) objective.text = missionStatus && missionStatus.session === controlSession
-                        ? (missionStatus.mode === "park_defense"
-                            ? "Park defense | " + missionStatus.total_triggered + " waves | "
-                                + (missionStatus.active_enemies === undefined
-                                    ? missionStatus.active_zerglings : missionStatus.active_enemies) + " enemies"
-                            : missionStatus.error ? "Wave error: " + missionStatus.error
-                            : missionStatus.outcome === "victory" ? "Victory: " + missionStatus.objective
-                            : missionStatus.outcome === "defeat" ? "Defeat: " + missionStatus.objective
-                            : missionStatus.objective + (missionStatus.wave_total
-                                ? " | Wave " + missionStatus.wave_ordinal + "/" + missionStatus.wave_total : ""))
-                        : "Waiting for mission status";
-                    const command = squadWindow.findWidget("command");
-                    if (command) command.text = commandFeedback || "Select units to issue orders";
-                    const status = squadWindow.findWidget("spawn-status");
-                    if (status) status.text = spawnMode ? "Place " + spawnCount + " Marine" + (spawnCount === 1 ? "" : "s")
-                        : spawnFeedback || "Call in reinforcements";
-                    const countdown = squadWindow.findWidget("wave-countdown");
-                    if (countdown) countdown.text = missionStatus && missionStatus.mode === "park_defense"
-                        ? missionStatus.defense_enabled
-                            ? "Next: " + missionStatus.next_wave_seconds + "s" : "Next: disabled"
-                        : "No recurring waves";
-                    const waveStatus = squadWindow.findWidget("wave-feedback");
-                    if (waveStatus) waveStatus.text = waveFeedback || (missionStatus && missionStatus.mode === "park_defense"
-                        ? !missionStatus.defense_enabled ? "Enable waves in StarCraft Defense"
-                            : missionStatus.error ? ({
-                                native_occupancy_unavailable: "Waiting for native positions; retrying",
-                                spawn_zones_temporarily_blocked: "Spawn edges occupied; retrying",
-                                spawn_capacity_unavailable: "Actor limit reached; retrying"
-                            }[missionStatus.error] || "Wave blocked: " + missionStatus.error)
-                            : missionStatus.manual_cooldown_seconds > 0
-                                ? "Manual wave in " + missionStatus.manual_cooldown_seconds + "s"
-                                : "Ready for an extra wave"
-                        : "");
-                }
                 if (outcomeState && shownOutcome !== controlSession + ":" + outcomeState) {
                     shownOutcome = controlSession + ":" + outcomeState;
                     ui.showError(missionStatus ? missionStatus.display_name : "Scenario", outcomeState === "victory"
@@ -2293,42 +2358,6 @@
                     commandSquad("attack_move", { x: point.x, y: point.y }, medics);
                 } else commandSquad(verb, extras);
                 return true;
-            }
-            function activateSpawnTool() {
-                if (!controlSession || outcomeState) {
-                    ui.showError("Marine reinforcements", "The battle is not ready for spawning");
-                    return;
-                }
-                spawnMode = true;
-                ui.activateTool({ id: "starcoaster.spawn-marine", cursor: "cross_hair",
-                    filter: ["terrain", "footpath", "ride", "wall", "scenery", "large_scenery"],
-                    onMove: function (event) {
-                        const point = pointFrom(event);
-                        spawnPreview = point && point.x >= 0 && point.y >= 0
-                            && point.x < map.size.x * 32 && point.y < map.size.y * 32
-                            ? { x: Math.floor(point.x / 32) * 32, y: Math.floor(point.y / 32) * 32 } : null;
-                        refreshSelection();
-                    },
-                    onDown: function (event) {
-                        const point = pointFrom(event);
-                        if (!point || point.x < 0 || point.y < 0 || point.x >= map.size.x * 32
-                            || point.y >= map.size.y * 32) {
-                            ui.showError("Marine reinforcements", "Choose a location inside the park");
-                            return;
-                        }
-                        const requestId = controlSession + ":spawn:" + network.currentPlayer.id
-                            + ":" + (++nextSpawnRequest);
-                        context.executeAction(SPAWN_ACTION, { session: controlSession, request_id: requestId,
-                            count: spawnCount, x: point.x, y: point.y }, function (result) {
-                            if (result.error) ui.showError("Marine reinforcements", result.errorMessage);
-                        });
-                        spawnMode = false;
-                        spawnPreview = null;
-                        if (ui.tool) ui.tool.cancel();
-                    },
-                    onFinish: function () { spawnMode = false; spawnPreview = null;
-                        refreshSelection(); }
-                });
             }
             function clearDrag() {
                 dragStart = null; dragEnd = null;
@@ -2589,6 +2618,14 @@
             }, function (sender) { worldDefenseSender = sender; }, function (status) {
                 context.executeAction(DEFENSE_RESULT_ACTION, status, function (result) {
                     if (result.error) console.log("WORLD_DEFENSE_STATUS_ERROR " + result.errorMessage);
+                });
+            }, function (sender) { worldParkSender = sender; }, function (catalog) {
+                context.executeAction(PARK_CATALOG_ACTION, catalog, function (result) {
+                    if (result.error) console.log("WORLD_PARK_CATALOG_ERROR " + result.errorMessage);
+                });
+            }, function (status) {
+                context.executeAction(PARK_LOAD_STATUS_ACTION, status, function (result) {
+                    if (result.error) console.log("WORLD_PARK_LOAD_STATUS_ERROR " + result.errorMessage);
                 });
             });
             return;
