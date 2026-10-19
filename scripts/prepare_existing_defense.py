@@ -8,7 +8,10 @@ from pathlib import Path
 from scenario_package import ROOT, inspect_existing_park
 
 
-def prepare(source: str) -> dict:
+def prepare(source: str, workspace: Path | None = None) -> dict:
+    directory = workspace.resolve() if workspace is not None else None
+    if directory is not None and not directory.is_relative_to((ROOT / "run-data").resolve()):
+        raise ValueError("session workspace must be inside run-data")
     original = Path(source).expanduser().resolve(strict=True)
     if original.suffix.lower() != ".park" or not original.is_file():
         raise ValueError("--park requires an existing .park save")
@@ -17,7 +20,7 @@ def prepare(source: str) -> dict:
         raise ValueError(f"existing park exceeds 256x256 native map: {width}x{height}")
     identity = hashlib.sha256(str(original).encode()).hexdigest()[:16]
     scenario_id = f"park-defense-{identity}"
-    directory = ROOT / "run-data" / scenario_id
+    directory = directory or ROOT / "run-data" / scenario_id
     source_copy = directory / "source" / original.name
     source_copy.parent.mkdir(parents=True, exist_ok=True)
     if not source_copy.is_file() or source_copy.stat().st_size != original.stat().st_size or source_copy.stat().st_mtime_ns != original.stat().st_mtime_ns:
@@ -25,7 +28,7 @@ def prepare(source: str) -> dict:
     scenario = {
         "version": 2, "scenario_id": scenario_id, "mode": "park_defense",
         "display_name": f"StarCraft Defense: {original.stem}"[:128],
-        "park_file": f"run-data/{scenario_id}/save/{scenario_id}.park",
+        "park_file": str((directory / "save" / f"{scenario_id}.park").relative_to(ROOT)),
         "park_size": [width, height], "starting_units": {"marines": [], "zerglings": []},
         "production_fixture": {"terran_minerals": 50000, "terran_gas": 50000,
                                "native_supply_depot": [1, 1]},
@@ -50,8 +53,8 @@ def prepare(source: str) -> dict:
     scenario_path.write_text(json.dumps(scenario, indent=2) + "\n")
     mapping_path.write_text('{"rules": []}\n')
     metadata_path.write_text(json.dumps({"generator": "existing-park",
-                                         "source": f"run-data/{scenario_id}/source/{original.name}"}, indent=2) + "\n")
-    output = ROOT / "run-data/scenarios" / scenario_id
+                                         "source": str(source_copy.relative_to(ROOT))}, indent=2) + "\n")
+    output = (ROOT / "run-data/scenarios" / scenario_id) if workspace is None else directory
     return {"scenario_id": scenario_id, "scenario": str(scenario_path),
             "mapping": str(mapping_path),
             "park": str(directory / "save" / f"{scenario_id}.park"),

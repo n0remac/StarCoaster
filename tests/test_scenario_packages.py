@@ -14,6 +14,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import scenario_package
+import prepare_existing_defense
 from park_layout import load as load_layout
 spec = importlib.util.spec_from_file_location("play_scenario", ROOT / "scripts/play-scenario.py")
 play = importlib.util.module_from_spec(spec)
@@ -24,6 +25,23 @@ park_spec.loader.exec_module(park_cli)
 
 
 class ScenarioPackageTest(unittest.TestCase):
+    def test_existing_park_generation_has_independent_runtime_paths(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "run-data") as directory:
+            root = Path(directory)
+            source = root / "Original.park"
+            source.write_bytes(b"PARKoriginal park contents")
+            with mock.patch.object(prepare_existing_defense, "inspect_existing_park", return_value=(64, 64)):
+                first = prepare_existing_defense.prepare(str(source), root / "first")
+                second = prepare_existing_defense.prepare(str(source), root / "second")
+            self.assertEqual(first["scenario_id"], second["scenario_id"])
+            for key in ("park", "scenario", "native_map", "spawn_journal", "server_data", "client_data"):
+                self.assertNotEqual(first[key], second[key], key)
+            self.assertEqual(json.loads(Path(first["scenario"]).read_text())["mode"], "park_defense")
+            self.assertEqual(json.loads(Path(second["scenario"]).read_text())["starting_units"],
+                             {"marines": [], "zerglings": []})
+            with self.assertRaisesRegex(ValueError, "inside run-data"):
+                prepare_existing_defense.prepare(str(source), ROOT / "build" / "unsafe")
+
     def test_existing_park_source_is_staged_without_fixture_exports(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(scenario_package, "ROOT", Path(directory)):
             root = Path(directory)
