@@ -91,6 +91,8 @@ type service struct {
 	spawnJournalPath          string
 	maxLiveActors             int
 	lastScenarioStatus        string
+	parkSupervisorSocket      string
+	parkGeneration            string
 }
 
 type parkPatchStage struct {
@@ -1015,7 +1017,16 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		// one side before OpenBW accepts its geometry would split authority.
 		s.ack(p, m, false, "live_update_unsupported")
 	case "unit.spawn.request", "unit.spawn.query", "unit.spawn.cancel":
+		if m.Kind == "unit.spawn.request" && s.scenario != nil && s.scenario.Mode == "park_defense" &&
+			s.scenario.ParkDefense.ManualActivation && os.Getenv("BRIDGE_ALLOW_DIRECT_SPAWN") != "1" {
+			s.ack(p, m, false, "direct_marine_spawn_disabled")
+			return
+		}
 		s.parkSpawnMessage(p, m)
+	case "park.catalog.request":
+		s.parkCatalogRequest(p, m)
+	case "park.load.request":
+		s.parkLoad(p, m)
 	case "scenario.wave.request":
 		s.parkWaveRequest(p, m)
 	case "scenario.defense.request":
@@ -1953,7 +1964,9 @@ func main() {
 	}
 	defer controller.Close()
 	s := &service{registry: world.NewRegistry(), mapping: mapping, pending: map[string]world.CombatEvent{}, proxies: map[string]string{}, scenario: scenario,
-		spawnJournalPath: *spawnJournal, maxLiveActors: *maxLiveActors}
+		spawnJournalPath: *spawnJournal, maxLiveActors: *maxLiveActors,
+		parkSupervisorSocket: os.Getenv("BRIDGE_PARK_SUPERVISOR_SOCKET"),
+		parkGeneration:       os.Getenv("BRIDGE_PARK_GENERATION")}
 	log.Printf("world.v1 listening park=%s openbw=%s controller=%s", *parkAddress, *bwAddress, *controllerAddress)
 	go s.serve(bw, "bw")
 	go s.serve(controller, "controller")
