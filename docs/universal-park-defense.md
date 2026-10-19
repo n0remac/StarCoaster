@@ -77,6 +77,10 @@ identity and request continuity after a Go bridge restart. All recordings,
 browser profiles, generated parks, and licensed assets stay in ignored
 directories.
 
+`tests/test_shared_viewport_live.py` also checks a native graphical client:
+Marine selection, ride and guest windows, park tools, and a squad order share
+the viewport. Its ignored `ride.png` capture shows the park and Marine sprites.
+
 The playable graphical check uses a 64 × 64 park. Highly fragmented saves can
 reach OpenBW's native region-count limit before the 256 × 256 size limit; the
 launcher reports that navigation error. The current graphical recording shows
