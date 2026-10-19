@@ -17,9 +17,13 @@
 <body>
   <section id="status" role="status" aria-live="polite">
     <div id="message">Loading StarCoaster…</div>
-    <label id="import">Import your own RCT2 game data ZIP (containing Data/ch.dat):
-      <input id="rct2-file" type="file" accept=".zip,application/zip">
-    </label>
+    <div id="import">
+      <p>Import your locally licensed RCT2 installation:</p>
+      <button id="rct2-folder" type="button">Choose RCT2 folder</button>
+      <label>or choose a ZIP containing Data/ch.dat:
+        <input id="rct2-file" type="file" accept=".zip,application/zip">
+      </label>
+    </div>
   </section>
   <canvas id="canvas" tabindex="0"></canvas>
 </body>

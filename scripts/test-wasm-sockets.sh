@@ -3,6 +3,8 @@
 set -euo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
+export TMPDIR="${TMPDIR:-$project_dir/build/tmp}"
+mkdir -p "$TMPDIR"
 if [[ -f build/emsdk/emsdk_env.sh ]]; then
     # shellcheck disable=SC1091
     source build/emsdk/emsdk_env.sh >/dev/null

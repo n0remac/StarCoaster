@@ -8,9 +8,12 @@
     const setStatus = (value) => { message.textContent = value; };
     const fail = (error) => {
         console.error("StarCoaster startup failed:", error);
+        if (!status.isConnected) document.body.appendChild(status);
         status.classList.add("error");
         setStatus(`StarCoaster startup failed: ${error.message || error}`);
     };
+    window.addEventListener("error", (event) => fail(event.error || event.message));
+    window.addEventListener("unhandledrejection", (event) => fail(event.reason));
     const ensureDir = (fs, path) => {
         try { fs.mkdir(path); } catch (error) {
             if (!fs.isDir(fs.stat(path).mode)) throw error;
@@ -54,6 +57,23 @@
             fs.writeFile(target, await entry.async("uint8array"));
         }
     };
+    const importDirectory = async (fs, handle, base, progress) => {
+        for await (const entry of handle.values()) {
+            if (entry.name === "." || entry.name === ".." || entry.name.includes("/"))
+                throw new Error(`Unsafe RCT2 filename: ${entry.name}`);
+            const target = `${base}/${entry.name}`;
+            if (entry.kind === "directory") {
+                ensureDir(fs, target);
+                await importDirectory(fs, entry, target, progress);
+            } else {
+                const file = await entry.getFile();
+                fs.writeFile(target, new Uint8Array(await file.arrayBuffer()));
+                progress.count++;
+                if (progress.count % 100 === 0)
+                    setStatus(`Importing your RCT2 files… ${progress.count} files copied`);
+            }
+        }
+    };
 
     try {
         if (!crossOriginIsolated || !SharedArrayBuffer)
@@ -61,7 +81,8 @@
         if (!window.WebAssembly || !window.JSZip) throw new Error("WebAssembly or the local ZIP library is unavailable.");
         const manifest = await (await fetchRequired("manifest.json")).json();
         if (manifest.schema !== 1 || manifest.native_bridge_version !== 5 ||
-            manifest.asset_version !== 4 || manifest.plugin_api_version !== 124)
+            manifest.asset_version !== 4 || manifest.plugin_api_version !== 124 ||
+            typeof manifest.network_enabled !== "boolean")
             throw new Error("Browser bundle compatibility version mismatch.");
         const script = document.createElement("script");
         script.src = "openrct2.js";
@@ -72,17 +93,26 @@
         });
         if (typeof window.OPENRCT2_WEB !== "function") throw new Error("OpenRCT2 WASM factory is missing.");
         setStatus("Initializing the OpenRCT2 graphical engine…");
-        const module = await window.OPENRCT2_WEB({
+        const runtimeOptions = {
             noInitialRun: true, arguments: [], canvas,
             print: (line) => console.log(line),
             printErr: (line) => console.error(line),
             locateFile: (name) => name,
-        });
+        };
+        if (manifest.network_enabled) {
+            const endpoint = new URL("/ws", window.location.href);
+            endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
+            runtimeOptions.websocket = { url: endpoint.href, subprotocol: "binary" };
+        }
+        const module = await window.OPENRCT2_WEB(runtimeOptions);
         window.Module = module;
         const fs = module.FS;
         for (const path of ["/persistent", "/RCT", "/OpenRCT2"]) {
             ensureDir(fs, path);
-            fs.mount(fs.filesystems.IDBFS, { autoPersist: true }, path);
+            // The engine's user data changes during play. The two asset trees
+            // are installed in batches and explicitly synced below; syncing
+            // every extracted file makes large RCT2 imports prohibitively slow.
+            fs.mount(fs.filesystems.IDBFS, { autoPersist: path === "/persistent" }, path);
         }
         await sync(fs, true);
         const assetVersion = `${manifest.openrct2_commit}:${manifest.patch_sha256}:${manifest.artifacts["assets.zip"]}`;
@@ -104,24 +134,47 @@
         if (!fs.analyzePath("/RCT/Data/ch.dat").exists) {
             setStatus("Import your locally licensed RCT2 data to continue.");
             document.getElementById("import").style.display = "block";
-            const file = await new Promise((resolve) => {
-                document.getElementById("rct2-file").onchange = (event) => resolve(event.target.files[0]);
+            const folderButton = document.getElementById("rct2-folder");
+            if (!window.showDirectoryPicker) folderButton.style.display = "none";
+            const selection = await new Promise((resolve, reject) => {
+                document.getElementById("rct2-file").onchange = (event) => resolve({ file: event.target.files[0] });
+                folderButton.onclick = async () => {
+                    try { resolve({ folder: await window.showDirectoryPicker() }); }
+                    catch (error) { if (error.name !== "AbortError") reject(error); }
+                };
             });
-            if (!file) throw new Error("No RCT2 data ZIP selected.");
-            const zip = await JSZip.loadAsync(file);
-            const prefix = zip.file("Data/ch.dat") ? "" : zip.file("RCT/Data/ch.dat") ? "RCT/" : null;
-            if (prefix === null) throw new Error("RCT2 ZIP must contain Data/ch.dat or RCT/Data/ch.dat.");
-            const entries = new JSZip();
-            for (const [name, entry] of Object.entries(zip.files)) {
-                if (name.startsWith(prefix)) entries.files[name.slice(prefix.length)] = entry;
+            setStatus("Importing your RCT2 files…");
+            if (selection.folder) {
+                let folder = selection.folder;
+                try { await folder.getDirectoryHandle("Data"); }
+                catch (_) {
+                    try { folder = await folder.getDirectoryHandle("RCT"); }
+                    catch (_) { throw new Error("RCT2 folder must contain Data/ch.dat or RCT/Data/ch.dat."); }
+                }
+                await importDirectory(fs, folder, "/RCT", { count: 0 });
+            } else {
+                if (!selection.file) throw new Error("No RCT2 data ZIP selected.");
+                const zip = await JSZip.loadAsync(selection.file);
+                const prefix = zip.file("Data/ch.dat") ? "" : zip.file("RCT/Data/ch.dat") ? "RCT/" : null;
+                if (prefix === null) throw new Error("RCT2 ZIP must contain Data/ch.dat or RCT/Data/ch.dat.");
+                const entries = new JSZip();
+                for (const [name, entry] of Object.entries(zip.files)) {
+                    if (name.startsWith(prefix)) entries.files[name.slice(prefix.length)] = entry;
+                }
+                await extract(fs, entries, "/RCT/");
             }
-            await extract(fs, entries, "/RCT/");
+            if (!fs.analyzePath("/RCT/Data/ch.dat").exists)
+                throw new Error("The selected RCT2 installation is missing Data/ch.dat.");
+            setStatus("Saving RCT2 files in the browser…");
             await sync(fs, false);
             document.getElementById("import").style.display = "none";
         }
         setStatus("Starting OpenRCT2…");
         canvas.style.display = "block";
-        module.callMain(["--rct2-data-path=/RCT", "--user-data-path=/persistent/", "--openrct2-data-path=/OpenRCT2/"]);
+        const startupArgs = manifest.network_enabled ? ["join", "127.0.0.1", "--port=11753"] : [];
+        startupArgs.push("--rct2-data-path=/RCT", "--user-data-path=/persistent/", "--openrct2-data-path=/OpenRCT2/");
+        if (new URLSearchParams(window.location.search).has("verbose")) startupArgs.push("--verbose");
+        module.callMain(startupArgs);
         status.remove();
         canvas.focus();
     } catch (error) {

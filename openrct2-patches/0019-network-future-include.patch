@@ -1,0 +1,11 @@
+diff --git a/src/openrct2/network/NetworkServerAdvertiser.cpp b/src/openrct2/network/NetworkServerAdvertiser.cpp
+--- a/src/openrct2/network/NetworkServerAdvertiser.cpp
++++ b/src/openrct2/network/NetworkServerAdvertiser.cpp
+@@ -24,6 +24,7 @@
+     #include <chrono>
+     #include <cstring>
++    #include <future>
+     #include <iterator>
+     #include <memory>
+     #include <random>
+     #include <string>

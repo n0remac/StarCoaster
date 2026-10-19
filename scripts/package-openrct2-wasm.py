@@ -59,6 +59,13 @@ def main() -> int:
     expected = json.loads((ROOT / "dependencies.lock.json").read_text())["openrct2"]["commit"]
     if upstream_commit != expected:
         raise RuntimeError(f"OpenRCT2 checkout mismatch: {upstream_commit} != {expected}")
+    cmake_cache = require(build_dir / "CMakeCache.txt").read_text()
+    if "DISABLE_NETWORK:BOOL=ON" in cmake_cache:
+        network_enabled = False
+    elif "DISABLE_NETWORK:BOOL=OFF" in cmake_cache:
+        network_enabled = True
+    else:
+        raise RuntimeError("Cannot determine WASM multiplayer configuration")
     script_engine = require(UPSTREAM / "src/openrct2/scripting/ScriptEngine.cpp").read_text()
     script_header = require(UPSTREAM / "src/openrct2/scripting/ScriptEngine.h").read_text()
     if ('JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5))' not in script_engine
@@ -67,7 +74,8 @@ def main() -> int:
         raise RuntimeError("Native bridge or plugin API versions do not match this bundle")
 
     bundle.mkdir(parents=True, exist_ok=True)
-    for source in (js, wasm, *build_dir.glob("openrct2.worker*.js"), *build_dir.glob("openrct2*.data")):
+    executable_files = (js, wasm, *build_dir.glob("openrct2.worker*.js"), *build_dir.glob("openrct2*.data"))
+    for source in executable_files:
         shutil.copy2(source, bundle / source.name)
     for name in ("index.html", "index.js"):
         shutil.copy2(APP / name, bundle / name)
@@ -86,6 +94,8 @@ def main() -> int:
     shutil.copy2(require(jszip), bundle / "jszip.min.js")
     shutil.copy2(require(jszip_dir / "node_modules/jszip/LICENSE.markdown"), bundle / "jszip-LICENSE.txt")
     shutil.copy2(require(UPSTREAM / "licence.txt"), bundle / "openrct2-LICENSE.txt")
+    if network_enabled:
+        shutil.copy2(require(ROOT / "build/openrct2-wasm-deps/openssl/LICENSE.txt"), bundle / "openssl-LICENSE.txt")
 
     asset_zip = bundle / "assets.zip"
     with zipfile.ZipFile(asset_zip, "w", allowZip64=True) as archive:
@@ -100,14 +110,16 @@ def main() -> int:
         "native_bridge_version": 5,
         "asset_version": 4,
         "plugin_api_version": 124,
+        "network_enabled": network_enabled,
         "plugin_sha256": sha256(require(ROOT / "openrct2-plugin/rts-bridge.js")),
         "g2_sha256": sha256(g2),
         "visual_registry_sha256": sha256(require(UPSTREAM / "src/openrct2/paint/BridgeVisualRegistry.h")),
         "starcraft_types_sha256": sha256(require(ROOT / "bridge-protocol/starcraft-types.json")),
         "starcraft_visuals_sha256": sha256(require(ROOT / "bridge-protocol/starcraft-visuals.json")),
         "artifacts": {name: sha256(bundle / name) for name in (
-            "openrct2.js", "openrct2.wasm", "assets.zip", "jszip.min.js",
-            "jszip-LICENSE.txt", "openrct2-LICENSE.txt")},
+            *(source.name for source in executable_files), "index.html", "index.js",
+            "assets.zip", "jszip.min.js", "jszip-LICENSE.txt", "openrct2-LICENSE.txt",
+            *(("openssl-LICENSE.txt",) if network_enabled else ()))},
     }
     (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     print(f"Packaged {bundle} ({wasm.stat().st_size} WASM bytes, {asset_zip.stat().st_size} asset bytes)")

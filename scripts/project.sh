@@ -37,13 +37,28 @@ case "$command" in
         exec scripts/deploy-wasm.sh "$@"
         ;;
     test-wasm)
+        export TMPDIR="${TMPDIR:-$project_dir/build/tmp}"
+        mkdir -p "$TMPDIR"
         go_bin="$(command -v go || true)"
         go_bin="${go_bin:-/usr/local/go/bin/go}"
         export GOCACHE="${GOCACHE:-$project_dir/build/go-cache}"
         "$go_bin" test ./cmd/wasm-server
         node --check browser/index.js
+        node --check browser/test.mjs
+        node --check browser/live-test.mjs
+        node --check browser/test-socket.mjs
+        scripts/test-wasm-sockets.sh
         if [[ -f build/wasm-client/manifest.json ]]; then
             python3 scripts/verify-wasm-bundle.py build/wasm-client
+            if command -v chromium >/dev/null; then
+                if [[ ! -d browser/node_modules/playwright-core ]]; then
+                    npm ci --prefix browser --ignore-scripts --no-audit --no-fund
+                fi
+                "$go_bin" build -o build/wasm-server ./cmd/wasm-server
+                node browser/test.mjs
+            else
+                printf 'SKIP: browser automation requires Chromium\n'
+            fi
         else
             printf 'BLOCKED: WASM artifact validation requires scripts/project.sh build-wasm\n' >&2
             exit 3

@@ -186,6 +186,26 @@ def ensure_json_byte_vector_portability(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_socket_immediate_connect(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0018-socket-immediate-connect.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected socket changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
+def ensure_network_future_include(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0019-network-future-include.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected network changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
@@ -200,7 +220,9 @@ if __name__ == "__main__":
                     ROOT / "openrct2-patches/0014-target-facing-attachments.patch",
                     ROOT / "openrct2-patches/0015-native-morph-visuals.patch",
                     ROOT / "openrct2-patches/0016-native-animation-timing.patch",
-                    ROOT / "openrct2-patches/0017-json-byte-vector-portability.patch"]
+                    ROOT / "openrct2-patches/0017-json-byte-vector-portability.patch",
+                    ROOT / "openrct2-patches/0018-socket-immediate-connect.patch",
+                    ROOT / "openrct2-patches/0019-network-future-include.patch"]
         # Reconciliation temporarily reverses and reapplies overlays. Keep
         # unchanged file mtimes so an ordinary rebuild does not recompile all
         # SpriteIds.h dependents merely because the check ran.
@@ -233,7 +255,9 @@ if __name__ == "__main__":
                   ("Target-facing attachments", ensure_target_facing_attachments),
                   ("Native morph visuals", ensure_native_morph_visuals),
                   ("Native animation timing", ensure_native_animation_timing),
-                  ("JSON byte-vector portability", ensure_json_byte_vector_portability)]
+                  ("JSON byte-vector portability", ensure_json_byte_vector_portability),
+                  ("Socket immediate connect", ensure_socket_immediate_connect),
+                  ("Network future include", ensure_network_future_include)]
         for index, (label, ensure) in enumerate(checks):
             removed = []
             for overlay in reversed(overlays[index + 1:]):

@@ -20,6 +20,8 @@ def main() -> int:
                 manifest.get("asset_version"), manifest.get("plugin_api_version"))
     if expected != (1, 5, 4, 124):
         raise ValueError(f"Incompatible bundle versions: {expected}")
+    if not isinstance(manifest.get("network_enabled"), bool):
+        raise ValueError("Bundle multiplayer configuration is missing")
     lock = json.loads((ROOT / "dependencies.lock.json").read_text())
     if manifest.get("openrct2_commit") != lock["openrct2"]["commit"]:
         raise ValueError("OpenRCT2 revision differs from the native host")
@@ -43,6 +45,9 @@ def main() -> int:
         path = bundle / name
         if not path.is_file() or digest(path) != expected_digest:
             raise ValueError(f"Missing or mismatched browser artifact: {path}")
+    with (bundle / "openrct2.wasm").open("rb") as executable:
+        if executable.read(8) != b"\0asm\1\0\0\0":
+            raise ValueError("Browser executable is not a WebAssembly module")
     with zipfile.ZipFile(bundle / "assets.zip") as assets:
         if hashlib.sha256(assets.read("g2.dat")).hexdigest() != manifest["g2_sha256"]:
             raise ValueError("Bundled g2.dat differs from the manifest")

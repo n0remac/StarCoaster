@@ -1,0 +1,12 @@
+diff --git a/src/openrct2/network/Socket.cpp b/src/openrct2/network/Socket.cpp
+index 7f832cf..3e3f205 100644
+--- a/src/openrct2/network/Socket.cpp
++++ b/src/openrct2/network/Socket.cpp
+@@ -449,6 +449,6 @@ namespace OpenRCT2::Network
+                 // Connect
+                 int32_t connectResult = connect(_socket, reinterpret_cast<sockaddr*>(&ss), ss_len);
+-                if (connectResult != SOCKET_ERROR || (LAST_SOCKET_ERROR() != EINPROGRESS && LAST_SOCKET_ERROR() != EWOULDBLOCK))
++                if (connectResult == SOCKET_ERROR && LAST_SOCKET_ERROR() != EINPROGRESS && LAST_SOCKET_ERROR() != EWOULDBLOCK)
+                 {
+                     throw SocketException("Failed to connect.");
+                 }
