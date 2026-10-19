@@ -75,14 +75,17 @@ func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 		if s.runtime.SpawnAnchor != nil && *request.Anchor == *s.runtime.SpawnAnchor {
 			// Replaying an accepted selection leaves the zone and countdown intact.
 		} else if s.runtime.DefenseEnabled {
+			*s.runtime = prior
 			s.respondDefense(p, m, errors.New("disable_defense_before_changing_spawn"))
 			return
 		} else if s.runtime.TotalTriggered > 0 {
+			*s.runtime = prior
 			s.respondDefense(p, m, errors.New("spawn_point_locked_after_first_wave"))
 			return
 		} else {
 			zone, err := s.fixedDefenseZone(*request.Anchor)
 			if err != nil {
+				*s.runtime = prior
 				s.respondDefense(p, m, err)
 				return
 			}
@@ -94,6 +97,7 @@ func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 	if request.Enabled != nil && *request.Enabled != s.runtime.DefenseEnabled {
 		if *request.Enabled {
 			if s.runtime.SpawnAnchor == nil || len(s.runtime.FixedSpawnZone.Tiles) == 0 {
+				*s.runtime = prior
 				s.respondDefense(p, m, errors.New("select_spawn_point_first"))
 				return
 			}

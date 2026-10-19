@@ -37,6 +37,12 @@ func TestDefenseConfigPersistsAndKeepsOneFixedZone(t *testing.T) {
 	session := s.registry.Session
 	enabled := true
 	anchor := [2]int{4, 30}
+	badAnchor, interval := [2]int{30, 30}, 90
+	s.parkDefenseConfig(nil, world.Message("scenario.defense.request", session, "invalid-combined", "openrct2", 1,
+		defenseConfigRequest{PlayerID: 2, CommanderID: 2, Anchor: &badAnchor, IntervalSeconds: &interval}))
+	if s.runtime.WaveIntervalFrames != 0 || s.runtime.SpawnAnchor != nil {
+		t.Fatal("rejected combined request changed runtime settings")
+	}
 	if s.runtime.Trigger(s.scenario) || s.runtime.NextAutomaticFrame != 0 {
 		t.Fatal("disabled defense scheduled a wave")
 	}
@@ -54,7 +60,7 @@ func TestDefenseConfigPersistsAndKeepsOneFixedZone(t *testing.T) {
 	if s.runtime.NextAutomaticFrame != 2980 {
 		t.Fatal("idempotent enable reset countdown")
 	}
-	interval, difficulty := 90, "hard"
+	difficulty := "hard"
 	s.parkDefenseConfig(nil, world.Message("scenario.defense.request", session, "settings", "openrct2", 1,
 		defenseConfigRequest{PlayerID: 2, CommanderID: 2, IntervalSeconds: &interval, Difficulty: &difficulty}))
 	if s.runtime.WaveIntervalFrames != 2160 || s.runtime.WaveDifficulty != "hard" ||
