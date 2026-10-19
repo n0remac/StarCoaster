@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "scenario_id": "wasm-mixed-client",
+  "mode": "park_defense",
+  "display_name": "Mixed Client Verification",
+  "park_file": "run-data/wasm-mixed-client/save/wasm-mixed-client.park",
+  "park_size": [64, 64],
+  "starting_units": {
+    "marines": [[15, 30], [16, 30], [17, 30], [15, 31], [16, 31], [17, 31]],
+    "zerglings": []
+  },
+  "objectives": [],
+  "initial_ai": { "strategy": "park_defense", "delay_frames": 0 },
+  "spawn_zones": {
+    "eastern-approach": { "tiles": [[42, 53], [43, 53], [44, 53], [45, 53]] },
+    "western-approach": { "tiles": [[11, 42], [12, 42], [13, 42], [14, 42]] }
+  },
+  "park_defense": {
+    "initial_delay_frames": 10000000,
+    "interval_frames": 10000000,
+    "wave_tiers": [{ "from_wave": 1, "groups": [{ "unit_type": "zerg_zergling", "count": 1 }] }],
+    "manual_cooldown_frames": 360,
+    "spawn_zones": ["eastern-approach", "western-approach"]
+  },
+  "waves": [],
+  "victory": {},
+  "defeat": {}
+}
