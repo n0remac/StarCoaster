@@ -240,11 +240,17 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
                                  "tiles": tiles},
                   "images": images,
                   "strings": {"name": {"en-GB": definition_type["display_name"]}}}
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("object.json", json.dumps(definition, separators=(",", ":")))
-        archive.writestr("images/preview.png", png_bytes(preview))
+    def add_file(archive, name, content):
+        info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0o644 << 16
+        archive.writestr(info, content)
+
+    with zipfile.ZipFile(destination, "w") as archive:
+        add_file(archive, "object.json", json.dumps(definition, separators=(",", ":")))
+        add_file(archive, "images/preview.png", png_bytes(preview))
         for frame, frame_sprite in enumerate(sprites):
-            archive.writestr(f"images/{spec['asset']}-{frame}.png", png_bytes(frame_sprite))
+            add_file(archive, f"images/{spec['asset']}-{frame}.png", png_bytes(frame_sprite))
     return destination
 
 

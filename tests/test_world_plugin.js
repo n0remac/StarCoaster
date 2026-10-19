@@ -433,6 +433,16 @@ assert.equal(joinChunks.flatMap(a => a.args.targets).length, 3,
     'late join replays the complete current catalog');
 sandbox.network.players.push({ id: 2 });
 const clientReady = registered.get('rtsbridge.clientReady');
+assert.equal(clientReady.query({ player: 2, args: { session: '' } }).error, undefined,
+    'a late client can request its first actor snapshot before knowing the session');
+const beforeBootstrap = actions.filter(a => a.name === 'rtsbridge.applySnapshot').length;
+const latestBeforeBootstrap = actions.filter(a => a.name === 'rtsbridge.applySnapshot').at(-1).args;
+clientReady.execute({ player: 2, args: { session: '' } });
+subscriptions.get('interval.tick')();
+const bootstrap = actions.filter(a => a.name === 'rtsbridge.applySnapshot').slice(beforeBootstrap);
+assert.equal(bootstrap.length, 1, 'late readiness replays the latest authoritative actor snapshot');
+assert.equal(bootstrap[0].args.session, sid);
+assert.equal(bootstrap[0].args.seq, latestBeforeBootstrap.seq);
 assert.equal(clientReady.query({ player: 2, args: { session: sid } }).error, undefined);
 const beforeReady = actions.filter(a => a.name === 'rtsbridge.targetCatalog').length;
 clientReady.execute({ player: 2, args: { session: sid } });

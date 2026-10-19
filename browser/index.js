@@ -115,7 +115,7 @@
             fs.mount(fs.filesystems.IDBFS, { autoPersist: path === "/persistent" }, path);
         }
         await sync(fs, true);
-        const assetVersion = `${manifest.openrct2_commit}:${manifest.patch_sha256}:${manifest.artifacts["assets.zip"]}`;
+        const assetVersion = manifest.artifacts["assets.zip"];
         let installedVersion = "";
         try { installedVersion = fs.readFile("/OpenRCT2/starcoaster-version", { encoding: "utf8" }); } catch (_) {}
         if (installedVersion !== assetVersion) {

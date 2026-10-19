@@ -1002,6 +1002,8 @@
         let clientReadySession = "";
         let clientReadyPending = false;
         let pendingClientRefresh = false;
+        let pendingClientSnapshot = false;
+        let latestSnapshot = null;
         let onActorRemoved = function () {};
         let commanderPlayer = -1;
         function mayCommandBuilding(native) {
@@ -1137,6 +1139,8 @@
                                 && unit.motion === "death" && unit.hp === 0)));
             });
             rtsBridge.applySnapshot({ session: event.args.session, seq: event.args.seq, units: visible });
+            if (network.mode === "server") latestSnapshot = { session: event.args.session,
+                seq: event.args.seq, units: event.args.units };
             const sessionChanged = controlSession !== event.args.session;
             if (sessionChanged) {
                 outcomeState = null; shownOutcome = "";
@@ -1163,13 +1167,18 @@
 
             context.registerAction(CLIENT_READY_ACTION, function (event) {
                 const args = event.args;
-                if (!args || args.session !== controlSession || (network.mode === "server"
+                if (!args || (args.session !== controlSession && args.session !== "")
+                    || (network.mode === "server" && args.session === "" && !latestSnapshot)
+                    || (network.mode === "server"
                     && (!Array.isArray(network.players)
                         || !network.players.some(function (player) { return player.id === event.player; }))))
                     return { error: 1, errorMessage: "Invalid client readiness" };
                 return {};
-            }, function () {
-                if (network.mode === "server") pendingClientRefresh = true;
+            }, function (event) {
+                if (network.mode === "server") {
+                    pendingClientRefresh = true;
+                    if (event.args.session === "") pendingClientSnapshot = true;
+                }
                 return {};
             });
             context.registerAction(ACTOR_LIFECYCLE_ACTION, function (event) {
@@ -1602,6 +1611,12 @@
             if (++animationTicks % 4 === 0) rtsBridge.invalidateAnimation();
             if (network.mode === "server" && pendingClientRefresh) {
                 pendingClientRefresh = false;
+                if (pendingClientSnapshot && latestSnapshot) {
+                    pendingClientSnapshot = false;
+                    context.executeAction(ACTION, latestSnapshot, function (result) {
+                        if (result.error) console.log("WORLD_CLIENT_SNAPSHOT_ERROR " + result.errorMessage);
+                    });
+                }
                 if (publishingTargetSession) publishTargetCatalog(publishingTargetSession, publishedTargets);
                 if (actorLifecycleSession) Object.keys(activeActorGenerations).forEach(function (id) {
                     publishActorLifecycle(actorLifecycleSession, id, activeActorGenerations[id], "active");
@@ -1614,13 +1629,14 @@
                 if (missionStatus && missionStatus.session === controlSession)
                     context.executeAction(SCENARIO_STATUS_ACTION, missionStatus, function () {});
             }
-            if (network.mode === "client" && controlSession
-                && clientReadySession !== controlSession && !clientReadyPending
+            if (network.mode === "client"
+                && (!controlSession || clientReadySession !== controlSession) && !clientReadyPending
                 && animationTicks % 40 === 0) {
                 clientReadyPending = true;
-                context.executeAction(CLIENT_READY_ACTION, { session: controlSession }, function (result) {
+                const readySession = controlSession;
+                context.executeAction(CLIENT_READY_ACTION, { session: readySession }, function (result) {
                     clientReadyPending = false;
-                    if (!result.error) clientReadySession = controlSession;
+                    if (!result.error && readySession) clientReadySession = readySession;
                 });
             }
             if (network.mode === "client" && controlSession
