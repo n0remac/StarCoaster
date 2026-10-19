@@ -58,6 +58,14 @@ class ScenarioStartTest(unittest.TestCase):
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(calls.read_text().splitlines(), ["build", f"play {selected}"])
+            park = root / "ordinary park.park"
+            park.touch()
+            calls.write_text("")
+            result = subprocess.run([str(scripts / "start.sh"), "--park", str(park), "--browser"],
+                                    cwd=root, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(calls.read_text().splitlines(),
+                             ["build", "build-wasm", "deploy-wasm", f"play --park {park}"])
 
 
 if __name__ == "__main__":
