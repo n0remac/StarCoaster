@@ -50,6 +50,8 @@ UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save
 UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
   python3 tests/test_universal_park_defense_live.py --factory
 UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
+  python3 tests/test_universal_park_defense_live.py --unauthorized
+UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
   python3 tests/test_universal_park_defense_live.py --wasm
 UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
   python3 tests/test_universal_park_defense_live.py --wasm --browser-build --capture-only
@@ -64,7 +66,9 @@ fixed-zone placement, browser reconnect, and no duplicate accepted wave.
 The Factory check confirms native Marine and Vulture training; the combat
 check confirms ordered demolition without repeated park snapshots. The
 browser-build check confirms Barracks placement and Marine training issued by
-the browser commander and accepted by OpenBW. Run
+the browser commander and accepted by OpenBW. The unauthorized check uses two
+native clients to confirm a second player's disable attempt is rejected by
+the server while defense remains enabled. Run
 `scripts/project.sh test` and private `scripts/project.sh test-wasm` for offline
 and asset-provisioning coverage. `tests/test_mt_zergling_gameplay_live.py`
 exercises six native waves, including Hydralisks at wave three and an
