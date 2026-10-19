@@ -27,7 +27,30 @@ git remote add pi ssh://pi@raspberrypi.tail628049.ts.net/media/pi/media1/rts-bri
 git push pi main
 ```
 
-The receive hook runs the update once after each push to the Pi's `main`. It fast-forwards a clean checkout, builds the native engines and ARM64 WASM bundle from the configured licensed installations, runs `scripts/project.sh test` and `scripts/project.sh test-wasm`, atomically deploys the verified private bundle, and restarts `starcoaster-game.service`. It records the deployed commit in ignored `run-data/pi-deployed-revision` only after the service and browser manifest remain healthy for 30 seconds. The push command waits for this work to finish; a failed build or test leaves the running game in place, and the next push or `scripts/update-pi-game.sh --from-push` retries it. The update refuses local uncommitted changes or diverged history; inspect ignored `build/pi-update-service.log` to resolve either case. Keep GitHub `origin` synchronized separately if desired. Existing browser tabs need a reload after deployment.
+For a single `git push origin main` to update GitHub and the Pi from a clone,
+configure both push destinations once in that clone:
+
+```sh
+git config remote.origin.pushurl git@github.com:n0remac/StarCoaster.git
+git config --add remote.origin.pushurl ssh://pi@raspberrypi.tail628049.ts.net/media/pi/media1/rts-bridge/run-data/pi-push.git
+git push origin main
+```
+
+Push URLs are local Git configuration; repeat this setup in each clone that
+should deploy. A GitHub-only push does not reach the private Pi hook.
+
+The receive hook runs the update once after each push to the Pi's `main`. It
+fast-forwards a clean checkout, builds the native engines and ARM64 WASM bundle
+from the configured licensed installations, runs `scripts/project.sh test` and
+`scripts/project.sh test-wasm`, atomically deploys the verified private bundle,
+and restarts `starcoaster-game.service`. It records the deployed commit in
+ignored `run-data/pi-deployed-revision` only after the service and browser
+manifest remain healthy for 30 seconds. The push command waits for this work
+to finish; a failed build or test leaves the running game in place, and the
+next push or `scripts/update-pi-game.sh --from-push` retries it. The update
+refuses local uncommitted changes or diverged history; inspect ignored
+`build/pi-update-service.log` to resolve either case. Existing browser tabs
+need a reload after deployment.
 
 Use `systemctl --user status starcoaster-game.service` for live status, `build/pi-update-service.log` for update output, and `build/wasm-playable-session.log` for game startup details. The selected park can be changed by rerunning the installer with another `.park` path and then running the updater with `--force`. The Pi needs the local ARM64 WASM toolchain prepared with `scripts/project.sh prepare-wasm-arm64`.
 
