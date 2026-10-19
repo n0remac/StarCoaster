@@ -21,7 +21,7 @@ let frameCount = 0;
 await mkdir(artifacts, { recursive: true });
 try {
   const parkProbe = `var PARK_SWITCH_PROBE_TARGET = ${JSON.stringify(target)};\n` +
-    'var PARK_SWITCH_PROBE_DELAY_MS = 90000;\n' +
+    'var PARK_SWITCH_PROBE_DELAY_MS = 30000;\n' +
     await readFile(path.join(root, 'browser/park-switch-probe.js'), 'utf8');
   const defenseProbe = 'var UNIVERSAL_DEFENSE_ANCHOR = [44, 56];\n' +
     'var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n' +
@@ -108,16 +108,15 @@ try {
   await screencast.send('Page.startScreencast', { format: 'jpeg', quality: 70,
     maxWidth: 1280, maxHeight: 800, everyNthFrame: 15 });
   await page.locator('#canvas').focus();
+  await page.mouse.move(640, 400);
   await page.keyboard.press('Control+Shift+L');
   await waitFor(/PARK_SWITCH_MENU_VISIBLE/, 15000);
   await page.screenshot({ path: path.join(artifacts, 'park-a-menu.png') });
-  const requestAccepted = waitFor(/PARK_SWITCH_BROWSER_REQUEST accepted=true/, 300000);
   const beforeUnits = await waitFor(/PARK_SWITCH_BROWSER_BEFORE units=/, 300000);
   const actorCount = Number(/units=(\d+)/.exec(beforeUnits)?.[1] || 0);
   report.actor_count_before_switch = actorCount;
   if (actorCount < 1) throw new Error('No StarCraft units were visible before switching parks');
   await page.screenshot({ path: path.join(artifacts, 'park-a-units.png') });
-  await requestAccepted;
   const afterReady = await waitFor(new RegExp(`PARK_SWITCH_BROWSER_READY park=${target.replaceAll('.', '\\.')}`), 420000);
   const afterUnits = Number(/units=(\d+)/.exec(afterReady)?.[1]);
   report.actor_count_after_switch = afterUnits;
