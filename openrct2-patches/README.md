@@ -36,4 +36,14 @@ search for unit selection. Alt bypasses unit input for overlapping park entities
 `0001-native-bridge.patch` includes the same changes for clean checkouts. The
 patch reconciler verifies the final native code and preserves unrelated local edits.
 
-The native compatibility version is 5 and the asset version is 3. Older bridge clients are rejected by the plugin. `BRIDGE_SPRITE_SOURCE=starcraft-local` installs local StarCraft unit art; `alien-scout` uses original open unit art and a CC0 Marine placeholder. Barracks scenery art is generated locally from the player's StarCraft data in either mode.
+The native compatibility version is 5 and the asset version is 4. Older bridge clients are rejected by the plugin. `BRIDGE_SPRITE_SOURCE=starcraft-local` installs local StarCraft unit art; `alien-scout` uses original open unit art and a CC0 Marine placeholder. Barracks scenery art is generated locally from the player's StarCraft data in either mode.
+
+`0017-json-byte-vector-portability.patch` passes byte-vector JSON input as a
+character view. This preserves the parsed bytes and builds with the libc++
+`char_traits` definitions supplied by the pinned Emscripten toolchain.
+
+`0018-socket-immediate-connect.patch` handles a nonblocking socket that connects
+immediately under Emscripten's WebSocket-backed POSIX layer. Native TCP behavior
+and the OpenRCT2 multiplayer packet protocol remain unchanged.
+`0019-network-future-include.patch` supplies the standard `<future>` declaration
+needed when multiplayer is enabled in the browser build.
