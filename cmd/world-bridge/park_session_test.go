@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -13,7 +15,9 @@ import (
 
 func TestParkLoadRequiresCommanderCurrentGenerationAndNativeReadiness(t *testing.T) {
 	s := defenseService(t)
-	path := filepath.Join(t.TempDir(), "supervisor.sock")
+	path := filepath.Join(os.TempDir(), "sc-park-"+strconv.Itoa(os.Getpid())+".sock")
+	_ = os.Remove(path)
+	defer os.Remove(path)
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
