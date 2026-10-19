@@ -190,9 +190,36 @@ func checkTailscaleFunnel(listen string) error {
 	return nil
 }
 
-func handler(bundle, native string, assets *licensedAssets) http.Handler {
+func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...string) http.Handler {
 	upgrader := websocket.Upgrader{CheckOrigin: sameOrigin, Subprotocols: []string{"binary"}}
 	mux := http.NewServeMux()
+	if len(supervisorSocket) > 0 && supervisorSocket[0] != "" {
+		path := supervisorSocket[0]
+		mux.HandleFunc("/private/park-session", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				http.Error(w, "GET required", http.StatusMethodNotAllowed)
+				return
+			}
+			transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", path)
+			}}
+			client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+			defer transport.CloseIdleConnections()
+			response, err := client.Get("http://supervisor/state")
+			if err != nil {
+				http.Error(w, "Park session supervisor unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				http.Error(w, "Park session supervisor unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Cache-Control", "private, no-store")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.Copy(w, io.LimitReader(response.Body, 16<<10))
+		})
+	}
 	if assets != nil {
 		mux.HandleFunc("/private/rct2/manifest.json", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -307,6 +334,7 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8091", "loopback HTTP listen address")
 	native := flag.String("native", "127.0.0.1:11753", "loopback native OpenRCT2 server address")
 	rct2Data := flag.String("rct2-data-path", "", "private licensed RCT2 installation to provision to this browser origin")
+	supervisorSocket := flag.String("supervisor-socket", "", "private Unix socket for park transition status")
 	flag.Parse()
 	for _, address := range []string{*listen, *native} {
 		if err := loopbackAddress(address); err != nil {
@@ -326,7 +354,7 @@ func main() {
 	if assets != nil {
 		log.Printf("private RCT2 provisioning enabled: %d licensed files", len(assets.files))
 	}
-	server := &http.Server{Addr: *listen, Handler: handler(*bundle, *native, assets), ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{Addr: *listen, Handler: handler(*bundle, *native, assets, *supervisorSocket), ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {

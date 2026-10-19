@@ -6,6 +6,24 @@
     const message = document.getElementById("message");
     const canvas = document.getElementById("canvas");
     const setStatus = (value) => { message.textContent = value; };
+    const parkSession = async () => {
+        const response = await fetch("/private/park-session", { cache: "no-store" });
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error(`Park supervisor: HTTP ${response.status}`);
+        const state = await response.json();
+        if (!state || typeof state.phase !== "string" || typeof state.generation !== "string")
+            throw new Error("Park supervisor returned invalid status.");
+        return state;
+    };
+    const waitForPark = async () => {
+        while (true) {
+            const state = await parkSession();
+            if (!state || state.phase === "ready") return state;
+            if (state.phase === "failed") throw new Error(`Park startup failed: ${state.error}`);
+            setStatus(`Preparing ${state.pending || state.current || "the park"}… ${state.phase}`);
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+    };
     const fail = (error) => {
         console.error("StarCoaster startup failed:", error);
         if (!status.isConnected) document.body.appendChild(status);
@@ -244,6 +262,7 @@
             await sync(fs, false);
             document.getElementById("import").style.display = "none";
         }
+        const joinedPark = await waitForPark();
         setStatus("Starting OpenRCT2…");
         canvas.style.display = "block";
         const startupArgs = manifest.network_enabled ? ["join", "127.0.0.1", "--port=11753"] : [];
@@ -252,6 +271,29 @@
         module.callMain(startupArgs);
         status.remove();
         canvas.focus();
+        if (joinedPark) {
+            let checking = false;
+            setInterval(async () => {
+                if (checking) return;
+                checking = true;
+                try {
+                    const state = await parkSession();
+                    if (!state) return;
+                    if (state.phase === "ready" && state.generation !== joinedPark.generation) {
+                        window.location.reload();
+                        return;
+                    }
+                    if (state.phase === "switching" || state.phase === "starting") {
+                        if (!status.isConnected) document.body.appendChild(status);
+                        setStatus(`Changing to ${state.pending || "the selected park"}…`);
+                    } else if (state.phase === "ready" && status.isConnected) {
+                        status.remove();
+                    }
+                } catch (error) {
+                    console.warn("Park transition status unavailable:", error);
+                } finally { checking = false; }
+            }, 2000);
+        }
     } catch (error) {
         fail(error);
     }

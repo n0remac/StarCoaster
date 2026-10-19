@@ -79,6 +79,48 @@ func TestHeadersAndFixedGateway(t *testing.T) {
 	}
 }
 
+func TestPrivateParkSessionStatus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "supervisor.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/state" {
+			t.Errorf("unexpected supervisor path %q", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"phase":"ready","generation":"new","parks":["A.park"]}`)
+	})}
+	go func() { _ = backend.Serve(listener) }()
+	defer backend.Close()
+	server := httptest.NewServer(handler(t.TempDir(), "127.0.0.1:11753", nil, path))
+	defer server.Close()
+	response, err := http.Get(server.URL + "/private/park-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state struct {
+		Phase      string `json:"phase"`
+		Generation string `json:"generation"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || state.Phase != "ready" || state.Generation != "new" ||
+		response.Header.Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("incorrect park status: %d %+v", response.StatusCode, state)
+	}
+	post, err := http.Post(server.URL+"/private/park-session", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.Body.Close()
+	if post.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("browser could modify park session: %d", post.StatusCode)
+	}
+}
+
 func TestPrivateLicensedProvisioning(t *testing.T) {
 	root := t.TempDir()
 	for name, contents := range map[string]string{
