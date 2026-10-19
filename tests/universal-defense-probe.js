@@ -3,7 +3,6 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
     type: "local", licence: "MIT", targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         var ticks = 0, anchorSent = false, enabledSent = false, waveSent = false;
-        var scenarioReady = false;
         var wavePending = false;
         var defensePending = false;
         var buildPending = false, buildingID = "", trainPending = false, trainSent = false;
@@ -18,10 +17,6 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
         });
         var factory = factoryMode && objectManager.getAllObjects("large_scenery").find(function (item) {
             return item.identifier === "starcoaster.scenery_large.terran_factory";
-        });
-        context.subscribe("action.execute", function (event) {
-            if (event.action === "rtsbridge.scenarioStatus" && event.args
-                && event.args.mode === "park_defense") scenarioReady = true;
         });
         function placeBuilding(object, label, onPlaced, minX, minY) {
             if (buildPending || !object) return;
@@ -105,7 +100,7 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
         context.subscribe("interval.tick", function () {
             if (network.mode !== "client" || ++ticks % 24 !== 0 || !rtsBridge) return;
             var state = rtsBridge.getActors();
-            if (!state || !state.session || !scenarioReady) return;
+            if (!state || !state.session) return;
             if (typeof UNIVERSAL_DEFENSE_VERIFY_NO_WAVE !== "undefined"
                 && UNIVERSAL_DEFENSE_VERIFY_NO_WAVE) {
                 if (!buildingID) placeBuilding(barracks, "UNIVERSAL_DEFENSE_BUILD",

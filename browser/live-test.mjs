@@ -162,6 +162,9 @@ try {
   null, { timeout: Number(process.env.WASM_LIVE_BOOT_TIMEOUT_MS || 180000) });
   if (await page.locator('#status.error').count())
     throw new Error(await page.locator('#status.error #message').textContent());
+  // OpenRCT2 scrolls its viewport while the pointer rests on a screen edge.
+  // Keep the camera fixed through actor selection and mixed-client delays.
+  await page.mouse.move(640, 400);
   metrics.canvasMs = Date.now() - start;
   if (cameraProbe || productionProbe || demolitionProbe) {
     let timeout;
