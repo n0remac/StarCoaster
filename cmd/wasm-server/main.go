@@ -224,11 +224,13 @@ func handler(bundle, native string, assets *licensedAssets) http.Handler {
 			return
 		}
 		if !sameOrigin(r) {
+			log.Printf("OpenRCT2 gateway rejected WebSocket origin %q for host %q", r.Header.Get("Origin"), r.Host)
 			http.Error(w, "Origin denied", http.StatusForbidden)
 			return
 		}
 		tcp, err := net.DialTimeout("tcp", native, 5*time.Second)
 		if err != nil {
+			log.Printf("OpenRCT2 gateway native connection failed: %v", err)
 			http.Error(w, "OpenRCT2 server is unavailable", http.StatusBadGateway)
 			return
 		}
@@ -239,6 +241,7 @@ func handler(bundle, native string, assets *licensedAssets) http.Handler {
 			return
 		}
 		defer ws.Close()
+		log.Printf("OpenRCT2 gateway connected")
 		ws.SetReadLimit(64 << 20)
 		done := make(chan error, 2)
 		go func() {
@@ -277,6 +280,8 @@ func handler(bundle, native string, assets *licensedAssets) http.Handler {
 		err = <-done
 		if err != nil && !errors.Is(err, io.EOF) && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 			log.Printf("OpenRCT2 gateway disconnected: %v", err)
+		} else {
+			log.Printf("OpenRCT2 gateway closed: %v", err)
 		}
 	})
 	files := http.FileServer(http.Dir(bundle))
