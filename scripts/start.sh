@@ -7,11 +7,12 @@ cd "$project_dir"
 
 usage() {
     cat <<'EOF'
-Usage: scripts/project.sh start [--scenario ID] [--headless|--client] [--browser|--browser-bundle DIR]
-       scripts/start.sh [--scenario ID] [--headless|--client] [--browser|--browser-bundle DIR]
+Usage: scripts/project.sh start [--scenario ID|--park FILE] [--headless|--client] [--browser|--browser-bundle DIR]
+       scripts/start.sh [--scenario ID|--park FILE] [--headless|--client] [--browser|--browser-bundle DIR]
 
 Fetch pinned sources, build both engines and the bridge, stage OpenRCT2 assets,
-and play the selected scenario (default: frontier-outpost). Ctrl+C stops it.
+and play the selected scenario (default: frontier-outpost) or existing park.
+Ctrl+C stops it.
 
 Game data defaults to ~/games/rct2 and ~/games/starcraft.
 Override with RCT2_DATA_DIR and STARCRAFT_DATA_DIR for other installations.
