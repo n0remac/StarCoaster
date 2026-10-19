@@ -1,0 +1,78 @@
+# Clear native StarCraft actors and animation state when a park is unloaded.
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -39,6 +39,7 @@
+ void PaintBridgeActors(PaintSession& session, const CoordsXY& pos);
+ bool BridgeSupportsActorType(const std::string& kind);
+ void BridgeApplySnapshot(std::string session, uint64_t seq, std::vector<BridgeActor> actors);
++void BridgeClearSnapshot();
+ void BridgeInvalidateAnimation();
+ void BridgeSetBuildingAnimations(std::string session, int32_t objectIndex, std::set<std::pair<int32_t, int32_t>> tiles,
+     uint32_t frames = 7, uint32_t ticksPerFrame = 3, uint32_t bankStride = 48);
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -212,6 +212,19 @@
+         static_cast<unsigned long long>(seq), next->session.c_str(), TileElementHeight({ 480, 480 }), canonical.str().c_str());
+ }
+ 
++void BridgeClearSnapshot()
++{
++    auto previous = std::atomic_load(&gBridgeSnapshot);
++    for (const auto& actor : previous->actors)
++        InvalidateBridgeActor(actor);
++    auto animations = std::atomic_load(&gBridgeBuildingAnimations);
++    for (const auto& [objectIndex, state] : animations->objects)
++        InvalidateBuildingTiles(state.tiles);
++    std::atomic_store(&gBridgeSnapshot, std::shared_ptr<const BridgeSnapshot>(std::make_shared<BridgeSnapshot>()));
++    std::atomic_store(&gBridgeBuildingAnimations,
++        std::shared_ptr<const BridgeBuildingAnimations>(std::make_shared<BridgeBuildingAnimations>()));
++}
++
+ void BridgeInvalidateAnimation()
+ {
+     auto snapshot = std::atomic_load(&gBridgeSnapshot);
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -729,6 +729,12 @@
+     return ok;
+ }
+ 
++static JSValue BridgeClearSnapshotJS(JSContext*, JSValueConst, int, JSValueConst*)
++{
++    BridgeClearSnapshot();
++    return JS_UNDEFINED;
++}
++
+ static JSValue BridgeApplySnapshotJS(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
+ {
+     if (argc != 1 || !JS_IsObject(argv[0]))
+@@ -940,6 +946,7 @@
+     JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5));
+     JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 4));
+     JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
++    JS_SetPropertyStr(ctx, bridge, "clearSnapshot", JS_NewCFunction(ctx, BridgeClearSnapshotJS, "clearSnapshot", 0));
+     JS_SetPropertyStr(ctx, bridge, "invalidateAnimation", JS_NewCFunction(ctx, BridgeInvalidateAnimationJS, "invalidateAnimation", 0));
+     JS_SetPropertyStr(ctx, bridge, "setBuildingAnimations", JS_NewCFunction(ctx, BridgeSetBuildingAnimationsJS, "setBuildingAnimations", 1));
+     JS_SetPropertyStr(ctx, bridge, "hitTest", JS_NewCFunction(ctx, BridgeHitTestJS, "hitTest", 3));
+diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
+--- a/src/openrct2/Game.cpp
++++ b/src/openrct2/Game.cpp
+@@ -8,6 +8,7 @@
+  *****************************************************************************/
+ 
+ #include "Game.h"
++#include "paint/Paint.Entity.h"
+ 
+ #include "Context.h"
+ #include "Diagnostic.h"
+@@ -403,6 +404,7 @@
+ 
+ void GameNotifyMapChange()
+ {
++    BridgeClearSnapshot();
+ #ifdef ENABLE_SCRIPTING
+     // Ensure we don't get a two lots of change events
+     if (_mapChangedExpected)
