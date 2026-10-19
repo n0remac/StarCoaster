@@ -21,7 +21,8 @@ if len(ANCHOR) != 2:
     raise SystemExit("UNIVERSAL_DEFENSE_ANCHOR must contain x,y")
 FACTORY = "--factory" in sys.argv
 BUILD = "--build" in sys.argv or FACTORY
-MANUAL = "--manual" in sys.argv or BUILD
+UNAUTHORIZED = "--unauthorized" in sys.argv
+MANUAL = "--manual" in sys.argv or BUILD or UNAUTHORIZED
 MIXED = "--wasm" in sys.argv
 BROWSER_BUILD = "--browser-build" in sys.argv
 CAPTURE_ONLY = "--capture-only" in sys.argv
@@ -32,7 +33,7 @@ if CAPTURE_ONLY and not MIXED:
     raise SystemExit("--capture-only requires --wasm")
 if BROWSER_BUILD and not MIXED:
     raise SystemExit("--browser-build requires --wasm")
-RUN = ROOT / "run-data/universal-park-defense-live" / ("factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic")
+RUN = ROOT / "run-data/universal-park-defense-live" / ("unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic")
 TEST_SOURCE = RUN / f"source-{int(time.time())}-{os.getpid()}.park"
 SCENARIO_ID = "park-defense-" + hashlib.sha256(str(TEST_SOURCE).encode()).hexdigest()[:16]
 JOURNAL = ROOT / "run-data/scenarios" / SCENARIO_ID / "spawn-queue.json.scenario.json"
@@ -78,7 +79,7 @@ def main():
             + "var UNIVERSAL_DEFENSE_ANCHOR = " + json.dumps(ANCHOR) + ";\n"
             + (ROOT / "tests/universal-defense-probe.js").read_text())
     # The host distributes the production bridge plugin through multiplayer.
-    report = {"status": "failed", "mode": "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
+    report = {"status": "failed", "mode": "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
               "source": str(SOURCE), "checks": {}, "artifacts": {
         "session_log": str(RUN / "session.log"), "client_log": str(RUN / "client.log"),
         "journal": str(JOURNAL)}}
@@ -156,6 +157,20 @@ def main():
         report["anchor"] = configured["spawn_anchor"]
         if MIXED:
             joined = join_native()
+        if UNAUTHORIZED:
+            second_dir = RUN / "second-client"
+            (second_dir / "plugin").mkdir(parents=True, exist_ok=True)
+            (second_dir / "plugin/universal-defense-noncommander-probe.js").write_text(
+                (ROOT / "tests/universal-defense-noncommander-probe.js").read_text())
+            second_stream = (RUN / "second-client.log").open("w")
+            streams.append(second_stream)
+            second = subprocess.Popen([str(executable), "join", "127.0.0.1", "--headless", "--port=11753",
+                f"--rct2-data-path={rct2}",
+                f"--openrct2-data-path={ROOT / 'build/openrct2-stage/usr/local/share/openrct2'}",
+                f"--user-data-path={second_dir}"], cwd=ROOT, env=env,
+                stdout=second_stream, stderr=subprocess.STDOUT, start_new_session=True)
+            processes.append(second)
+            report["artifacts"]["second_client_log"] = str(RUN / "second-client.log")
         origin = "manual" if MANUAL or MIXED else "periodic"
         wave = wait_for(lambda: next((wave for wave in runtime().get("waves") or []
                                      if wave.get("origin") == origin), None),
@@ -180,6 +195,16 @@ def main():
             raise AssertionError("wave attempted a spawn outside the selected zone")
         report["checks"]["eight_native_zerglings_in_fixed_zone"] = "passed"
         report["wave_ids"] = [wave["id"]]
+        if UNAUTHORIZED:
+            denied = wait_for(lambda: re.search(r"WORLD_DEFENSE_DENIED player=(\d+) commander=(\d+)",
+                (RUN / "session.log").read_text(errors="replace")),
+                60, "noncommander defense rejection", processes)
+            second_log = (RUN / "second-client.log").read_text(errors="replace")
+            if denied.group(1) == denied.group(2) or \
+               f"UNAUTHORIZED_ATTEMPT player={denied.group(1)}" not in second_log or \
+               not runtime().get("defense_enabled"):
+                raise AssertionError("second client changed defense settings")
+            report["checks"]["noncommander_defense_change_rejected"] = "passed"
         if OBSERVE_COMBAT:
             wait_for(lambda: "WORLD_REMOVAL id=" in (RUN / "session.log").read_text(errors="replace"),
                      90, "first native combat demolition", [session, joined])

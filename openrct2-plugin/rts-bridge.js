@@ -1429,8 +1429,11 @@
                             .sort(function (a, b) { return a - b; });
                         commanderPlayer = clients.length ? clients[0] : network.currentPlayer.id;
                     }
-                    if (event.player !== commanderPlayer)
+                    if (event.player !== commanderPlayer) {
+                        console.log("WORLD_DEFENSE_DENIED player=" + event.player
+                            + " commander=" + commanderPlayer);
                         return { error: 1, errorMessage: "Only the Terran commander may configure defense" };
+                    }
                     if (!worldDefenseSender)
                         return { error: 1, errorMessage: "Defense bridge disconnected" };
                 }
