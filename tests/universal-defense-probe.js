@@ -3,6 +3,7 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
     type: "local", licence: "MIT", targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         var ticks = 0, anchorSent = false, enabledSent = false, waveSent = false;
+        var defensePending = false;
         var buildPending = false, buildingID = "", trainPending = false, trainSent = false;
         var factoryID = "", vulturePending = false, vultureSent = false;
         var lastTrainReason = "";
@@ -16,10 +17,10 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
         var factory = factoryMode && objectManager.getAllObjects("large_scenery").find(function (item) {
             return item.identifier === "starcoaster.scenery_large.terran_factory";
         });
-        function placeBuilding(object, label, onPlaced, minX) {
+        function placeBuilding(object, label, onPlaced, minX, minY) {
             if (buildPending || !object) return;
             var sites = [];
-            for (var y = 8; y + 3 < map.size.y - 4; y++) {
+            for (var y = minY || 8; y + 3 < map.size.y - 4; y++) {
                 for (var x = minX || 8; x + 4 < map.size.x - 4; x++) {
                     var height = null, clear = true;
                     for (var dy = 0; dy < 3 && clear; dy++) for (var dx = 0; dx < 4; dx++) {
@@ -101,24 +102,30 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
             if (!state || !state.session) return;
             if (typeof UNIVERSAL_DEFENSE_VERIFY_NO_WAVE !== "undefined"
                 && UNIVERSAL_DEFENSE_VERIFY_NO_WAVE) {
-                if (!buildingID) placeBarracks();
+                if (!buildingID) placeBuilding(barracks, "UNIVERSAL_DEFENSE_BUILD",
+                    function (id) { buildingID = id; }, 20, 20);
                 else if (!trainSent) trainMarine(state.session);
                 return;
             }
+            if (defensePending) return;
             if (!anchorSent) {
+                defensePending = true;
                 context.executeAction("rtsbridge.configureDefense", { session: state.session,
                     anchor: typeof UNIVERSAL_DEFENSE_ANCHOR !== "undefined"
                         ? UNIVERSAL_DEFENSE_ANCHOR : [44, 56] }, function (result) {
                     console.log("UNIVERSAL_DEFENSE_ANCHOR local_accepted=" + !result.error
                         + " reason=" + (result.errorMessage || "ok"));
                     if (!result.error) anchorSent = true;
+                    defensePending = false;
                 });
             } else if (!enabledSent) {
+                defensePending = true;
                 context.executeAction("rtsbridge.configureDefense", { session: state.session,
                     enabled: true }, function (result) {
                     console.log("UNIVERSAL_DEFENSE_ENABLE local_accepted=" + !result.error
                         + " reason=" + (result.errorMessage || "ok"));
                     if (!result.error) enabledSent = true;
+                    defensePending = false;
                 });
             } else if (buildMode && !buildingID) {
                 placeBarracks();

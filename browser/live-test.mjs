@@ -78,6 +78,7 @@ try {
         (process.env.WASM_DEFENSE_ANCHOR || '44,56').split(',').map(Number)) + ';\n'
         + (process.env.WASM_DEFENSE_MANUAL === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_MANUAL = true;\n' : '')
         + (process.env.WASM_DEFENSE_BUILD === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n' : '')
+        + (process.env.WASM_DEFENSE_NO_WAVE === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_NO_WAVE = true;\n' : '')
         + await readFile(path.join(root, 'tests/universal-defense-probe.js'), 'utf8') : '';
     await page.addInitScript(({ cameraSource, defenseSource }) => {
       Object.defineProperty(window, 'Module', {
