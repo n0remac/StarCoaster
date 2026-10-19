@@ -1,5 +1,6 @@
 // Capture a Chromium OpenRCT2 client against a running native StarCoaster host.
-// Licensed RCT2 files must already have been imported at this origin/profile.
+// The private Pi origin provisions licensed RCT2 data on first use; other origins
+// need an existing local import in this browser profile.
 import { chromium } from 'playwright-core';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
