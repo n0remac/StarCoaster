@@ -35,6 +35,7 @@ const menuItems = new Map();
 const savedGames = [];
 let selectionTool, activeTool = null;
 const actorScreens = new Map();
+let clearedSnapshots = 0;
 let squadWidgets;
 const openedWindows = [];
 const starcraftBuildings = ['terran_barracks', 'terran_academy', 'terran_supply_depot',
@@ -65,7 +66,7 @@ const sandbox = {
                     payload: { op_id: m.op_id, accepted: true } }) + '\n');
             } }; return socket;
     } },
-    rtsBridge: { version: 5, assetVersion: 4, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, clearSnapshot() {}, applySnapshot(snapshot) { applied.push(snapshot); },
+    rtsBridge: { version: 5, assetVersion: 4, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, clearSnapshot() { clearedSnapshots++; }, applySnapshot(snapshot) { applied.push(snapshot); },
         actorScreenPosition(id) { return actorScreens.get(id) || null; },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
     ui: { tileSelection: { tiles: [] }, get tool() { return activeTool; }, openWindow(desc) { squadWidgets = desc.widgets;
@@ -800,4 +801,9 @@ const savedLoad = sent.filter(message => message.kind === 'park.load.request').a
 assert.match(savedLoad.save_name, /^starcoaster-switch-[0-9a-f]{16}\.park$/);
 assert.equal(savedGames.at(-1) + '.park', savedLoad.save_name,
     'the authoritative host saves using OpenRCT2 before switching');
+subscriptions.get('map.change')();
+assert.ok(clearedSnapshots >= 2, 'map unload clears native StarCraft rendering');
+assert.ok(command.query({ player: 1, args: squadArgs }).error,
+    'old session orders cannot run after map unload');
+assert.ok(!openedWindows.some(window => window.classification === 'starcoaster-squad'));
 console.log('world plugin discovery and lifecycle validation passed');

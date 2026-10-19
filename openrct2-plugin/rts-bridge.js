@@ -1030,10 +1030,42 @@
         }
 
         let controlSession = "";
+        let clearUiForMap = function () {};
         context.subscribe("map.change", function () {
+            const warned = controlSession && parkCatalog && parkCatalog.phase === "ready";
             rtsBridge.clearSnapshot();
-            if (controlSession && parkCatalog && parkCatalog.phase === "ready"
-                && typeof ui !== "undefined")
+            controlSession = "";
+            controlUnits = {};
+            occupancyUnits = {};
+            actorLifecycleSession = "";
+            activeActorGenerations = {};
+            removedActorGenerations = {};
+            buildingStates = {};
+            playerResources = {};
+            worldTargetIds = {};
+            targetCatalogSession = "";
+            missionStatus = null;
+            outcomeState = null;
+            parkCatalog = null;
+            parkLoadStatus = null;
+            latestSnapshot = null;
+            clientReadySession = "";
+            pendingClientRefresh = false;
+            pendingClientSnapshot = false;
+            commandSerial = 0;
+            targetCatalogVersion = 0;
+            publishedTargets = [];
+            queuedTargetCatalog = null;
+            pendingTargetCatalog = null;
+            defenseFeedback = "";
+            waveFeedback = "";
+            Object.keys(pendingCommands).forEach(function (id) { delete pendingCommands[id]; });
+            Object.keys(seenCommandRequests).forEach(function (id) { delete seenCommandRequests[id]; });
+            Object.keys(spawnStatuses).forEach(function (id) { delete spawnStatuses[id]; });
+            Object.keys(productionFeedback).forEach(function (id) { delete productionFeedback[id]; });
+            Object.keys(pendingTrainTypes).forEach(function (id) { delete pendingTrainTypes[id]; });
+            clearUiForMap();
+            if (warned && typeof ui !== "undefined")
                 ui.showError("StarCoaster park session",
                     "Use StarCoaster: Load Park to change the shared game. Reconnect if you loaded a local save.");
         });
@@ -2102,6 +2134,23 @@
             let loadParkWindow = null;
             let confirmParkWindow = null;
             let selectedPark = "";
+            clearUiForMap = function () {
+                if (ui.tool) ui.tool.cancel();
+                selected = [];
+                Object.keys(controlGroups).forEach(function (number) { delete controlGroups[number]; });
+                selectionSession = "";
+                attackMove = false;
+                dragStart = null;
+                dragEnd = null;
+                highlightedTiles = "";
+                ui.tileSelection.tiles = [];
+                ui.tileSelection.range = null;
+                if (constructionWindow) constructionWindow.close();
+                if (buildingInfoWindow) buildingInfoWindow.close();
+                if (defenseWindow) defenseWindow.close();
+                if (loadParkWindow) loadParkWindow.close();
+                if (confirmParkWindow) confirmParkWindow.close();
+            };
             function requestParkLoad(park, decision) {
                 if (!parkCatalog || parkCatalog.phase !== "ready" || !controlSession) return;
                 context.executeAction(PARK_LOAD_ACTION, { session: controlSession,
