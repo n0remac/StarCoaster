@@ -3,6 +3,7 @@
 
 # Local build output and runtime data.
 /build/
+/browser/node_modules/
 /run-data/
 # Local StarCraft GRP extraction and generated PNG packs stay under run-data.
 *.[gG][rR][pP]
