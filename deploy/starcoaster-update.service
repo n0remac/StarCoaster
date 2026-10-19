@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/media/pi/media1/rts-bridge
-ExecStart=/bin/bash scripts/update-pi-game.sh
+WorkingDirectory=/home/pi/Projects/rts-bridge
+ExecStart=/bin/bash /home/pi/Projects/rts-bridge/scripts/update-pi-game.sh
 TimeoutStartSec=infinity
 StandardOutput=append:/media/pi/media1/rts-bridge/build/pi-update-service.log
 StandardError=append:/media/pi/media1/rts-bridge/build/pi-update-service.log
