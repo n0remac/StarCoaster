@@ -1586,6 +1586,8 @@
                     })
                     ? {} : { error: 1, errorMessage: "Invalid native building state" };
             }, function (event) {
+                if (!buildingStates[event.args.id]) console.log("WORLD_BUILDING_RECEIVED id="
+                    + event.args.id + " session=" + event.args.session + " mode=" + network.mode);
                 buildingStates[event.args.id] = event.args;
                 refreshBuildingAnimations();
                 return {};
@@ -1611,6 +1613,9 @@
             if (++animationTicks % 4 === 0) rtsBridge.invalidateAnimation();
             if (network.mode === "server" && pendingClientRefresh) {
                 pendingClientRefresh = false;
+                console.log("WORLD_CLIENT_REFRESH buildings=" + Object.keys(buildingStates).length
+                    + " resources=" + Object.keys(playerResources).length
+                    + " session=" + controlSession);
                 if (pendingClientSnapshot && latestSnapshot) {
                     pendingClientSnapshot = false;
                     context.executeAction(ACTION, latestSnapshot, function (result) {
@@ -1620,6 +1625,20 @@
                 if (publishingTargetSession) publishTargetCatalog(publishingTargetSession, publishedTargets);
                 if (actorLifecycleSession) Object.keys(activeActorGenerations).forEach(function (id) {
                     publishActorLifecycle(actorLifecycleSession, id, activeActorGenerations[id], "active");
+                });
+                Object.keys(buildingStates).forEach(function (id) {
+                    const state = buildingStates[id];
+                    if (state.session === controlSession)
+                        context.executeAction(BUILDING_ACTION, state, function (result) {
+                            if (result.error) console.log("WORLD_CLIENT_BUILDING_ERROR " + result.errorMessage);
+                        });
+                });
+                Object.keys(playerResources).forEach(function (owner) {
+                    const state = playerResources[owner];
+                    if (state.session === controlSession)
+                        context.executeAction(RESOURCE_ACTION, state, function (result) {
+                            if (result.error) console.log("WORLD_CLIENT_RESOURCE_ERROR " + result.errorMessage);
+                        });
                 });
                 Object.keys(spawnStatuses).forEach(function (id) {
                     const status = spawnStatuses[id];
@@ -1652,7 +1671,10 @@
             let highlightedTiles = "";
             // A remote plugin is restarted on reconnect while the server keeps
             // its command and spawn deduplication journals for this session.
-            const requestEpoch = Date.now();
+            // Native OpenBW echoes command request IDs through a 32-bit integer.
+            // Seed each plugin instance from the clock so reconnects do not
+            // reuse IDs already recorded by the still-running server session.
+            const requestEpoch = Date.now() % 2000000000;
             let nextRequest = requestEpoch;
             let selectingMultiple = false;
             let selectionSession = "";

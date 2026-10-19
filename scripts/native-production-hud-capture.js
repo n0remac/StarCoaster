@@ -9,8 +9,11 @@ registerPlugin({ name: "Native production HUD capture", version: "1.0.0",
         ["Supply Depot", 111, 100, 3, 2], ["Factory", 116, 100, 4, 3],
         ["Armory", 122, 100, 3, 2]
     ];
-    let focus = 0, ticks = 0, attempts = 0, request = 8000, observedEgg = false, ready = false;
-    let demolitionAccepted = false, demolitionClosed = false;
+    let focus = typeof STARCOASTER_HUD_INITIAL_FOCUS === "number"
+        ? STARCOASTER_HUD_INITIAL_FOCUS : 0;
+    let ticks = 0, attempts = 0, request = 8000, observedEgg = false, ready = false;
+    let demolitionAccepted = false, demolitionClosed = false, inspectorReported = false;
+    let inspectorReadyReported = false, constructionReported = false, constructionStatus = "";
     if (typeof STARCOASTER_HUD_DRIVER !== "undefined" && STARCOASTER_HUD_DRIVER) {
         ui.registerShortcut({ id: "starcoaster.hud-gallery", text: "Next native building HUD",
             bindings: ["CTRL+SHIFT+H"], callback: function () {
@@ -62,6 +65,30 @@ registerPlugin({ name: "Native production HUD capture", version: "1.0.0",
             console.log("NATIVE_HUD_CAPTURE_READY");
         }
         if (++ticks % 20 === 1) centre();
+        if (!inspectorReported && ui.getWindow("starcoaster-building-info")) {
+            inspectorReported = true;
+            console.log("NATIVE_HUD_INSPECTOR_OPEN building=" + buildings[focus][0]);
+        }
+        const inspector = ui.getWindow("starcoaster-building-info");
+        const firstCommand = inspector && inspector.findWidget("building-command-0");
+        if (!inspectorReadyReported && firstCommand && !firstCommand.isDisabled) {
+            inspectorReadyReported = true;
+            console.log("NATIVE_HUD_INSPECTOR_READY building=" + buildings[focus][0]);
+        }
+        if (typeof STARCOASTER_HUD_CONSTRUCTION_PROBE !== "undefined"
+            && STARCOASTER_HUD_CONSTRUCTION_PROBE) {
+            const construction = ui.getWindow("starcoaster-construction");
+            if (construction && !constructionReported) {
+                constructionReported = true;
+                console.log("NATIVE_HUD_CONSTRUCTION_WINDOW x=" + construction.x
+                    + " y=" + construction.y + " width=" + construction.width);
+            }
+            const status = construction && construction.findWidget("barracks-status");
+            if (status && status.text !== constructionStatus) {
+                constructionStatus = status.text;
+                console.log("NATIVE_HUD_CONSTRUCTION_STATUS text=" + constructionStatus);
+            }
+        }
         if (typeof STARCOASTER_HUD_DRIVER === "undefined" || !STARCOASTER_HUD_DRIVER) return;
         if (demolitionAccepted && !demolitionClosed && !ui.getWindow("starcoaster-building-info")) {
             demolitionClosed = true;

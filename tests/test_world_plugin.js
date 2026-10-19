@@ -478,8 +478,9 @@ drain();
 const buttonWave = sent.filter(message => message.kind === 'scenario.wave.request').at(-1);
 assert.ok(buttonWave && buttonWave.payload.request_id.startsWith(`${sid}:wave:1:`),
     'button routes a wave through the server bridge');
-assert.ok(Number(buttonWave.payload.request_id.split(':').at(-1)) > 1_000_000_000_000,
-    'new plugin instances start request IDs beyond prior reconnect journals');
+assert.ok(Number(buttonWave.payload.request_id.split(':').at(-1)) > 0
+    && Number(buttonWave.payload.request_id.split(':').at(-1)) <= 2_000_000_000,
+    'new plugin instances seed request IDs within the native 32-bit range');
 const waveStatus = registered.get('rtsbridge.waveStatus');
 assert.ok(waveStatus.query({ player: 2, args: { session: sid, request_id: buttonWave.payload.request_id,
     accepted: true, wave_id: 'manual-0001', state: 'queued', reason: '' } }).error,
@@ -683,6 +684,8 @@ const priorActions = actions.length;
 zergButton.onClick();
 assert.equal(actions.length, priorActions + 1);
 assert.equal(actions.at(-1).name, 'rtsbridge.marineCommand');
+assert.ok(actions.at(-1).args.request > 0 && actions.at(-1).args.request <= 2_000_000_000,
+    'native production request IDs fit the OpenBW 32-bit result field');
 assert.equal(actions.at(-1).args.unit_type, 'zerg_zergling');
 assert.equal(actions.at(-1).args.target_entity_id, hudTargets[5].id);
 const scenarioTrainResult = { player: 1, request: actions.at(-1).args.request,
@@ -714,4 +717,17 @@ socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
 assert.equal(actions.filter(a => a.name === 'rtsbridge.worldOutcome').length, 1,
     'authoritative outcome uses a replicated OpenRCT2 action');
 assert.match(command.query({ player: 1, args: squadArgs }).errorMessage, /ended/);
+const resourcesState = { session: sid, owner: 1, minerals: 500, gas: 250,
+    supply_used: 10, supply_total: 32 };
+const resourceAction = registered.get('rtsbridge.playerResources');
+assert.equal(resourceAction.query({ player: 1, args: resourcesState }).error, undefined);
+resourceAction.execute({ player: 1, args: resourcesState });
+const buildingReplayStart = actions.filter(action => action.name === 'rtsbridge.buildingState').length;
+const resourceReplayStart = actions.filter(action => action.name === 'rtsbridge.playerResources').length;
+clientReady.execute({ player: 2, args: { session: sid } });
+subscriptions.get('interval.tick')();
+assert.equal(actions.filter(action => action.name === 'rtsbridge.buildingState').length - buildingReplayStart,
+    hudStates.length, 'late client readiness replays every current native building state');
+assert.equal(actions.filter(action => action.name === 'rtsbridge.playerResources').length - resourceReplayStart,
+    1, 'late client readiness replays native player resources');
 console.log('world plugin discovery and lifecycle validation passed');
