@@ -1,5 +1,26 @@
 # Bridge protocol v1
 
+## Optional park defense control
+
+For a generated `park_defense` scenario with `manual_activation`, the OpenRCT2
+server forwards `scenario.defense.request` with the current session and park
+revision. Its payload includes `player_id`, `commander_id`, and an optional
+`enabled` boolean or park tile `anchor: [x, y]`. The synchronized OpenRCT2
+action checks the issuing multiplayer player against the current Terran
+commander before forwarding it. The bridge also checks the forwarded identity,
+session, revision, native readiness, and spawn clearance. It persists an
+accepted change in the scenario runtime journal before sending
+`scenario.defense.result` and a new authoritative `scenario.status`.
+
+The status includes `defense_enabled`, `spawn_anchor`, `next_wave_seconds`,
+`wave_interval_seconds`, `active_enemies`, `manual_eligible`, and
+`unlimited_resources`. The selected fixed zone, next frame deadline, wave
+sequence, and outstanding spawns stay in the runtime journal rather than the
+scenario definition. Manual `scenario.wave.request` and automatic waves share
+the same queue and selected zone. A disabled defense produces no new automatic
+waves; an accepted re-enable sets a fresh future deadline from the current
+OpenBW frame.
+
 ## Live park patches
 
 `world.patch` is one bounded authoritative construction batch from the
