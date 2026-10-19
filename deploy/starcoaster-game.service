@@ -1,0 +1,18 @@
+[Unit]
+Description=StarCoaster private browser game
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/media/pi/media1/rts-bridge
+Environment=BRIDGE_SERVE_WASM=1
+Environment=BRIDGE_LAUNCH_CLIENT=0
+Environment=BRIDGE_WASM_LOG_FILE=/media/pi/media1/rts-bridge/build/wasm-playable-server.log
+ExecStart=/bin/bash scripts/run-pi-game.sh
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=default.target

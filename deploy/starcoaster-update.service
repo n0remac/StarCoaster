@@ -1,0 +1,10 @@
+[Unit]
+Description=Update StarCoaster private game from origin/main
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/media/pi/media1/rts-bridge
+ExecStart=/bin/bash scripts/update-pi-game.sh
+TimeoutStartSec=infinity

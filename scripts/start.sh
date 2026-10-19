@@ -7,7 +7,7 @@ cd "$project_dir"
 
 usage() {
     cat <<'EOF'
-Usage: scripts/project.sh start [--scenario ID|--park FILE] [--headless|--client] [--browser|--browser-bundle DIR]
+Usage: scripts/project.sh start [--scenario ID|--park FILE] [--headless|--client] [--browser|--browser-bundle DIR] [--prepare-only]
        scripts/start.sh [--scenario ID|--park FILE] [--headless|--client] [--browser|--browser-bundle DIR]
 
 Fetch pinned sources, build both engines and the bridge, stage OpenRCT2 assets,
@@ -25,6 +25,7 @@ Install system build dependencies first; see docs/bootstrap.md.
 --browser builds and deploys the private WASM bundle and serves it on localhost
 alongside the ordinary scenario. Configure Tailscale Serve separately.
 --browser-bundle DIR deploys an amd64 workstation bundle on the Pi and serves it.
+--prepare-only builds native and browser artifacts without deploying or launching.
 EOF
 }
 
@@ -33,6 +34,7 @@ park_path=""
 client_mode=""
 browser_mode=0
 browser_bundle=""
+prepare_only=0
 while (( $# )); do
     case "$1" in
         --scenario)
@@ -68,6 +70,7 @@ while (( $# )); do
             browser_bundle="$2"
             shift 2
             ;;
+        --prepare-only) prepare_only=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
@@ -155,11 +158,15 @@ if [[ "$BRIDGE_SPRITE_SOURCE" == starcraft-local ]]; then
 fi
 if [[ "$browser_mode" == 1 ]]; then
     scripts/project.sh build-wasm
-    scripts/project.sh deploy-wasm
+    if [[ "$prepare_only" == 0 ]]; then scripts/project.sh deploy-wasm; fi
     export BRIDGE_SERVE_WASM=1
 elif [[ -n "$browser_bundle" ]]; then
-    scripts/project.sh deploy-wasm "$browser_bundle"
+    if [[ "$prepare_only" == 0 ]]; then scripts/project.sh deploy-wasm "$browser_bundle"; fi
     export BRIDGE_SERVE_WASM=1
+fi
+if [[ "$prepare_only" == 1 ]]; then
+    printf 'Native and browser artifacts prepared; game not started.\n'
+    exit 0
 fi
 printf 'Starting %s (Ctrl+C to stop)...\n' "$scenario"
 exec scripts/project.sh play "${play_args[@]}"
