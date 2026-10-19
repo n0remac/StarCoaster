@@ -142,9 +142,9 @@ case "$command" in
         cat <<'EOF'
 Usage: scripts/project.sh {start|build|prepare-wasm-arm64|build-wasm|serve-wasm|deploy-wasm|test-wasm|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
 
-start [--scenario ID] [--headless|--client] [--browser|--browser-bundle DIR]
+start [--scenario ID|--park FILE] [--headless|--client] [--browser|--browser-bundle DIR]
                                         Fetch, build, stage, and play.
-play ID [--plan]                        Play an existing build; --plan only resolves paths.
+play ID|--park FILE [--plan]            Play an existing build; --plan only resolves paths.
 park [ID]                               Force-generate a park (Frontier default).
 record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
 validate-scenario ID                    Validate scenario configuration.
