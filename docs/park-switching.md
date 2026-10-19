@@ -61,3 +61,8 @@ Park window. It builds a Barracks, trains a unit, requests a Zerg wave, and
 checks that Park B starts with a new session and no surviving units. Results
 are written to ignored `run-data/verification/browser-park-switch.json`; the
 screenshots and video are in `run-data/verification/browser-park-switch/`.
+Set `PARK_SWITCH_TARGET=ordinary-frontier-park.park` and
+`PARK_SWITCH_DECISION=save` while Park B is active to exercise the host save
+path. That run writes `run-data/verification/browser-park-switch-save.json`
+and archives Park B under `run-data/park-supervisor/saved/` without changing
+the source file in the private library.
