@@ -19,6 +19,7 @@ OpenRCT2 owns the park, scenery, rides, multiplayer state, and rendering. OpenBW
 ```sh
 scripts/project.sh start --scenario example-defense  # fetch, build, stage, play
 scripts/project.sh build                             # rebuild an existing checkout
+scripts/project.sh launch                            # native OpenRCT2 main menu
 scripts/project.sh generate                          # regenerate StarCraft catalogs and registries
 scripts/project.sh validate-scenario example-defense
 scripts/project.sh play example-defense --plan       # inspect resolved paths
@@ -35,6 +36,8 @@ scripts/project.sh serve-wasm                       # local browser server
 ```
 
 `start`, `park`, and `record` default to `frontier-outpost`; `play` requires an ID. `play` regenerates stale park data and the native map. The CLI resolves packages through `scripts/scenario_package.py` and launches gameplay through `scripts/run-world-session.sh`. Use `scripts/project.sh --help` and subcommand help for current options. Live commands require built engines and locally licensed RCT2 and StarCraft data.
+
+The native launcher and browser app now enter OpenRCT2's standard main menu. The Pi browser service can remain idle with no initial park. The automatic authoritative handoff from a locally selected OpenRCT2 scenario or save to OpenBW is not implemented yet; use explicit scenario `play` commands for integrated gameplay and verification while that lifecycle work continues.
 
 The browser workflow and its verification limits are in `docs/wasm-browser.md`. Keep browser resources private. The Pi-hosted browser server provisions RCT2 from its locally licensed `RCT2_DATA_DIR` over private Tailscale HTTPS, and the private WASM bundle contains staged StarCraft graphics; users do not import assets from their laptops. A development server without a configured RCT2 source retains local import. Never expose these resources through Tailscale Funnel or commit them. Preserve the native OpenRCT2 multiplayer protocol and remote plugin path. A WASM build or offline park render does not complete browser gameplay verification; confirm a browser order executes in OpenBW and both client types display the same result.
 

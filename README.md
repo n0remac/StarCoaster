@@ -2,6 +2,8 @@
 
 StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Its packaged missions include Frontier Outpost, Example Defense, and Midway Junction. The player selects Marines, calls in up to five reinforcements per Spawn Marine request, and gives move, attack, attack move, hold, and stop orders in OpenRCT2. OpenBW runs unit movement and combat; the OpenRCT2 server owns the park and native demolition; the Go bridge synchronizes both engines and two clients.
 
+The native `scripts/project.sh launch` command and private browser app now start at OpenRCT2's standard main menu. New Game and Load Game use OpenRCT2's normal interfaces. Automatic OpenBW startup for a locally selected scenario or save is still in progress; use the explicit `play` commands below for fully integrated StarCraft gameplay until the authoritative map handoff is complete.
+
 ## Build and play
 
 Provide your own licensed RCT2 and classic StarCraft data, then set `RCT2_DATA_DIR` and `STARCRAFT_DATA_DIR`. A fresh clone also needs the pinned upstream checkouts from `python3 scripts/fetch-upstream.py`. See the [bootstrap guide](docs/bootstrap.md) for system packages and local sprite options.
@@ -21,6 +23,7 @@ scripts/project.sh build                          # rebuild an existing checkout
 scripts/project.sh play frontier-outpost         # existing build
 scripts/project.sh play example-defense
 scripts/project.sh play midway-junction
+scripts/project.sh launch                        # native OpenRCT2 main menu
 scripts/project.sh play example-defense --plan   # inspect paths without launching
 scripts/project.sh park example-defense          # generate park, fixture, navigation
 scripts/project.sh park midway-junction
