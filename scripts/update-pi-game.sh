@@ -1,26 +1,40 @@
 #!/usr/bin/env bash
-# Poll main, verify a complete private build, then restart the managed game.
+# Verify a pushed main revision, then restart the managed game.
 set -euo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 force=0
-if [[ "${1:-}" == --force && $# == 1 ]]; then force=1
-elif (( $# )); then printf 'Usage: scripts/update-pi-game.sh [--force]\n' >&2; exit 2
-fi
+from_push=0
+for arg in "$@"; do
+    case "$arg" in
+        --force) force=1 ;;
+        --from-push) from_push=1 ;;
+        *) printf 'Usage: scripts/update-pi-game.sh [--force] [--from-push]\n' >&2; exit 2 ;;
+    esac
+done
 mkdir -p run-data
 exec 9>run-data/pi-update.lock
-flock -n 9 || { printf 'Pi update already running.\n'; exit 0; }
+flock 9
 log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 [[ "$(git branch --show-current)" == main ]] || { log 'Expected the main branch'; exit 1; }
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { log 'Checkout has local changes; update refused'; exit 1; }
-log 'Fetching origin/main'
-git fetch origin main:refs/remotes/origin/main
-if git merge-base --is-ancestor HEAD origin/main; then
-    git merge --ff-only origin/main
-elif git merge-base --is-ancestor origin/main HEAD; then
-    log 'Local main is ahead of origin/main; deploying the local revision'
+if [[ "$from_push" == 1 ]]; then
+    push_repo="${STARCOASTER_PUSH_REPO:-$project_dir/run-data/pi-push.git}"
+    test -d "$push_repo" || { log "Push repository missing: $push_repo"; exit 1; }
+    log 'Fetching Pi push/main'
+    git fetch "$push_repo" refs/heads/main
+    target=FETCH_HEAD
 else
-    log 'main diverged from origin/main'
+    log 'Fetching origin/main'
+    git fetch origin main:refs/remotes/origin/main
+    target=origin/main
+fi
+if git merge-base --is-ancestor HEAD "$target"; then
+    git merge --ff-only "$target"
+elif git merge-base --is-ancestor "$target" HEAD; then
+    log 'Local main already includes the pushed revision'
+else
+    log 'main diverged from pushed main'
     exit 1
 fi
 revision="$(git rev-parse HEAD)"
