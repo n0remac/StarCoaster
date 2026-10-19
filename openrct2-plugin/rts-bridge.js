@@ -16,6 +16,8 @@
     const SPAWN_STATUS_ACTION = "rtsbridge.spawnStatus";
     const WAVE_ACTION = "rtsbridge.requestWave";
     const WAVE_STATUS_ACTION = "rtsbridge.waveStatus";
+    const DEFENSE_ACTION = "rtsbridge.configureDefense";
+    const DEFENSE_RESULT_ACTION = "rtsbridge.defenseResult";
     // Supported integration types only. Native rules remain in OpenBW.
     // BEGIN GENERATED STARCRAFT TYPES
     const UNIT_TYPES = Object.freeze({
@@ -55,9 +57,19 @@
             && unit.owner === owner && unit.hp > 0;
     }
     let terranOwner = 1, markOwnerChange = function () {};
+    let commanderPlayer = -1;
+    function electCommander() {
+        if (network.mode !== "server" || !Array.isArray(network.players)) return commanderPlayer;
+        const connected = network.players.map(function (player) { return player.id; });
+        const host = network.currentPlayer.id;
+        const clients = connected.filter(function (id) { return id !== host; }).sort(function (a, b) { return a - b; });
+        if (commanderPlayer >= 0 && connected.includes(commanderPlayer)) return commanderPlayer;
+        commanderPlayer = clients.length ? clients[0] : -1;
+        return commanderPlayer;
+    }
 
     function startWorldAdapter(onCommandSender, onCommandResult, onEntities, onTargets, onActor,
-                               onSpawnSender, onSpawnStatus, onWaveSender, onWaveStatus) {
+                               onSpawnSender, onSpawnStatus, onWaveSender, onWaveStatus, onDefenseSender, onDefenseResult) {
         const session = Array.from({ length: 4 }, function () {
             return Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, "0");
         }).join("");
@@ -202,6 +214,7 @@
             send("unit.spawn.request", payload);
         });
         onWaveSender(function (payload) { send("scenario.wave.request", payload); });
+        onDefenseSender(function (payload) { send("scenario.defense.request", payload); });
         function rotate(offset, direction) {
             if (direction === 1) return { x: offset.y, y: -offset.x };
             if (direction === 2) return { x: -offset.x, y: -offset.y };
@@ -815,6 +828,7 @@
                     });
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
+            else if (message.kind === "scenario.defense.result" && message.payload) onDefenseResult(message.payload);
             else if (message.kind === "combat.snapshot") {
                 const state = message.payload;
                 if (!state || !Number.isSafeInteger(state.seq) || state.seq <= lastCombatSeq
@@ -855,7 +869,7 @@
                     if (result.error) console.log("WORLD_OUTCOME_ERROR " + result.errorMessage);
                 });
             else if (message.kind === "scenario.status" && message.payload)
-                context.executeAction(SCENARIO_STATUS_ACTION, message.payload, function (result) {
+                context.executeAction(SCENARIO_STATUS_ACTION, Object.assign({ commander_player: electCommander() }, message.payload), function (result) {
                     if (result.error) console.log("WORLD_SCENARIO_STATUS_ERROR " + result.errorMessage);
                 });
             else if (message.kind === "entity.remove") {
@@ -1005,7 +1019,6 @@
         let pendingClientSnapshot = false;
         let latestSnapshot = null;
         let onActorRemoved = function () {};
-        let commanderPlayer = -1;
         function mayCommandBuilding(native) {
             return !!native && native.command_authorized;
         }
@@ -1013,6 +1026,8 @@
         let worldCommandSender = null;
         let worldSpawnSender = null;
         let worldWaveSender = null;
+        let worldDefenseSender = null;
+        let defenseFeedback = "";
         let waveFeedback = "";
         let waveFeedbackUntil = 0;
         let spawnFeedback = "";
@@ -1324,7 +1339,14 @@
                         || (args.active_enemies !== undefined && (!Number.isInteger(args.active_enemies)
                             || args.active_enemies < 0 || args.active_enemies > 256))
                         || !Number.isInteger(args.manual_cooldown_seconds) || args.manual_cooldown_seconds < 0 || args.manual_cooldown_seconds > 1000000000
-                        || typeof args.manual_eligible !== "boolean"))
+                        || typeof args.manual_eligible !== "boolean"
+                        || (args.defense_enabled !== undefined && typeof args.defense_enabled !== "boolean")
+                        || (args.unlimited_resources !== undefined && typeof args.unlimited_resources !== "boolean")
+                        || (args.wave_interval_seconds !== undefined && (!Number.isInteger(args.wave_interval_seconds) || args.wave_interval_seconds < 1))
+                        || (args.spawn_anchor !== undefined && (!Array.isArray(args.spawn_anchor) || args.spawn_anchor.length !== 2
+                            || args.spawn_anchor.some(function (n) { return !Number.isInteger(n) || n < 0 || n > 256; })))
+                        || (args.commander_player !== undefined && !Number.isInteger(args.commander_player))))
+                    || (args.defense_configurable !== undefined && typeof args.defense_configurable !== "boolean")
                     || !["", "pending", "triggered", "spawning", "active", "cleared", "failed"].includes(args.wave_state)
                     || !["", "victory", "defeat"].includes(args.outcome)
                     || typeof args.error !== "string" || args.error.length > 256)
@@ -1367,6 +1389,46 @@
                 if (network.mode !== "server") return {};
                 worldWaveSender({ request_id: event.args.request_id, player_id: event.player,
                     commander_id: commanderPlayer });
+                return {};
+            });
+            context.registerAction(DEFENSE_ACTION, function (event) {
+                const args = event.args || {};
+                if (!Array.isArray(network.players) || !network.players.some(function (player) {
+                    return player.id === event.player;
+                })) return { error: 1, errorMessage: "Player is not connected" };
+                if (network.mode === "server") {
+                    const connected = network.players.map(function (player) { return player.id; });
+                    if (!connected.includes(commanderPlayer)) commanderPlayer = -1;
+                    if (commanderPlayer < 0) {
+                        const clients = connected.filter(function (id) { return id !== network.currentPlayer.id; })
+                            .sort(function (a, b) { return a - b; });
+                        commanderPlayer = clients.length ? clients[0] : network.currentPlayer.id;
+                    }
+                    if (event.player !== commanderPlayer)
+                        return { error: 1, errorMessage: "Only the Terran commander may configure defense" };
+                    if (!worldDefenseSender)
+                        return { error: 1, errorMessage: "Defense bridge disconnected" };
+                }
+                if (args.session !== controlSession || !missionStatus
+                    || missionStatus.mode !== "park_defense"
+                    || (typeof args.enabled !== "boolean" && args.anchor === undefined)
+                    || (args.anchor !== undefined && (!Array.isArray(args.anchor) || args.anchor.length !== 2
+                        || args.anchor.some(function (n) { return !Number.isInteger(n) || n < 0 || n > 256; }))))
+                    return { error: 1, errorMessage: "Invalid defense setting" };
+                return {};
+            }, function (event) {
+                if (network.mode === "server") worldDefenseSender({ player_id: event.player,
+                    commander_id: commanderPlayer, enabled: event.args.enabled, anchor: event.args.anchor });
+                return {};
+            });
+            context.registerAction(DEFENSE_RESULT_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may report defense settings" };
+                return typeof args.accepted === "boolean" && typeof args.reason === "string" && args.reason.length <= 128
+                    ? {} : { error: 1, errorMessage: "Invalid defense result" };
+            }, function (event) {
+                defenseFeedback = event.args.accepted ? "Defense settings saved" : "Defense: " + event.args.reason;
                 return {};
             });
             context.registerAction(WAVE_STATUS_ACTION, function (event) {
@@ -1611,6 +1673,13 @@
         let cameraSession = "";
         context.subscribe("interval.tick", function () {
             if (++animationTicks % 4 === 0) rtsBridge.invalidateAnimation();
+            if (network.mode === "server" && missionStatus) {
+                const previousCommander = commanderPlayer;
+                electCommander();
+                if (previousCommander !== commanderPlayer)
+                    context.executeAction(SCENARIO_STATUS_ACTION,
+                        Object.assign({}, missionStatus, { commander_player: commanderPlayer }), function () {});
+            }
             if (network.mode === "server" && pendingClientRefresh) {
                 pendingClientRefresh = false;
                 console.log("WORLD_CLIENT_REFRESH buildings=" + Object.keys(buildingStates).length
@@ -1806,7 +1875,9 @@
             }
             function openConstructionWindow() {
                 if (constructionWindow) { constructionWindow.bringToFront(); return; }
-                const catalog = Object.keys(BUILDING_TYPES);
+                const catalog = missionStatus && missionStatus.defense_configurable
+                    ? Object.keys(BUILDING_TYPES).filter(function (id) { return id.startsWith("terran_"); })
+                    : Object.keys(BUILDING_TYPES);
                 const extraHeight = Math.max(0, catalog.length - 1) * 29;
                 constructionWindow = ui.openWindow({ classification: "starcoaster-construction",
                     width: 238, height: 134 + extraHeight, title: "StarCraft Construction",
@@ -1827,8 +1898,84 @@
                             text: barracksPreviewStatus }
                     ]) });
             }
-            if (typeof ui.registerMenuItem === "function")
+            let defenseWindow = null;
+            function defenseCommander() {
+                return !missionStatus || missionStatus.commander_player === undefined
+                    || missionStatus.commander_player === network.currentPlayer.id;
+            }
+            function configureDefense(settings) {
+                if (!defenseCommander()) {
+                    ui.showError("StarCraft Defense", "Only the Terran commander may change defense settings");
+                    return;
+                }
+                if (!missionStatus || !missionStatus.defense_configurable) return;
+                context.executeAction(DEFENSE_ACTION, Object.assign({ session: controlSession }, settings),
+                    function (result) {
+                        if (result.error) ui.showError("StarCraft Defense", result.errorMessage);
+                    });
+            }
+            function selectDefenseSpawn() {
+                if (!defenseCommander() || !missionStatus || missionStatus.defense_enabled) {
+                    ui.showError("StarCraft Defense", "Disable waves before selecting a spawn point");
+                    return;
+                }
+                if (ui.tool) ui.tool.cancel();
+                ui.activateTool({ id: "starcoaster.defense-spawn", cursor: "cross_hair",
+                    onDown: function (event) {
+                        const point = event.mapCoords || rtsBridge.cursorWorld();
+                        if (!point) return;
+                        configureDefense({ anchor: [Math.floor(point.x / 32), Math.floor(point.y / 32)] });
+                        if (ui.tool) ui.tool.cancel();
+                    } });
+            }
+            function openDefenseWindow() {
+                if (!missionStatus || !missionStatus.defense_configurable) {
+                    ui.showError("StarCraft Defense", "Open an existing park in defense mode first");
+                    return;
+                }
+                if (defenseWindow) { defenseWindow.bringToFront(); return; }
+                defenseWindow = ui.openWindow({ classification: "starcoaster-defense",
+                    width: 258, height: 198, title: "StarCraft Defense",
+                    onClose: function () { defenseWindow = null; }, widgets: [
+                        { type: "button", name: "defense-toggle", x: 8, y: 19, width: 118, height: 24,
+                            text: "Enable Zerg Waves", onClick: function () {
+                                if (missionStatus) configureDefense({ enabled: !missionStatus.defense_enabled });
+                            } },
+                        { type: "button", x: 132, y: 19, width: 118, height: 24,
+                            text: "Select Spawn Point", onClick: selectDefenseSpawn },
+                        { type: "label", name: "defense-spawn", x: 8, y: 50, width: 242, height: 14, text: "Spawn: none" },
+                        { type: "label", name: "defense-interval", x: 8, y: 69, width: 242, height: 14, text: "Wave interval: 120s" },
+                        { type: "label", name: "defense-next", x: 8, y: 88, width: 242, height: 14, text: "Next wave: disabled" },
+                        { type: "label", name: "defense-current", x: 8, y: 107, width: 242, height: 14, text: "Current wave: 0" },
+                        { type: "button", x: 8, y: 129, width: 118, height: 24,
+                            text: "Spawn Wave Now", onClick: requestWave },
+                        { type: "label", name: "defense-resources", x: 8, y: 161, width: 242, height: 14,
+                            text: "Minerals: Unlimited | Gas: Unlimited" }
+                    ] });
+            }
+            if (typeof ui.registerMenuItem === "function") {
                 ui.registerMenuItem("StarCraft Construction", openConstructionWindow);
+                ui.registerMenuItem("StarCraft Defense", openDefenseWindow);
+            }
+            context.subscribe("interval.tick", function () {
+                if (!defenseWindow) return;
+                const status = missionStatus;
+                if (!status) return;
+                const setText = function (name, value) {
+                    const widget = defenseWindow.findWidget(name);
+                    if (widget) widget.text = value;
+                };
+                setText("defense-toggle", "Zerg Waves: " + (status.defense_enabled ? "On" : "Off"));
+                setText("defense-spawn", "Spawn: " + (status.spawn_anchor
+                    ? status.spawn_anchor.join(", ") : "select a park edge"));
+                setText("defense-interval", "Wave interval: " + status.wave_interval_seconds + "s");
+                setText("defense-next", status.defense_enabled
+                    ? "Next wave: " + status.next_wave_seconds + "s" : "Next wave: disabled");
+                setText("defense-current", "Current wave: " + status.wave_ordinal + " | "
+                    + status.active_enemies + " enemies (" + status.wave_state + ")");
+                setText("defense-resources", status.unlimited_resources
+                    ? "Minerals: Unlimited | Gas: Unlimited" : "Resources: native balance");
+            });
             const squadWindow = ui.openWindow({ classification: "starcoaster-squad",
                 width: 248, height: 231, title: "Frontier Outpost", widgets: [
                     { type: "label", name: "selection", x: 8, y: 19, width: 232, height: 14,
@@ -1860,8 +2007,9 @@
                         text: "" }
                 ] });
             function requestWave() {
-                if (!controlSession || !missionStatus || missionStatus.mode !== "park_defense") {
-                    ui.showError("Spawn Wave", "Continuous park defense is not active");
+                if (!controlSession || !missionStatus || missionStatus.mode !== "park_defense"
+                    || !missionStatus.manual_eligible) {
+                    ui.showError("Spawn Wave", "Manual waves are unavailable");
                     return;
                 }
                 const request = ++nextWaveRequest;
@@ -1923,8 +2071,9 @@
                         + " selected" + (selected.length === 1 ? " | HP " + controlUnits[selected[0]].hp : "");
                     const resources = squadWindow.findWidget("player-resources");
                     const report = playerResources[terranOwner];
-                    if (resources) resources.text = report ? "Minerals: " + report.minerals
-                        + "  Gas: " + report.gas + "  Supply: "
+                    if (resources) resources.text = report ? (missionStatus && missionStatus.unlimited_resources
+                        ? "Minerals: Unlimited  Gas: Unlimited  Supply: "
+                        : "Minerals: " + report.minerals + "  Gas: " + report.gas + "  Supply: ")
                         + (report.supply_used / 2) + "/" + (report.supply_total / 2) : "";
                     const objective = squadWindow.findWidget("objective");
                     if (objective) objective.text = missionStatus && missionStatus.session === controlSession
@@ -2351,6 +2500,11 @@
         if (network.mode !== "server") return;
 
             context.subscribe("network.join", function () {
+                const previousCommander = commanderPlayer;
+                electCommander();
+                if (missionStatus && previousCommander !== commanderPlayer)
+                    context.executeAction(SCENARIO_STATUS_ACTION,
+                        Object.assign({}, missionStatus, { commander_player: commanderPlayer }), function () {});
                 if (publishingTargetSession) publishTargetCatalog(publishingTargetSession, publishedTargets);
                 if (actorLifecycleSession) Object.keys(activeActorGenerations).forEach(function (id) {
                     publishActorLifecycle(actorLifecycleSession, id, activeActorGenerations[id], "active");
@@ -2378,6 +2532,10 @@
             }, function (sender) { worldWaveSender = sender; }, function (status) {
                 context.executeAction(WAVE_STATUS_ACTION, status, function (result) {
                     if (result.error) console.log("WORLD_WAVE_STATUS_ERROR " + result.errorMessage);
+                });
+            }, function (sender) { worldDefenseSender = sender; }, function (status) {
+                context.executeAction(DEFENSE_RESULT_ACTION, status, function (result) {
+                    if (result.error) console.log("WORLD_DEFENSE_STATUS_ERROR " + result.errorMessage);
                 });
             });
             return;

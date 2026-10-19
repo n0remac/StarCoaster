@@ -28,6 +28,7 @@ EOF
 }
 
 scenario=frontier-outpost
+park_path=""
 client_mode=""
 browser_mode=0
 browser_bundle=""
@@ -38,6 +39,13 @@ while (( $# )); do
                 printf 'Missing value for --scenario\n' >&2; usage >&2; exit 2
             fi
             scenario="$2"
+            shift 2
+            ;;
+        --park)
+            if (( $# < 2 )) || [[ "$2" == --* ]]; then
+                printf 'Missing value for --park\n' >&2; usage >&2; exit 2
+            fi
+            park_path="$2"
             shift 2
             ;;
         --headless|--client)
@@ -66,7 +74,9 @@ done
 if [[ "$client_mode" == --headless ]]; then export BRIDGE_LAUNCH_CLIENT=0; fi
 if [[ "$client_mode" == --client ]]; then export BRIDGE_LAUNCH_CLIENT=1; fi
 # The plan uses the same resolver as play and has no build or gameplay side effects.
-python3 scripts/play-scenario.py "$scenario" --plan >/dev/null
+play_args=("$scenario")
+if [[ -n "$park_path" ]]; then play_args=(--park "$park_path"); fi
+python3 scripts/play-scenario.py "${play_args[@]}" --plan >/dev/null
 
 export RCT2_DATA_DIR="${RCT2_DATA_DIR:-$HOME/games/rct2}"
 export STARCRAFT_DATA_DIR="${STARCRAFT_DATA_DIR:-$HOME/games/starcraft}"
@@ -139,6 +149,9 @@ if [[ "$BRIDGE_SPRITE_SOURCE" == starcraft-local ]]; then
     python3 scripts/install-starcraft-construction-object.py \
         build/openrct2-stage/usr/local/share/openrct2 --game-dir "$STARCRAFT_DATA_DIR" --all
 fi
+if [[ "$BRIDGE_SPRITE_SOURCE" == starcraft-local ]]; then
+    python3 scripts/verify-starcraft-visuals.py --record
+fi
 if [[ "$browser_mode" == 1 ]]; then
     scripts/project.sh build-wasm
     scripts/project.sh deploy-wasm
@@ -148,4 +161,4 @@ elif [[ -n "$browser_bundle" ]]; then
     export BRIDGE_SERVE_WASM=1
 fi
 printf 'Starting %s (Ctrl+C to stop)...\n' "$scenario"
-exec scripts/project.sh play "$scenario"
+exec scripts/project.sh play "${play_args[@]}"

@@ -236,7 +236,7 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
                                    "palette": "keep"})
     definition = {"id": definition_type["object_id"], "authors": ["StarCoaster"], "version": "2.0",
                   "objectType": "scenery_large",
-                  "properties": {"price": 1, "removalPrice": 0, "cursor": "CURSOR_STATUE_DOWN",
+                  "properties": {"price": 0, "removalPrice": 0, "cursor": "CURSOR_STATUE_DOWN",
                                  "tiles": tiles},
                   "images": images,
                   "strings": {"name": {"en-GB": definition_type["display_name"]}}}

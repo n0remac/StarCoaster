@@ -30,6 +30,7 @@ at(6, 6).push({ type: 'footpath', object: 4, surfaceObject: 4,
     baseHeight: 18, baseZ: 144, clearanceZ: 176, occupiedQuadrants: 15 });
 const sent = [], actions = [], applied = [], logs = [], registered = new Map(), responses = [], subscriptions = new Map();
 const shortcuts = new Map();
+const menuItems = new Map();
 let selectionTool, activeTool = null;
 const actorScreens = new Map();
 let squadWidgets;
@@ -72,6 +73,7 @@ const sandbox = {
                     if (widget && name === 'building-camera') widget.viewport = camera;
                     return widget; }, close() { if (desc.onClose) desc.onClose(); } }; },
         registerShortcut(shortcut) { shortcuts.set(shortcut.id, shortcut); },
+        registerMenuItem(name, callback) { menuItems.set(name, callback); },
         registerViewportInteraction(handler) { selectionTool = handler; },
         activateTool(tool) { if (activeTool) activeTool.cancel(); activeTool = tool;
             tool.cancel = function () { activeTool = null; if (tool.onFinish) tool.onFinish(); }; }, showError() {} },
@@ -730,4 +732,24 @@ assert.equal(actions.filter(action => action.name === 'rtsbridge.buildingState')
     hudStates.length, 'late client readiness replays every current native building state');
 assert.equal(actions.filter(action => action.name === 'rtsbridge.playerResources').length - resourceReplayStart,
     1, 'late client readiness replays native player resources');
+const defenseStatus = { ...parkStatus, defense_configurable: true, defense_enabled: false,
+    wave_interval_seconds: 120, unlimited_resources: true, commander_player: 1 };
+missionAction.execute({ player: 1, args: defenseStatus });
+assert.ok(menuItems.has('StarCraft Defense'), 'defense menu is registered');
+menuItems.get('StarCraft Defense')();
+const defenseWindow = openedWindows.at(-1);
+assert.equal(defenseWindow.title, 'StarCraft Defense');
+const defenseAction = registered.get('rtsbridge.configureDefense');
+assert.match(defenseAction.query({ player: 2, args: { session: sid, enabled: true } }).errorMessage,
+    /commander/, 'other clients cannot configure defense');
+defenseWindow.widgets.find(widget => widget.name === 'defense-toggle').onClick();
+drain();
+assert.equal(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.enabled,
+    true, 'menu sends the authenticated defense request through the bridge');
+defenseWindow.widgets.find(widget => widget.text === 'Select Spawn Point').onClick();
+assert.equal(activeTool.id, 'starcoaster.defense-spawn');
+activeTool.onDown({ mapCoords: { x: 4 * 32, y: 4 * 32 } });
+drain();
+assert.deepEqual(Array.from(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.anchor),
+    [4, 4], 'spawn tool forwards the chosen tile');
 console.log('world plugin discovery and lifecycle validation passed');

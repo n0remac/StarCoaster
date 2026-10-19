@@ -32,6 +32,7 @@ public:
         return (!objectiveID_.empty() || parkDefense_) && started_ && frame >= notBeforeFrame_;
     }
     const std::string& objectiveID() const { return objectiveID_; }
+    bool parkDefense() const { return parkDefense_; }
 
     void step(BWAPI::Game* game, BWAPI::Unit objective,
               const std::vector<BWAPI::Unit>& alternatives) const {
@@ -49,11 +50,20 @@ public:
                     if (parkDefense_ && !unit->hasPath(candidate->getPosition())) continue;
                     const auto a = unit->getPosition(), b = candidate->getPosition();
                     const int distance = std::abs(a.x - b.x) + std::abs(a.y - b.y);
-                    if (distance < best) { best = distance; target = candidate; }
+                    const int priority = parkDefense_ && candidate->getPlayer()
+                        && candidate->getPlayer()->getID() == 1
+                        ? (candidate->getType().isBuilding() ? 1 : 0) : 2;
+                    const int score = priority * 100000 + distance;
+                    if (score < best) { best = score; target = candidate; }
                 }
             }
             if (target && unit->getOrderTarget() != target && unit->getTarget() != target)
                 unit->attack(target);
+            if (!target && parkDefense_) {
+                const BWAPI::Position rally(game->mapWidth() * 16, game->mapHeight() * 16);
+                if (unit->hasPath(rally) && unit->getOrderTargetPosition() != rally)
+                    unit->attack(rally);
+            }
         }
     }
 private:

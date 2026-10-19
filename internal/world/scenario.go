@@ -48,10 +48,11 @@ type Scenario struct {
 		ObjectiveDestroyed   string `json:"objective_destroyed"`
 		AllMarinesEliminated bool   `json:"all_marines_eliminated"`
 	} `json:"defeat"`
-	SpawnWaves  []SpawnWave          `json:"spawn_waves,omitempty"`
-	SpawnZones  map[string]SpawnZone `json:"spawn_zones,omitempty"`
-	Waves       []ScenarioWave       `json:"waves,omitempty"`
-	ParkDefense *ParkDefenseWaves    `json:"park_defense,omitempty"`
+	SpawnWaves         []SpawnWave          `json:"spawn_waves,omitempty"`
+	SpawnZones         map[string]SpawnZone `json:"spawn_zones,omitempty"`
+	Waves              []ScenarioWave       `json:"waves,omitempty"`
+	ParkDefense        *ParkDefenseWaves    `json:"park_defense,omitempty"`
+	UnlimitedResources bool                 `json:"unlimited_resources,omitempty"`
 }
 
 // ScenarioStructure uses OpenRCT2 tile coordinates, before native map padding.
@@ -71,6 +72,8 @@ type ParkDefenseWaves struct {
 	ManualCooldownFrames int        `json:"manual_cooldown_frames"`
 	SpawnZones           []string   `json:"spawn_zones"`
 	WaveTiers            []WaveTier `json:"wave_tiers,omitempty"`
+	ManualActivation     bool       `json:"manual_activation,omitempty"`
+	FixedSpawn           bool       `json:"fixed_spawn,omitempty"`
 }
 
 type WaveTier struct {
@@ -165,7 +168,7 @@ func LoadScenario(path string) (*Scenario, error) {
 	}
 	parkDefense := scenario.Mode == "park_defense"
 	if (scenario.Version != 1 && scenario.Version != 2) || !identifier.MatchString(scenario.ID) || scenario.ParkSize[0] < 1 || scenario.ParkSize[1] < 1 ||
-		scenario.ParkSize[0] > 256 || scenario.ParkSize[1] > 256 || len(scenario.StartingUnits.Marines) == 0 ||
+		scenario.ParkSize[0] > 256 || scenario.ParkSize[1] > 256 || (!parkDefense && len(scenario.StartingUnits.Marines) == 0) ||
 		(!parkDefense && (len(scenario.StartingUnits.Zerglings) == 0 || len(scenario.Objectives) == 0 ||
 			scenario.InitialAI.Strategy != "objective_assault" || scenario.InitialAI.Objective == "")) ||
 		(parkDefense && (scenario.Version != 2 || len(scenario.StartingUnits.Zerglings) != 0 ||
@@ -244,7 +247,8 @@ func LoadScenario(path string) (*Scenario, error) {
 
 func (s *Scenario) validateV2() error {
 	if strings.TrimSpace(s.DisplayName) == "" || strings.TrimSpace(s.ParkFile) == "" ||
-		len(s.SpawnWaves) != 0 || len(s.SpawnZones) == 0 ||
+		len(s.SpawnWaves) != 0 || (len(s.SpawnZones) == 0 &&
+		(s.Mode != "park_defense" || s.ParkDefense == nil || !s.ParkDefense.FixedSpawn)) ||
 		(s.Mode != "park_defense" && (!s.Victory.AllWavesCleared || len(s.Waves) == 0 || s.ParkDefense != nil)) ||
 		(s.Mode == "park_defense" && (len(s.Waves) != 0 || s.ParkDefense == nil)) {
 		return fmt.Errorf("invalid v2 scenario configuration")
@@ -307,7 +311,8 @@ func (s *Scenario) validateV2() error {
 		if p.InitialDelayFrames < 1 || p.IntervalFrames < 1 ||
 			(len(p.WaveTiers) == 0 && (p.UnitsPerWave < 1 || p.UnitsPerWave > 64)) ||
 			(len(p.WaveTiers) > 0 && p.UnitsPerWave != 0) ||
-			p.ManualCooldownFrames < 0 || len(p.SpawnZones) < 2 {
+			p.ManualCooldownFrames < 0 || (p.FixedSpawn && (!p.ManualActivation || len(p.SpawnZones) != 0)) ||
+			(!p.FixedSpawn && len(p.SpawnZones) < 2) {
 			return fmt.Errorf("invalid park defense wave template")
 		}
 		previous := 0

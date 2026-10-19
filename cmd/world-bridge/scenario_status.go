@@ -5,22 +5,27 @@ import (
 )
 
 type scenarioStatus struct {
-	Session               string `json:"session"`
-	ScenarioID            string `json:"scenario_id"`
-	DisplayName           string `json:"display_name"`
-	Mode                  string `json:"mode"`
-	Objective             string `json:"objective"`
-	WaveOrdinal           int    `json:"wave_ordinal"`
-	WaveTotal             int    `json:"wave_total"`
-	WaveState             string `json:"wave_state"`
-	Outcome               string `json:"outcome"`
-	Error                 string `json:"error"`
-	TotalTriggered        int    `json:"total_triggered"`
-	NextWaveSeconds       int    `json:"next_wave_seconds"`
-	ActiveZerglings       int    `json:"active_zerglings"`
-	ActiveEnemies         int    `json:"active_enemies"`
-	ManualCooldownSeconds int    `json:"manual_cooldown_seconds"`
-	ManualEligible        bool   `json:"manual_eligible"`
+	Session               string  `json:"session"`
+	ScenarioID            string  `json:"scenario_id"`
+	DisplayName           string  `json:"display_name"`
+	Mode                  string  `json:"mode"`
+	Objective             string  `json:"objective"`
+	WaveOrdinal           int     `json:"wave_ordinal"`
+	WaveTotal             int     `json:"wave_total"`
+	WaveState             string  `json:"wave_state"`
+	Outcome               string  `json:"outcome"`
+	Error                 string  `json:"error"`
+	TotalTriggered        int     `json:"total_triggered"`
+	NextWaveSeconds       int     `json:"next_wave_seconds"`
+	ActiveZerglings       int     `json:"active_zerglings"`
+	ActiveEnemies         int     `json:"active_enemies"`
+	ManualCooldownSeconds int     `json:"manual_cooldown_seconds"`
+	ManualEligible        bool    `json:"manual_eligible"`
+	DefenseEnabled        bool    `json:"defense_enabled,omitempty"`
+	SpawnAnchor           *[2]int `json:"spawn_anchor,omitempty"`
+	WaveIntervalSeconds   int     `json:"wave_interval_seconds,omitempty"`
+	UnlimitedResources    bool    `json:"unlimited_resources,omitempty"`
+	DefenseConfigurable   bool    `json:"defense_configurable,omitempty"`
 }
 
 func (s *service) currentScenarioStatus() scenarioStatus {
@@ -29,7 +34,12 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 		Outcome: s.outcome, ActiveZerglings: s.lastZerglings, ActiveEnemies: s.lastEnemies}
 	if s.scenario.Mode == "park_defense" {
 		status.Objective = "Manage and defend the park"
+		status.WaveIntervalSeconds = (s.scenario.ParkDefense.IntervalFrames + 23) / 24
+		status.UnlimitedResources = s.scenario.UnlimitedResources
+		status.DefenseConfigurable = s.scenario.ParkDefense.ManualActivation
 		if s.runtime != nil {
+			status.DefenseEnabled = !s.scenario.ParkDefense.ManualActivation || s.runtime.DefenseEnabled
+			status.SpawnAnchor = s.runtime.SpawnAnchor
 			status.TotalTriggered = s.runtime.TotalTriggered
 			status.WaveOrdinal = s.runtime.TotalTriggered
 			status.WaveTotal = 0
@@ -37,12 +47,15 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 			if status.NextWaveSeconds < 0 {
 				status.NextWaveSeconds = 0
 			}
+			if !status.DefenseEnabled {
+				status.NextWaveSeconds = 0
+			}
 			cooldown := s.scenario.ParkDefense.ManualCooldownFrames - (s.runtime.LastFrame - s.runtime.LastManualFrame)
 			if s.runtime.LastManualFrame == 0 || cooldown < 0 {
 				cooldown = 0
 			}
 			status.ManualCooldownSeconds = (cooldown + 23) / 24
-			status.ManualEligible = s.ready && s.bw != nil && s.controller != nil && cooldown == 0 && s.runtime.Error == ""
+			status.ManualEligible = status.DefenseEnabled && s.ready && s.bw != nil && s.controller != nil && cooldown == 0 && s.runtime.Error == ""
 			status.WaveState = "pending"
 			for _, wave := range s.runtime.Waves {
 				if wave.State != "cleared" && wave.State != "failed" {

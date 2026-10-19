@@ -24,6 +24,11 @@ fi
 bridge_args=()
 if [[ -n "${BRIDGE_SCENARIO_CONFIG:-}" ]]; then bridge_args+=(--scenario "$BRIDGE_SCENARIO_CONFIG"); fi
 if [[ -n "${BRIDGE_SCENARIO_CONFIG:-}" ]]; then
+  export BRIDGE_UNLIMITED_TERRAN_RESOURCES="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'
+import json, sys
+print('1' if json.load(open(sys.argv[1], encoding='utf-8')).get('unlimited_resources') else '0')
+PY
+)"
   export BRIDGE_TERRAN_STARTING_MINERALS="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'
 import json, sys
 scenario = json.load(open(sys.argv[1], encoding="utf-8"))

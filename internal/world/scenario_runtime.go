@@ -22,6 +22,9 @@ type ScenarioRuntime struct {
 	LastFrame          int               `json:"last_frame"`
 	LastSeq            uint64            `json:"last_seq"`
 	NextAutomaticFrame int               `json:"next_automatic_frame,omitempty"`
+	DefenseEnabled     bool              `json:"defense_enabled,omitempty"`
+	SpawnAnchor        *[2]int           `json:"spawn_anchor,omitempty"`
+	FixedSpawnZone     SpawnZone         `json:"fixed_spawn_zone,omitempty"`
 	NextWaveSequence   int               `json:"next_wave_sequence,omitempty"`
 	TotalTriggered     int               `json:"total_triggered,omitempty"`
 	LastManualFrame    int               `json:"last_manual_frame,omitempty"`
@@ -38,6 +41,7 @@ type RuntimeWave struct {
 	Origin         string          `json:"origin,omitempty"`
 	Sequence       int             `json:"sequence,omitempty"`
 	SpawnZone      string          `json:"spawn_zone,omitempty"`
+	FixedZone      SpawnZone       `json:"fixed_zone,omitempty"`
 	Composition    []WaveTierGroup `json:"composition,omitempty"`
 	State          string          `json:"state"`
 	TriggeredFrame int             `json:"triggered_frame,omitempty"`
@@ -88,11 +92,26 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 		if r.NextWaveSequence < 1 || r.TotalTriggered < 0 {
 			return errors.New("scenario_journal_sequence_invalid")
 		}
+		if s.ParkDefense.FixedSpawn {
+			if r.DefenseEnabled && (r.SpawnAnchor == nil || len(r.FixedSpawnZone.Tiles) == 0 || r.NextAutomaticFrame == 0) {
+				return errors.New("scenario_journal_defense_invalid")
+			}
+			for _, tile := range r.FixedSpawnZone.Tiles {
+				if !s.validTile(tile) {
+					return errors.New("scenario_journal_spawn_zone_invalid")
+				}
+			}
+		}
 		for i := range r.Waves {
 			wave := &r.Waves[i]
 			if wave.TemplateID != "park-defense" || wave.Sequence < 1 ||
-				(wave.Origin != "periodic" && wave.Origin != "manual") || s.SpawnZones[wave.SpawnZone].Tiles == nil {
+				(wave.Origin != "periodic" && wave.Origin != "manual") ||
+				(!s.ParkDefense.FixedSpawn && s.SpawnZones[wave.SpawnZone].Tiles == nil) ||
+				(s.ParkDefense.FixedSpawn && wave.SpawnZone != "selected") {
 				return errors.New("scenario_journal_wave_mismatch")
+			}
+			if s.ParkDefense.FixedSpawn && len(wave.FixedZone.Tiles) == 0 {
+				return errors.New("scenario_journal_wave_zone_missing")
 			}
 			groups := s.ParkDefense.GroupsForWave(wave.Sequence)
 			if err := validateRuntimeUnits(*wave, groups, r.Session); err != nil {
@@ -231,6 +250,9 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 		return false
 	}
 	if s.Mode == "park_defense" {
+		if s.ParkDefense.ManualActivation && !r.DefenseEnabled {
+			return false
+		}
 		if r.NextAutomaticFrame == 0 {
 			r.NextAutomaticFrame = r.StartFrame + s.ParkDefense.InitialDelayFrames
 			return true
@@ -288,9 +310,15 @@ func (r *ScenarioRuntime) newParkDefenseWave(s *Scenario, origin string) string 
 	r.NextWaveSequence++
 	r.TotalTriggered++
 	id := fmt.Sprintf("%s-%04d", origin, sequence)
-	zone := s.ParkDefense.SpawnZones[(sequence-1)%len(s.ParkDefense.SpawnZones)]
+	zone := "selected"
+	if !s.ParkDefense.FixedSpawn {
+		zone = s.ParkDefense.SpawnZones[(sequence-1)%len(s.ParkDefense.SpawnZones)]
+	}
 	wave := RuntimeWave{ID: id, TemplateID: "park-defense", Origin: origin,
 		Sequence: sequence, SpawnZone: zone, State: "triggered", TriggeredFrame: r.LastFrame}
+	if s.ParkDefense.FixedSpawn {
+		wave.FixedZone = SpawnZone{Tiles: append([][2]int(nil), r.FixedSpawnZone.Tiles...)}
+	}
 	for gi, group := range s.ParkDefense.GroupsForWave(sequence) {
 		wave.Composition = append(wave.Composition, group)
 		for index := 0; index < group.Count; index++ {
@@ -309,6 +337,9 @@ func (r *ScenarioRuntime) RequestManual(s *Scenario, requestID string, playerID,
 	}
 	if wave, ok := r.ManualRequests[requestID]; ok {
 		return wave, nil
+	}
+	if s.ParkDefense.ManualActivation && !r.DefenseEnabled {
+		return "", errors.New("defense_disabled")
 	}
 	if requestID == "" || len(requestID) > 128 {
 		return "", errors.New("invalid_wave_request")
@@ -346,6 +377,9 @@ func (r *ScenarioRuntime) WaveZone(s *Scenario, wi, group int) (SpawnZone, bool)
 	instance := r.Waves[wi]
 	if s.Mode == "park_defense" {
 		zone, ok := s.SpawnZones[instance.SpawnZone]
+		if s.ParkDefense.FixedSpawn {
+			zone, ok = instance.FixedZone, len(instance.FixedZone.Tiles) > 0
+		}
 		groups := instance.Composition
 		if len(groups) == 0 {
 			groups = s.ParkDefense.GroupsForWave(instance.Sequence) // validated Zergling-only legacy journal
@@ -367,7 +401,7 @@ func (r *ScenarioRuntime) WaveZones(s *Scenario, wi, group int) ([]SpawnZone, bo
 		return nil, false
 	}
 	zones := []SpawnZone{primary}
-	if s.Mode == "park_defense" {
+	if s.Mode == "park_defense" && !s.ParkDefense.FixedSpawn {
 		for _, id := range s.ParkDefense.SpawnZones {
 			if id != r.Waves[wi].SpawnZone {
 				zones = append(zones, s.SpawnZones[id])

@@ -42,6 +42,11 @@ def main() -> int:
     js = require(build_dir / "openrct2.js")
     wasm = require(build_dir / "openrct2.wasm")
     g2 = require(STAGE / "g2.dat")
+    visual_source = __import__("os").environ.get("BRIDGE_SPRITE_SOURCE", "starcraft-local")
+    visual_inventory = None
+    if visual_source == "starcraft-local":
+        subprocess.run(["python3", "scripts/verify-starcraft-visuals.py"], cwd=ROOT, check=True)
+        visual_inventory = json.loads((ROOT / "run-data/generated-assets/starcraft/installed-visuals.json").read_text())
     native_g2 = require(ROOT / "build/openrct2/g2.dat")
     if sha256(g2) != sha256(native_g2):
         raise RuntimeError("Staged g2.dat differs from the native build; run scripts/install-openrct2-local.sh")
@@ -111,6 +116,8 @@ def main() -> int:
         "asset_version": 4,
         "plugin_api_version": 124,
         "network_enabled": network_enabled,
+        "visual_source": visual_source,
+        "visual_asset_sha256": visual_inventory["assets"] if visual_inventory else {},
         "plugin_sha256": sha256(require(ROOT / "openrct2-plugin/rts-bridge.js")),
         "g2_sha256": sha256(g2),
         "visual_registry_sha256": sha256(require(UPSTREAM / "src/openrct2/paint/BridgeVisualRegistry.h")),

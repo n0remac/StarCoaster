@@ -61,6 +61,7 @@ public:
     void onFrame(BWAPI::Game* game) {
         if (!startingResourcesApplied_)
             startingResourcesApplied_ = applyWorldProductionFixture(game);
+        replenishWorldTerranResources(game);
         firebatTechProbe_.onFrame(game);
         medicVultureProbe_.onFrame(game);
         goliathProbe_.onFrame(game);

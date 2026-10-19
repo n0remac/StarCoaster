@@ -130,3 +130,39 @@ func TestV2NamedObjectiveSelectsUniqueRide(t *testing.T) {
 		t.Fatalf("second named selector: %s %v", id, err)
 	}
 }
+
+func TestEmptyParkDefenseStartsWithoutActorsOrAuthoredZones(t *testing.T) {
+	s := validV2(t)
+	s.ID = "empty-defense"
+	s.Mode = "park_defense"
+	s.StartingUnits.Marines = nil
+	s.StartingUnits.Zerglings = nil
+	s.Objectives = nil
+	s.InitialAI.Strategy = "park_defense"
+	s.InitialAI.Objective = ""
+	s.Victory = struct {
+		AllWavesCleared        bool   `json:"all_waves_cleared,omitempty"`
+		AllZerglingsEliminated bool   `json:"all_zerglings_eliminated"`
+		ObjectiveIntact        string `json:"objective_intact"`
+	}{}
+	s.Defeat = struct {
+		ObjectiveDestroyed   string `json:"objective_destroyed"`
+		AllMarinesEliminated bool   `json:"all_marines_eliminated"`
+	}{}
+	s.SpawnZones = nil
+	s.Waves = nil
+	s.ParkDefense = &ParkDefenseWaves{InitialDelayFrames: 2880, IntervalFrames: 2880,
+		ManualCooldownFrames: 360, ManualActivation: true, FixedSpawn: true,
+		WaveTiers: []WaveTier{{FromWave: 1, Groups: []WaveTierGroup{{UnitType: "zerg_zergling", Count: 8}}}}}
+	s.UnlimitedResources = true
+	if err := loadV2ForTest(t, s); err != nil {
+		t.Fatal(err)
+	}
+	runtime := NewScenarioRuntime(&s, "0123456789abcdef0123456789abcdef")
+	if err := runtime.AcceptFrame(100, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.Trigger(&s) || runtime.NextAutomaticFrame != 0 {
+		t.Fatal("disabled defense scheduled an attack")
+	}
+}

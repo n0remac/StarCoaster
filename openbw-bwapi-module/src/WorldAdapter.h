@@ -105,6 +105,7 @@ public:
     void onFrame(BWAPI::Game* game) {
         if (!startingResourcesApplied_)
             startingResourcesApplied_ = applyWorldProductionFixture(game);
+        replenishWorldTerranResources(game);
         firebatTechProbe_.onFrame(game);
         medicVultureProbe_.onFrame(game);
         goliathProbe_.onFrame(game);
@@ -1329,7 +1330,8 @@ private:
         for (auto unit : game->getAllUnits()) {
             if (!unit || !unit->exists() || unit->getPlayer() == game->self()) continue;
             const auto* kind = worldUnitType(unit->getType());
-            if (kind && std::string(kind->ownership) == "player" && unit->getType().canAttack())
+            if (kind && std::string(kind->ownership) == "player"
+                && (assault_.parkDefense() || unit->getType().canAttack()))
                 alternatives.push_back(unit);
         }
         assault_.step(game, objective, alternatives);

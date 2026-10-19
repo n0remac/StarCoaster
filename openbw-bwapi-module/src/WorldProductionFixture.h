@@ -42,3 +42,15 @@ inline bool applyWorldProductionFixture(BWAPI::Game* game) {
     }
     return terranApplied && zergApplied;
 }
+
+// Refill the defender through BWAPI before its normal production checks. The
+// native engine still spends resources and enforces supply and tech rules.
+inline void replenishWorldTerranResources(BWAPI::Game* game) {
+    const char* setting = std::getenv("BRIDGE_UNLIMITED_TERRAN_RESOURCES");
+    if (!game || !setting || setting[0] != '1' || setting[1] != '\0') return;
+    for (auto player : game->getPlayers()) {
+        if (!player || player->getID() != 1 || player->getRace() != BWAPI::Races::Terran) continue;
+        if (player->minerals() < 10000) player->setMinerals(50000);
+        if (player->gas() < 10000) player->setGas(50000);
+    }
+}

@@ -45,12 +45,23 @@ def main() -> int:
         path = bundle / name
         if not path.is_file() or digest(path) != expected_digest:
             raise ValueError(f"Missing or mismatched browser artifact: {path}")
+    if manifest.get("visual_source") not in ("starcraft-local", "alien-scout"):
+        raise ValueError("Browser visual source is missing")
     with (bundle / "openrct2.wasm").open("rb") as executable:
         if executable.read(8) != b"\0asm\1\0\0\0":
             raise ValueError("Browser executable is not a WebAssembly module")
     with zipfile.ZipFile(bundle / "assets.zip") as assets:
         if hashlib.sha256(assets.read("g2.dat")).hexdigest() != manifest["g2_sha256"]:
             raise ValueError("Bundled g2.dat differs from the manifest")
+        for name, expected_hash in manifest.get("visual_asset_sha256", {}).items():
+            if name.startswith("sprites/"):
+                continue  # source manifests are private build inputs, not bundled
+            if hashlib.sha256(assets.read(name)).hexdigest() != expected_hash:
+                raise ValueError(f"Bundled StarCraft visual differs from the manifest: {name}")
+    if manifest["visual_source"] == "starcraft-local":
+        inventory = json.loads((ROOT / "run-data/generated-assets/starcraft/installed-visuals.json").read_text())
+        if inventory["assets"] != manifest.get("visual_asset_sha256"):
+            raise ValueError("StarCraft visual registry or source manifests are stale")
     if not (bundle / "index.html").is_file() or not (bundle / "index.js").is_file():
         raise ValueError("Browser launcher is missing")
     print(f"WASM bundle valid: {bundle}")

@@ -1001,6 +1001,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		s.parkSpawnMessage(p, m)
 	case "scenario.wave.request":
 		s.parkWaveRequest(p, m)
+	case "scenario.defense.request":
+		s.parkDefenseConfig(p, m)
 	case "combat.command":
 		var command worldCommand
 		if m.Decode(&command) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||

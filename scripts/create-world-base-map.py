@@ -48,7 +48,7 @@ def scenario_units(path: Path) -> list[bytes]:
     groups = scenario.get("starting_units")
     minimum_zerglings = 0 if scenario.get("mode") == "park_defense" else 1
     if (not isinstance(groups, dict) or not isinstance(groups.get("marines"), list)
-            or not 1 <= len(groups["marines"]) <= 256
+            or not (0 if scenario.get("mode") == "park_defense" else 1) <= len(groups["marines"]) <= 256
             or not isinstance(groups.get("zerglings"), list)
             or not minimum_zerglings <= len(groups["zerglings"]) <= 256):
         raise ValueError("scenario requires 1-256 Marines and valid starting Zerglings")
@@ -75,7 +75,8 @@ def scenario_units(path: Path) -> list[bytes]:
             raise ValueError("invalid native supply depot fixture")
         park_x, park_y = (MAP_SIZE - size[0]) // 2, (MAP_SIZE - size[1]) // 2
         if (tile[0] < park_x + size[0] and tile[0] + 3 > park_x
-                and tile[1] < park_y + size[1] and tile[1] + 2 > park_y):
+                and tile[1] < park_y + size[1] and tile[1] + 2 > park_y
+                and not scenario.get("unlimited_resources")):
             raise ValueError("native supply depot fixture overlaps mapped park")
         # This map-only supply provider lies outside the park and is never a
         # player construction option. OpenBW owns its supply accounting.

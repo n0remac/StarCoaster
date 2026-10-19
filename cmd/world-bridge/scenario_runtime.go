@@ -195,7 +195,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 							permanent = false
 						}
 					}
-					if permanent && s.nativeOccupancyComplete {
+					if permanent && s.nativeOccupancyComplete && !s.scenario.ParkDefense.FixedSpawn {
 						remaining := false
 						for _, zone := range zones {
 							if _, possible := world.SelectZonePosition(zone, s.navigationMask, s.transform, nil, excluded); possible {
