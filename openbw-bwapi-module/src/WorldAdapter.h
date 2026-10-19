@@ -1348,7 +1348,9 @@ private:
         json units=json::array();
         std::set<int> observed;
         int total=0;
-        for (auto unit:game->getAllUnits()) {
+        // getAllUnits() follows this participant's vision. A trained Terran
+        // unit must still be published when no Zerg scout can see it.
+        for (const auto& [canonical, unit] : actorRegistry_.registeredUnits()) {
             if (!unit || !unit->exists()) continue;
             const auto type=unit->getType();
             const auto* definition = worldUnitType(type);

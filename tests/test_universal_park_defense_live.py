@@ -20,9 +20,10 @@ ANCHOR = [int(value) for value in os.environ.get("UNIVERSAL_DEFENSE_ANCHOR", "44
 if len(ANCHOR) != 2:
     raise SystemExit("UNIVERSAL_DEFENSE_ANCHOR must contain x,y")
 FACTORY = "--factory" in sys.argv
-BUILD = "--build" in sys.argv or FACTORY
+NO_WAVE = "--no-wave-build" in sys.argv
+BUILD = "--build" in sys.argv or FACTORY or NO_WAVE
 UNAUTHORIZED = "--unauthorized" in sys.argv
-MANUAL = "--manual" in sys.argv or BUILD or UNAUTHORIZED
+MANUAL = "--manual" in sys.argv or (BUILD and not NO_WAVE) or UNAUTHORIZED
 MIXED = "--wasm" in sys.argv
 BROWSER_BUILD = "--browser-build" in sys.argv
 CAPTURE_ONLY = "--capture-only" in sys.argv
@@ -33,7 +34,7 @@ if CAPTURE_ONLY and not MIXED:
     raise SystemExit("--capture-only requires --wasm")
 if BROWSER_BUILD and not MIXED:
     raise SystemExit("--browser-build requires --wasm")
-RUN = ROOT / "run-data/universal-park-defense-live" / ("unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic")
+RUN = ROOT / "run-data/universal-park-defense-live" / ("no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic")
 TEST_SOURCE = RUN / f"source-{int(time.time())}-{os.getpid()}.park"
 SCENARIO_ID = "park-defense-" + hashlib.sha256(str(TEST_SOURCE).encode()).hexdigest()[:16]
 JOURNAL = ROOT / "run-data/scenarios" / SCENARIO_ID / "spawn-queue.json.scenario.json"
@@ -76,10 +77,11 @@ def main():
             ("var UNIVERSAL_DEFENSE_VERIFY_MANUAL = true;\n" if MANUAL else "")
             + ("var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n" if BUILD else "")
             + ("var UNIVERSAL_DEFENSE_VERIFY_FACTORY = true;\n" if FACTORY else "")
+            + ("var UNIVERSAL_DEFENSE_VERIFY_NO_WAVE = true;\n" if NO_WAVE else "")
             + "var UNIVERSAL_DEFENSE_ANCHOR = " + json.dumps(ANCHOR) + ";\n"
             + (ROOT / "tests/universal-defense-probe.js").read_text())
     # The host distributes the production bridge plugin through multiplayer.
-    report = {"status": "failed", "mode": "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
+    report = {"status": "failed", "mode": "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
               "source": str(SOURCE), "checks": {}, "artifacts": {
         "session_log": str(RUN / "session.log"), "client_log": str(RUN / "client.log"),
         "journal": str(JOURNAL)}}
@@ -147,6 +149,18 @@ def main():
             return process
         if not MIXED:
             joined = join_native()
+        if NO_WAVE:
+            wait_for(lambda: "UNIVERSAL_DEFENSE_TRAIN local_accepted=true" in
+                     (RUN / "client.log").read_text(errors="replace"),
+                     120, "Marine training without Zerg", processes)
+            wait_for(lambda: re.search(r"units=[^\n]*terran_marine",
+                     (RUN / "client.log").read_text(errors="replace")),
+                     120, "Marine render snapshot without Zerg", processes)
+            if runtime().get("defense_enabled") or runtime().get("waves"):
+                raise AssertionError("no-wave construction activated Zerg waves")
+            report["checks"]["marine_visible_without_zerg"] = "passed"
+            report["status"] = "passed"
+            return
         configured = wait_for(lambda: runtime() if runtime().get("defense_enabled") else None,
                               600 if MIXED else 90, "authorized defense enable", processes)
         if configured.get("spawn_anchor") != ANCHOR or len(configured.get("fixed_spawn_zone", {}).get("tiles", [])) < 4:

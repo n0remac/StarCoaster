@@ -99,6 +99,12 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
             if (network.mode !== "client" || ++ticks % 24 !== 0 || !rtsBridge) return;
             var state = rtsBridge.getActors();
             if (!state || !state.session) return;
+            if (typeof UNIVERSAL_DEFENSE_VERIFY_NO_WAVE !== "undefined"
+                && UNIVERSAL_DEFENSE_VERIFY_NO_WAVE) {
+                if (!buildingID) placeBarracks();
+                else if (!trainSent) trainMarine(state.session);
+                return;
+            }
             if (!anchorSent) {
                 context.executeAction("rtsbridge.configureDefense", { session: state.session,
                     anchor: typeof UNIVERSAL_DEFENSE_ANCHOR !== "undefined"

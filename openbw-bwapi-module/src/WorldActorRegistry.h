@@ -99,6 +99,7 @@ public:
         return runtime_.erase(canonical) != 0;
     }
     const std::map<int, RuntimeActor>& runtime() const { return runtime_; }
+    const std::map<int, BWAPI::Unit>& registeredUnits() const { return canonicalToUnit_; }
     BWAPI::Unit lookup(const std::string& id) const {
         if (id.compare(0, 7, "openbw:") != 0) return nullptr;
         try {
