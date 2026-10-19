@@ -74,6 +74,14 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.assertEqual(self.supervisor.state()["current"], "Park B.park")
         self.assertEqual(self.supervisor.state()["phase"], "ready")
 
+    def test_stopped_old_session_does_not_restart_browser_during_transition(self):
+        self.old.stopped = True
+        for phase in ("preparing", "switching", "starting", "failed"):
+            self.supervisor.phase = phase
+            self.assertFalse(self.supervisor.ready_session_exited(), phase)
+        self.supervisor.phase = "ready"
+        self.assertTrue(self.supervisor.ready_session_exited())
+
     def test_activation_failure_starts_fresh_prior_session(self):
         failed, recovered = Process(), Process()
         self.supervisor.phase = "preparing"

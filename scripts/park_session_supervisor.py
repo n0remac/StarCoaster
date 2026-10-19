@@ -81,6 +81,10 @@ class ParkSessionSupervisor:
                     "pending": self.pending, "error": self.error[:240],
                     "parks": list(self.catalog())}
 
+    def ready_session_exited(self):
+        with self.lock:
+            return self.phase == "ready" and self.session is not None and self.session.poll() is not None
+
     def source_for(self, name):
         source = self.catalog().get(name)
         if source is None:
@@ -349,7 +353,9 @@ def main():
         supervisor.start_wasm()
         supervisor.start_initial()
         while supervisor.browser is None or supervisor.browser.poll() is None:
-            if supervisor.session is not None and supervisor.session.poll() is not None:
+            # A transition intentionally stops the old session before the new
+            # one is ready. Only a stopped session in the ready phase is fatal.
+            if supervisor.ready_session_exited():
                 raise RuntimeError("native game session exited")
             time.sleep(.5)
         raise RuntimeError("private browser server exited")
