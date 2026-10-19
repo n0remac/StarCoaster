@@ -467,7 +467,8 @@ const waveAction = registered.get('rtsbridge.requestWave');
 const parkStatus = { session: sid, scenario_id: 'mt-zergling', display_name: 'Mt. Zergling',
     mode: 'park_defense', objective: 'Manage and defend the park', wave_ordinal: 0, wave_total: 0,
     wave_state: 'pending', outcome: '', error: '', total_triggered: 0, next_wave_seconds: 120,
-    active_zerglings: 0, manual_cooldown_seconds: 0, manual_eligible: true };
+    active_zerglings: 0, manual_cooldown_seconds: 0, manual_eligible: true,
+    defense_enabled: true };
 assert.equal(missionAction.query({ player: 1, args: parkStatus }).error, undefined);
 missionAction.execute({ player: 1, args: parkStatus });
 missionAction.execute({ player: 1, args: { ...parkStatus, error: 'spawn_zones_temporarily_blocked' } });
@@ -483,6 +484,13 @@ assert.ok(waveAction.query({ player: 1, args: { ...waveArgs, session: 'stale' } 
     'stale wave request is rejected');
 const waveButton = squadWidgets.find(widget => widget.name === 'spawn-wave');
 assert.equal(waveButton.text, 'Spawn Wave');
+missionAction.execute({ player: 1, args: { ...parkStatus, defense_enabled: false,
+    manual_eligible: false } });
+subscriptions.get('interval.tick')();
+assert.equal(squadWidgets.find(widget => widget.name === 'wave-countdown').text, 'Next: disabled');
+assert.equal(squadWidgets.find(widget => widget.name === 'wave-feedback').text,
+    'Enable waves in StarCraft Defense');
+missionAction.execute({ player: 1, args: parkStatus });
 waveButton.onClick();
 drain();
 const buttonWave = sent.filter(message => message.kind === 'scenario.wave.request').at(-1);

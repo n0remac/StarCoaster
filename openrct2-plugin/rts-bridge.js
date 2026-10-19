@@ -2145,11 +2145,13 @@
                         : spawnFeedback || "Call in reinforcements";
                     const countdown = squadWindow.findWidget("wave-countdown");
                     if (countdown) countdown.text = missionStatus && missionStatus.mode === "park_defense"
-                        ? "Next: " + missionStatus.next_wave_seconds + "s"
+                        ? missionStatus.defense_enabled
+                            ? "Next: " + missionStatus.next_wave_seconds + "s" : "Next: disabled"
                         : "No recurring waves";
                     const waveStatus = squadWindow.findWidget("wave-feedback");
                     if (waveStatus) waveStatus.text = waveFeedback || (missionStatus && missionStatus.mode === "park_defense"
-                        ? missionStatus.error ? ({
+                        ? !missionStatus.defense_enabled ? "Enable waves in StarCraft Defense"
+                            : missionStatus.error ? ({
                                 native_occupancy_unavailable: "Waiting for native positions; retrying",
                                 spawn_zones_temporarily_blocked: "Spawn edges occupied; retrying",
                                 spawn_capacity_unavailable: "Actor limit reached; retrying"
