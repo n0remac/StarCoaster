@@ -10,6 +10,7 @@ done
 [[ "$updated" == 1 ]] || exit 0
 project_dir=/home/pi/Projects/rts-bridge
 export STARCOASTER_PUSH_REPO="$(git rev-parse --absolute-git-dir)"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 mkdir -p "$project_dir/build"
