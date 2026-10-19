@@ -2100,7 +2100,7 @@
                 }
                 if (defenseWindow) { defenseWindow.bringToFront(); return; }
                 defenseWindow = ui.openWindow({ classification: "starcoaster-defense",
-                    width: 258, height: 240, title: "StarCraft Defense",
+                    width: 258, height: 256, title: "StarCraft Defense",
                     onClose: function () { defenseWindow = null; }, widgets: [
                         { type: "button", name: "defense-toggle", x: 8, y: 19, width: 118, height: 24,
                             text: "Enable Zerg Waves", onClick: function () {
@@ -2128,7 +2128,9 @@
                         { type: "button", x: 8, y: 163, width: 118, height: 24,
                             text: "Spawn Wave Now", onClick: requestWave },
                         { type: "label", name: "defense-resources", x: 8, y: 199, width: 242, height: 14,
-                            text: "Minerals: Unlimited | Gas: Unlimited" }
+                            text: "Minerals: Unlimited | Gas: Unlimited" },
+                        { type: "label", name: "defense-feedback", x: 8, y: 218, width: 242, height: 28,
+                            text: "" }
                     ] });
             }
             let loadParkWindow = null;
@@ -2233,6 +2235,9 @@
                     + status.active_enemies + " enemies (" + status.wave_state + ")");
                 setText("defense-resources", status.unlimited_resources
                     ? "Minerals: Unlimited | Gas: Unlimited" : "Resources: native balance");
+                if (waveFeedback && Date.now() >= waveFeedbackUntil) waveFeedback = "";
+                setText("defense-feedback", status.error ? "Wave placement: " + status.error
+                    : waveFeedback || defenseFeedback);
             });
             function requestWave() {
                 if (!controlSession || !missionStatus || missionStatus.mode !== "park_defense"

@@ -455,6 +455,11 @@ assert.match(spawnAction.query({ player: 1, args: spawnArgs }).errorMessage, /Tr
 menuItems.get('StarCraft Defense')();
 const defenseWidgets = openedWindows.find(window => window.classification === 'starcoaster-defense').widgets;
 subscriptions.get('interval.tick')();
+missionAction.execute({ player: 1, args: { ...parkStatus, error: 'spawn_zones_temporarily_blocked' } });
+subscriptions.get('interval.tick')();
+assert.match(defenseWidgets.find(widget => widget.name === 'defense-feedback').text,
+    /spawn_zones_temporarily_blocked/, 'wave placement errors are visible in Defense');
+missionAction.execute({ player: 1, args: parkStatus });
 const waveArgs = { session: sid, request: 1, request_id: `${sid}:wave:1:1` };
 assert.equal(waveAction.query({ player: 1, args: waveArgs }).error, undefined);
 assert.match(waveAction.query({ player: 2, args: { ...waveArgs, request_id: `${sid}:wave:2:1` } }).errorMessage,
