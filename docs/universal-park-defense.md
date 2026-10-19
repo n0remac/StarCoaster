@@ -51,6 +51,8 @@ UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save
   python3 tests/test_universal_park_defense_live.py --factory
 UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
   python3 tests/test_universal_park_defense_live.py --wasm
+UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
+  python3 tests/test_universal_park_defense_live.py --wasm --browser-build --capture-only
 ```
 
 Use isolated network namespaces when another StarCoaster session already owns
@@ -60,7 +62,9 @@ the native ports. The mixed check uses the private bundle in
 and `browser-gameplay.mp4`. It verifies a visible park, native Zerglings,
 fixed-zone placement, browser reconnect, and no duplicate accepted wave.
 The Factory check confirms native Marine and Vulture training; the combat
-check confirms ordered demolition without repeated park snapshots. Run
+check confirms ordered demolition without repeated park snapshots. The
+browser-build check confirms Barracks placement and Marine training issued by
+the browser commander and accepted by OpenBW. Run
 `scripts/project.sh test` and private `scripts/project.sh test-wasm` for offline
 and asset-provisioning coverage. All recordings, browser profiles, generated
 parks, and licensed assets stay in ignored directories.
