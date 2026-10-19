@@ -675,6 +675,39 @@ func TestTargetLinkIsForwardedAndValidated(t *testing.T) {
 	}
 }
 
+func TestStaleTargetLinkIsRetriedAtCurrentRevision(t *testing.T) {
+	s := testService()
+	s.registry.Session = "session-a"
+	s.registry.Revision = 3
+	s.ready = true
+	link := targetLink{ID: "target-a", ProxyID: "openbw:19", X: 250, Y: 300}
+	s.targetLinks = map[string]targetLink{link.ID: link}
+	bridgeSide, controllerSide := net.Pipe()
+	defer bridgeSide.Close()
+	defer controllerSide.Close()
+	s.controller = &peer{Conn: bridgeSide}
+	got := make(chan world.Envelope, 2)
+	go func() {
+		for i := 0; i < 2; i++ {
+			var forwarded world.Envelope
+			_ = json.Unmarshal([]byte(readLine(controllerSide)), &forwarded)
+			got <- forwarded
+		}
+	}()
+	s.sendTargetLink(s.controller, s.registry.Session, 3, link)
+	old := <-got
+	s.registry.Revision = 4
+	s.controllerMessage(nil, world.Message("world.ack", "session-a", "controller:stale", "openbw", 4,
+		world.Ack{OpID: old.OpID, Accepted: false, Error: "stale_target_link"}))
+	current := <-got
+	if current.Kind != "entity.state" || current.Revision != 4 || !s.ready {
+		t.Fatalf("stale target link did not retry without resync: %+v ready=%t", current, s.ready)
+	}
+	if pending := s.pendingLinks[current.OpID]; pending.ID != link.ID || pending.Revision != 4 {
+		t.Fatalf("current target link was not tracked: %+v", pending)
+	}
+}
+
 func TestNativeTargetHealthUpdateReachesPark(t *testing.T) {
 	s := testService()
 	e := testEntity()

@@ -56,7 +56,8 @@ type service struct {
 	pendingFrames             map[string]int
 	proxies                   map[string]string
 	targetLinks               map[string]targetLink
-	pendingLinks              map[string]string
+	pendingLinks              map[string]pendingTargetLink
+	deferredLinks             map[string]bool
 	pendingReady              *world.Ready
 	lastReady                 *world.Ready
 	startedSession            string
@@ -154,6 +155,11 @@ type targetLink struct {
 	X       int    `json:"proxy_x"`
 	Y       int    `json:"proxy_y"`
 	Health  int    `json:"health"`
+}
+
+type pendingTargetLink struct {
+	ID       string
+	Revision uint64
 }
 
 func (s *service) sendTargetLinks(p *peer) {
@@ -407,6 +413,7 @@ func (s *service) nativePatchReport(participant string, m world.Envelope) bool {
 				if result.EntityID == s.objectiveID {
 					s.announceOutcome(s.lastMarines, s.lastEnemies)
 				}
+				s.publishReady()
 				s.pumpSpawns()
 				return true
 			}
@@ -477,13 +484,21 @@ func (s *service) sendTargetLink(p *peer, session string, revision uint64, link 
 	opID := s.operation()
 	if p.send(world.Message("entity.state", session, opID, "bridge", revision, link)) == nil {
 		if s.pendingLinks == nil {
-			s.pendingLinks = map[string]string{}
+			s.pendingLinks = map[string]pendingTargetLink{}
 		}
-		s.pendingLinks[opID] = link.ID
+		s.pendingLinks[opID] = pendingTargetLink{ID: link.ID, Revision: revision}
 	}
 }
 
 func (s *service) publishReady() {
+	if s.controller != nil && s.parkPatch == nil && s.targetPatch == nil && len(s.deferredLinks) > 0 {
+		for id := range s.deferredLinks {
+			if link, ok := s.targetLinks[id]; ok && !s.registry.Destroyed[id] {
+				s.sendTargetLink(s.controller, s.registry.Session, s.registry.Revision, link)
+			}
+		}
+		s.deferredLinks = nil
+	}
 	if s.publisherNavigationReady && s.controllerNavigationReady &&
 		!s.navigationMeasured && !s.navigationStarted.IsZero() {
 		log.Printf("navigation initialized hash=%s elapsed_ms=%d", s.navigationMask.Hash,
@@ -678,7 +693,8 @@ func (s *service) consume(role string, p *peer) {
 			copyReady := *s.lastReady
 			s.pendingReady = &copyReady
 		}
-		s.pendingLinks = map[string]string{}
+		s.pendingLinks = map[string]pendingTargetLink{}
+		s.deferredLinks = nil
 		s.failCommands("controller_disconnected")
 	}
 	s.mu.Unlock()
@@ -792,7 +808,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			log.Printf("same-session park reconciliation revision=%d continuing_targets=%d",
 				m.Revision, len(s.proxies))
 		}
-		s.pendingLinks = map[string]string{}
+		s.pendingLinks = map[string]pendingTargetLink{}
+		s.deferredLinks = nil
 		s.pendingReady = nil
 		s.lastReady = nil
 		s.nativeOccupancyComplete = false
@@ -1475,6 +1492,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			log.Printf("park patch native target unsupported id=%s reasons=%v objects=%v",
 				patch.id, status.UnsupportedReasons, status.Unsupported)
 		}
+		s.publishReady()
 		s.pumpSpawns()
 	case "entity.retire":
 		var retired struct {
@@ -1539,7 +1557,17 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 		s.targetLinks[payload.ID] = payload
 		s.ack(p, m, true, "")
-		s.sendTargetLink(s.controller, m.Session, m.Revision, payload)
+		// Native navigation applies at a common future frame. During staging,
+		// the controller can already be on the next revision while the
+		// publisher is still reporting health on the previous one.
+		if s.parkPatch == nil && s.targetPatch == nil {
+			s.sendTargetLink(s.controller, m.Session, m.Revision, payload)
+		} else {
+			if s.deferredLinks == nil {
+				s.deferredLinks = map[string]bool{}
+			}
+			s.deferredLinks[payload.ID] = true
+		}
 		if s.lastReady != nil && (!hadLink || previousLink.ProxyID != payload.ProxyID ||
 			previousLink.X != payload.X || previousLink.Y != payload.Y || previousLink.Health != payload.Health) {
 			_ = s.emit(s.park, "entity.target", m.Session, m.Revision, payload)
@@ -1787,13 +1815,24 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		if m.Decode(&answer) != nil || m.Session != s.registry.Session {
 			return
 		}
-		if _, exists := s.pendingLinks[answer.OpID]; !exists {
+		link, exists := s.pendingLinks[answer.OpID]
+		if !exists {
 			return
 		}
 		delete(s.pendingLinks, answer.OpID)
 		if !answer.Accepted {
+			if link.Revision < s.registry.Revision || s.parkPatch != nil || s.targetPatch != nil {
+				// The ordered navigation update overtook this health link.
+				if s.deferredLinks == nil {
+					s.deferredLinks = map[string]bool{}
+				}
+				s.deferredLinks[link.ID] = true
+				s.publishReady()
+				return
+			}
 			s.ready = false
 			s.pendingReady = nil
+			log.Printf("controller target link rejected revision=%d: %s", link.Revision, answer.Error)
 			_ = s.emit(s.park, "world.resync", m.Session, s.registry.Revision,
 				map[string]string{"reason": "controller_target_link_rejected"})
 			return
@@ -1859,7 +1898,7 @@ func (s *service) serve(listener net.Listener, role string) {
 				_ = s.controller.Close()
 			}
 			s.controller = p
-			s.pendingLinks = map[string]string{}
+			s.pendingLinks = map[string]pendingTargetLink{}
 		}
 		s.mu.Unlock()
 		log.Printf("%s connected", role)
