@@ -74,6 +74,55 @@
             }
         }
     };
+    const privateRct2Manifest = async () => {
+        const response = await fetch("/private/rct2/manifest.json", { cache: "no-store" });
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error(`Private RCT2 provisioning: HTTP ${response.status}`);
+        const manifest = await response.json();
+        const digest = /^[0-9a-f]{64}$/;
+        if (manifest.schema !== 1 || !digest.test(manifest.version) ||
+            !Array.isArray(manifest.files) || !manifest.files.length ||
+            !manifest.files.some((file) => file.path === "Data/ch.dat") ||
+            manifest.files.some((file) => typeof file.path !== "string" ||
+                file.path.includes("\\") || file.path.includes("\0") ||
+                file.path.split("/").some((part) => !part || part === "." || part === "..") ||
+                !Number.isSafeInteger(file.size) || file.size < 0 || !digest.test(file.sha256)))
+            throw new Error("Private RCT2 asset manifest is invalid.");
+        return manifest;
+    };
+    const provisionPrivateRct2 = async (fs, manifest) => {
+        const totalBytes = manifest.files.reduce((sum, file) => sum + file.size, 0);
+        const storage = await navigator.storage.estimate();
+        if (storage.quota && storage.quota - storage.usage < totalBytes * 1.1)
+            throw new Error("Browser storage is too small for the Pi's licensed RCT2 data.");
+        setStatus(`Loading your RCT2 assets from the private Pi… 0/${manifest.files.length}`);
+        clearDirectory(fs, "/RCT");
+        let next = 0, completed = 0;
+        await Promise.all(Array.from({ length: 4 }, async () => {
+            while (next < manifest.files.length) {
+                const file = manifest.files[next++];
+                const url = "/private/rct2/files/" + file.path.split("/").map(encodeURIComponent).join("/");
+                const data = await (await fetchRequired(url)).arrayBuffer();
+                if (data.byteLength !== file.size || await hash(data) !== file.sha256)
+                    throw new Error(`Private RCT2 asset differs from its manifest: ${file.path}`);
+                const parts = file.path.split("/");
+                let parent = "/RCT";
+                for (const part of parts.slice(0, -1)) {
+                    parent += `/${part}`;
+                    ensureDir(fs, parent);
+                }
+                fs.writeFile(`${parent}/${parts.at(-1)}`, new Uint8Array(data));
+                completed++;
+                if (completed % 100 === 0 || completed === manifest.files.length)
+                    setStatus(`Loading your RCT2 assets from the private Pi… ${completed}/${manifest.files.length}`);
+            }
+        }));
+        if (!fs.analyzePath("/RCT/Data/ch.dat").exists)
+            throw new Error("The Pi's RCT2 installation is missing Data/ch.dat.");
+        fs.writeFile("/RCT/starcoaster-licensed-version", manifest.version);
+        setStatus("Saving RCT2 files in the browser…");
+        await sync(fs, false);
+    };
 
     try {
         if (!crossOriginIsolated || !SharedArrayBuffer)
@@ -131,7 +180,13 @@
         }
         if (!fs.analyzePath("/OpenRCT2/g2.dat").exists)
             throw new Error("Patched g2.dat is missing from the installed assets.");
-        if (!fs.analyzePath("/RCT/Data/ch.dat").exists) {
+        const rct2Manifest = await privateRct2Manifest();
+        let installedRct2Version = "";
+        try { installedRct2Version = fs.readFile("/RCT/starcoaster-licensed-version", { encoding: "utf8" }); } catch (_) {}
+        if (rct2Manifest && (!fs.analyzePath("/RCT/Data/ch.dat").exists ||
+            installedRct2Version && installedRct2Version !== rct2Manifest.version)) {
+            await provisionPrivateRct2(fs, rct2Manifest);
+        } else if (!fs.analyzePath("/RCT/Data/ch.dat").exists) {
             setStatus("Import your locally licensed RCT2 data to continue.");
             document.getElementById("import").style.display = "block";
             const folderButton = document.getElementById("rct2-folder");

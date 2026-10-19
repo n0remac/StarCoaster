@@ -75,7 +75,8 @@ if [[ "${BRIDGE_SERVE_WASM:-0}" == 1 ]]; then
     mkdir -p "$(dirname "$wasm_log")"
     "$project_dir/scripts/serve-wasm.sh" --bundle "$wasm_bundle" \
         --listen "${WASM_LISTEN_ADDRESS:-127.0.0.1:8091}" \
-        --native "127.0.0.1:${OPENRCT2_PORT:-11753}" >> "$wasm_log" 2>&1 &
+        --native "127.0.0.1:${OPENRCT2_PORT:-11753}" \
+        --rct2-data-path "$(realpath "$RCT2_DATA_DIR")" >> "$wasm_log" 2>&1 &
     wasm_pid=$!
 fi
 client_pid=""

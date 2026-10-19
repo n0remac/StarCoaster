@@ -12,6 +12,8 @@ const serverBinary = path.join(root, 'build', 'wasm-server');
 const chromiumPath = process.env.CHROMIUM_PATH || '/usr/bin/chromium';
 const rct2Zip = process.env.WASM_RCT2_ZIP;
 const rct2Dir = process.env.WASM_RCT2_DIR;
+const privateAssets = process.env.WASM_PRIVATE_RCT2 === '1';
+if (privateAssets && !rct2Dir) throw new Error('WASM_PRIVATE_RCT2 requires WASM_RCT2_DIR');
 const parkFile = process.env.WASM_PARK_FILE;
 const profileDir = process.env.WASM_TEST_PROFILE || path.join(artifacts, 'chromium-profile');
 const records = [];
@@ -26,7 +28,7 @@ async function unusedPort() {
 }
 
 async function ready(url) {
-  for (let attempt = 0; attempt < 100; attempt++) {
+  for (let attempt = 0; attempt < 600; attempt++) {
     try {
       const response = await fetch(url);
       if (response.ok) return;
@@ -50,7 +52,9 @@ await mkdir(artifacts, { recursive: true });
 const externalUrl = process.env.WASM_TEST_URL;
 const port = externalUrl ? null : process.env.WASM_TEST_PORT ? Number(process.env.WASM_TEST_PORT) : await unusedPort();
 const url = externalUrl || `http://127.0.0.1:${port}/`;
-const server = externalUrl ? null : spawn(serverBinary, ['--bundle', bundle, '--listen', `127.0.0.1:${port}`], {
+const serverArgs = ['--bundle', bundle, '--listen', `127.0.0.1:${port}`];
+if (privateAssets) serverArgs.push('--rct2-data-path', rct2Dir);
+const server = externalUrl ? null : spawn(serverBinary, serverArgs, {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -83,7 +87,7 @@ try {
       }
     } catch (_) {}
   }, 5000);
-  if (rct2Dir) {
+  if (rct2Dir && !privateAssets) {
     const files = await listFiles(rct2Dir);
     if (!files.includes('Data/ch.dat')) throw new Error('WASM_RCT2_DIR must contain Data/ch.dat');
     const fileSet = new Set(files);
@@ -136,10 +140,12 @@ try {
     return text.includes('Import your locally licensed RCT2 data') ||
       text.includes('StarCoaster startup failed:') ||
       document.getElementById('canvas')?.style.display === 'block';
-  }, null, { timeout: 180000 });
+  }, null, { timeout: privateAssets ? 1200000 : 180000 });
   const message = await page.evaluate(() => document.getElementById('message')?.textContent || '');
   if (message.includes('failed')) throw new Error(message);
   const importNeeded = await page.locator('#import').isVisible();
+  if (privateAssets && importNeeded)
+    throw new Error('The private Pi browser app still requested a manual RCT2 import');
   const runtime = await page.evaluate(() => ({
     isolated: crossOriginIsolated,
     wasm: typeof WebAssembly !== 'undefined',
@@ -173,11 +179,22 @@ try {
     null, { timeout: 180000 });
     if (await page.locator('#status.error').count())
       throw new Error(await page.locator('#status.error #message').textContent());
+    if (privateAssets) {
+      const hosted = await page.evaluate(async () => {
+        const manifest = await (await fetch('/private/rct2/manifest.json')).json();
+        return { version: manifest.version, installed: Module.FS.readFile(
+          '/RCT/starcoaster-licensed-version', { encoding: 'utf8' }),
+          ch: Module.FS.analyzePath('/RCT/Data/ch.dat').exists };
+      });
+      if (!hosted.ch || hosted.installed !== hosted.version)
+        throw new Error(`Private RCT2 provisioning incomplete: ${JSON.stringify(hosted)}`);
+      console.log('PASS: private Pi provisioned licensed RCT2 data without a prompt');
+    }
     await page.waitForTimeout(15000);
     await page.screenshot({ path: path.join(artifacts, 'openrct2.png') });
     if (records.some((record) => record.kind === 'pageerror'))
       throw new Error('Browser reported a JavaScript exception after licensed asset import');
-    console.log(`PASS: licensed RCT2 ${rct2Dir ? 'folder' : 'ZIP'} import and graphical canvas startup`);
+    console.log(`PASS: licensed RCT2 ${privateAssets ? 'private provisioning' : rct2Dir ? 'folder' : 'ZIP'} and graphical canvas startup`);
     if (parkFile) {
       await stat(parkFile);
       if (records.some((record) => record.kind === 'console' &&
