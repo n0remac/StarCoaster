@@ -151,6 +151,20 @@ def pi_metrics():
     return result
 
 
+def network_bytes():
+    try:
+        received = sent = 0
+        for line in Path("/proc/net/dev").read_text().splitlines()[2:]:
+            name, counters = line.split(":", 1)
+            if name.strip() == "lo": continue
+            values = counters.split()
+            received += int(values[0])
+            sent += int(values[8])
+        return received, sent
+    except (FileNotFoundError, ValueError, IndexError):
+        return None
+
+
 def tailscale_ping(peer):
     try:
         completed = subprocess.run(["tailscale", "ping", "--c=1", "--timeout=2s", peer],
@@ -244,10 +258,13 @@ def summarize_case(events, system, network, case):
     snapshots = [event for event in selected if event.get("stage") == "snapshot_publish"]
     omitted = sum(event.get("unit_omitted", 0) for event in snapshots)
     bw_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in bw if event.get("elapsed_ns", 0) > 0]
+    bw_work_p95 = [event["work_p95_us"] / 1000 for event in bw if event.get("work_p95_us") is not None]
     render_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in render if event.get("elapsed_ns", 0) > 0]
     client_frames = [event.get("frame_p95_us") / 1000 for event in render if event.get("frame_p95_us") is not None]
     net = [event for event in network if event.get("case") == case["label"] and start and end]
     rtt = [event["rtt_ms"] for event in net if event.get("stage") == "tailscale_ping" and event.get("rtt_ms") is not None]
+    pi_net = [event for event in net if event.get("source") == "pi" and event.get("stage") == "network_second"
+              and event.get("elapsed_s", 0) > 0]
     browser_net = [event for event in net if event.get("source") == "browser" and event.get("stage") == "websocket_second"
                    and (not browser_window or browser_window["start"] <= event.get("wall_ms",0) <= browser_window["end"])]
     pi = [event for event in system if event.get("case") == case["label"] and event.get("source") == "pi" and start and end]
@@ -290,6 +307,8 @@ def summarize_case(events, system, network, case):
             "camera":case["camera"],"paint":case["paint"],"client":case["client"],
             "valid":not errors,"errors":errors,"timing":stages,
             "openbw_fps":distribution(bw_fps),"client_fps":distribution(render_fps),
+            "openbw_frame_work_p95_ms_windows":distribution(bw_work_p95),
+            "openbw_frame_overruns":sum(event.get("overruns", 0) for event in bw),
             "server_tick_rate":distribution([event["ticks"] * 1000 / event["elapsed_ms"] for event in server_ticks
                                              if event.get("elapsed_ms", 0) > 0]),
             "server_tick_overruns":sum(event.get("overruns", 0) for event in server_ticks),
@@ -301,6 +320,8 @@ def summarize_case(events, system, network, case):
             "command_to_visible_ms":distribution(command_visible),
             "browser_websocket_bytes_per_second":distribution([event.get("bytes_in") for event in browser_net]),
             "browser_websocket_messages_per_second":distribution([event.get("messages_in") for event in browser_net]),
+            "pi_network_bytes_per_second":distribution([(event["bytes_in"] + event["bytes_out"]) / event["elapsed_s"]
+                                                       for event in pi_net]),
             "omitted_units":omitted,"tailscale_rtt_ms":distribution(rtt),
             "tailscale_rtt_variation_ms":round(statistics.pstdev(rtt),3) if len(rtt)>1 else None,
             "tailscale_loss_samples":sum(event.get("loss", 0) for event in net if event.get("stage") == "tailscale_ping"),
@@ -344,12 +365,13 @@ def report(summary):
     lines = ["# StarCoaster gameplay performance", "", f"Run: `{summary['run_id']}`",
              f"Git revision: `{summary['git_revision']}`", "",
              "## Results", "",
-             "| Case | Valid | OpenBW FPS median | Client FPS median | Client p95 frame window ms | Snapshot bytes median | Pi °C max | RTT ms median |",
-             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+             "| Case | Valid | OpenBW FPS median | OpenBW work p95 ms | BW overruns | Client FPS median | Client p95 frame window ms | Snapshot bytes median | Pi °C max | RTT ms median |",
+             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     def fmt(value): return "unavailable" if value is None else f"{value:.1f}" if isinstance(value, float) else str(value)
     for case in summary["cases"]:
         lines.append("| " + " | ".join([case["label"], "yes" if case["valid"] else "no",
-            fmt(case["openbw_fps"]["median"]),fmt(case["client_fps"]["median"]),
+            fmt(case["openbw_fps"]["median"]),fmt(case["openbw_frame_work_p95_ms_windows"]["median"]),
+            fmt(case["openbw_frame_overruns"]),fmt(case["client_fps"]["median"]),
             fmt(case["client_frame_p95_ms_windows"]["median"]),fmt(case["snapshot_bytes"]["median"]),
             fmt(case["max_temperature_c"]),fmt(case["tailscale_rtt_ms"]["median"])]) + " |")
     lines += ["", "## Pipeline and resources", "",
@@ -363,11 +385,12 @@ def report(summary):
             fmt(case["snapshot_to_bridge_ms"]["p95"]),fmt(case["bridge_to_plugin_ms"]["p95"]),
             fmt(apply / 1000 if apply is not None else None),fmt(ws / 1024 if ws is not None else None),
             fmt(case["command_to_visible_ms"]["p95"]),fmt(case["tailscale_rtt_variation_ms"])]) + " |")
-    lines += ["", "| Case | Pi process CPU median (% of one core) | Snapshot p95 bytes | Client frame window p99 ms | Omitted actors |",
-              "| --- | --- | ---: | ---: | ---: |"]
+    lines += ["", "| Case | Pi process CPU median (% of one core) | Pi network KiB/s median | Snapshot p95 bytes | Client frame window p99 ms | Omitted actors |",
+              "| --- | --- | ---: | ---: | ---: | ---: |"]
     for case in summary["cases"]:
         cpu = ", ".join(f"{role} {fmt(stats['median'])}" for role,stats in sorted(case["cpu_percent_one_core"].items())) or "unavailable"
-        lines.append(f"| {case['label']} | {cpu} | {fmt(case['snapshot_bytes']['p95'])} | "
+        pi_bytes = case["pi_network_bytes_per_second"]["median"]
+        lines.append(f"| {case['label']} | {cpu} | {fmt(pi_bytes / 1024 if pi_bytes is not None else None)} | {fmt(case['snapshot_bytes']['p95'])} | "
                      f"{fmt(case['client_frame_p95_ms_windows']['p99'])} | {case['omitted_units']} |")
     lines += ["", "## Suspected bottlenecks", ""]
     if summary["suspected_bottlenecks"]:
@@ -521,6 +544,7 @@ def run_case(case, run_dir, args, plan):
         case["measurement_start_utc"] = datetime.now(timezone.utc).isoformat()
         case["measurement_start_pi_mono_ns"] = time.monotonic_ns()
         previous = {}
+        previous_network = network_bytes()
         last_sample = time.monotonic()
         end = last_sample + args.measure
         ping_future = None
@@ -534,6 +558,14 @@ def run_case(case, run_dir, args, plan):
                 samples = [value for pid in pids if (value := sample_process(pid, previous, elapsed))]
                 system_file.write(json.dumps({"source":"pi","wall_utc":datetime.now(timezone.utc).isoformat(),
                     "pi_mono_ns":time.monotonic_ns(),"processes":samples,**pi_metrics()}) + "\n")
+                current_network = network_bytes()
+                if current_network and previous_network:
+                    network_file.write(json.dumps({"source":"pi","stage":"network_second",
+                        "pi_mono_ns":time.monotonic_ns(),
+                        "bytes_in":max(0,current_network[0]-previous_network[0]),
+                        "bytes_out":max(0,current_network[1]-previous_network[1]),
+                        "elapsed_s":elapsed}) + "\n")
+                previous_network = current_network
                 if ping_future and ping_future.done():
                     network_file.write(json.dumps({"source":"tailscale","stage":"tailscale_ping",
                         "wall_utc":datetime.now(timezone.utc).isoformat(),**ping_future.result()}) + "\n")
@@ -622,7 +654,8 @@ def main():
                     "cpu_count":os.cpu_count()},
         "build_versions":{"openrct2":subprocess.check_output(["git","-C",str(ROOT/"upstream/openrct2"),"rev-parse","--short","HEAD"],text=True).strip()},
         "settings":{"warmup_seconds":args.warmup,"measure_seconds":args.measure,"viewport":"1280x800",
-                    "zoom":0,"camera":"test driver","video_capture":False},
+                    "zoom":0,"camera":"test driver","video_capture":False,
+                    "openbw_frame_sleep_ms":int(os.environ.get("BRIDGE_FRAME_MS","42"))},
         "clock_domains":{"pi":"Linux CLOCK_MONOTONIC","browser":"WASM steady clock, separate epoch"},
         "cases":[{key:value for key,value in case.items() if key != "errors"} for case in cases]}
     (run_dir / "metadata.json").write_text(json.dumps(metadata,indent=2)+"\n")
