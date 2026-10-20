@@ -5,6 +5,7 @@
 #include <BWAPI.h>
 #include <chrono>
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -55,6 +56,7 @@ public:
         const auto workUS = (finished - afterSleep) / 1000;
         perfFrames_++;
         perfWorkUS_ += workUS;
+        if (perfWorkSamples_ < perfWorkWindow_.size()) perfWorkWindow_[perfWorkSamples_++] = workUS;
         perfSleepUS_ += (afterSleep - started) / 1000;
         perfMaxWorkUS_ = std::max(perfMaxWorkUS_, workUS);
         if (workUS > 42000 - frameDelayMs_ * 1000) perfOverruns_++;
@@ -62,11 +64,17 @@ public:
             perfMaxDelayUS_ = std::max(perfMaxDelayUS_, (started - perfLastFrameNS_) / 1000);
         perfLastFrameNS_ = started;
         if (finished - perfWindowNS_ >= 1000000000LL) {
+            std::sort(perfWorkWindow_.begin(), perfWorkWindow_.begin() + perfWorkSamples_);
+            const auto at = [this](double fraction) {
+                return perfWorkSamples_ ? perfWorkWindow_[static_cast<size_t>((perfWorkSamples_ - 1) * fraction)] : 0LL;
+            };
             bridge_perf::frame(controller_ ? "controller" : "publisher", game->getFrameCount(), perfFrames_,
-                finished - perfWindowNS_, perfWorkUS_, perfMaxWorkUS_, perfSleepUS_, perfOverruns_, perfMaxDelayUS_);
+                finished - perfWindowNS_, perfWorkUS_, perfMaxWorkUS_, perfSleepUS_, perfOverruns_, perfMaxDelayUS_,
+                at(.50), at(.95), at(.99));
             perfWindowNS_ = finished;
             perfFrames_ = perfOverruns_ = 0;
             perfWorkUS_ = perfMaxWorkUS_ = perfSleepUS_ = perfMaxDelayUS_ = 0;
+            perfWorkSamples_ = 0;
         }
     }
 
@@ -90,6 +98,8 @@ private:
     long long perfWindowNS_ = 0, perfLastFrameNS_ = 0;
     long long perfWorkUS_ = 0, perfMaxWorkUS_ = 0, perfSleepUS_ = 0, perfMaxDelayUS_ = 0;
     int perfFrames_ = 0, perfOverruns_ = 0;
+    std::array<long long, 256> perfWorkWindow_{};
+    size_t perfWorkSamples_ = 0;
 };
 
 }  // namespace

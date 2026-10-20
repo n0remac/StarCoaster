@@ -164,6 +164,15 @@
             printErr: (line) => console.error(line),
             locateFile: (name) => name,
         };
+        // Explicit test-only diagnostics. Emscripten reads ENV while the
+        // factory starts, before the live harness can access Module.callMain.
+        const diagnostics = new URLSearchParams(window.location.search);
+        if (diagnostics.get("starcoaster-performance") === "1") {
+            runtimeOptions.ENV = {
+                STARCOASTER_PERF: "1",
+                STARCOASTER_SUPPRESS_PAINT: diagnostics.get("starcoaster-suppress-paint") === "1" ? "1" : "0",
+            };
+        }
         if (manifest.network_enabled) {
             const endpoint = new URL("/ws", window.location.href);
             endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
@@ -347,9 +356,10 @@
         canvas.style.display = "block";
         // Explicit development runs may exercise the existing multiplayer
         // harness. Ordinary visits always enter OpenRCT2's main menu.
-        const startupArgs = manifest.network_enabled
-            && new URLSearchParams(window.location.search).has("starcoaster-test-join")
-            ? ["join", "127.0.0.1", "--port=11753"] : [];
+        const joinParams = new URLSearchParams(window.location.search);
+        const testPort = Number(joinParams.get("starcoaster-test-port") || 11753);
+        const startupArgs = manifest.network_enabled && joinParams.has("starcoaster-test-join")
+            ? ["join", "127.0.0.1", `--port=${Number.isInteger(testPort) && testPort >= 1024 && testPort <= 65535 ? testPort : 11753}`] : [];
         startupArgs.push("--rct2-data-path=/RCT", "--user-data-path=/persistent/", "--openrct2-data-path=/OpenRCT2/");
         if (new URLSearchParams(window.location.search).has("verbose")) startupArgs.push("--verbose");
         module.callMain(startupArgs);

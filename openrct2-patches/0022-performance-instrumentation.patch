@@ -1,0 +1,376 @@
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -13,6 +13,7 @@
+ #include "../GameState.h"
+ #include "../SpriteIds.h"
+ #include "BridgeVisualRegistry.h"
++#include "BridgePerformance.h"
+ #include "../drawing/LightFX.h"
+ #include "../entity/EntityList.h"
+ #include "../entity/Staff.h"
+@@ -104,6 +105,7 @@
+ 
+     void InvalidateBridgeActor(const BridgeActor& actor)
+     {
++        const auto perfStart = BridgePerf::enabled() ? BridgePerf::nowNS() : 0;
+         const CoordsXY position{ actor.x, actor.y };
+         if (!MapIsLocationValid(position))
+             return;
+@@ -112,6 +114,11 @@
+         const int32_t extent = actor.kind == "terran_firebat" ? 120
+             : actor.kind == "terran_vulture" ? 112 : 80;
+         ViewportsInvalidate({ actor.x, actor.y, TileElementHeight(position) }, extent, extent, 100, ZoomLevel{ 2 });
++        if (perfStart)
++        {
++            BridgePerf::invalidations.fetch_add(1, std::memory_order_relaxed);
++            BridgePerf::invalidationUS.fetch_add((BridgePerf::nowNS() - perfStart) / 1000, std::memory_order_relaxed);
++        }
+     }
+ 
+     CoordsXY VisualPosition(const BridgeActor& actor, const BridgeSnapshot::VisualState& state)
+@@ -132,6 +139,7 @@
+ 
+ void BridgeApplySnapshot(std::string session, uint64_t seq, std::vector<BridgeActor> actors)
+ {
++    const auto perfStart = BridgePerf::enabled() ? BridgePerf::nowNS() : 0;
+     auto previous = std::atomic_load(&gBridgeSnapshot);
+     if (previous->session == session && seq <= previous->seq)
+         return;
+@@ -141,11 +149,13 @@
+     next->seq = seq;
+     next->actors = std::move(actors);
+     std::sort(next->actors.begin(), next->actors.end(), [](const auto& a, const auto& b) { return a.id < b.id; });
++    const auto sortedNS = perfStart ? BridgePerf::nowNS() : 0;
+     std::map<std::string, BridgeActor> oldActors;
+     if (previous->session == next->session)
+         for (const auto& actor : previous->actors)
+             oldActors.emplace(actor.id, actor);
+     const auto tick = getGameState().currentTicks;
++    int64_t indexUS = 0;
+     for (size_t index = 0; index < next->actors.size(); ++index)
+     {
+         const auto& actor = next->actors[index];
+@@ -180,10 +190,13 @@
+             && (old == oldActors.end() || old->second.motion != "attack" || actor.attackFrames != old->second.attackFrames))
+             visual.flameStartTick = tick;
+         next->visual.emplace(actor.id, visual);
++        const auto indexStart = perfStart ? BridgePerf::nowNS() : 0;
+         for (int32_t tileX = std::min(actor.x, visual.previousX) / 32; tileX <= std::max(actor.x, visual.previousX) / 32; ++tileX)
+             for (int32_t tileY = std::min(actor.y, visual.previousY) / 32; tileY <= std::max(actor.y, visual.previousY) / 32; ++tileY)
+                 AddTile(*next, index, tileX * 32, tileY * 32);
+-    }
++        if (indexStart) indexUS += (BridgePerf::nowNS() - indexStart) / 1000;
++    }
++    const auto visualNS = perfStart ? BridgePerf::nowNS() : 0;
+     for (const auto& actor : previous->actors)
+     {
+         InvalidateBridgeActor(actor);
+@@ -198,6 +211,8 @@
+         }
+     }
+     std::atomic_store(&gBridgeSnapshot, std::shared_ptr<const BridgeSnapshot>(next));
++    if (perfStart) BridgePerf::latestSnapshotSeq.store(seq, std::memory_order_relaxed);
++    const auto invalidatedNS = perfStart ? BridgePerf::nowNS() : 0;
+     std::ostringstream canonical;
+     for (const auto& actor : next->actors)
+     {
+@@ -210,6 +225,16 @@
+     }
+     LOG_INFO("RTS Bridge apply tick=%u seq=%llu session=%s center_z=%d units=%s", tick,
+         static_cast<unsigned long long>(seq), next->session.c_str(), TileElementHeight({ 480, 480 }), canonical.str().c_str());
++    if (perfStart)
++    {
++        const auto doneNS = BridgePerf::nowNS();
++        BridgePerf::event("snapshot_apply", seq, next->actors.size(), (doneNS - perfStart) / 1000);
++        BridgePerf::event("snapshot_sort", seq, next->actors.size(), (sortedNS - perfStart) / 1000);
++        BridgePerf::event("snapshot_visual", seq, next->actors.size(), (visualNS - sortedNS) / 1000 - indexUS);
++        BridgePerf::event("snapshot_index", seq, next->actors.size(), indexUS);
++        BridgePerf::event("snapshot_invalidate", seq, next->actors.size(), (invalidatedNS - visualNS) / 1000);
++        BridgePerf::event("snapshot_log", seq, next->actors.size(), (doneNS - invalidatedNS) / 1000);
++    }
+ }
+ 
+ void BridgeClearSnapshot()
+@@ -227,6 +252,7 @@
+ 
+ void BridgeInvalidateAnimation()
+ {
++    const auto perfStart = BridgePerf::enabled() ? BridgePerf::nowNS() : 0;
+     auto snapshot = std::atomic_load(&gBridgeSnapshot);
+     for (const auto& actor : snapshot->actors)
+     {
+@@ -248,6 +274,11 @@
+     if (buildings->session == snapshot->session)
+         for (const auto& [objectIndex, state] : buildings->objects)
+             InvalidateBuildingTiles(state.tiles);
++    if (perfStart)
++    {
++        BridgePerf::animationCalls.fetch_add(1, std::memory_order_relaxed);
++        BridgePerf::animationUS.fetch_add((BridgePerf::nowNS() - perfStart) / 1000, std::memory_order_relaxed);
++    }
+ }
+ 
+ void BridgeSetBuildingAnimations(std::string session, int32_t objectIndex, std::set<std::pair<int32_t, int32_t>> tiles,
+@@ -496,12 +527,14 @@
+ 
+ void PaintBridgeActors(PaintSession& session, const CoordsXY& pos)
+ {
++    BridgePerf::PaintScope perfScope;
+     auto snapshot = std::atomic_load(&gBridgeSnapshot);
+     const auto bucket = snapshot->tiles.find({ pos.x / 32, pos.y / 32 });
+     if (bucket == snapshot->tiles.end())
+         return;
+     if (gTrackDesignSaveMode || session.ViewFlags.has(ViewportFlag::hideEntities) || session.rt.zoom_level > ZoomLevel{ 2 })
+         return;
++    if (BridgePerf::enabled()) BridgePerf::actorsConsidered.fetch_add(bucket->second.size(), std::memory_order_relaxed);
+     for (const size_t index : bucket->second)
+     {
+         const auto& actor = snapshot->actors[index];
+@@ -509,6 +542,8 @@
+         const auto actorPos = VisualPosition(actor, visual);
+         if (pos != actorPos.toTileStart() || !MapIsLocationValid(actorPos))
+             continue;
++        if (BridgePerf::suppressPainting()) continue;
++        if (BridgePerf::enabled()) BridgePerf::actorsPainted.fetch_add(1, std::memory_order_relaxed);
+         session.SpritePosition = actorPos;
+         session.MapPosition = pos;
+         session.CurrentlyDrawnEntity = nullptr;
+@@ -588,12 +623,16 @@
+                 phase -= animation->frameTicks[pose];
+                 ++pose;
+             }
++            const auto spriteStart = BridgePerf::enabled() ? BridgePerf::nowNS() : 0;
+             PaintAddImageAsParent(session, ImageId(animation->images[pose][layer.targetFacing ? targetDirection : direction]), { 0, 0, z }, actorBounds);
++            if (spriteStart) BridgePerf::spriteUS.fetch_add((BridgePerf::nowNS() - spriteStart) / 1000, std::memory_order_relaxed);
+         }
+         if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
+         {
+             const auto level = std::clamp((actor.hp * 10 + actor.maxHp / 2) / actor.maxHp, 0, 10);
++            const auto healthStart = BridgePerf::enabled() ? BridgePerf::nowNS() : 0;
+             PaintAddImageAsChild(session, ImageId(visualType->healthBase + level), { 0, 0, z }, actorBounds);
++            if (healthStart) BridgePerf::healthUS.fetch_add((BridgePerf::nowNS() - healthStart) / 1000, std::memory_order_relaxed);
+         }
+         const uint32_t effectElapsed = getGameState().currentTicks - visual.flameStartTick;
+         if (visualType->flame && actor.hp > 0
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -31,6 +31,7 @@
+     #include "../interface/WindowBase.h"
+     #include "../platform/Platform.h"
+     #include "../paint/Paint.Entity.h"
++    #include "../paint/BridgePerformance.h"
+     #include "../ride/ted/PitchAndRoll.h"
+     #include "../world/Map.h"
+     #include "bindings/entity/ScBalloon.hpp"
+@@ -737,6 +738,7 @@
+ 
+ static JSValue BridgeApplySnapshotJS(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
+ {
++    const auto perfStart = BridgePerf::enabled() ? BridgePerf::nowNS() : 0;
+     if (argc != 1 || !JS_IsObject(argv[0]))
+         return JS_ThrowTypeError(ctx, "expected one snapshot object");
+ 
+@@ -806,8 +808,15 @@
+         actors.push_back(std::move(parsed));
+     }
+     JS_FreeValue(ctx, units);
++    if (perfStart) BridgePerf::event("snapshot_js_convert", static_cast<uint64_t>(seq), actors.size(),
++        (BridgePerf::nowNS() - perfStart) / 1000);
+     BridgeApplySnapshot(std::move(session), static_cast<uint64_t>(seq), std::move(actors));
+     return JS_NewBool(ctx, true);
++}
++
++static JSValue BridgePerformanceNowJS(JSContext* ctx, JSValueConst, int, JSValueConst*)
++{
++    return JS_NewFloat64(ctx, static_cast<double>(BridgePerf::nowNS()) / 1000000.0);
+ }
+ 
+ static JSValue BridgeInvalidateAnimationJS(JSContext*, JSValueConst, int, JSValueConst*)
+@@ -946,6 +955,11 @@
+     JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5));
+     JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 4));
+     JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
++    JS_SetPropertyStr(ctx, bridge, "performanceEnabled", JS_NewBool(ctx, BridgePerf::enabled()));
++    const char* worldPortText = std::getenv("STARCOASTER_BRIDGE_PORT");
++    const int worldPort = worldPortText ? std::atoi(worldPortText) : 40010;
++    JS_SetPropertyStr(ctx, bridge, "worldPort", JS_NewInt32(ctx, worldPort >= 1024 && worldPort <= 65535 ? worldPort : 40010));
++    JS_SetPropertyStr(ctx, bridge, "performanceNow", JS_NewCFunction(ctx, BridgePerformanceNowJS, "performanceNow", 0));
+     JS_SetPropertyStr(ctx, bridge, "clearSnapshot", JS_NewCFunction(ctx, BridgeClearSnapshotJS, "clearSnapshot", 0));
+     JS_SetPropertyStr(ctx, bridge, "invalidateAnimation", JS_NewCFunction(ctx, BridgeInvalidateAnimationJS, "invalidateAnimation", 0));
+     JS_SetPropertyStr(ctx, bridge, "setBuildingAnimations", JS_NewCFunction(ctx, BridgeSetBuildingAnimationsJS, "setBuildingAnimations", 1));
+diff --git a/src/openrct2-ui/drawing/engines/HardwareDisplayDrawingEngine.cpp b/src/openrct2-ui/drawing/engines/HardwareDisplayDrawingEngine.cpp
+--- a/src/openrct2-ui/drawing/engines/HardwareDisplayDrawingEngine.cpp
++++ b/src/openrct2-ui/drawing/engines/HardwareDisplayDrawingEngine.cpp
+@@ -23,6 +23,7 @@
+ #include <openrct2/drawing/X8DrawingEngine.h>
+ #include <openrct2/interface/Window.h>
+ #include <openrct2/paint/Paint.h>
++#include <openrct2/paint/BridgePerformance.h>
+ #include <openrct2/ui/UiContext.h>
+ #include <vector>
+ 
+@@ -50,6 +51,7 @@
+     std::vector<uint32_t> _dirtyVisualsTime;
+ 
+     bool smoothNN = false;
++    int64_t _perfFrameStart = 0;
+ 
+ public:
+     explicit HardwareDisplayDrawingEngine(IUiContext& uiContext)
+@@ -202,6 +204,7 @@
+ 
+     void BeginDraw() override
+     {
++        if (BridgePerf::enabled()) _perfFrameStart = BridgePerf::nowNS();
+         X8DrawingEngine::BeginDraw();
+     }
+ 
+@@ -210,6 +213,7 @@
+         X8DrawingEngine::EndDraw();
+ 
+         Display();
++        if (_perfFrameStart) BridgePerf::presented(_perfFrameStart, BridgePerf::nowNS());
+     }
+ 
+ protected:
+diff --git a/src/openrct2-ui/drawing/engines/opengl/OpenGLDrawingEngine.cpp b/src/openrct2-ui/drawing/engines/opengl/OpenGLDrawingEngine.cpp
+--- a/src/openrct2-ui/drawing/engines/opengl/OpenGLDrawingEngine.cpp
++++ b/src/openrct2-ui/drawing/engines/opengl/OpenGLDrawingEngine.cpp
+@@ -38,6 +38,7 @@
+     #include <openrct2/drawing/RenderTarget.h>
+     #include <openrct2/drawing/TTF.h>
+     #include <openrct2/drawing/WeatherDrawer.h>
++    #include <openrct2/paint/BridgePerformance.h>
+     #include <openrct2/interface/Screenshot.h>
+     #include <openrct2/interface/Window.h>
+     #include <openrct2/ui/UiContext.h>
+@@ -223,6 +224,7 @@
+     std::unique_ptr<OpenGLFramebuffer> _tempFramebuffer;
+     OpenGLWeatherDrawer _weatherDrawer;
+     InvalidationGrid _invalidationGrid;
++    int64_t _perfFrameStart = 0;
+ 
+ public:
+     SDL_Color Palette[256];
+@@ -329,6 +331,7 @@
+ 
+     void BeginDraw() override
+     {
++        if (BridgePerf::enabled()) _perfFrameStart = BridgePerf::nowNS();
+         assert(_screenFramebuffer != nullptr);
+ 
+         _drawingContext->StartNewDraw();
+@@ -368,6 +371,7 @@
+         _drawingContext->FinishDraw();
+ 
+         Display();
++        if (_perfFrameStart) BridgePerf::presented(_perfFrameStart, BridgePerf::nowNS());
+     }
+ 
+     void PaintWindows() override
+diff --git a/src/openrct2/paint/BridgePerformance.h b/src/openrct2/paint/BridgePerformance.h
+--- /dev/null
++++ b/src/openrct2/paint/BridgePerformance.h
+@@ -0,0 +1,100 @@
++#pragma once
++
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++
++// Diagnostics remain local to the patched engine. WASM stderr is captured by
++// the browser harness; native stderr is captured by the session launcher.
++namespace BridgePerf
++{
++    inline bool enabled()
++    {
++        static const bool value = [] { const char* v = std::getenv("STARCOASTER_PERF"); return v && *v == '1'; }();
++        return value;
++    }
++
++    inline bool suppressPainting()
++    {
++        static const bool value = [] { const char* v = std::getenv("STARCOASTER_SUPPRESS_PAINT"); return v && *v == '1'; }();
++        return value;
++    }
++
++    inline int64_t nowNS()
++    {
++        return std::chrono::duration_cast<std::chrono::nanoseconds>(
++            std::chrono::steady_clock::now().time_since_epoch()).count();
++    }
++
++    inline void event(const char* stage, uint64_t seq, size_t actors, int64_t durationUS, int64_t otherUS = 0)
++    {
++        if (!enabled()) return;
++        std::fprintf(stderr, "STARCOASTER_PERF {\"source\":\"openrct2\",\"stage\":\"%s\","
++            "\"mono_ns\":%lld,\"seq\":%llu,\"actors\":%zu,\"duration_us\":%lld,\"other_us\":%lld}\n",
++            stage, static_cast<long long>(nowNS()), static_cast<unsigned long long>(seq), actors,
++            static_cast<long long>(durationUS), static_cast<long long>(otherUS));
++    }
++
++    inline std::atomic<uint64_t> invalidations{0}, paintCalls{0}, actorsConsidered{0}, actorsPainted{0};
++    inline std::atomic<uint64_t> latestSnapshotSeq{0};
++    inline std::atomic<int64_t> invalidationUS{0}, animationUS{0}, paintUS{0}, spriteUS{0}, healthUS{0};
++    inline std::atomic<uint64_t> animationCalls{0};
++
++    struct PaintScope
++    {
++        int64_t started = enabled() ? nowNS() : 0;
++        ~PaintScope()
++        {
++            if (started) {
++                paintCalls.fetch_add(1, std::memory_order_relaxed);
++                paintUS.fetch_add((nowNS() - started) / 1000, std::memory_order_relaxed);
++            }
++        }
++    };
++
++    inline void presented(int64_t beganNS, int64_t endNS)
++    {
++        if (!enabled()) return;
++        static std::array<int64_t, 256> intervals{};
++        static size_t count = 0;
++        static int64_t windowNS = endNS;
++        static int64_t previousNS = 0;
++        static int64_t maxRenderUS = 0;
++        static uint64_t lastPresentedSeq = 0;
++        const auto currentSeq = latestSnapshotSeq.load(std::memory_order_relaxed);
++        if (currentSeq && currentSeq != lastPresentedSeq)
++        {
++            event("snapshot_present", currentSeq, 0, (endNS - beganNS) / 1000);
++            lastPresentedSeq = currentSeq;
++        }
++        if (previousNS && count < intervals.size()) intervals[count++] = (endNS - previousNS) / 1000;
++        previousNS = endNS;
++        maxRenderUS = std::max(maxRenderUS, (endNS - beganNS) / 1000);
++        if (endNS - windowNS < 1000000000LL) return;
++        std::sort(intervals.begin(), intervals.begin() + count);
++        const auto at = [&](double p) -> int64_t { return count ? intervals[static_cast<size_t>((count - 1) * p)] : 0; };
++        std::fprintf(stderr, "STARCOASTER_PERF {\"source\":\"openrct2\",\"stage\":\"present_summary\","
++            "\"mono_ns\":%lld,\"frames\":%zu,\"elapsed_ns\":%lld,\"frame_p50_us\":%lld,"
++            "\"frame_p95_us\":%lld,\"frame_p99_us\":%lld,\"frame_max_us\":%lld,"
++            "\"render_max_us\":%lld,\"invalidations\":%llu,\"invalidation_us\":%lld,"
++            "\"animation_calls\":%llu,\"animation_us\":%lld,\"paint_calls\":%llu,\"paint_us\":%lld,\"actors_considered\":%llu,"
++            "\"actors_painted\":%llu,\"sprite_us\":%lld,\"health_us\":%lld}\n",
++            static_cast<long long>(endNS), count, static_cast<long long>(endNS - windowNS),
++            static_cast<long long>(at(.50)), static_cast<long long>(at(.95)),
++            static_cast<long long>(at(.99)), static_cast<long long>(at(1.0)),
++            static_cast<long long>(maxRenderUS),
++            static_cast<unsigned long long>(invalidations.exchange(0)),
++            static_cast<long long>(invalidationUS.exchange(0)),
++            static_cast<unsigned long long>(animationCalls.exchange(0)),
++            static_cast<long long>(animationUS.exchange(0)),
++            static_cast<unsigned long long>(paintCalls.exchange(0)),
++            static_cast<long long>(paintUS.exchange(0)),
++            static_cast<unsigned long long>(actorsConsidered.exchange(0)),
++            static_cast<unsigned long long>(actorsPainted.exchange(0)),
++            static_cast<long long>(spriteUS.exchange(0)), static_cast<long long>(healthUS.exchange(0)));
++        count = 0; maxRenderUS = 0; windowNS = endNS;
++    }
++}

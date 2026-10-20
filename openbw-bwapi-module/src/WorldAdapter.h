@@ -315,7 +315,9 @@ public:
 private:
     void connect(BWAPI::Game* game) {
         const int fd=::socket(AF_INET,SOCK_STREAM,0); if (fd<0) return;
-        sockaddr_in address{}; address.sin_family=AF_INET; address.sin_port=htons(40011); address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+        sockaddr_in address{}; address.sin_family=AF_INET;
+        address.sin_port=htons(bridge_perf::port("BRIDGE_OPENBW_PORT",40011));
+        address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
         if (::connect(fd,reinterpret_cast<sockaddr*>(&address),sizeof(address))!=0) { ::close(fd); return; }
         ::fcntl(fd,F_SETFL,::fcntl(fd,F_GETFL,0)|O_NONBLOCK); socket_=fd;
         send("world.hello",{{"capabilities",{"snapshot","combat.event","navigation.obstacle.remove"}},

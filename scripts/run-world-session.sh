@@ -7,15 +7,15 @@ test -f "$park_file" || { printf 'Missing park: %s\n' "$park_file" >&2; exit 1; 
 test -x "$project_dir/build/world-bridge" || { printf 'Build the bridge with: go build -o build/world-bridge ./cmd/world-bridge\n' >&2; exit 1; }
 : "${RCT2_DATA_DIR:?Set RCT2_DATA_DIR to your RCT2 installation}"
 : "${STARCRAFT_DATA_DIR:?Set STARCRAFT_DATA_DIR to your StarCraft installation}"
-wasm_bundle="${WASM_DEPLOY_DIR:-$project_dir/run-data/wasm-deploy}/current"
+wasm_bundle="${BRIDGE_WASM_BUNDLE:-${WASM_DEPLOY_DIR:-$project_dir/run-data/wasm-deploy}/current}"
 if [[ "${BRIDGE_SERVE_WASM:-0}" == 1 ]]; then
     test -s "$wasm_bundle/manifest.json" || { printf 'Missing deployed WASM bundle: %s\n' "$wasm_bundle" >&2; exit 1; }
 fi
-python3 - "${OPENRCT2_PORT:-11753}" <<'PY'
+python3 - "${OPENRCT2_PORT:-11753}" "${STARCOASTER_BRIDGE_PORT:-40010}" "${BRIDGE_OPENBW_PORT:-40011}" "${BRIDGE_CONTROLLER_PORT:-40012}" <<'PY'
 import socket
 import sys
 
-for port in (40010, int(sys.argv[1])):
+for port in (int(value) for value in sys.argv[1:]):
     with socket.socket() as probe:
         # Go listeners set SO_REUSEADDR. Allow their recently closed sockets
         # to leave TIME_WAIT while still rejecting an active listener.
@@ -39,6 +39,9 @@ if [[ ! -f "$project_dir/run-data/world-base/world-base-v5-256.scm" ]]; then
     --output "$project_dir/run-data/world-base/world-base-v5-256.scm"
 fi
 bridge_args=()
+bridge_args+=(--park "127.0.0.1:${STARCOASTER_BRIDGE_PORT:-40010}")
+bridge_args+=(--openbw "127.0.0.1:${BRIDGE_OPENBW_PORT:-40011}")
+bridge_args+=(--controller "127.0.0.1:${BRIDGE_CONTROLLER_PORT:-40012}")
 if [[ -n "${BRIDGE_SCENARIO_CONFIG:-}" ]]; then bridge_args+=(--scenario "$BRIDGE_SCENARIO_CONFIG"); fi
 if [[ -n "${BRIDGE_SCENARIO_CONFIG:-}" ]]; then
   export BRIDGE_UNLIMITED_TERRAN_RESOURCES="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'

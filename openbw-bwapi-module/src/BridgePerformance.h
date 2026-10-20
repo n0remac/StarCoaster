@@ -9,6 +9,13 @@
 // Linux CLOCK_MONOTONIC is shared by all Pi processes. The browser reports
 // local durations only; its clock must never be subtracted from this one.
 namespace bridge_perf {
+inline int port(const char* key, int fallback) {
+    const char* text = std::getenv(key);
+    if (!text || !*text) return fallback;
+    char* end = nullptr;
+    const long value = std::strtol(text, &end, 10);
+    return end && !*end && value >= 1024 && value <= 65535 ? static_cast<int>(value) : fallback;
+}
 inline long long nowNS() {
     timespec ts{};
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -39,14 +46,17 @@ inline void snapshot(const char* role, unsigned long long seq, int frame, int to
 }
 inline void frame(const char* role, int frame, int count, long long elapsedNS,
                   long long workUS, long long maxWorkUS, long long sleepUS, int overruns,
-                  long long maxDelayUS) {
+                  long long maxDelayUS, long long p50WorkUS, long long p95WorkUS,
+                  long long p99WorkUS) {
     FILE* file = output(role);
     if (!file) return;
     std::fprintf(file, "{\"source\":\"openbw-%s\",\"stage\":\"frame_summary\","
         "\"mono_ns\":%lld,\"bw_tick\":%d,\"frames\":%d,\"elapsed_ns\":%lld,"
         "\"work_us\":%lld,\"max_work_us\":%lld,\"sleep_us\":%lld,"
-        "\"overruns\":%d,\"max_delay_us\":%lld}\n",
-        role, nowNS(), frame, count, elapsedNS, workUS, maxWorkUS, sleepUS, overruns, maxDelayUS);
+        "\"overruns\":%d,\"max_delay_us\":%lld,\"work_p50_us\":%lld,"
+        "\"work_p95_us\":%lld,\"work_p99_us\":%lld}\n",
+        role, nowNS(), frame, count, elapsedNS, workUS, maxWorkUS, sleepUS, overruns,
+        maxDelayUS, p50WorkUS, p95WorkUS, p99WorkUS);
 }
 inline void command(const char* role, const std::string& id, int frame, bool accepted, long long durationUS) {
     FILE* file = output(role);

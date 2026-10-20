@@ -328,7 +328,7 @@ private:
         if (fd < 0) return;
         sockaddr_in address{};
         address.sin_family = AF_INET;
-        address.sin_port = htons(40012);
+        address.sin_port = htons(bridge_perf::port("BRIDGE_CONTROLLER_PORT",40012));
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         if (::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
             ::close(fd); return;

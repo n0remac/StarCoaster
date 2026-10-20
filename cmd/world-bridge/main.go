@@ -112,6 +112,8 @@ type service struct {
 	reconciledActors          map[string]bool
 	retired                   map[string]bool
 	commands                  map[string]worldCommand
+	perfPositions             map[string][2]int
+	perfMoves                 map[string]perfMove
 	spawns                    *world.SpawnQueue
 	spawnOps                  map[string]world.SpawnExecute
 	spawnJournalPath          string
@@ -156,6 +158,13 @@ type worldCommand struct {
 	TargetProxyID string   `json:"target_proxy_id,omitempty"`
 	X             int      `json:"x,omitempty"`
 	Y             int      `json:"y,omitempty"`
+}
+
+type perfMove struct {
+	UnitID    string
+	Origin    [2]int
+	RequestID int
+	Accepted  bool
 }
 
 func supportedNativeBuilding(id string) bool {
@@ -1198,6 +1207,14 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.commands[command.CommandID] = command
+		if perf.file != nil && command.Verb == "unit.move" && len(command.UnitIDs) > 0 {
+			if s.perfMoves == nil {
+				s.perfMoves = map[string]perfMove{}
+			}
+			if origin, ok := s.perfPositions[command.UnitIDs[0]]; ok && len(s.perfMoves) < 128 {
+				s.perfMoves[command.CommandID] = perfMove{UnitID: command.UnitIDs[0], Origin: origin, RequestID: command.RequestID}
+			}
+		}
 		perf.event("command_forward", map[string]any{"session": m.Session, "command_id": command.CommandID,
 			"request_id": command.RequestID, "duration_us": (monoNS() - commandNS) / 1000})
 		s.ack(p, m, true, "")
@@ -1653,6 +1670,27 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			}
 			if m.Decode(&snapshot) == nil {
 				decodedNS := monoNS()
+				if perf.file != nil {
+					s.perfPositions = make(map[string][2]int, len(snapshot.Units))
+					for _, unit := range snapshot.Units {
+						id, idOK := unit["id"].(string)
+						x, xOK := unit["x"].(float64)
+						y, yOK := unit["y"].(float64)
+						if !idOK || !xOK || !yOK {
+							continue
+						}
+						position := [2]int{int(x), int(y)}
+						for commandID, move := range s.perfMoves {
+							if move.Accepted && move.UnitID == id && move.Origin != position {
+								perf.event("command_first_movement", map[string]any{"session": m.Session,
+									"command_id": commandID, "request_id": move.RequestID, "seq": snapshot.Seq,
+									"bw_tick": snapshot.BWTick, "unit_id": id})
+								delete(s.perfMoves, commandID)
+							}
+						}
+						s.perfPositions[id] = position
+					}
+				}
 				s.nativeOccupancyComplete = false
 				if s.scenario != nil && snapshot.UnitOmitted == 0 && snapshot.UnitTotal <= len(snapshot.Units) {
 					marines, zerglings, enemies := 0, 0, 0
@@ -1940,6 +1978,16 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			}
 		}
 		delete(s.commands, result.CommandID)
+		if move, ok := s.perfMoves[result.CommandID]; ok {
+			if result.Accepted {
+				move.Accepted = true
+				s.perfMoves[result.CommandID] = move
+			} else {
+				delete(s.perfMoves, result.CommandID)
+			}
+		}
+		perf.event("command_result", map[string]any{"session": m.Session, "command_id": result.CommandID,
+			"request_id": result.RequestID, "accepted": result.Accepted})
 		s.ack(p, m, true, "")
 		_ = s.emit(s.park, "combat.result", m.Session, m.Revision, result)
 	default:

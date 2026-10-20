@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,6 +33,45 @@ type licensedFile struct {
 	Path   string `json:"path"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+}
+
+type gatewayPerformance struct {
+	fromBrowserBytes    atomic.Int64
+	toBrowserBytes      atomic.Int64
+	fromBrowserMessages atomic.Int64
+	toBrowserMessages   atomic.Int64
+	writeBlockedNS      atomic.Int64
+	connections         atomic.Int64
+	disconnections      atomic.Int64
+}
+
+func newGatewayPerformance() *gatewayPerformance {
+	dir := os.Getenv("STARCOASTER_PERF_DIR")
+	if dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return nil
+	}
+	file, err := os.OpenFile(filepath.Join(dir, "gateway-network.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0640)
+	if err != nil {
+		return nil
+	}
+	p := &gatewayPerformance{}
+	go func() {
+		for range time.NewTicker(time.Second).C {
+			record := map[string]any{"source": "gateway", "stage": "websocket_second",
+				"wall_utc": time.Now().UTC().Format(time.RFC3339Nano),
+				"bytes_in": p.fromBrowserBytes.Swap(0), "bytes_out": p.toBrowserBytes.Swap(0),
+				"messages_in": p.fromBrowserMessages.Swap(0), "messages_out": p.toBrowserMessages.Swap(0),
+				"write_blocked_us": p.writeBlockedNS.Swap(0) / 1000,
+				"connections":      p.connections.Load(), "disconnections": p.disconnections.Load()}
+			if line, err := json.Marshal(record); err == nil {
+				_, _ = file.Write(append(line, '\n'))
+			}
+		}
+	}()
+	return p
 }
 
 type licensedManifest struct {
@@ -192,6 +232,7 @@ func checkTailscaleFunnel(listen string) error {
 
 func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...string) http.Handler {
 	upgrader := websocket.Upgrader{CheckOrigin: sameOrigin, Subprotocols: []string{"binary"}}
+	perf := newGatewayPerformance()
 	mux := http.NewServeMux()
 	if len(supervisorSocket) > 0 && supervisorSocket[0] != "" {
 		path := supervisorSocket[0]
@@ -300,6 +341,10 @@ func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...
 			return
 		}
 		defer ws.Close()
+		if perf != nil {
+			perf.connections.Add(1)
+			defer perf.disconnections.Add(1)
+		}
 		log.Printf("OpenRCT2 gateway connected")
 		ws.SetReadLimit(64 << 20)
 		done := make(chan error, 2)
@@ -314,7 +359,12 @@ func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...
 					done <- errors.New("non-binary multiplayer frame")
 					return
 				}
-				if _, err = io.Copy(tcp, reader); err != nil {
+				count, copyErr := io.Copy(tcp, reader)
+				if perf != nil {
+					perf.fromBrowserBytes.Add(count)
+					perf.fromBrowserMessages.Add(1)
+				}
+				if err = copyErr; err != nil {
 					done <- err
 					return
 				}
@@ -325,9 +375,15 @@ func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...
 			for {
 				count, err := tcp.Read(buffer)
 				if count > 0 {
+					writeStart := time.Now()
 					if writeErr := ws.WriteMessage(websocket.BinaryMessage, buffer[:count]); writeErr != nil {
 						done <- writeErr
 						return
+					}
+					if perf != nil {
+						perf.toBrowserBytes.Add(int64(count))
+						perf.toBrowserMessages.Add(1)
+						perf.writeBlockedNS.Add(time.Since(writeStart).Nanoseconds())
 					}
 				}
 				if err != nil {

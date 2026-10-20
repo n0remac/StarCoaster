@@ -11,6 +11,9 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
         && STARCOASTER_CAMERA_ALL_ACTORS;
     const noMove = typeof STARCOASTER_CAMERA_NO_MOVE !== "undefined"
         && STARCOASTER_CAMERA_NO_MOVE;
+    const perfCamera = typeof STARCOASTER_PERF_CAMERA !== "undefined" ? STARCOASTER_PERF_CAMERA : "";
+    const perfWorkload = typeof STARCOASTER_PERF_WORKLOAD !== "undefined" ? STARCOASTER_PERF_WORKLOAD : "";
+    let perfRequest = 900000, perfBatch = 0, perfDirection = false;
     const sweepTargets = [
         { x: 1024, y: 1024, z: 128, zoom: 0 },
         { x: 1536, y: 1536, z: 128, zoom: 0 },
@@ -51,7 +54,7 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
             if (!noMove) {
                 ui.mainViewport.rotation = 0;
                 ui.mainViewport.zoom = sweep ? sweepTargets[0].zoom : 0;
-                ui.mainViewport.moveTo(focus);
+                ui.mainViewport.moveTo(perfCamera === "away" ? { x: 1800, y: 350, z: 112 } : focus);
             }
             console.log("WASM_CAMERA_READY session=" + snapshot.session
                 + " units=" + snapshot.units.length + " marine=" + JSON.stringify(marine)
@@ -59,7 +62,7 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
                 + " focus=" + JSON.stringify(focus)
                 + " centre=" + JSON.stringify(ui.mainViewport.getCentrePosition()));
         } else {
-            if (!sweep && !noMove && ticks % 200 === 1 && focusCount++ < 50) {
+            if (!sweep && !noMove && perfCamera !== "away" && ticks % 200 === 1 && focusCount++ < 50) {
                 ui.mainViewport.moveTo(marineFocus);
                 const current = rtsBridge.actorScreenPosition(trackedId);
                 if (focusCount <= 3 || focusCount % 10 === 0)
@@ -98,6 +101,29 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
                     console.log("WASM_ACTOR_MOVED id=" + trackedId + " x=" + tracked.x
                         + " y=" + tracked.y + " hp=" + tracked.hp + " seq=" + snapshot.seq);
                 }
+            }
+        }
+        if ((perfWorkload === "moving" && ticks % 48 === 1)
+            || (perfWorkload === "fighting" && ticks % 500 === 1)) {
+            const marines = snapshot.units.filter(function (unit) {
+                return unit.kind === "terran_marine" && unit.hp > 0;
+            }).map(function (unit) { return unit.id; });
+            if (marines.length) {
+                const batches = perfWorkload === "fighting" ? 1 : Math.ceil(marines.length / 32);
+                const batch = perfBatch++ % batches;
+                if (batch === 0) perfDirection = !perfDirection;
+                const request = ++perfRequest;
+                const args = { session: snapshot.session, request: request,
+                    unit_ids: perfWorkload === "fighting" ? marines.slice(0, 1)
+                        : marines.slice(batch * 32, batch * 32 + 32), verb: "move",
+                    x: perfDirection ? 950 : 500, y: perfDirection ? 1350 : 950 };
+                if (rtsBridge.performanceEnabled)
+                    console.log("STARCOASTER_PERF " + JSON.stringify({ source: "browser-driver", stage: "command_input",
+                        mono_ms: rtsBridge.performanceNow(), session: snapshot.session,
+                        request_id: request, unit_ids: args.unit_ids, verb: "move" }));
+                context.executeAction("rtsbridge.marineCommand", args, function (result) {
+                    if (result.error) console.log("PERF_COMMAND_REJECT request=" + request + " error=" + result.errorMessage);
+                });
             }
         }
     });

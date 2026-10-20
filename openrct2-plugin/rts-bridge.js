@@ -3,6 +3,13 @@
     "use strict";
 
     const ACTION = "rtsbridge.applySnapshot";
+    function perfLog(stage, fields) {
+        if (typeof rtsBridge !== "object" || !rtsBridge.performanceEnabled) return;
+        console.log("STARCOASTER_PERF " + JSON.stringify(Object.assign({
+            source: "openrct2-plugin", stage: stage, mono_ms: rtsBridge.performanceNow()
+        }, fields)));
+    }
+    const snapshotSubmitTimes = {};
     const COMMAND_ACTION = "rtsbridge.marineCommand";
     const RESULT_ACTION = "rtsbridge.commandResult";
     const BUILDING_ACTION = "rtsbridge.buildingState";
@@ -855,8 +862,22 @@
                 if (!state || !Number.isSafeInteger(state.seq) || state.seq <= lastCombatSeq
                     || !validAction({ session: session, seq: state.seq, units: state.units })) return;
                 lastCombatSeq = state.seq;
-                context.executeAction(ACTION, { session: session, seq: state.seq, units: state.units },
-                    function (result) { if (result.error) console.log("WORLD_RENDER_ERROR " + result.errorMessage); });
+                perfLog("snapshot_receive", { session: session, seq: state.seq,
+                    bw_tick: state.bw_tick, revision: message.revision, actors: state.units.length,
+                    unit_omitted: state.unit_omitted || 0, payload_bytes: line.length });
+                if (rtsBridge.performanceEnabled) {
+                    snapshotSubmitTimes[state.seq] = rtsBridge.performanceNow();
+                    if (Object.keys(snapshotSubmitTimes).length > 128)
+                        delete snapshotSubmitTimes[Object.keys(snapshotSubmitTimes)[0]];
+                }
+                context.executeAction(ACTION, { session: session, seq: state.seq, units: state.units,
+                    bw_tick: state.bw_tick, revision: message.revision }, function (result) {
+                    perfLog("snapshot_action_result", { session: session, seq: state.seq,
+                        duration_ms: snapshotSubmitTimes[state.seq] ? rtsBridge.performanceNow() - snapshotSubmitTimes[state.seq] : null,
+                        accepted: !result.error });
+                    delete snapshotSubmitTimes[state.seq];
+                    if (result.error) console.log("WORLD_RENDER_ERROR " + result.errorMessage);
+                });
             }
             else if (message.kind === "actor.bind" || message.kind === "actor.despawn") {
                 const actor = message.payload || {};
@@ -937,7 +958,7 @@
                     socket = null; inFlight = null; queue.length = 0;
                 }
             });
-            connection.connect(40010, "127.0.0.1", function () {
+            connection.connect(rtsBridge.worldPort || 40010, "127.0.0.1", function () {
                 retryTicks = 0;
                 inFlight = null;
                 queue.length = 0;
@@ -1214,12 +1235,19 @@
             return {};
         });
         context.registerAction(ACTION, function (event) {
+            const started = rtsBridge.performanceEnabled ? rtsBridge.performanceNow() : 0;
             if (network.mode === "server" && event.player !== network.currentPlayer.id) {
                 return { error: 1, errorMessage: "Only the RTS bridge server may publish snapshots" };
             }
-            return validAction(event.args) ? {} : { error: 1, errorMessage: "Invalid RTS bridge snapshot" };
+            const valid = validAction(event.args);
+            perfLog("snapshot_action_validate", { session: event.args && event.args.session,
+                seq: event.args && event.args.seq, bw_tick: event.args && event.args.bw_tick,
+                actors: event.args && Array.isArray(event.args.units) ? event.args.units.length : 0,
+                duration_ms: started ? rtsBridge.performanceNow() - started : null, accepted: valid });
+            return valid ? {} : { error: 1, errorMessage: "Invalid RTS bridge snapshot" };
         }, function (event) {
             if (!validAction(event.args)) return { error: 1, errorMessage: "Invalid RTS bridge snapshot" };
+            const started = rtsBridge.performanceEnabled ? rtsBridge.performanceNow() : 0;
             const visible = event.args.units.filter(function (unit) {
                 const number = /^openbw:([0-9]+)$/.exec(unit.id);
                 return !number || Number(number[1]) < 3000
@@ -1229,6 +1257,12 @@
                                 && unit.motion === "death" && unit.hp === 0)));
             });
             rtsBridge.applySnapshot({ session: event.args.session, seq: event.args.seq, units: visible });
+            perfLog("snapshot_action_execute", { session: event.args.session, seq: event.args.seq,
+                bw_tick: event.args.bw_tick, revision: event.args.revision, actors: visible.length,
+                action_bytes: rtsBridge.performanceEnabled ? JSON.stringify(event.args).length : null,
+                queue_ms: snapshotSubmitTimes[event.args.seq] ? started - snapshotSubmitTimes[event.args.seq] : null,
+                duration_ms: started ? rtsBridge.performanceNow() - started : null,
+                mode: network.mode });
             if (network.mode === "server") latestSnapshot = { session: event.args.session,
                 seq: event.args.seq, units: event.args.units };
             const sessionChanged = controlSession !== event.args.session;
@@ -1610,6 +1644,8 @@
                 return {};
             });
             context.registerAction(COMMAND_ACTION, function (event) {
+                perfLog("command_validate_begin", { session: event.args && event.args.session,
+                    request_id: event.args && event.args.request, player_id: event.player, mode: network.mode });
                 const args = event.args;
                 if (parkCatalog && parkCatalog.phase !== "ready")
                     return { error: 1, errorMessage: "Park is changing" };
@@ -1698,6 +1734,8 @@
                         payload.target_id = args.target_entity_id || args.target_id;
                     console.log("WORLD_COMMAND_ACTION id=" + commandId + " request=" + args.request
                         + " units=" + args.unit_ids.length + " verb=" + args.verb);
+                    perfLog("command_action_execute", { session: args.session, command_id: commandId,
+                        request_id: args.request, player_id: event.player, verb: args.verb });
                     worldCommandSender(payload);
                     return {};
             });
@@ -2300,6 +2338,8 @@
                 for (let index = 0; index < commanded.length; index += 32) {
                     const args = Object.assign({ session: controlSession, request: ++nextRequest,
                         unit_ids: commanded.slice(index, index + 32), verb: verb }, extras);
+                    perfLog("command_input", { session: controlSession, request_id: args.request,
+                        unit_ids: args.unit_ids, verb: verb });
                     context.executeAction(COMMAND_ACTION, args, function (result) {
                         if (result.error) ui.showError("Unit command", result.errorMessage);
                     });

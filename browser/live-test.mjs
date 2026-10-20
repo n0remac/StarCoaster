@@ -3,11 +3,13 @@
 // need an existing local import in this browser profile.
 import { chromium } from 'playwright-core';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const artifacts = path.join(root, 'build', 'wasm-live-test');
+const perfRun = process.env.WASM_PERF_RUN === '1';
+const artifacts = process.env.WASM_PERF_ARTIFACTS || path.join(root, 'build', 'wasm-live-test');
 const profile = process.env.WASM_LIVE_PROFILE || path.join(root, 'build', 'wasm-browser-test', 'chromium-live-profile');
 const url = process.env.WASM_LIVE_URL || 'http://127.0.0.1:8091/';
 const normalHandoff = process.env.WASM_NORMAL_HANDOFF === '1';
@@ -32,17 +34,28 @@ const recordScreencast = process.env.WASM_LIVE_SCREENCAST === '1';
 const secondOrderDelayMs = Number(process.env.WASM_SECOND_ORDER_DELAY_MS || 0);
 const captureIntervalMs = Number(process.env.WASM_CAPTURE_INTERVAL_MS || 30000);
 const records = [];
-const metrics = { origin: url, startedAt: new Date().toISOString(), websocketFramesIn: 0,
+const metrics = { origin: perfRun ? 'private-origin' : url, startedAt: new Date().toISOString(), websocketFramesIn: 0,
   websocketFramesOut: 0, websocketBytesIn: 0, websocketBytesOut: 0, workers: 0 };
 let outcome = 'failed';
 let context;
 let screencast;
 let statusTimer;
-const capture = (page, filename) => page.screenshot({
+let perfTimer;
+let perfEvents;
+let perfNetwork;
+let perfSystem;
+let lastNetwork = { in: 0, out: 0, bytesIn: 0, bytesOut: 0 };
+let receivedSizes = [];
+const capture = (page, filename) => perfRun ? Promise.resolve() : page.screenshot({
   path: path.join(artifacts, filename), timeout: 120000,
 });
 
 await mkdir(artifacts, { recursive: true });
+if (perfRun) {
+  perfEvents = createWriteStream(path.join(artifacts, 'browser-events.jsonl'));
+  perfNetwork = createWriteStream(path.join(artifacts, 'browser-network.jsonl'));
+  perfSystem = createWriteStream(path.join(artifacts, 'browser-system.jsonl'));
+}
 try {
   context = await chromium.launchPersistentContext(profile, {
     executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true,
@@ -80,6 +93,10 @@ try {
         ? 'var STARCOASTER_CAMERA_NO_MOVE = true;\n' + source
       : cameraSweep ? 'var STARCOASTER_CAMERA_SWEEP = true;\n' + source
       : controlProbe ? 'var STARCOASTER_CAMERA_ALL_ACTORS = true;\n' + source : source;
+    const perfCameraSource = perfRun && cameraProbe
+      ? 'var STARCOASTER_PERF_CAMERA = ' + JSON.stringify(process.env.WASM_PERF_CAMERA || 'visible') + ';\n'
+        + 'var STARCOASTER_PERF_WORKLOAD = ' + JSON.stringify(process.env.WASM_PERF_WORKLOAD || 'idle') + ';\n'
+        + cameraSource : cameraSource;
     const defenseSource = defenseConfigure
       ? 'var UNIVERSAL_DEFENSE_ANCHOR = ' + JSON.stringify(
         (process.env.WASM_DEFENSE_ANCHOR || '4,4').split(',').map(Number)) + ';\n'
@@ -87,11 +104,24 @@ try {
         + (process.env.WASM_DEFENSE_BUILD === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n' : '')
         + (process.env.WASM_DEFENSE_NO_WAVE === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_NO_WAVE = true;\n' : '')
         + await readFile(path.join(root, 'tests/universal-defense-probe.js'), 'utf8') : '';
-    await page.addInitScript(({ cameraSource, defenseSource }) => {
+    await page.addInitScript(({ cameraSource, defenseSource, perfRun, suppressPaint }) => {
+      if (perfRun) {
+        window.__starPerf = { longTasks: 0, longTaskMs: 0, maxLongTaskMs: 0 };
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            window.__starPerf.longTasks++;
+            window.__starPerf.longTaskMs += entry.duration;
+            window.__starPerf.maxLongTaskMs = Math.max(window.__starPerf.maxLongTaskMs, entry.duration);
+          }
+        }).observe({ type: 'longtask', buffered: true });
+      }
       Object.defineProperty(window, 'Module', {
         configurable: true,
         set(module) {
           Object.defineProperty(window, 'Module', { value: module, configurable: true });
+          if (perfRun) module.ENV = Object.assign({}, module.ENV, {
+            STARCOASTER_PERF: '1', STARCOASTER_SUPPRESS_PAINT: suppressPaint ? '1' : '0',
+          });
           const original = module.callMain.bind(module);
           module.callMain = (args) => {
             module.FS.mkdirTree('/persistent/plugin');
@@ -107,7 +137,8 @@ try {
           };
         },
       });
-    }, { cameraSource, defenseSource });
+    }, { cameraSource: perfCameraSource, defenseSource, perfRun,
+      suppressPaint: process.env.WASM_PERF_SUPPRESS_PAINT === '1' });
   }
   let resolveCamera;
   const cameraReady = new Promise((resolve) => { resolveCamera = resolve; });
@@ -118,7 +149,14 @@ try {
   const actorScreenReady = new Promise((resolve) => { resolveActorScreen = resolve; });
   page.on('console', (message) => {
     const line = message.text();
-    records.push({ kind: 'console', text: line, at: Date.now() });
+    if (perfRun && line.includes('STARCOASTER_PERF ')) {
+      try {
+        const event = JSON.parse(line.slice(line.indexOf('STARCOASTER_PERF ') + 17));
+        perfEvents.write(JSON.stringify(Object.assign({ role: 'browser-client', wall_ms: Date.now() }, event)) + '\n');
+      } catch (_) {}
+    } else if (!perfRun || records.length < 10000) {
+      records.push({ kind: 'console', text: line, at: Date.now() });
+    }
     if (line.includes('WASM_CAMERA_READY') || line.includes('NATIVE_HUD_CAPTURE_READY')) {
       snapshotReady = true;
       resolveCamera();
@@ -137,11 +175,13 @@ try {
   page.on('pageerror', (error) => records.push({ kind: 'pageerror', text: error.message }));
   page.on('worker', () => metrics.workers++);
   page.on('websocket', (socket) => {
-    records.push({ kind: 'websocket', url: socket.url() });
-    console.log(`WEBSOCKET: ${socket.url()}`);
+    records.push({ kind: 'websocket', url: perfRun ? '/ws' : socket.url() });
+    console.log(`WEBSOCKET: ${perfRun ? '/ws' : socket.url()}`);
     socket.on('framereceived', (frame) => {
       metrics.websocketFramesIn++;
-      metrics.websocketBytesIn += Buffer.byteLength(frame.payload);
+      const bytes = Buffer.byteLength(frame.payload);
+      metrics.websocketBytesIn += bytes;
+      if (perfRun && receivedSizes.length < 4096) receivedSizes.push(bytes);
     });
     socket.on('framesent', (frame) => {
       metrics.websocketFramesOut++;
@@ -152,13 +192,62 @@ try {
       if (!snapshotReady) resolveEarlyDisconnect(`Multiplayer WebSocket error before native snapshot: ${error}`);
     });
     socket.on('close', () => {
-      records.push({ kind: 'websocketclose', url: socket.url() });
+      records.push({ kind: 'websocketclose', url: perfRun ? '/ws' : socket.url() });
       if (!snapshotReady) resolveEarlyDisconnect('Multiplayer WebSocket closed before native snapshot');
     });
   });
+  if (perfRun) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Performance.enable');
+    perfTimer = setInterval(async () => {
+      const now = Date.now();
+      const current = { in: metrics.websocketFramesIn, out: metrics.websocketFramesOut,
+        bytesIn: metrics.websocketBytesIn, bytesOut: metrics.websocketBytesOut };
+      perfNetwork.write(JSON.stringify({ source: 'browser', stage: 'websocket_second', wall_ms: now,
+        messages_in: current.in - lastNetwork.in, messages_out: current.out - lastNetwork.out,
+        bytes_in: current.bytesIn - lastNetwork.bytesIn, bytes_out: current.bytesOut - lastNetwork.bytesOut,
+        max_message_bytes: receivedSizes.length ? Math.max(...receivedSizes) : 0,
+        connections: records.filter((r) => r.kind === 'websocket').length,
+        closes: records.filter((r) => r.kind === 'websocketclose').length }) + '\n');
+      lastNetwork = current; receivedSizes = [];
+      try {
+        const [{ metrics: entries }, browser, processInfo] = await Promise.all([
+          cdp.send('Performance.getMetrics'), page.evaluate(() => ({
+            heap_bytes: performance.memory?.usedJSHeapSize ?? null,
+            long_tasks: window.__starPerf?.longTasks ?? null,
+            long_task_ms: window.__starPerf?.longTaskMs ?? null,
+            max_long_task_ms: window.__starPerf?.maxLongTaskMs ?? null,
+          })), cdp.send('SystemInfo.getProcessInfo').catch(() => ({ processInfo: [] })),
+        ]);
+        const values = Object.fromEntries(entries.map((m) => [m.name, m.value]));
+        const chromiumProcesses = await Promise.all(processInfo.processInfo.map(async (process) => {
+          let rssBytes = null;
+          try {
+            if (process.platform === undefined) {
+              const statm = (await readFile(`/proc/${process.id}/statm`, 'utf8')).trim().split(' ');
+              rssBytes = Number(statm[1]) * 4096;
+            }
+          } catch (_) {}
+          return { type: process.type, cpu_seconds: process.cpuTime, rss_bytes: rssBytes };
+        }));
+        perfSystem.write(JSON.stringify({ source: 'chromium', wall_ms: now,
+          task_cpu_seconds: values.TaskDuration ?? null, js_heap_bytes: browser.heap_bytes,
+          long_tasks: browser.long_tasks, long_task_ms: browser.long_task_ms,
+          max_long_task_ms: browser.max_long_task_ms, processes: chromiumProcesses }) + '\n');
+      } catch (_) {}
+    }, 1000);
+  }
   const start = Date.now();
   const testUrl = new URL(url);
-  if (!normalHandoff) testUrl.searchParams.set('starcoaster-test-join', '1');
+  if (!normalHandoff) {
+    testUrl.searchParams.set('starcoaster-test-join', '1');
+    if (process.env.WASM_TEST_PORT) testUrl.searchParams.set('starcoaster-test-port', process.env.WASM_TEST_PORT);
+  }
+  if (perfRun) {
+    testUrl.searchParams.set('starcoaster-performance', '1');
+    if (process.env.WASM_PERF_SUPPRESS_PAINT === '1')
+      testUrl.searchParams.set('starcoaster-suppress-paint', '1');
+  }
   await page.goto(testUrl.href, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() =>
     document.getElementById('canvas')?.style.display === 'block' ||
@@ -736,12 +825,15 @@ try {
     console.log('HANDOFF: returned to title and supervisor is idle');
     await capture(page, 'handoff-returned-to-title.png');
   }
+  if (perfRun) await page.waitForTimeout(Number(process.env.WASM_PERF_WARMUP_MS || 0));
+  metrics.measureStartWallMs = Date.now();
   for (let elapsed = 0; elapsed < durationMs; elapsed += captureIntervalMs) {
     const step = Math.min(captureIntervalMs, durationMs - elapsed);
     await page.waitForTimeout(step);
     await capture(page, `progress-${elapsed + step}.png`);
     console.log(`PROGRESS: ${elapsed + step} ms, ${metrics.websocketFramesIn} inbound frames`);
   }
+  metrics.measureEndWallMs = Date.now();
   await capture(page, 'final.png');
   metrics.elapsedMs = Date.now() - start;
   metrics.heapBytes = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? null);
@@ -764,8 +856,11 @@ try {
   console.error(`FAIL: ${error.message || error}`);
 } finally {
   clearInterval(statusTimer);
+  clearInterval(perfTimer);
   if (screencast) await screencast.send('Page.stopScreencast').catch(() => {});
   await context?.close();
   await writeFile(path.join(artifacts, 'runtime.json'), JSON.stringify({ outcome, metrics, records }, null, 2) + '\n');
+  for (const stream of [perfEvents, perfNetwork, perfSystem])
+    if (stream) await new Promise((resolve) => stream.end(resolve));
 }
 if (outcome !== 'passed') process.exitCode = 1;
