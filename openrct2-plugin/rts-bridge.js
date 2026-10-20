@@ -1516,6 +1516,8 @@
                 return typeof args.accepted === "boolean" && typeof args.reason === "string" && args.reason.length <= 128
                     ? {} : { error: 1, errorMessage: "Invalid defense result" };
             }, function (event) {
+                console.log("WORLD_DEFENSE_RESULT accepted=" + event.args.accepted
+                    + " reason=" + event.args.reason);
                 defenseFeedback = event.args.accepted ? "Defense settings saved" : "Defense: " + event.args.reason;
                 return {};
             });
@@ -1601,6 +1603,8 @@
                     ? {} : { error: 1, errorMessage: "Invalid wave status" };
             }, function (event) {
                 const args = event.args;
+                console.log("WORLD_WAVE_RESULT accepted=" + args.accepted
+                    + " state=" + args.state + " reason=" + args.reason);
                 waveFeedback = args.accepted ? "Wave " + args.wave_id + " queued" : "Wave rejected: " + args.reason;
                 waveFeedbackUntil = Date.now() + 5000;
                 return {};

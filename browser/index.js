@@ -243,6 +243,8 @@
                         await new Promise((resolve) => setTimeout(resolve, 500));
                         const current = await sessionStatus();
                         if (current.phase === "ready" && current.generation !== before.generation) {
+                            if (current.current !== park || current.error)
+                                throw new Error(current.error || `The host activated ${current.current} instead of ${park}.`);
                             sessionGeneration = current.generation;
                             setStatus("Joining authoritative OpenRCT2 session…");
                             module.ccall("StarCoasterJoin", null, [], []);
@@ -263,7 +265,11 @@
             window.starcoasterReturnToTitle = () => {
                 if (!sessionGeneration) return;
                 ownerRequest("title", JSON.stringify({ generation: sessionGeneration }))
-                    .then(() => { sessionGeneration = ""; })
+                    .then(() => {
+                        sessionGeneration = "";
+                        status.classList.remove("error");
+                        status.remove();
+                    })
                     .catch((error) => {
                         status.classList.add("error");
                         document.body.appendChild(status);
@@ -360,6 +366,39 @@
         if (new URLSearchParams(window.location.search).has("verbose")) startupArgs.push("--verbose");
         module.callMain(startupArgs);
         status.remove();
+        if (backendAvailable) {
+            let watching = false;
+            setInterval(async () => {
+                if (watching || mapLoadPending) return;
+                watching = true;
+                try {
+                    const state = await sessionStatus();
+                    if (state.phase === "ready" && state.generation &&
+                        state.generation !== sessionGeneration) {
+                        sessionGeneration = state.generation;
+                        status.classList.remove("error", "warning");
+                        document.body.appendChild(status);
+                        setStatus("Joining the new authoritative OpenRCT2 session…");
+                        module.ccall("StarCoasterJoin", null, [], []);
+                        if (state.error) {
+                            status.classList.add("warning");
+                            setStatus(`StarCoaster restored a prior game: ${state.error}`);
+                        } else status.remove();
+                        canvas.focus();
+                    } else if (sessionGeneration && (state.phase === "failed" || state.phase === "idle")) {
+                        status.classList.add("error");
+                        document.body.appendChild(status);
+                        setStatus(`StarCoaster synchronization stopped: ${state.error || "The authoritative session ended."}`);
+                    }
+                } catch (error) {
+                    if (sessionGeneration) {
+                        status.classList.add("error");
+                        document.body.appendChild(status);
+                        setStatus(`StarCoaster synchronization unavailable: ${error.message || error}`);
+                    }
+                } finally { watching = false; }
+            }, 1500);
+        }
         if (!backendAvailable && manifest.network_enabled) {
             status.classList.add("warning");
             setStatus("StarCoaster host unavailable. Local OpenRCT2 can load parks; StarCraft synchronization is offline.");

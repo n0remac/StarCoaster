@@ -10,7 +10,15 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
  #include "core/Path.hpp"
  #include "core/String.hpp"
  #include "drawing/Palette.h"
-@@ -55,6 +57,17 @@
+@@ -39,6 +41,7 @@
+ #include "interface/WindowTypes.h"
+ #include "management/Research.h"
+ #include "network/Network.h"
++#include "network/NetworkBase.h"
+ #include "platform/Platform.h"
+ #include "rct12/CSStringConverter.h"
+ #include "ride/Ride.h"
+@@ -55,6 +58,17 @@
  #include "world/tile_element/SurfaceElement.h"
  
  #include <memory>
@@ -28,7 +36,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
  
  using namespace OpenRCT2;
  
-@@ -78,6 +91,183 @@
+@@ -78,6 +92,247 @@
  
  bool gLoadKeepWindowsOpen = false;
  
@@ -40,6 +48,10 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +        std::string error;
 +    };
 +    std::future<StarCoasterResult> starCoasterWorker;
++#if !defined(__EMSCRIPTEN__) && !defined(DISABLE_HTTP)
++    std::future<StarCoasterResult> starCoasterObserver;
++    std::chrono::steady_clock::time_point starCoasterNextPoll;
++#endif
 +    std::string starCoasterGeneration;
 +
 +#if !defined(__EMSCRIPTEN__) && !defined(DISABLE_HTTP)
@@ -94,7 +106,11 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +#elif !defined(DISABLE_HTTP)
 +    const auto url = StarCoasterControlURL();
 +    if (url.empty())
++    {
++        OpenRCT2::Console::Error::WriteLine("StarCoaster synchronization is offline; loading the park locally");
++        ContextShowError(STR_UNABLE_TO_CONNECT_TO_SERVER, kStringIdNone, {});
 +        return false;
++    }
 +    if (starCoasterWorker.valid())
 +        return true;
 +    const auto source = std::string(path);
@@ -132,7 +148,12 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +                auto phase = state.value("phase", std::string());
 +                auto generation = state.value("generation", std::string());
 +                if (phase == "ready" && !generation.empty() && generation != previous)
++                {
++                    auto failure = state.value("error", std::string());
++                    if (!failure.empty() || state.value("current", std::string()) != name)
++                        throw std::runtime_error(failure.empty() ? "authoritative host restored another map" : failure);
 +                    return { generation, "" };
++                }
 +                auto error = state.value("error", std::string());
 +                if (!error.empty() && (phase == "failed" || phase == "idle" || phase == "ready"))
 +                    throw std::runtime_error(error);
@@ -153,7 +174,58 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +void StarCoasterSessionTick()
 +{
 +#if !defined(__EMSCRIPTEN__) && !defined(DISABLE_HTTP)
-+    if (!starCoasterWorker.valid() || starCoasterWorker.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
++    if (starCoasterObserver.valid() &&
++        starCoasterObserver.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
++    {
++        auto observed = starCoasterObserver.get();
++        if (!starCoasterWorker.valid() && !observed.generation.empty())
++        {
++            if (starCoasterGeneration.empty() && OpenRCT2::Network::GetMode() == OpenRCT2::Network::Mode::client)
++            {
++                // A client joined an already running park through the ordinary multiplayer interface.
++                starCoasterGeneration = observed.generation;
++            }
++            else if (starCoasterGeneration != observed.generation)
++            {
++                if (OpenRCT2::Network::GetMode() == OpenRCT2::Network::Mode::client)
++                    GetContext()->GetNetwork().Close();
++                const char* host = std::getenv("STARCOASTER_MULTIPLAYER_HOST");
++                const char* portValue = std::getenv("STARCOASTER_MULTIPLAYER_PORT");
++                int port = portValue == nullptr ? OpenRCT2::Network::kDefaultPort : std::atoi(portValue);
++                if (port < 1 || port > 65535)
++                    port = OpenRCT2::Network::kDefaultPort;
++                if (OpenRCT2::Network::BeginClient(host == nullptr ? "127.0.0.1" : host, port))
++                    starCoasterGeneration = observed.generation;
++                else
++                    ContextShowError(STR_UNABLE_TO_CONNECT_TO_SERVER, kStringIdNone, {});
++            }
++        }
++    }
++    if (!starCoasterWorker.valid())
++    {
++        auto now = std::chrono::steady_clock::now();
++        if (!starCoasterObserver.valid() && now >= starCoasterNextPoll &&
++            (OpenRCT2::Network::GetMode() == OpenRCT2::Network::Mode::client || !starCoasterGeneration.empty()))
++        {
++            starCoasterNextPoll = now + std::chrono::seconds(2);
++            const auto url = StarCoasterControlURL();
++            if (!url.empty())
++                starCoasterObserver = std::async(std::launch::async, [url]() -> StarCoasterResult {
++                    try
++                    {
++                        auto state = StarCoasterRequest(url, "", "");
++                        if (state.value("phase", std::string()) == "ready")
++                            return { state.value("generation", std::string()), "" };
++                    }
++                    catch (const std::exception&)
++                    {
++                    }
++                    return {};
++                });
++        }
++        return;
++    }
++    if (starCoasterWorker.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
 +        return;
 +    auto result = starCoasterWorker.get();
 +    if (!result.error.empty())
@@ -163,7 +235,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +        return;
 +    }
 +    if (OpenRCT2::Network::GetMode() == OpenRCT2::Network::Mode::client)
-+        OpenRCT2::Network::ShutdownClient();
++        GetContext()->GetNetwork().Close();
 +    starCoasterGeneration = result.generation;
 +    const char* host = std::getenv("STARCOASTER_MULTIPLAYER_HOST");
 +    const char* portValue = std::getenv("STARCOASTER_MULTIPLAYER_PORT");
@@ -203,7 +275,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +extern "C" EMSCRIPTEN_KEEPALIVE void StarCoasterJoin()
 +{
 +    if (OpenRCT2::Network::GetMode() == OpenRCT2::Network::Mode::client)
-+        OpenRCT2::Network::ShutdownClient();
++        GetContext()->GetNetwork().Close();
 +    if (!OpenRCT2::Network::BeginClient("127.0.0.1", OpenRCT2::Network::kDefaultPort))
 +        ContextShowError(STR_UNABLE_TO_CONNECT_TO_SERVER, kStringIdNone, {});
 +}
@@ -212,7 +284,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
  uint32_t gCurrentRealTimeTicks;
  
  #ifdef ENABLE_SCRIPTING
-@@ -664,6 +854,8 @@
+@@ -664,6 +919,8 @@
  
  static void NewGameWindowCallback(const utf8* path)
  {
@@ -221,7 +293,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
      // Closing this will cause a Ride window to pop up, so we have to do this to ensure that
      // no windows are open (besides the toolbars and LoadSave window).
      auto* windowMgr = Ui::GetWindowManager();
-@@ -710,6 +902,7 @@
+@@ -710,6 +967,7 @@
          }
          case PromptMode::saveBeforeQuit:
          {

@@ -456,7 +456,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--parks", type=Path, required=True, help="private directory containing eligible .park files")
+    parser.add_argument("--parks", type=Path, required=True,
+                        help="private directory containing supported OpenRCT2 park and save files")
     parser.add_argument("--initial", default="", help="optional development park filename within --parks")
     parser.add_argument("--runtime", type=Path, default=ROOT / "run-data/park-supervisor")
     args = parser.parse_args()
