@@ -82,6 +82,17 @@ def main() -> int:
     executable_files = (js, wasm, *build_dir.glob("openrct2.worker*.js"), *build_dir.glob("openrct2*.data"))
     for source in executable_files:
         shutil.copy2(source, bundle / source.name)
+    # Emscripten's generated ENV defaults to an internal empty object. The
+    # browser launcher supplies diagnostic flags through the module argument;
+    # copy them into that object before the C runtime builds its environment.
+    # Match exactly once so a toolchain update fails visibly instead of
+    # silently disabling WASM metrics.
+    generated_js = bundle / js.name
+    contents = generated_js.read_text()
+    marker = "var ENV={};var getExecutableName="
+    if contents.count(marker) != 1:
+        raise RuntimeError("Cannot locate Emscripten ENV initialization in the pinned WASM bundle")
+    generated_js.write_text(contents.replace(marker, "var ENV=Module.ENV||{};var getExecutableName=", 1))
     for name in ("index.html", "index.js"):
         shutil.copy2(APP / name, bundle / name)
     upstream_deps = UPSTREAM / "emscripten/deps.js"

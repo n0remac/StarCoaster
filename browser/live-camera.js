@@ -61,6 +61,7 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
                 + " map=" + JSON.stringify(map.size)
                 + " focus=" + JSON.stringify(focus)
                 + " centre=" + JSON.stringify(ui.mainViewport.getCentrePosition()));
+            if (perfCamera) console.log("WASM_PERF_ENABLED " + !!rtsBridge.performanceEnabled);
         } else {
             if (!sweep && !noMove && perfCamera !== "away" && ticks % 200 === 1 && focusCount++ < 50) {
                 ui.mainViewport.moveTo(marineFocus);

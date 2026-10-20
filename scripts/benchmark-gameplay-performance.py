@@ -580,8 +580,15 @@ def run_case(case, run_dir, args, plan):
         case["measurement_end_pi_mono_ns"] = time.monotonic_ns()
         if session.poll() is not None: case["errors"].append("session_interrupted")
         if browser:
-            try: browser.wait(timeout=30)
-            except subprocess.TimeoutExpired: browser.terminate(); browser.wait(timeout=10)
+            try:
+                browser.wait(timeout=120)
+            except subprocess.TimeoutExpired:
+                case["errors"].append("browser_completion_timeout")
+                browser.terminate()
+                try: browser.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    browser.kill()
+                    browser.wait()
             if browser.returncode != 0: case["errors"].append("browser_failed")
             if case["client"] == "remote":
                 source = f"{args.remote_host}:{args.remote_root}/run-data/performance/{run_dir.name}/cases/{case['label']}/browser/."
@@ -662,7 +669,7 @@ def main():
     for index,case in enumerate(cases,1):
         print(f"[{index}/{len(cases)}] {case['label']}",flush=True)
         try: run_case(case,run_dir,args,plan)
-        except (OSError,subprocess.CalledProcessError,ValueError) as error:
+        except Exception as error:
             case["errors"].append("runner_error:"+type(error).__name__)
             print(f"  failed: {error}",file=sys.stderr,flush=True)
     with (run_dir / "events.jsonl").open("w") as events_file, (run_dir / "system.jsonl").open("w") as system_file, (run_dir / "network.jsonl").open("w") as network_file:
