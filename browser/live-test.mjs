@@ -4,6 +4,8 @@
 import { chromium } from 'playwright-core';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,6 +38,14 @@ const captureIntervalMs = Number(process.env.WASM_CAPTURE_INTERVAL_MS || 30000);
 const records = [];
 const metrics = { origin: perfRun ? 'private-origin' : url, startedAt: new Date().toISOString(), websocketFramesIn: 0,
   websocketFramesOut: 0, websocketBytesIn: 0, websocketBytesOut: 0, workers: 0 };
+if (perfRun) {
+  let chromiumVersion = null;
+  try { chromiumVersion = execFileSync(process.env.CHROMIUM_PATH || '/usr/bin/chromium', ['--version'],
+    { encoding: 'utf8', timeout: 5000 }).trim(); } catch (_) {}
+  metrics.clientHardware = { platform: process.platform, arch: process.arch,
+    cpuCount: os.cpus().length, memoryBytes: os.totalmem(),
+    kernel: os.release(), nodeVersion: process.version, chromiumVersion };
+}
 let outcome = 'failed';
 let context;
 let screencast;
@@ -46,6 +56,31 @@ let perfNetwork;
 let perfSystem;
 let lastNetwork = { in: 0, out: 0, bytesIn: 0, bytesOut: 0 };
 let receivedSizes = [];
+let linuxClockTicks = 100;
+if (perfRun && process.platform === 'linux') {
+  try { linuxClockTicks = Number(execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim()) || 100; }
+  catch (_) {}
+}
+async function chromiumProcessSamples() {
+  if (process.platform !== 'linux') return [];
+  const pending = [process.pid], seen = new Set(), samples = [];
+  while (pending.length) {
+    const pid = pending.pop();
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    try {
+      const children = (await readFile(`/proc/${pid}/task/${pid}/children`, 'utf8')).trim();
+      if (children) pending.push(...children.split(/\s+/).map(Number));
+      const name = (await readFile(`/proc/${pid}/comm`, 'utf8')).trim();
+      if (!name.includes('chrom')) continue;
+      const stat = (await readFile(`/proc/${pid}/stat`, 'utf8')).split(/\)\s/, 2)[1].split(' ');
+      const statm = (await readFile(`/proc/${pid}/statm`, 'utf8')).trim().split(' ');
+      samples.push({ type: name, cpu_seconds: (Number(stat[11]) + Number(stat[12])) / linuxClockTicks,
+        rss_bytes: Number(statm[1]) * 4096 });
+    } catch (_) {}
+  }
+  return samples;
+}
 const capture = (page, filename) => perfRun ? Promise.resolve() : page.screenshot({
   path: path.join(artifacts, filename), timeout: 120000,
 });
@@ -104,7 +139,7 @@ try {
         + (process.env.WASM_DEFENSE_BUILD === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n' : '')
         + (process.env.WASM_DEFENSE_NO_WAVE === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_NO_WAVE = true;\n' : '')
         + await readFile(path.join(root, 'tests/universal-defense-probe.js'), 'utf8') : '';
-    await page.addInitScript(({ cameraSource, defenseSource, perfRun, suppressPaint }) => {
+    await page.addInitScript(({ cameraSource, defenseSource, perfRun, perfBaseline, suppressPaint }) => {
       if (perfRun) {
         window.__starPerf = { longTasks: 0, longTaskMs: 0, maxLongTaskMs: 0 };
         new PerformanceObserver((list) => {
@@ -120,7 +155,8 @@ try {
         set(module) {
           Object.defineProperty(window, 'Module', { value: module, configurable: true });
           if (perfRun) module.ENV = Object.assign({}, module.ENV, {
-            STARCOASTER_PERF: '1', STARCOASTER_SUPPRESS_PAINT: suppressPaint ? '1' : '0',
+            STARCOASTER_PERF: perfBaseline ? '0' : '1',
+            STARCOASTER_SUPPRESS_PAINT: suppressPaint ? '1' : '0',
           });
           const original = module.callMain.bind(module);
           module.callMain = (args) => {
@@ -138,6 +174,7 @@ try {
         },
       });
     }, { cameraSource: perfCameraSource, defenseSource, perfRun,
+      perfBaseline: process.env.WASM_PERF_BASELINE === '1',
       suppressPaint: process.env.WASM_PERF_SUPPRESS_PAINT === '1' });
   }
   let resolveCamera;
@@ -221,7 +258,7 @@ try {
           })), cdp.send('SystemInfo.getProcessInfo').catch(() => ({ processInfo: [] })),
         ]);
         const values = Object.fromEntries(entries.map((m) => [m.name, m.value]));
-        const chromiumProcesses = await Promise.all(processInfo.processInfo.map(async (process) => {
+        let chromiumProcesses = await Promise.all(processInfo.processInfo.map(async (process) => {
           let rssBytes = null;
           try {
             if (process.platform === undefined) {
@@ -231,6 +268,7 @@ try {
           } catch (_) {}
           return { type: process.type, cpu_seconds: process.cpuTime, rss_bytes: rssBytes };
         }));
+        if (!chromiumProcesses.length) chromiumProcesses = await chromiumProcessSamples();
         perfSystem.write(JSON.stringify({ source: 'chromium', wall_ms: now,
           task_cpu_seconds: values.TaskDuration ?? null, js_heap_bytes: browser.heap_bytes,
           long_tasks: browser.long_tasks, long_task_ms: browser.long_task_ms,
@@ -240,12 +278,14 @@ try {
   }
   const start = Date.now();
   const testUrl = new URL(url);
-  if (!normalHandoff) {
+  if (!normalHandoff && !perfRun) {
     testUrl.searchParams.set('starcoaster-test-join', '1');
     if (process.env.WASM_TEST_PORT) testUrl.searchParams.set('starcoaster-test-port', process.env.WASM_TEST_PORT);
   }
   if (perfRun) {
     testUrl.searchParams.set('starcoaster-performance', '1');
+    if (process.env.WASM_PERF_BASELINE === '1')
+      testUrl.searchParams.set('starcoaster-performance-baseline', '1');
     if (process.env.WASM_PERF_SUPPRESS_PAINT === '1')
       testUrl.searchParams.set('starcoaster-suppress-paint', '1');
   }
@@ -256,6 +296,21 @@ try {
   null, { timeout: Number(process.env.WASM_LIVE_BOOT_TIMEOUT_MS || 180000) });
   if (await page.locator('#status.error').count())
     throw new Error(await page.locator('#status.error #message').textContent());
+  if (perfRun && !normalHandoff) {
+    for (let elapsed = 0; elapsed < 300000; elapsed += 1000) {
+      if (records.some((record) => record.kind === 'console' &&
+        record.text.includes('Finished building object index'))) break;
+      await page.waitForTimeout(1000);
+    }
+    if (!records.some((record) => record.kind === 'console' &&
+      record.text.includes('Finished building object index')))
+      throw new Error('OpenRCT2 did not complete its object index before the benchmark join');
+    await page.waitForTimeout(5000);
+    const benchmarkPort = Number(process.env.WASM_TEST_PORT || 11753);
+    await page.evaluate((port) => window.Module.ccall('StarCoasterJoinPort', null, ['number'], [port]),
+      benchmarkPort);
+    console.log('BENCHMARK_JOIN: after object index');
+  }
   if (normalHandoff) {
     const sessionURL = new URL('/private/park-session', url).href;
     const before = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();

@@ -88,5 +88,17 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         self.assertEqual(30, result["client_fps"]["median"])
         self.assertEqual(0, result["server_tick_rate"]["count"])
 
+    def test_overhead_pair_compares_matching_workloads(self):
+        template = {"count":50,"workload":"fighting","camera":"visible","paint":"normal",
+                    "client":"local","valid":True}
+        baseline = {**template,"label":"u50-fighting-visible-normal-local-r1-baseline",
+                    "diagnostic_level":"baseline","openbw_frame_work_p95_ms_windows":{"median":2.0}}
+        full = {**template,"label":"u50-fighting-visible-normal-local-r1-full",
+                "diagnostic_level":"full","openbw_frame_work_p95_ms_windows":{"median":2.08}}
+        pairs = benchmark["overhead_pairs"]([baseline,full])
+        self.assertEqual(1, len(pairs))
+        self.assertEqual(4, pairs[0]["overhead_percent"])
+        self.assertTrue(pairs[0]["within_five_percent_target"])
+
 
 if __name__ == "__main__": unittest.main()

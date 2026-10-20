@@ -1671,6 +1671,8 @@
             context.registerAction(COMMAND_ACTION, function (event) {
                 perfLog("command_validate_begin", { session: event.args && event.args.session,
                     request_id: event.args && event.args.request, player_id: event.player, mode: network.mode });
+                const validationStart = rtsBridge.performanceEnabled ? rtsBridge.performanceNow() : 0;
+                try {
                 const args = event.args;
                 if (parkCatalog && parkCatalog.phase !== "ready")
                     return { error: 1, errorMessage: "Park is changing" };
@@ -1742,6 +1744,11 @@
                 if (network.mode === "server" && !(worldCommandSender))
                     return { error: 1, errorMessage: "Terran controller disconnected" };
                 return {};
+                } finally {
+                    perfLog("command_validate_end", { session: event.args && event.args.session,
+                        request_id: event.args && event.args.request, mode: network.mode,
+                        duration_ms: validationStart ? rtsBridge.performanceNow() - validationStart : null });
+                }
             }, function (event) {
                 if (network.mode !== "server") return {};
                 const args = event.args;

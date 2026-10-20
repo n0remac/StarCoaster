@@ -21,13 +21,19 @@ inline long long nowNS() {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<long long>(ts.tv_sec) * 1000000000LL + ts.tv_nsec;
 }
-inline FILE* output(const char* role) {
+inline FILE* output(const char* role, bool allowBaseline=false) {
+    const char* directory = std::getenv("STARCOASTER_PERF_DIR");
+    const bool baseline = (!directory || !*directory) && allowBaseline;
+    if (baseline) directory = std::getenv("STARCOASTER_PERF_BASELINE_DIR");
+    if (!directory || !*directory) return nullptr;
     static FILE* publisher = nullptr;
     static FILE* controller = nullptr;
-    FILE*& file = std::string(role) == "controller" ? controller : publisher;
+    static FILE* baselinePublisher = nullptr;
+    static FILE* baselineController = nullptr;
+    FILE*& file = baseline
+        ? (std::string(role) == "controller" ? baselineController : baselinePublisher)
+        : (std::string(role) == "controller" ? controller : publisher);
     if (file) return file;
-    const char* directory = std::getenv("STARCOASTER_PERF_DIR");
-    if (!directory || !*directory) return nullptr;
     const std::string path = std::string(directory) + "/openbw-" + role + "-events.jsonl";
     file = std::fopen(path.c_str(), "a");
     if (file) std::setvbuf(file, nullptr, _IOLBF, 0);
@@ -48,7 +54,7 @@ inline void frame(const char* role, int frame, int count, long long elapsedNS,
                   long long workUS, long long maxWorkUS, long long sleepUS, int overruns,
                   long long maxDelayUS, long long p50WorkUS, long long p95WorkUS,
                   long long p99WorkUS) {
-    FILE* file = output(role);
+    FILE* file = output(role, true);
     if (!file) return;
     std::fprintf(file, "{\"source\":\"openbw-%s\",\"stage\":\"frame_summary\","
         "\"mono_ns\":%lld,\"bw_tick\":%d,\"frames\":%d,\"elapsed_ns\":%lld,"

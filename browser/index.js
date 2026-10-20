@@ -169,7 +169,7 @@
         const diagnostics = new URLSearchParams(window.location.search);
         if (diagnostics.get("starcoaster-performance") === "1") {
             runtimeOptions.ENV = {
-                STARCOASTER_PERF: "1",
+                STARCOASTER_PERF: diagnostics.get("starcoaster-performance-baseline") === "1" ? "0" : "1",
                 STARCOASTER_SUPPRESS_PAINT: diagnostics.get("starcoaster-suppress-paint") === "1" ? "1" : "0",
             };
         }

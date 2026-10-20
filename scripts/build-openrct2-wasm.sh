@@ -49,7 +49,7 @@ if [[ "${1:-}" == --inside ]]; then
         network_flags=(-DDISABLE_NETWORK=ON)
     fi
     cmake_flags='-s USE_SDL=2 -s USE_ZLIB=1 -s USE_BZIP2=1 -s USE_LIBPNG=1 -pthread -O3'
-    link_flags="-Wno-pthreads-mem-growth -s SAFE_HEAP=0 -s ALLOW_MEMORY_GROWTH=1 -s MAXIMUM_MEMORY=4GB -s INITIAL_MEMORY=2GB -s STACK_SIZE=8388608 -s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 -s PTHREAD_POOL_SIZE=120 -pthread -s EXPORTED_RUNTIME_METHODS=ccall,FS,callMain,UTF8ToString,stringToNewUTF8 -lidbfs.js --use-preload-plugins -s MODULARIZE=1 -s EXPORT_NAME=OPENRCT2_WEB -Wl,--export-if-defined=LoadGameCallback -Wl,--export-if-defined=StarCoasterJoin"
+    link_flags="-Wno-pthreads-mem-growth -s SAFE_HEAP=0 -s ALLOW_MEMORY_GROWTH=1 -s MAXIMUM_MEMORY=4GB -s INITIAL_MEMORY=2GB -s STACK_SIZE=8388608 -s MIN_WEBGL_VERSION=2 -s MAX_WEBGL_VERSION=2 -s PTHREAD_POOL_SIZE=120 -pthread -s EXPORTED_RUNTIME_METHODS=ccall,FS,callMain,UTF8ToString,stringToNewUTF8 -lidbfs.js --use-preload-plugins -s MODULARIZE=1 -s EXPORT_NAME=OPENRCT2_WEB -Wl,--export-if-defined=LoadGameCallback -Wl,--export-if-defined=StarCoasterJoin -Wl,--export-if-defined=StarCoasterJoinPort"
     emcmake cmake -S "$project_dir/upstream/openrct2" -B "$project_dir/build/openrct2-wasm" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DENABLE_SCRIPTING=ON -DDISABLE_GUI=OFF -DDISABLE_OPENGL=ON \

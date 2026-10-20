@@ -37,7 +37,8 @@ public:
         const char* role = std::getenv("BRIDGE_WORLD_ROLE");
         controller_ = role && std::strcmp(role, "controller") == 0;
         frameDelayMs_ = frameDelay();
-        perfEnabled_ = std::getenv("STARCOASTER_PERF_DIR") != nullptr;
+        perfEnabled_ = std::getenv("STARCOASTER_PERF_DIR") != nullptr
+            || std::getenv("STARCOASTER_PERF_BASELINE_DIR") != nullptr;
         perfWindowNS_ = bridge_perf::nowNS();
     }
 

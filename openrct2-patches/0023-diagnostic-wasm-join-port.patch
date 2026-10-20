@@ -1,0 +1,37 @@
+diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
+--- a/src/openrct2/Game.cpp
++++ b/src/openrct2/Game.cpp
+@@ -313,12 +313,19 @@
+ }
+ 
+ #ifdef __EMSCRIPTEN__
+-extern "C" EMSCRIPTEN_KEEPALIVE void StarCoasterJoin()
+-{
++extern "C" EMSCRIPTEN_KEEPALIVE void StarCoasterJoinPort(int port)
++{
++    if (port < 1024 || port > 65535)
++        return;
+     if (OpenRCT2::Network::GetMode() == OpenRCT2::Network::Mode::client)
+         GetContext()->GetNetwork().Close();
+-    if (!OpenRCT2::Network::BeginClient("127.0.0.1", OpenRCT2::Network::kDefaultPort))
++    if (!OpenRCT2::Network::BeginClient("127.0.0.1", static_cast<uint16_t>(port)))
+         ContextShowError(STR_UNABLE_TO_CONNECT_TO_SERVER, kStringIdNone, {});
++}
++
++extern "C" EMSCRIPTEN_KEEPALIVE void StarCoasterJoin()
++{
++    StarCoasterJoinPort(OpenRCT2::Network::kDefaultPort);
+ }
+ #endif
+ 
+diff --git a/src/openrct2/Game.h b/src/openrct2/Game.h
+--- a/src/openrct2/Game.h
++++ b/src/openrct2/Game.h
+@@ -83,6 +83,7 @@
+ void StarCoasterReturnToTitle();
+ #ifdef __EMSCRIPTEN__
+ extern "C" void StarCoasterJoin();
++extern "C" void StarCoasterJoinPort(int port);
+ #endif
+ void PauseToggle();
+ bool GameIsPaused();
