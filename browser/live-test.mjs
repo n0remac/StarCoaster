@@ -664,6 +664,78 @@ try {
       console.log(`HANDOFF: switched ${label} generation=${previous}`);
     }
   }
+  if (process.env.WASM_HANDOFF_LOAD_SAVE_FILE) {
+    const sessionURL = new URL('/private/park-session', url).href;
+    const before = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
+    if (before.phase !== 'ready') throw new Error('Load Game requires a ready authoritative session');
+    let joined = false;
+    for (let elapsed = 0; elapsed < 180000; elapsed += 1000) {
+      if (records.some((record) => record.kind === 'console' &&
+        record.text.includes('WORLD_SCENARIO_STATUS scenario='))) { joined = true; break; }
+      await page.waitForTimeout(1000);
+    }
+    if (!joined) throw new Error('Client did not enter the authoritative game before Load Game');
+    const previousStatus = records.filter((record) => record.kind === 'console' &&
+      record.text.includes('WORLD_SCENARIO_STATUS scenario=')).at(-1)?.text;
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    if (process.env.WASM_HANDOFF_MENU_CAPTURE !== '1') await page.mouse.click(15, 12);
+    const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 30000 });
+    await page.mouse.click(40, 47);
+    const immediateChooser = await Promise.race([
+      fileChooserPromise,
+      page.waitForTimeout(1500).then(() => null),
+    ]);
+    if (!immediateChooser) {
+      await capture(page, 'handoff-load-save-prompt.png');
+      await page.mouse.click(640, 408); // Don't Save in OpenRCT2's ordinary prompt.
+    }
+    const chooser = immediateChooser || await fileChooserPromise;
+    await chooser.setFiles(process.env.WASM_HANDOFF_LOAD_SAVE_FILE);
+    console.log('HANDOFF: selected user save through Load Game');
+    let loaded;
+    for (let elapsed = 0; elapsed < 240000; elapsed += 1000) {
+      const state = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
+      if (state.phase === 'ready' && state.generation !== before.generation) {
+        loaded = state;
+        break;
+      }
+      if (state.error && state.phase === 'ready' && state.generation === before.generation)
+        throw new Error(`User save failed: ${state.error}`);
+      await page.waitForTimeout(1000);
+    }
+    if (!loaded || !loaded.current.endsWith('.park'))
+      throw new Error('Load Game did not establish a new authoritative save generation');
+    let synchronized = false;
+    for (let elapsed = 0; elapsed < 180000; elapsed += 1000) {
+      const currentStatus = records.filter((record) => record.kind === 'console' &&
+        record.text.includes('WORLD_SCENARIO_STATUS scenario=')).at(-1)?.text;
+      if (currentStatus && currentStatus !== previousStatus) { synchronized = true; break; }
+      await page.waitForTimeout(1000);
+    }
+    if (!synchronized) throw new Error('Load Game did not synchronize the new save to the browser');
+    metrics.loadedSaveGeneration = loaded.generation;
+    console.log(`HANDOFF: user save ready generation=${loaded.generation}`);
+    await capture(page, 'handoff-user-save-joined.png');
+  }
+  if (process.env.WASM_HANDOFF_RETURN_TITLE === '1') {
+    const sessionURL = new URL('/private/park-session', url).href;
+    const before = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
+    if (before.phase !== 'ready') throw new Error('Return to title requires a ready authoritative session');
+    await page.mouse.click(15, 12);
+    await page.mouse.click(40, 191);
+    await page.waitForTimeout(1000);
+    await capture(page, 'handoff-return-title-prompt.png');
+    await page.mouse.click(640, 408); // Don't Save.
+    let idle = false;
+    for (let elapsed = 0; elapsed < 30000; elapsed += 500) {
+      const state = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
+      if (state.phase === 'idle' && !state.generation) { idle = true; break; }
+      await page.waitForTimeout(500);
+    }
+    if (!idle) throw new Error('Return to title did not clean up the authoritative session');
+    console.log('HANDOFF: returned to title and supervisor is idle');
+    await capture(page, 'handoff-returned-to-title.png');
+  }
   for (let elapsed = 0; elapsed < durationMs; elapsed += captureIntervalMs) {
     const step = Math.min(captureIntervalMs, durationMs - elapsed);
     await page.waitForTimeout(step);
