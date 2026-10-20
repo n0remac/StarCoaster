@@ -25,6 +25,9 @@ build OpenRCT2 indexes; measurement starts only after it joins and sees a
 native actor snapshot. The browser profile stays in ignored `build/` for reuse.
 The benchmark needs installed licensed RCT2 and StarCraft inputs, a built
 native session, Chromium, Node dependencies, and a built WASM bundle.
+Fighting cases hold the existing native Zerg assault until the measured
+window begins, then release it through a test-only file gate; a run without
+observed native attack state is invalid.
 
 Use `--plan` to inspect a case list. `--matrix` covers 0, 10, 25, 50, 100,
 and 200 units, the applicable idle/moving/fighting workloads, visible/away
