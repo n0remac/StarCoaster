@@ -86,7 +86,7 @@ try {
       : controlProbe ? 'var STARCOASTER_CAMERA_ALL_ACTORS = true;\n' + source : source;
     const defenseSource = defenseConfigure
       ? 'var UNIVERSAL_DEFENSE_ANCHOR = ' + JSON.stringify(
-        (process.env.WASM_DEFENSE_ANCHOR || '44,56').split(',').map(Number)) + ';\n'
+        (process.env.WASM_DEFENSE_ANCHOR || '4,4').split(',').map(Number)) + ';\n'
         + (process.env.WASM_DEFENSE_MANUAL === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_MANUAL = true;\n' : '')
         + (process.env.WASM_DEFENSE_BUILD === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n' : '')
         + (process.env.WASM_DEFENSE_NO_WAVE === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_NO_WAVE = true;\n' : '')

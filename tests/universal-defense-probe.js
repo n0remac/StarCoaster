@@ -5,9 +5,30 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
         var ticks = 0, anchorSent = false, enabledSent = false, waveSent = false;
         var wavePending = false;
         var defensePending = false;
+        var defenseRequest = "", anchorIndex = 0;
         var buildPending = false, buildingID = "", trainPending = false, trainSent = false;
         var factoryID = "", vulturePending = false, vultureSent = false;
         var lastTrainReason = "", lastSession = "", zergSeen = false, priorHealth = {};
+        function anchorCandidates() {
+            var preferred = typeof UNIVERSAL_DEFENSE_ANCHOR !== "undefined"
+                ? UNIVERSAL_DEFENSE_ANCHOR : [4, 4];
+            var width = map.size.x, height = map.size.y;
+            return [preferred, [4, 4], [4, height - 5], [width - 5, 4],
+                [width - 5, height - 5], [4, Math.floor(height / 2)],
+                [Math.floor(width / 2), 4], [width - 5, Math.floor(height / 2)],
+                [Math.floor(width / 2), height - 5]];
+        }
+        context.subscribe("action.execute", function (event) {
+            if (event.action !== "rtsbridge.defenseResult" || !defenseRequest) return;
+            console.log("UNIVERSAL_DEFENSE_RESULT request=" + defenseRequest
+                + " accepted=" + event.args.accepted + " reason=" + event.args.reason);
+            if (defenseRequest === "anchor") {
+                if (event.args.accepted) anchorSent = true;
+                else anchorIndex++;
+            } else if (defenseRequest === "enable" && event.args.accepted) enabledSent = true;
+            defenseRequest = "";
+            defensePending = false;
+        });
         var buildMode = typeof UNIVERSAL_DEFENSE_VERIFY_BUILD !== "undefined"
             && UNIVERSAL_DEFENSE_VERIFY_BUILD;
         var factoryMode = typeof UNIVERSAL_DEFENSE_VERIFY_FACTORY !== "undefined"
@@ -108,7 +129,8 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
             if (state.session !== lastSession) {
                 lastSession = state.session;
                 anchorSent = false; enabledSent = false; waveSent = false;
-                wavePending = false; defensePending = false; buildPending = false;
+                wavePending = false; defensePending = false; defenseRequest = "";
+                anchorIndex = 0; buildPending = false;
                 buildingID = ""; trainPending = false; trainSent = false;
                 factoryID = ""; vulturePending = false; vultureSent = false;
                 lastTrainReason = "";
@@ -142,23 +164,35 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
             }
             if (defensePending) return;
             if (!anchorSent) {
+                var candidates = anchorCandidates();
+                if (anchorIndex >= candidates.length) {
+                    console.log("UNIVERSAL_DEFENSE_ANCHOR no_valid_edge_site");
+                    return;
+                }
                 defensePending = true;
+                defenseRequest = "anchor";
                 context.executeAction("rtsbridge.configureDefense", { session: state.session,
-                    anchor: typeof UNIVERSAL_DEFENSE_ANCHOR !== "undefined"
-                        ? UNIVERSAL_DEFENSE_ANCHOR : [44, 56] }, function (result) {
+                    anchor: candidates[anchorIndex] }, function (result) {
                     console.log("UNIVERSAL_DEFENSE_ANCHOR local_accepted=" + !result.error
+                        + " point=" + candidates[anchorIndex]
                         + " reason=" + (result.errorMessage || "ok"));
-                    if (!result.error) anchorSent = true;
-                    defensePending = false;
+                    if (result.error) {
+                        if (result.errorMessage !== "Invalid defense setting") anchorIndex++;
+                        defenseRequest = "";
+                        defensePending = false;
+                    }
                 });
             } else if (!enabledSent) {
                 defensePending = true;
+                defenseRequest = "enable";
                 context.executeAction("rtsbridge.configureDefense", { session: state.session,
                     enabled: true }, function (result) {
                     console.log("UNIVERSAL_DEFENSE_ENABLE local_accepted=" + !result.error
                         + " reason=" + (result.errorMessage || "ok"));
-                    if (!result.error) enabledSent = true;
-                    defensePending = false;
+                    if (result.error) {
+                        defenseRequest = "";
+                        defensePending = false;
+                    }
                 });
             } else if (buildMode && !buildingID) {
                 placeBarracks();
