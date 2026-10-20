@@ -174,32 +174,20 @@
         const fs = module.FS;
         let sessionGeneration = "";
         let mapLoadPending = false;
-        let ownerToken = sessionStorage.getItem("starcoaster-owner-token") || "";
         const sessionStatus = async () => {
             const response = await fetch("/private/park-session", { cache: "no-store" });
             if (!response.ok) throw new Error(`Session status: HTTP ${response.status}`);
             return response.json();
         };
-        const ownerRequest = async (route, body, filename = "") => {
-            if (!ownerToken) {
-                ownerToken = window.prompt("Enter the StarCoaster session owner token from the Pi:") || "";
-                if (!ownerToken) throw new Error("A session owner token is required to select a map.");
-                sessionStorage.setItem("starcoaster-owner-token", ownerToken);
-            }
+        const sessionRequest = async (route, body, filename = "") => {
             const response = await fetch(`/private/park-session/${route}`, {
                 method: "POST",
                 headers: {
-                    Authorization: `Bearer ${ownerToken}`,
                     "Content-Type": route === "upload" ? "application/octet-stream" : "application/json",
                     ...(filename ? { "X-StarCoaster-Filename": filename } : {}),
                 },
                 body,
             });
-            if (response.status === 401) {
-                sessionStorage.removeItem("starcoaster-owner-token");
-                ownerToken = "";
-                throw new Error("The session owner token was rejected. Select the map again to retry.");
-            }
             const result = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(result.error || `${route}: HTTP ${response.status}`);
             return result;
@@ -234,10 +222,10 @@
                     if (saveBytes) {
                         const suffix = filename.match(/\.(park|sc6|sc4|sv6|sv4)$/i)?.[0];
                         if (!suffix) throw new Error("Unsupported OpenRCT2 save format.");
-                        const uploaded = await ownerRequest("upload", saveBytes, `selected${suffix}`);
+                        const uploaded = await sessionRequest("upload", saveBytes, `selected${suffix}`);
                         park = uploaded.park;
                     }
-                    await ownerRequest("load", JSON.stringify({park, decision: "discard", generation: before.generation || ""}));
+                    await sessionRequest("load", JSON.stringify({park, decision: "discard", generation: before.generation || ""}));
                     const deadline = Date.now() + 240000;
                     while (Date.now() < deadline) {
                         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -264,7 +252,7 @@
             };
             window.starcoasterReturnToTitle = () => {
                 if (!sessionGeneration) return;
-                ownerRequest("title", JSON.stringify({ generation: sessionGeneration }))
+                sessionRequest("title", JSON.stringify({ generation: sessionGeneration }))
                     .then(() => {
                         sessionGeneration = "";
                         status.classList.remove("error");

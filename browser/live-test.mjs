@@ -51,10 +51,6 @@ try {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const page = await context.newPage();
-  if (normalHandoff || process.env.WASM_HANDOFF_SWITCH === '1') {
-    const ownerToken = (await readFile(process.env.WASM_OWNER_TOKEN_FILE, 'utf8')).trim();
-    page.on('dialog', async (dialog) => dialog.accept(ownerToken));
-  }
   let lastStatus = '';
   statusTimer = setInterval(async () => {
     try {

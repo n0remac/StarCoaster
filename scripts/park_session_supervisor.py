@@ -5,7 +5,6 @@ import argparse
 import json
 import os
 import re
-import secrets
 import shutil
 import signal
 import socket
@@ -47,19 +46,6 @@ class ParkSessionSupervisor:
         self.last_upload_cleanup = 0.0
         self.socket_path = self.runtime / "control.sock"
         self.runtime.mkdir(parents=True, exist_ok=True)
-        token_path = self.runtime / "owner-token"
-        configured = os.environ.get("BRIDGE_SESSION_OWNER_TOKEN", "")
-        if configured:
-            self.owner_token = configured
-        elif token_path.is_file():
-            self.owner_token = token_path.read_text().strip()
-        else:
-            self.owner_token = secrets.token_hex(32)
-            descriptor = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(descriptor, "w") as stream:
-                stream.write(self.owner_token + "\n")
-        if len(self.owner_token) < 32:
-            raise ValueError("session owner token must contain at least 32 characters")
         if initial and initial not in self.catalog():
             raise ValueError("initial park is not in the private library")
         selection = self.runtime / "active-park.json"
@@ -210,9 +196,7 @@ class ParkSessionSupervisor:
                    "--rct2-data-path", str(Path(os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2"))).resolve()),
                    "--supervisor-socket", str(self.socket_path)]
         log = (self.runtime / "wasm-server.log").open("ab", buffering=0)
-        environment = os.environ.copy()
-        environment["BRIDGE_SESSION_OWNER_TOKEN"] = self.owner_token
-        self.browser = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT,
+        self.browser = subprocess.Popen(command, cwd=ROOT, env=os.environ.copy(), stdout=log, stderr=subprocess.STDOUT,
                                         start_new_session=True)
         log.close()
 

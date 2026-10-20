@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -196,7 +195,6 @@ func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...
 	mux := http.NewServeMux()
 	if len(supervisorSocket) > 0 && supervisorSocket[0] != "" {
 		path := supervisorSocket[0]
-		ownerToken := os.Getenv("BRIDGE_SESSION_OWNER_TOKEN")
 		transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", path)
 		}}
@@ -236,15 +234,6 @@ func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...
 			}
 			if !sameOrigin(r) {
 				http.Error(w, "Origin denied", http.StatusForbidden)
-				return
-			}
-			if ownerToken == "" {
-				http.Error(w, "Session owner token is not configured", http.StatusServiceUnavailable)
-				return
-			}
-			provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if len(provided) != len(ownerToken) || subtle.ConstantTimeCompare([]byte(provided), []byte(ownerToken)) != 1 {
-				http.Error(w, "Session owner authorization required", http.StatusUnauthorized)
 				return
 			}
 			route := strings.TrimPrefix(r.URL.Path, "/private/park-session")

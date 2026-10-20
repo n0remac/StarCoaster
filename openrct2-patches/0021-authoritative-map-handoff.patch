@@ -36,7 +36,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
  
  using namespace OpenRCT2;
  
-@@ -78,6 +92,247 @@
+@@ -78,6 +92,236 @@
  
  bool gLoadKeepWindowsOpen = false;
  
@@ -61,13 +61,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +        return value == nullptr ? "" : value;
 +    }
 +
-+    std::string StarCoasterOwnerToken()
-+    {
-+        const char* value = std::getenv("BRIDGE_SESSION_OWNER_TOKEN");
-+        return value == nullptr ? "" : value;
-+    }
-+
-+    json_t StarCoasterRequest(const std::string& url, const std::string& route, const std::string& token,
++    json_t StarCoasterRequest(const std::string& url, const std::string& route,
 +                              OpenRCT2::Http::Method method = OpenRCT2::Http::Method::get,
 +                              const std::string& body = "", const std::string& filename = "")
 +    {
@@ -77,7 +71,6 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +        request.body = body;
 +        if (method == OpenRCT2::Http::Method::post)
 +        {
-+            request.header["Authorization"] = "Bearer " + token;
 +            request.header["Content-Type"] = filename.empty() ? "application/json" : "application/octet-stream";
 +            auto authorityEnd = url.find('/', url.find("://") + 3);
 +            request.header["Origin"] = url.substr(0, authorityEnd);
@@ -114,13 +107,10 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +    if (starCoasterWorker.valid())
 +        return true;
 +    const auto source = std::string(path);
-+    const auto token = StarCoasterOwnerToken();
-+    starCoasterWorker = std::async(std::launch::async, [url, source, scenario, token]() -> StarCoasterResult {
++    starCoasterWorker = std::async(std::launch::async, [url, source, scenario]() -> StarCoasterResult {
 +        try
 +        {
-+            if (token.size() < 32)
-+                throw std::runtime_error("session owner token is missing");
-+            auto before = StarCoasterRequest(url, "", token);
++            auto before = StarCoasterRequest(url, "");
 +            const auto previous = before.value("generation", std::string());
 +            auto name = std::filesystem::path(source).filename().string();
 +            if (!scenario)
@@ -135,16 +125,16 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +                file.seekg(0);
 +                file.read(bytes.data(), bytes.size());
 +                auto suffix = std::filesystem::path(source).extension().string();
-+                auto uploaded = StarCoasterRequest(url, "/upload", token, OpenRCT2::Http::Method::post,
++                auto uploaded = StarCoasterRequest(url, "/upload", OpenRCT2::Http::Method::post,
 +                                                   bytes, "selected" + suffix);
 +                name = uploaded.value("park", std::string());
 +            }
 +            json_t selection = { { "park", name }, { "decision", "discard" }, { "generation", previous } };
-+            StarCoasterRequest(url, "/load", token, OpenRCT2::Http::Method::post, selection.dump());
++            StarCoasterRequest(url, "/load", OpenRCT2::Http::Method::post, selection.dump());
 +            for (int attempt = 0; attempt < 480; ++attempt)
 +            {
 +                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-+                auto state = StarCoasterRequest(url, "", token);
++                auto state = StarCoasterRequest(url, "");
 +                auto phase = state.value("phase", std::string());
 +                auto generation = state.value("generation", std::string());
 +                if (phase == "ready" && !generation.empty() && generation != previous)
@@ -213,7 +203,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +                starCoasterObserver = std::async(std::launch::async, [url]() -> StarCoasterResult {
 +                    try
 +                    {
-+                        auto state = StarCoasterRequest(url, "", "");
++                        auto state = StarCoasterRequest(url, "");
 +                        if (state.value("phase", std::string()) == "ready")
 +                            return { state.value("generation", std::string()), "" };
 +                    }
@@ -256,12 +246,11 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +        return;
 +    const auto generation = std::exchange(starCoasterGeneration, std::string());
 +    const auto url = StarCoasterControlURL();
-+    const auto token = StarCoasterOwnerToken();
-+    std::thread([url, token, generation] {
++    std::thread([url, generation] {
 +        try
 +        {
 +            json_t request = { { "generation", generation } };
-+            StarCoasterRequest(url, "/title", token, OpenRCT2::Http::Method::post, request.dump());
++            StarCoasterRequest(url, "/title", OpenRCT2::Http::Method::post, request.dump());
 +        }
 +        catch (const std::exception& error)
 +        {
@@ -284,7 +273,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
  uint32_t gCurrentRealTimeTicks;
  
  #ifdef ENABLE_SCRIPTING
-@@ -664,6 +919,8 @@
+@@ -664,6 +908,8 @@
  
  static void NewGameWindowCallback(const utf8* path)
  {
@@ -293,7 +282,7 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
      // Closing this will cause a Ride window to pop up, so we have to do this to ensure that
      // no windows are open (besides the toolbars and LoadSave window).
      auto* windowMgr = Ui::GetWindowManager();
-@@ -710,6 +967,7 @@
+@@ -710,6 +956,7 @@
          }
          case PromptMode::saveBeforeQuit:
          {

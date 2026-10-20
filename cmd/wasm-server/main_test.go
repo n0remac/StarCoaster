@@ -80,7 +80,6 @@ func TestHeadersAndFixedGateway(t *testing.T) {
 }
 
 func TestPrivateParkSessionStatus(t *testing.T) {
-	t.Setenv("BRIDGE_SESSION_OWNER_TOKEN", "test-owner-token")
 	path := filepath.Join(t.TempDir(), "supervisor.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
@@ -125,10 +124,11 @@ func TestPrivateParkSessionStatus(t *testing.T) {
 		t.Fatalf("browser could modify park session: %d", post.StatusCode)
 	}
 	loadURL := server.URL + "/private/park-session/load"
-	makeRequest := func(origin, token string) int {
+	makeRequest := func(origin string) int {
 		req, _ := http.NewRequest(http.MethodPost, loadURL, strings.NewReader(`{"park":"A.park"}`))
-		req.Header.Set("Origin", origin)
-		req.Header.Set("Authorization", "Bearer "+token)
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -136,19 +136,18 @@ func TestPrivateParkSessionStatus(t *testing.T) {
 		defer res.Body.Close()
 		return res.StatusCode
 	}
-	if got := makeRequest(server.URL, "wrong"); got != http.StatusUnauthorized {
-		t.Fatalf("unauthorized load status %d", got)
+	if got := makeRequest(""); got != http.StatusForbidden {
+		t.Fatalf("missing-origin load status %d", got)
 	}
-	if got := makeRequest("https://other.example", "test-owner-token"); got != http.StatusForbidden {
+	if got := makeRequest("https://other.example"); got != http.StatusForbidden {
 		t.Fatalf("cross-origin load status %d", got)
 	}
-	if got := makeRequest(server.URL, "test-owner-token"); got != http.StatusAccepted && got != http.StatusOK {
-		t.Fatalf("authorized load status %d", got)
+	if got := makeRequest(server.URL); got != http.StatusAccepted && got != http.StatusOK {
+		t.Fatalf("same-origin load without token status %d", got)
 	}
 }
 
-func TestPrivateSaveUploadRequiresOwnerAndForwardsOnlyToSupervisor(t *testing.T) {
-	t.Setenv("BRIDGE_SESSION_OWNER_TOKEN", "test-owner-token")
+func TestPrivateSaveUploadForwardsOnlyToSupervisor(t *testing.T) {
 	directory, err := os.MkdirTemp("", "sc-sock-")
 	if err != nil {
 		t.Fatal(err)
@@ -174,10 +173,9 @@ func TestPrivateSaveUploadRequiresOwnerAndForwardsOnlyToSupervisor(t *testing.T)
 	defer backend.Close()
 	server := httptest.NewServer(handler(t.TempDir(), "127.0.0.1:11753", nil, path))
 	defer server.Close()
-	request := func(token string) int {
+	request := func(origin string) int {
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/private/park-session/upload", strings.NewReader("save bytes"))
-		req.Header.Set("Origin", server.URL)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Origin", origin)
 		req.Header.Set("X-StarCoaster-Filename", "selected.sv6")
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -186,11 +184,11 @@ func TestPrivateSaveUploadRequiresOwnerAndForwardsOnlyToSupervisor(t *testing.T)
 		defer res.Body.Close()
 		return res.StatusCode
 	}
-	if got := request("wrong"); got != http.StatusUnauthorized {
-		t.Fatalf("unauthorized upload: %d", got)
+	if got := request("https://other.example"); got != http.StatusForbidden {
+		t.Fatalf("cross-origin upload: %d", got)
 	}
-	if got := request("test-owner-token"); got != http.StatusAccepted {
-		t.Fatalf("authorized upload: %d", got)
+	if got := request(server.URL); got != http.StatusAccepted {
+		t.Fatalf("same-origin upload without token: %d", got)
 	}
 }
 
