@@ -239,6 +239,8 @@ def summarize_case(events, system, network, case):
     stages = {name: distribution(values) for name, values in timing.items()}
     bw = [event for event in selected if event.get("stage") == "frame_summary" and event.get("source") == "openbw-publisher"]
     render = [event for event in selected if event.get("stage") == "present_summary" and event.get("role") == "browser-client"]
+    server_ticks = [event for event in selected if event.get("stage") == "tick_summary"
+                    and event.get("mode") == "server" and event.get("clock_domain") == "pi-monotonic"]
     snapshots = [event for event in selected if event.get("stage") == "snapshot_publish"]
     omitted = sum(event.get("unit_omitted", 0) for event in snapshots)
     bw_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in bw if event.get("elapsed_ns", 0) > 0]
@@ -288,6 +290,9 @@ def summarize_case(events, system, network, case):
             "camera":case["camera"],"paint":case["paint"],"client":case["client"],
             "valid":not errors,"errors":errors,"timing":stages,
             "openbw_fps":distribution(bw_fps),"client_fps":distribution(render_fps),
+            "server_tick_rate":distribution([event["ticks"] * 1000 / event["elapsed_ms"] for event in server_ticks
+                                             if event.get("elapsed_ms", 0) > 0]),
+            "server_tick_overruns":sum(event.get("overruns", 0) for event in server_ticks),
             "client_frame_p95_ms_windows":distribution(client_frames),
             "snapshot_bytes":distribution([event.get("bytes") for event in snapshots]),
             "snapshot_rate_per_second":len(snapshots) / ((end - start) / 1e9) if start and end and end > start else None,
@@ -348,12 +353,13 @@ def report(summary):
             fmt(case["client_frame_p95_ms_windows"]["median"]),fmt(case["snapshot_bytes"]["median"]),
             fmt(case["max_temperature_c"]),fmt(case["tailscale_rtt_ms"]["median"])]) + " |")
     lines += ["", "## Pipeline and resources", "",
-              "| Case | Snapshots/s | BW→Go p95 ms | Go→plugin p95 ms | Native apply p95 ms | WS KiB/s median | Command→visible p95 ms | RTT variation ms |",
-              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+              "| Case | Server ticks/s | Tick overruns | Snapshots/s | BW→Go p95 ms | Go→plugin p95 ms | Native apply p95 ms | WS KiB/s median | Command→visible p95 ms | RTT variation ms |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for case in summary["cases"]:
         apply = case["timing"].get("snapshot_apply.duration_us",{}).get("p95")
         ws = case["browser_websocket_bytes_per_second"]["median"]
-        lines.append("| " + " | ".join([case["label"],fmt(case["snapshot_rate_per_second"]),
+        lines.append("| " + " | ".join([case["label"],fmt(case["server_tick_rate"]["median"]),
+            fmt(case["server_tick_overruns"]),fmt(case["snapshot_rate_per_second"]),
             fmt(case["snapshot_to_bridge_ms"]["p95"]),fmt(case["bridge_to_plugin_ms"]["p95"]),
             fmt(apply / 1000 if apply is not None else None),fmt(ws / 1024 if ws is not None else None),
             fmt(case["command_to_visible_ms"]["p95"]),fmt(case["tailscale_rtt_variation_ms"])]) + " |")

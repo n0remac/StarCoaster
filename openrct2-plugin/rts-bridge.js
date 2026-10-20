@@ -1035,6 +1035,31 @@
             throw new Error("RTS Bridge needs the matching native OpenRCT2 build and asset pack");
         }
         rtsBridge.clearSnapshot();
+        if (rtsBridge.performanceEnabled) {
+            let tickWindow = rtsBridge.performanceNow(), previousTick = 0, tickCount = 0, tickOverruns = 0;
+            let maxTickDelay = 0;
+            const tickIntervals = [];
+            context.subscribe("interval.tick", function () {
+                const now = rtsBridge.performanceNow();
+                if (previousTick) {
+                    const interval = now - previousTick;
+                    if (tickIntervals.length < 256) tickIntervals.push(interval);
+                    maxTickDelay = Math.max(maxTickDelay, interval);
+                    if (interval > 50) tickOverruns++;
+                }
+                previousTick = now;
+                tickCount++;
+                if (now - tickWindow < 1000) return;
+                tickIntervals.sort(function (a, b) { return a - b; });
+                perfLog("tick_summary", { mode: network.mode, ticks: tickCount,
+                    elapsed_ms: now - tickWindow, overruns: tickOverruns,
+                    max_delay_ms: maxTickDelay,
+                    p95_delay_ms: tickIntervals.length
+                        ? tickIntervals[Math.floor((tickIntervals.length - 1) * .95)] : null });
+                tickWindow = now; tickCount = tickOverruns = maxTickDelay = 0;
+                tickIntervals.length = 0;
+            });
+        }
 
         const buildingObjects = {};
         if (typeof objectManager === "object") {
