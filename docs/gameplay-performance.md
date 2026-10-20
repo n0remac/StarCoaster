@@ -36,6 +36,9 @@ representative 50-unit fight three times. Each measured case lasts at least
 60 seconds, with a separate warm-up. The `--clients native` option exercises
 an OpenRCT2 native client where available. `--painting suppressed` is a
 test-only client setting; snapshots and synchronized actions still run.
+Add `--overhead-pair` to run a matching minimal timing baseline before each
+fully instrumented case. The baseline retains only OpenBW frame timing so
+the report can compare p95 simulation work against the 5% overhead target.
 
 ## Remote laptop
 
