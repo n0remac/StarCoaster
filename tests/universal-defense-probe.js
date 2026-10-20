@@ -7,7 +7,7 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
         var defensePending = false;
         var buildPending = false, buildingID = "", trainPending = false, trainSent = false;
         var factoryID = "", vulturePending = false, vultureSent = false;
-        var lastTrainReason = "";
+        var lastTrainReason = "", lastSession = "", zergSeen = false, priorHealth = {};
         var buildMode = typeof UNIVERSAL_DEFENSE_VERIFY_BUILD !== "undefined"
             && UNIVERSAL_DEFENSE_VERIFY_BUILD;
         var factoryMode = typeof UNIVERSAL_DEFENSE_VERIFY_FACTORY !== "undefined"
@@ -32,7 +32,8 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
                             if (element.type === "surface") surface = element;
                             else clear = false;
                         }
-                        if (!surface || surface.slope || surface.waterHeight) clear = false;
+                        if (!surface || surface.slope || surface.waterHeight
+                            || !(surface.ownership & 2)) clear = false;
                         if (surface) {
                             var z = Number.isInteger(surface.baseZ) ? surface.baseZ : surface.baseHeight * 8;
                             if (height !== null && height !== z) clear = false;
@@ -44,8 +45,11 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
                 }
             }
             buildPending = true;
+            console.log(label + " candidate_sites=" + sites.length);
             function next(index) {
                 if (index >= sites.length) { buildPending = false; console.log(label + " no_site"); return; }
+                if (index > 0 && index % 250 === 0)
+                    console.log(label + " rejected_sites=" + index);
                 var args = sites[index];
                 context.queryAction("largesceneryplace", args, function (query) {
                     if (query.error) { next(index + 1); return; }
@@ -101,6 +105,34 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
             if (network.mode !== "client" || ++ticks % 24 !== 0 || !rtsBridge) return;
             var state = rtsBridge.getActors();
             if (!state || !state.session) return;
+            if (state.session !== lastSession) {
+                lastSession = state.session;
+                anchorSent = false; enabledSent = false; waveSent = false;
+                wavePending = false; defensePending = false; buildPending = false;
+                buildingID = ""; trainPending = false; trainSent = false;
+                factoryID = ""; vulturePending = false; vultureSent = false;
+                lastTrainReason = "";
+                zergSeen = false;
+                priorHealth = {};
+                console.log("UNIVERSAL_DEFENSE_SESSION session=" + lastSession);
+            }
+            state.units.forEach(function (unit) {
+                if (priorHealth[unit.id] !== undefined && unit.hp < priorHealth[unit.id])
+                    console.log("UNIVERSAL_DEFENSE_COMBAT id=" + unit.id
+                        + " kind=" + unit.kind + " hp=" + unit.hp
+                        + " previous=" + priorHealth[unit.id]);
+                priorHealth[unit.id] = unit.hp;
+            });
+            if (!zergSeen) {
+                var zerg = state.units.find(function (unit) {
+                    return unit.kind && unit.kind.indexOf("zerg_") === 0 && unit.hp > 0;
+                });
+                if (zerg) {
+                    zergSeen = true;
+                    console.log("UNIVERSAL_DEFENSE_ZERG id=" + zerg.id + " kind=" + zerg.kind
+                        + " x=" + zerg.x + " y=" + zerg.y);
+                }
+            }
             if (typeof UNIVERSAL_DEFENSE_VERIFY_NO_WAVE !== "undefined"
                 && UNIVERSAL_DEFENSE_VERIFY_NO_WAVE) {
                 if (!buildingID) placeBuilding(barracks, "UNIVERSAL_DEFENSE_BUILD",

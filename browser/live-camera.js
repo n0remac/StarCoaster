@@ -3,6 +3,7 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
     authors: ["StarCoaster"], type: "local", licence: "MIT",
     targetApiVersion: 124, minApiVersion: 124, main: function () {
     let ticks = 0, ready = false, trackedId = "", lastPosition = "", screenReported = false;
+    let lastSession = "";
     let focusCount = 0, marineFocus = null;
     let sweepIndex = 0;
     const sweep = typeof STARCOASTER_CAMERA_SWEEP !== "undefined" && STARCOASTER_CAMERA_SWEEP;
@@ -22,6 +23,14 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
         if (network.mode !== "client" || !ui.mainViewport || !rtsBridge || ++ticks % 20 !== 1) return;
         const snapshot = rtsBridge.getActors();
         if (!snapshot || !snapshot.session || !Array.isArray(snapshot.units)) return;
+        if (snapshot.session !== lastSession) {
+            lastSession = snapshot.session;
+            ready = false; trackedId = ""; lastPosition = ""; screenReported = false;
+            focusCount = 0; marineFocus = null;
+            console.log("WASM_CAMERA_SESSION session=" + lastSession
+                + " units=" + snapshot.units.length
+                + " ids=" + snapshot.units.map(function (unit) { return unit.id; }).join(","));
+        }
         const marine = snapshot.units.find(function (unit) {
             return unit.kind === "terran_marine" && unit.hp > 0;
         });

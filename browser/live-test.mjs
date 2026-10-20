@@ -11,6 +11,7 @@ const artifacts = path.join(root, 'build', 'wasm-live-test');
 const profile = process.env.WASM_LIVE_PROFILE || path.join(root, 'build', 'wasm-browser-test', 'chromium-live-profile');
 const url = process.env.WASM_LIVE_URL || 'http://127.0.0.1:8091/';
 const normalHandoff = process.env.WASM_NORMAL_HANDOFF === '1';
+const sessionRequestTimeoutMs = 120000;
 const durationMs = Number(process.env.WASM_LIVE_DURATION_MS || 45000);
 let selection = [process.env.WASM_CLICK_X, process.env.WASM_CLICK_Y].map(Number);
 let order = [process.env.WASM_ORDER_X, process.env.WASM_ORDER_Y].map(Number);
@@ -50,7 +51,7 @@ try {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const page = await context.newPage();
-  if (normalHandoff) {
+  if (normalHandoff || process.env.WASM_HANDOFF_SWITCH === '1') {
     const ownerToken = (await readFile(process.env.WASM_OWNER_TOKEN_FILE, 'utf8')).trim();
     page.on('dialog', async (dialog) => dialog.accept(ownerToken));
   }
@@ -171,22 +172,37 @@ try {
     throw new Error(await page.locator('#status.error #message').textContent());
   if (normalHandoff) {
     const sessionURL = new URL('/private/park-session', url).href;
-    const before = await (await context.request.get(sessionURL)).json();
-    if (before.phase !== 'idle') throw new Error(`Handoff test expected an idle host: ${before.phase}`);
-    for (let elapsed = 0; elapsed < 150000; elapsed += 1000) {
+    const before = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
+    if (before.phase !== 'idle' && !(process.env.WASM_HANDOFF_ALLOW_READY === '1' && before.phase === 'ready'))
+      throw new Error(`Handoff test expected an idle host: ${before.phase}`);
+    console.log('HANDOFF: waiting for OpenRCT2 title screen');
+    let indexReady = false;
+    for (let elapsed = 0; elapsed < 300000; elapsed += 1000) {
       if (records.some((record) => record.kind === 'console' &&
-        record.text.includes('Finished building scenario index'))) break;
+        record.text.includes('Finished building object index'))) {
+        indexReady = true;
+        break;
+      }
       await page.waitForTimeout(1000);
     }
-    await page.waitForTimeout(10000);
-    await capture(page, 'handoff-main-menu.png');
+    if (!indexReady) throw new Error('OpenRCT2 did not finish its object index');
+    let mainMenu = false;
+    for (let elapsed = 0; elapsed < 300000; elapsed += 5000) {
+      await page.waitForTimeout(5000);
+      const screenshot = await capture(page, 'handoff-main-menu.png');
+      if (screenshot.length > 100000) { mainMenu = true; break; }
+    }
+    if (!mainMenu) throw new Error('OpenRCT2 did not render its main menu');
+    console.log('HANDOFF: clicking New Game');
     await page.mouse.click(514, 688);
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(5000);
     await capture(page, 'handoff-scenario-browser.png');
-    await page.mouse.click(555, 340);
+    const [initialLabel, initialRow] = (process.env.WASM_HANDOFF_INITIAL || 'Bumbly Bazaar:340').split(':');
+    console.log(`HANDOFF: selecting ${initialLabel}`);
+    await page.mouse.click(555, Number(initialRow));
     let ready = false;
     for (let elapsed = 0; elapsed < 240000; elapsed += 1000) {
-      const state = await (await context.request.get(sessionURL)).json();
+      const state = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
       if (state.phase === 'ready' && state.generation !== before.generation) {
         metrics.handoffGeneration = state.generation;
         ready = true;
@@ -198,6 +214,18 @@ try {
     }
     if (!ready) throw new Error('Normal scenario selection did not establish a new generation');
     console.log(`HANDOFF: ready generation=${metrics.handoffGeneration}`);
+    if (process.env.WASM_HANDOFF_MENU_CAPTURE === '1') {
+      for (let elapsed = 0; elapsed < 180000; elapsed += 1000) {
+        if (records.some((record) => record.kind === 'console' &&
+          record.text.includes('WORLD_SCENARIO_STATUS scenario='))) break;
+        await page.waitForTimeout(1000);
+      }
+      if (!records.some((record) => record.kind === 'console' &&
+        record.text.includes('WORLD_SCENARIO_STATUS scenario=')))
+        throw new Error('Client did not receive authoritative scenario status');
+      await page.mouse.click(15, 12);
+      await capture(page, 'handoff-file-menu.png');
+    }
   }
   // OpenRCT2 scrolls its viewport while the pointer rests on a screen edge.
   // Keep the camera fixed through actor selection and mixed-client delays.
@@ -538,6 +566,107 @@ try {
       if (metrics.secondActorMoveLatencyMs !== undefined) break;
     }
     await capture(page, 'second-ordered.png');
+  }
+  if (process.env.WASM_HANDOFF_REQUIRE_WAVE === '1') {
+    for (const [label, pattern, timeoutMs] of [
+      ['authoritative wave acceptance', 'WORLD_WAVE_RESULT accepted=true', 120000],
+      ['native Zerg actor', 'UNIVERSAL_DEFENSE_ZERG id=', 120000],
+      ['authoritative combat damage', 'UNIVERSAL_DEFENSE_COMBAT id=', 180000],
+    ]) {
+      let observed = false;
+      for (let elapsed = 0; elapsed < timeoutMs; elapsed += 1000) {
+        if (records.some((record) => record.kind === 'console' && record.text.includes(pattern))) {
+          observed = true;
+          break;
+        }
+        await page.waitForTimeout(1000);
+      }
+      if (!observed) throw new Error(`The stock scenario did not report ${label}`);
+      console.log(`HANDOFF: ${label} verified`);
+    }
+    await capture(page, 'handoff-first-combat.png');
+  }
+  if (process.env.WASM_HANDOFF_SWITCH === '1') {
+    const sessionURL = new URL('/private/park-session', url).href;
+    let previous = (await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json()).generation;
+    let previousStatus = records.filter((record) => record.kind === 'console' &&
+      record.text.includes('WORLD_SCENARIO_STATUS scenario=')).at(-1)?.text || '';
+    const switchTargets = process.env.WASM_HANDOFF_SWITCH_TARGETS
+      ? process.env.WASM_HANDOFF_SWITCH_TARGETS.split(',').map((target) => {
+        const [label, row] = target.split(':');
+        return [label, Number(row)];
+      })
+      : [['Electric Fields', 245], ['Bumbly Bazaar', 340]];
+    for (const [label, row] of switchTargets) {
+      await page.mouse.click(15, 12);
+      await page.mouse.click(40, 36);
+      await page.waitForTimeout(1000);
+      await capture(page, `handoff-${label.replaceAll(' ', '-').toLowerCase()}-prompt.png`);
+      await page.mouse.click(640, 408);
+      await page.waitForTimeout(5000);
+      await capture(page, `handoff-${label.replaceAll(' ', '-').toLowerCase()}-browser.png`);
+      console.log(`HANDOFF: selecting ${label} from in-game New Game`);
+      await page.mouse.click(555, row);
+      let next;
+      for (let elapsed = 0; elapsed < 240000; elapsed += 1000) {
+        const state = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
+        if (state.phase === 'ready' && state.generation !== previous) {
+          next = state;
+          break;
+        }
+        if (state.error && state.phase === 'ready' && state.generation === previous)
+          throw new Error(`Replacement ${label} failed: ${state.error}`);
+        await page.waitForTimeout(1000);
+      }
+      if (!next) throw new Error(`Replacement ${label} did not establish a new generation`);
+      if (next.current.toLowerCase() !== `${label}.sc6`.toLowerCase())
+        throw new Error(`Selected ${label}, supervisor activated ${next.current}`);
+      let synchronized = false;
+      for (let elapsed = 0; elapsed < 180000; elapsed += 1000) {
+        const status = records.filter((record) => record.kind === 'console' &&
+          record.text.includes('WORLD_SCENARIO_STATUS scenario=')).at(-1)?.text || '';
+        if (status && status !== previousStatus) {
+          previousStatus = status;
+          synchronized = true;
+          break;
+        }
+        await page.waitForTimeout(1000);
+      }
+      if (!synchronized) throw new Error(`${label} did not synchronize to the browser client`);
+      if (cameraProbe) {
+        let actorsReset = false;
+        for (let elapsed = 0; elapsed < 30000; elapsed += 1000) {
+          const sessions = records.filter((record) => record.kind === 'console' &&
+            record.text.includes('WASM_CAMERA_SESSION session='));
+          const latest = sessions.at(-1)?.text || '';
+          if (sessions.length >= (metrics.switchGenerations?.length || 0) + 2 &&
+            !latest.includes(`ids=${metrics.actorId}`)) {
+            actorsReset = true;
+            break;
+          }
+          await page.waitForTimeout(1000);
+        }
+        if (!actorsReset) throw new Error(`${label} retained an actor from the prior session`);
+      }
+      if (process.env.WASM_HANDOFF_REQUIRE_GAMEPLAY === '1') {
+        const expected = (metrics.switchGenerations?.length || 0) + 2;
+        let produced = false;
+        for (let elapsed = 0; elapsed < 240000; elapsed += 1000) {
+          const actors = records.filter((record) => record.kind === 'console' &&
+            record.text.includes('WASM_CAMERA_READY session='));
+          if (actors.length >= expected) {
+            produced = true;
+            break;
+          }
+          await page.waitForTimeout(1000);
+        }
+        if (!produced) throw new Error(`${label} did not produce a new OpenBW Marine`);
+      }
+      previous = next.generation;
+      metrics.switchGenerations = [...(metrics.switchGenerations || []), previous];
+      await capture(page, `handoff-${label.replaceAll(' ', '-').toLowerCase()}-joined.png`);
+      console.log(`HANDOFF: switched ${label} generation=${previous}`);
+    }
   }
   for (let elapsed = 0; elapsed < durationMs; elapsed += captureIntervalMs) {
     const step = Math.min(captureIntervalMs, durationMs - elapsed);
