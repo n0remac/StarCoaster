@@ -1,8 +1,10 @@
 #include "WorldAdapter.h"
 #include "WorldUnitController.h"
+#include "BridgePerformance.h"
 
 #include <BWAPI.h>
 #include <chrono>
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -34,16 +36,38 @@ public:
         const char* role = std::getenv("BRIDGE_WORLD_ROLE");
         controller_ = role && std::strcmp(role, "controller") == 0;
         frameDelayMs_ = frameDelay();
+        perfEnabled_ = std::getenv("STARCOASTER_PERF_DIR") != nullptr;
+        perfWindowNS_ = bridge_perf::nowNS();
     }
 
     void onFrame() override {
+        const auto started = perfEnabled_ ? bridge_perf::nowNS() : 0;
         // OpenBW runs unpaced without its UI. Match the configured simulation cadence.
         if (frameDelayMs_ > 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(frameDelayMs_));
+        const auto afterSleep = perfEnabled_ ? bridge_perf::nowNS() : 0;
         auto* game = BWAPI::Broodwar.operator->();
         if (!game || game->isReplay() || !game->self()) return;
         if (controller_) worldUnitController_.onFrame(game);
         else worldAdapter_.onFrame(game);
+        if (!perfEnabled_) return;
+        const auto finished = bridge_perf::nowNS();
+        const auto workUS = (finished - afterSleep) / 1000;
+        perfFrames_++;
+        perfWorkUS_ += workUS;
+        perfSleepUS_ += (afterSleep - started) / 1000;
+        perfMaxWorkUS_ = std::max(perfMaxWorkUS_, workUS);
+        if (workUS > 42000 - frameDelayMs_ * 1000) perfOverruns_++;
+        if (perfLastFrameNS_ != 0)
+            perfMaxDelayUS_ = std::max(perfMaxDelayUS_, (started - perfLastFrameNS_) / 1000);
+        perfLastFrameNS_ = started;
+        if (finished - perfWindowNS_ >= 1000000000LL) {
+            bridge_perf::frame(controller_ ? "controller" : "publisher", game->getFrameCount(), perfFrames_,
+                finished - perfWindowNS_, perfWorkUS_, perfMaxWorkUS_, perfSleepUS_, perfOverruns_, perfMaxDelayUS_);
+            perfWindowNS_ = finished;
+            perfFrames_ = perfOverruns_ = 0;
+            perfWorkUS_ = perfMaxWorkUS_ = perfSleepUS_ = perfMaxDelayUS_ = 0;
+        }
     }
 
     void onUnitCreate(BWAPI::Unit unit) override {
@@ -62,6 +86,10 @@ private:
     WorldUnitController worldUnitController_;
     bool controller_ = false;
     int frameDelayMs_ = 42;
+    bool perfEnabled_ = false;
+    long long perfWindowNS_ = 0, perfLastFrameNS_ = 0;
+    long long perfWorkUS_ = 0, perfMaxWorkUS_ = 0, perfSleepUS_ = 0, perfMaxDelayUS_ = 0;
+    int perfFrames_ = 0, perfOverruns_ = 0;
 };
 
 }  // namespace

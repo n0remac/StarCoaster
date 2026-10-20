@@ -29,7 +29,33 @@ func (p *peer) send(m world.Envelope) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	_ = p.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	return json.NewEncoder(p.Conn).Encode(m)
+	if perf.file == nil {
+		return json.NewEncoder(p.Conn).Encode(m)
+	}
+	started := monoNS()
+	encoded, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	encoded = append(encoded, '\n')
+	encodedNS := monoNS()
+	written := 0
+	for written < len(encoded) {
+		n, writeErr := p.Conn.Write(encoded[written:])
+		written += n
+		if writeErr != nil {
+			err = writeErr
+			break
+		}
+		if n == 0 {
+			err = fmt.Errorf("short socket write")
+			break
+		}
+	}
+	perf.event("socket_write", map[string]any{"kind": m.Kind, "session": m.Session,
+		"bytes": len(encoded), "written": written, "encode_us": (encodedNS - started) / 1000,
+		"write_us": (monoNS() - encodedNS) / 1000})
+	return err
 }
 
 type staging struct {
@@ -645,10 +671,16 @@ func (s *service) consume(role string, p *peer) {
 	scanner := bufio.NewScanner(p.Conn)
 	scanner.Buffer(make([]byte, 4096), 1048576)
 	for scanner.Scan() {
+		readNS := monoNS()
 		var m world.Envelope
 		if err := json.Unmarshal(scanner.Bytes(), &m); err != nil {
 			log.Printf("%s malformed JSON: %v", role, err)
 			continue
+		}
+		if perf.file != nil && (m.Kind == "combat.snapshot" || m.Kind == "combat.command" || m.Kind == "combat.result") {
+			perf.event("message_read", map[string]any{"kind": m.Kind, "role": role, "session": m.Session,
+				"bytes": len(scanner.Bytes()), "decode_us": (monoNS() - readNS) / 1000,
+				"queue_wait_us": 0})
 		}
 		if err := m.Validate(); err != nil {
 			log.Printf("%s invalid %s: %v", role, m.Kind, err)
@@ -657,10 +689,16 @@ func (s *service) consume(role string, p *peer) {
 			s.mu.Unlock()
 			continue
 		}
+		queueNS := monoNS()
 		s.mu.Lock()
 		if (role == "park" && s.park == p) || (role == "bw" && s.bw == p) ||
 			(role == "controller" && s.controller == p) {
+			handleNS := monoNS()
 			s.handle(role, p, m)
+			if perf.file != nil && (m.Kind == "combat.snapshot" || m.Kind == "combat.command" || m.Kind == "combat.result") {
+				perf.event("message_handle", map[string]any{"kind": m.Kind, "role": role, "session": m.Session,
+					"queue_us": (handleNS - queueNS) / 1000, "process_us": (monoNS() - handleNS) / 1000})
+			}
 		}
 		s.mu.Unlock()
 	}
@@ -1034,6 +1072,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 	case "scenario.defense.request":
 		s.parkDefenseConfig(p, m)
 	case "combat.command":
+		commandNS := monoNS()
 		var command worldCommand
 		if m.Decode(&command) != nil || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
 			!s.ready || s.outcome != "" || s.controller == nil || command.CommandID == "" || len(command.CommandID) > 128 ||
@@ -1159,6 +1198,8 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.commands[command.CommandID] = command
+		perf.event("command_forward", map[string]any{"session": m.Session, "command_id": command.CommandID,
+			"request_id": command.RequestID, "duration_us": (monoNS() - commandNS) / 1000})
 		s.ack(p, m, true, "")
 	default:
 		s.ack(p, m, false, "unsupported_operation")
@@ -1602,6 +1643,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 	case "combat.snapshot":
 		if m.Session == s.registry.Session && (s.ready || s.parkPatch != nil || s.targetPatch != nil) &&
 			len(m.Payload) <= 131072 {
+			decodeNS := monoNS()
 			var snapshot struct {
 				Seq         uint64           `json:"seq"`
 				BWTick      int              `json:"bw_tick"`
@@ -1610,6 +1652,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 				Units       []map[string]any `json:"units"`
 			}
 			if m.Decode(&snapshot) == nil {
+				decodedNS := monoNS()
 				s.nativeOccupancyComplete = false
 				if s.scenario != nil && snapshot.UnitOmitted == 0 && snapshot.UnitTotal <= len(snapshot.Units) {
 					marines, zerglings, enemies := 0, 0, 0
@@ -1664,7 +1707,15 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 					visible = append(visible, unit)
 				}
 				snapshot.Units = visible
+				transformNS := monoNS()
+				perf.event("snapshot_transform", map[string]any{"session": m.Session, "seq": snapshot.Seq,
+					"bw_tick": snapshot.BWTick, "revision": s.registry.Revision, "unit_count": len(visible),
+					"unit_total": snapshot.UnitTotal, "unit_omitted": snapshot.UnitOmitted,
+					"payload_bytes": len(m.Payload), "decode_us": (decodedNS - decodeNS) / 1000,
+					"transform_us": (transformNS - decodedNS) / 1000})
 				_ = s.emit(s.park, "combat.snapshot", m.Session, s.registry.Revision, snapshot)
+				perf.event("snapshot_forward", map[string]any{"session": m.Session, "seq": snapshot.Seq,
+					"bw_tick": snapshot.BWTick, "duration_us": (monoNS() - transformNS) / 1000})
 			}
 		}
 	default:

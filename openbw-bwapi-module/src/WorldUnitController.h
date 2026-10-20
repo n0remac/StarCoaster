@@ -10,6 +10,7 @@
 #include "WorldGoliathProbe.h"
 #include "WorldZergProductionProbe.h"
 #include "WorldBuildingState.h"
+#include "BridgePerformance.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -605,6 +606,7 @@ private:
             return;
         }
         if (kind != "combat.command") return;
+        const auto commandStarted = bridge_perf::output("controller") ? bridge_perf::nowNS() : 0;
         const auto& command = message.at("payload");
         const std::string commandID = command.value("command_id", "");
         const std::string verb = command.value("verb", "");
@@ -740,6 +742,9 @@ private:
                           << " to=" << x << "," << y << std::endl;
             }
         }
+        if (commandStarted)
+            bridge_perf::command("controller", commandID, game->getFrameCount(), accepted,
+                (bridge_perf::nowNS()-commandStarted)/1000);
         send("combat.result", session_.empty() ? "openbw-controller" : session_,
             revision_ ? revision_ : 1,
             {{"command_id", commandID}, {"accepted", accepted}, {"reason", reason},

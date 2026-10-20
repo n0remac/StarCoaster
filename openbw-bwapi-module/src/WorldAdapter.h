@@ -13,6 +13,7 @@
 #include "WorldGoliathProbe.h"
 #include "WorldZergProductionProbe.h"
 #include "WorldBuildingState.h"
+#include "BridgePerformance.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -330,11 +331,20 @@ private:
             else { disconnect(); return; }
         }
     }
-    void send(const std::string& kind,const json& payload,uint64_t revision,int frame) {
+    void send(const std::string& kind,const json& payload,uint64_t revision,int frame,long long buildUS=0) {
+        const bool measured = kind == "combat.snapshot" && bridge_perf::output("publisher") != nullptr;
+        const auto serializeStart = measured ? bridge_perf::nowNS() : 0;
         const json message={{"v",1},{"kind",kind},{"session",session_.empty()?"openbw-startup":session_},
             {"op_id","openbw:"+std::to_string(++sequence_)},{"source","openbw"},
             {"revision",revision},{"bw_tick",frame},{"payload",payload}};
-        outgoing_+=message.dump()+"\n"; flush();
+        const auto serialized = message.dump();
+        const auto writeStart = measured ? bridge_perf::nowNS() : 0;
+        outgoing_+=serialized+"\n"; flush();
+        if (measured)
+            bridge_perf::snapshot("publisher", payload.value("seq",0ULL), frame,
+                payload.value("unit_total",0), payload.value("unit_omitted",0), serialized.size()+1,
+                buildUS, (writeStart-serializeStart)/1000,
+                (bridge_perf::nowNS()-writeStart)/1000, outgoing_.size());
     }
     void ack(const json& message,bool accepted,const std::string& error="") {
         send("world.ack",{{"op_id",message.at("op_id")},{"accepted",accepted},{"error",error}},
@@ -1354,6 +1364,7 @@ private:
         if (unsupported_.size()<256) unsupported_.push_back(id+":"+reason);
     }
     void publishActors(BWAPI::Game* game,int frame) {
+        const auto perfStart = bridge_perf::output("publisher") ? bridge_perf::nowNS() : 0;
         json units=json::array();
         std::set<int> observed;
         int total=0;
@@ -1432,9 +1443,10 @@ private:
             }
             ++it;
         }
+        const auto buildUS = perfStart ? (bridge_perf::nowNS()-perfStart)/1000 : 0;
         send("combat.snapshot",{{"seq",++snapshotSequence_},{"bw_tick",frame},
             {"unit_total",total},{"unit_omitted",std::max(0,total-static_cast<int>(units.size()))},
-            {"units",units}},revision_,frame);
+            {"units",units}},revision_,frame,buildUS);
     }
     int socket_=-1,width_=0,height_=0;
     bool ready_=false,initializing_=false; uint64_t revision_=1,sequence_=0,event_=0,snapshotSequence_=0;
