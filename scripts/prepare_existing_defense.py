@@ -15,9 +15,6 @@ def prepare(source: str, workspace: Path | None = None) -> dict:
     original = Path(source).expanduser().resolve(strict=True)
     if original.suffix.lower() not in SUPPORTED_PARK_FORMATS or not original.is_file():
         raise ValueError("source must be a supported OpenRCT2 scenario or save")
-    width, height = inspect_existing_park(original)
-    if width > 256 or height > 256:
-        raise ValueError(f"existing park exceeds 256x256 native map: {width}x{height}")
     identity = hashlib.sha256(str(original).encode()).hexdigest()[:16]
     scenario_id = f"park-defense-{identity}"
     directory = directory or ROOT / "run-data" / scenario_id
@@ -25,6 +22,10 @@ def prepare(source: str, workspace: Path | None = None) -> dict:
     source_copy.parent.mkdir(parents=True, exist_ok=True)
     if not source_copy.is_file() or source_copy.stat().st_size != original.stat().st_size or source_copy.stat().st_mtime_ns != original.stat().st_mtime_ns:
         shutil.copy2(original, source_copy)
+    width, height = inspect_existing_park(source_copy)
+    if width > 256 or height > 256:
+        raise ValueError(f"existing park exceeds 256x256 native map: {width}x{height}")
+    validated_source_sha256 = hashlib.sha256(source_copy.read_bytes()).hexdigest()
     scenario = {
         "version": 2, "scenario_id": scenario_id, "mode": "park_defense",
         "display_name": f"StarCraft Defense: {original.stem}"[:128],
@@ -59,6 +60,7 @@ def prepare(source: str, workspace: Path | None = None) -> dict:
             "mapping": str(mapping_path),
             "park": str(directory / "save" / f"{scenario_id}{original.suffix.lower()}"),
             "fixture": None, "navigation": None, "generator": None, "layout": None,
-            "source": str(source_copy), "native_map": str(output / "map" / f"{scenario_id}.scm"),
+            "source": str(source_copy), "validated_source_sha256": validated_source_sha256,
+            "native_map": str(output / "map" / f"{scenario_id}.scm"),
             "spawn_journal": str(output / "spawn-queue.json"),
             "server_data": str(output / "server"), "client_data": str(output / "client")}

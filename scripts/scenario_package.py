@@ -1,5 +1,6 @@
 """Resolve and prepare the existing packaged scenarios for project CLI commands."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -126,7 +127,14 @@ def ensure_park(plan: dict, force: bool = False) -> None:
                        ROOT / "scripts/stage-scenario-structures.js",
                        ROOT / "bridge-protocol/starcraft-types.json"]
         if force or not park.is_file() or any(path.stat().st_mtime_ns > park.stat().st_mtime_ns for path in inputs):
-            actual = inspect_existing_park(source)
+            # Managed imports were inspected after copying into this private
+            # source path. Reuse that exact validation when bytes are still
+            # identical; a second fresh OpenRCT2 process can take longer than
+            # the graphical client's entire startup on the Pi.
+            validated_hash = plan.get("validated_source_sha256")
+            current_hash = hashlib.sha256(source.read_bytes()).hexdigest() if validated_hash else None
+            actual = tuple(scenario["park_size"]) if validated_hash and current_hash == validated_hash \
+                else inspect_existing_park(source)
             expected = scenario.get("park_size")
             if actual[0] > 256 or actual[1] > 256:
                 raise RuntimeError(f"existing park exceeds 256x256 native map: {actual[0]}x{actual[1]}")
@@ -178,7 +186,10 @@ def inspect_existing_park(source: Path) -> tuple[int, int]:
         with log.open("w") as stream:
             process = subprocess.Popen(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT)
             try:
-                deadline = time.monotonic() + 30
+                # A fresh headless profile builds OpenRCT2's object index. On
+                # the Pi this can exceed 30 seconds while a graphical client
+                # is loading, even for a small stock scenario.
+                deadline = time.monotonic() + 120
                 while time.monotonic() < deadline:
                     output = log.read_text(errors="replace")
                     marker = "STARCOASTER_PARK_SIZE "
@@ -191,7 +202,7 @@ def inspect_existing_park(source: Path) -> tuple[int, int]:
                     if process.poll() is not None:
                         raise RuntimeError(f"OpenRCT2 could not load existing park: {output[-1000:]}")
                     time.sleep(.1)
-                raise RuntimeError("OpenRCT2 park inspection timed out")
+                raise RuntimeError("OpenRCT2 park inspection timed out: " + output[-1000:])
             finally:
                 process.terminate()
                 try:

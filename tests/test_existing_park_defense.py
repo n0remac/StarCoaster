@@ -8,6 +8,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 import sys
 sys.path.insert(0, str(SCRIPTS))
 import prepare_existing_defense
+import scenario_package
 
 
 class ExistingParkDefenseTest(unittest.TestCase):
@@ -39,6 +40,22 @@ class ExistingParkDefenseTest(unittest.TestCase):
             with patch.object(prepare_existing_defense, "inspect_existing_park", return_value=(257, 200)):
                 with self.assertRaisesRegex(ValueError, "256x256"):
                     prepare_existing_defense.prepare(str(source))
+
+    def test_managed_source_reuses_exact_inspection_only_while_bytes_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "existing.park"
+            source.write_bytes(b"PARKoriginal")
+            with patch.object(prepare_existing_defense, "ROOT", root), \
+                    patch.object(scenario_package, "ROOT", root), \
+                    patch.object(prepare_existing_defense, "inspect_existing_park", return_value=(64, 64)):
+                plan = prepare_existing_defense.prepare(str(source))
+                with patch.object(scenario_package, "inspect_existing_park", return_value=(64, 64)) as inspect:
+                    scenario_package.ensure_park(plan)
+                    inspect.assert_not_called()
+                    Path(plan["source"]).write_bytes(b"PARKchanged!")
+                    scenario_package.ensure_park(plan, force=True)
+                    inspect.assert_called_once_with(Path(plan["source"]))
 
     def test_preserves_stock_scenario_and_save_formats(self):
         with tempfile.TemporaryDirectory() as directory:
