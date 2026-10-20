@@ -715,6 +715,7 @@ def run_case(case, run_dir, args, plan):
                 "WASM_LIVE_CAMERA":"0" if case["count"] == 0 else "1",
                 "WASM_LIVE_RECORD":"0","WASM_LIVE_SCREENCAST":"0",
                 "WASM_LIVE_DURATION_MS":str(args.measure * 1000),
+                "WASM_LIVE_BOOT_TIMEOUT_MS":"420000",
                 "WASM_TEST_PORT":str(args.openrct2_port),
                 "WASM_PERF_WARMUP_MS":str(args.warmup * 1000),
                 "WASM_LIVE_URL":args.remote_url if case["client"] == "remote" else args.browser_url,

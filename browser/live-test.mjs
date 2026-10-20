@@ -278,7 +278,7 @@ try {
   }
   const start = Date.now();
   const testUrl = new URL(url);
-  if (!normalHandoff && !perfRun) {
+  if (!normalHandoff) {
     testUrl.searchParams.set('starcoaster-test-join', '1');
     if (process.env.WASM_TEST_PORT) testUrl.searchParams.set('starcoaster-test-port', process.env.WASM_TEST_PORT);
   }
@@ -296,21 +296,6 @@ try {
   null, { timeout: Number(process.env.WASM_LIVE_BOOT_TIMEOUT_MS || 180000) });
   if (await page.locator('#status.error').count())
     throw new Error(await page.locator('#status.error #message').textContent());
-  if (perfRun && !normalHandoff) {
-    for (let elapsed = 0; elapsed < 300000; elapsed += 1000) {
-      if (records.some((record) => record.kind === 'console' &&
-        record.text.includes('Finished building object index'))) break;
-      await page.waitForTimeout(1000);
-    }
-    if (!records.some((record) => record.kind === 'console' &&
-      record.text.includes('Finished building object index')))
-      throw new Error('OpenRCT2 did not complete its object index before the benchmark join');
-    await page.waitForTimeout(5000);
-    const benchmarkPort = Number(process.env.WASM_TEST_PORT || 11753);
-    await page.evaluate((port) => window.Module.ccall('StarCoasterJoinPort', null, ['number'], [port]),
-      benchmarkPort);
-    console.log('BENCHMARK_JOIN: after object index');
-  }
   if (normalHandoff) {
     const sessionURL = new URL('/private/park-session', url).href;
     const before = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
