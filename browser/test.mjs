@@ -175,10 +175,14 @@ try {
     const startupError = await page.locator('#status.error #message').count();
     if (startupError) throw new Error(await page.locator('#status.error #message').textContent());
     await page.waitForFunction(() => !document.getElementById('status') ||
-      document.getElementById('status').classList.contains('error'),
+      document.getElementById('status').classList.contains('error') ||
+      document.getElementById('status').classList.contains('warning'),
     null, { timeout: 180000 });
     if (await page.locator('#status.error').count())
       throw new Error(await page.locator('#status.error #message').textContent());
+    if (await page.locator('#status.warning').count() &&
+      !(await page.locator('#status.warning #message').textContent()).includes('StarCraft synchronization is offline'))
+      throw new Error('Disconnected startup did not explain the StarCraft state');
     const installedPlugin = await page.evaluate(async () => {
       const bytes = Module.FS.readFile('/persistent/plugin/rts-bridge.js');
       const digest = await crypto.subtle.digest('SHA-256', bytes);

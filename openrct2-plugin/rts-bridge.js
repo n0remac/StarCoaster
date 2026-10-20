@@ -1529,7 +1529,7 @@
                     && typeof args.error === "string" && args.error.length < 256
                     && Array.isArray(args.parks) && args.parks.length <= 256
                     && args.parks.every(function (name) {
-                        return typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}\.park$/.test(name);
+                        return typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}\.(?:park|sc6|sc4|sv6|sv4)$/i.test(name);
                     }) ? {} : { error: 1, errorMessage: "Invalid park catalog" };
             }, function (event) {
                 parkCatalog = event.args;

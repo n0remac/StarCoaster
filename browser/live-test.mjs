@@ -10,6 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const artifacts = path.join(root, 'build', 'wasm-live-test');
 const profile = process.env.WASM_LIVE_PROFILE || path.join(root, 'build', 'wasm-browser-test', 'chromium-live-profile');
 const url = process.env.WASM_LIVE_URL || 'http://127.0.0.1:8091/';
+const normalHandoff = process.env.WASM_NORMAL_HANDOFF === '1';
 const durationMs = Number(process.env.WASM_LIVE_DURATION_MS || 45000);
 let selection = [process.env.WASM_CLICK_X, process.env.WASM_CLICK_Y].map(Number);
 let order = [process.env.WASM_ORDER_X, process.env.WASM_ORDER_Y].map(Number);
@@ -49,6 +50,10 @@ try {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   });
   const page = await context.newPage();
+  if (normalHandoff) {
+    const ownerToken = (await readFile(process.env.WASM_OWNER_TOKEN_FILE, 'utf8')).trim();
+    page.on('dialog', async (dialog) => dialog.accept(ownerToken));
+  }
   let lastStatus = '';
   statusTimer = setInterval(async () => {
     try {
@@ -156,7 +161,7 @@ try {
   });
   const start = Date.now();
   const testUrl = new URL(url);
-  testUrl.searchParams.set('starcoaster-test-join', '1');
+  if (!normalHandoff) testUrl.searchParams.set('starcoaster-test-join', '1');
   await page.goto(testUrl.href, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() =>
     document.getElementById('canvas')?.style.display === 'block' ||
@@ -164,6 +169,36 @@ try {
   null, { timeout: Number(process.env.WASM_LIVE_BOOT_TIMEOUT_MS || 180000) });
   if (await page.locator('#status.error').count())
     throw new Error(await page.locator('#status.error #message').textContent());
+  if (normalHandoff) {
+    const sessionURL = new URL('/private/park-session', url).href;
+    const before = await (await context.request.get(sessionURL)).json();
+    if (before.phase !== 'idle') throw new Error(`Handoff test expected an idle host: ${before.phase}`);
+    for (let elapsed = 0; elapsed < 150000; elapsed += 1000) {
+      if (records.some((record) => record.kind === 'console' &&
+        record.text.includes('Finished building scenario index'))) break;
+      await page.waitForTimeout(1000);
+    }
+    await page.waitForTimeout(10000);
+    await capture(page, 'handoff-main-menu.png');
+    await page.mouse.click(514, 688);
+    await page.waitForTimeout(2000);
+    await capture(page, 'handoff-scenario-browser.png');
+    await page.mouse.click(555, 340);
+    let ready = false;
+    for (let elapsed = 0; elapsed < 240000; elapsed += 1000) {
+      const state = await (await context.request.get(sessionURL)).json();
+      if (state.phase === 'ready' && state.generation !== before.generation) {
+        metrics.handoffGeneration = state.generation;
+        ready = true;
+        break;
+      }
+      if (state.error && (state.phase === 'idle' || state.phase === 'failed'))
+        throw new Error(`Authoritative handoff failed: ${state.error}`);
+      await page.waitForTimeout(1000);
+    }
+    if (!ready) throw new Error('Normal scenario selection did not establish a new generation');
+    console.log(`HANDOFF: ready generation=${metrics.handoffGeneration}`);
+  }
   // OpenRCT2 scrolls its viewport while the pointer rests on a screen edge.
   // Keep the camera fixed through actor selection and mixed-client delays.
   await page.mouse.move(640, 400);
