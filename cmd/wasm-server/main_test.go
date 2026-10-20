@@ -80,16 +80,21 @@ func TestHeadersAndFixedGateway(t *testing.T) {
 }
 
 func TestPrivateParkSessionStatus(t *testing.T) {
+	t.Setenv("BRIDGE_SESSION_OWNER_TOKEN", "test-owner-token")
 	path := filepath.Join(t.TempDir(), "supervisor.sock")
 	listener, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	backend := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/state" {
+		if r.URL.Path == "/state" {
+			_, _ = io.WriteString(w, `{"phase":"ready","generation":"new","parks":["A.park"]}`)
+			return
+		}
+		if r.URL.Path != "/load" {
 			t.Errorf("unexpected supervisor path %q", r.URL.Path)
 		}
-		_, _ = io.WriteString(w, `{"phase":"ready","generation":"new","parks":["A.park"]}`)
+		_, _ = io.WriteString(w, `{"phase":"preparing"}`)
 	})}
 	go func() { _ = backend.Serve(listener) }()
 	defer backend.Close()
@@ -118,6 +123,27 @@ func TestPrivateParkSessionStatus(t *testing.T) {
 	post.Body.Close()
 	if post.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("browser could modify park session: %d", post.StatusCode)
+	}
+	loadURL := server.URL + "/private/park-session/load"
+	makeRequest := func(origin, token string) int {
+		req, _ := http.NewRequest(http.MethodPost, loadURL, strings.NewReader(`{"park":"A.park"}`))
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		return res.StatusCode
+	}
+	if got := makeRequest(server.URL, "wrong"); got != http.StatusUnauthorized {
+		t.Fatalf("unauthorized load status %d", got)
+	}
+	if got := makeRequest("https://other.example", "test-owner-token"); got != http.StatusForbidden {
+		t.Fatalf("cross-origin load status %d", got)
+	}
+	if got := makeRequest(server.URL, "test-owner-token"); got != http.StatusAccepted && got != http.StatusOK {
+		t.Fatalf("authorized load status %d", got)
 	}
 }
 

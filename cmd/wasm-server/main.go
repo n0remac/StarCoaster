@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -195,29 +196,71 @@ func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...
 	mux := http.NewServeMux()
 	if len(supervisorSocket) > 0 && supervisorSocket[0] != "" {
 		path := supervisorSocket[0]
-		mux.HandleFunc("/private/park-session", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet && r.Method != http.MethodHead {
-				http.Error(w, "GET required", http.StatusMethodNotAllowed)
+		ownerToken := os.Getenv("BRIDGE_SESSION_OWNER_TOKEN")
+		transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", path)
+		}}
+		client := &http.Client{Transport: transport, Timeout: 5 * time.Minute}
+		forward := func(w http.ResponseWriter, r *http.Request, route string) {
+			request, err := http.NewRequestWithContext(r.Context(), r.Method, "http://supervisor"+route, r.Body)
+			if err != nil {
+				http.Error(w, "Invalid session request", http.StatusBadRequest)
 				return
 			}
-			transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", path)
-			}}
-			client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
-			defer transport.CloseIdleConnections()
-			response, err := client.Get("http://supervisor/state")
+			request.ContentLength = r.ContentLength
+			if route == "/upload" {
+				request.Header.Set("X-StarCoaster-Filename", r.Header.Get("X-StarCoaster-Filename"))
+			}
+			response, err := client.Do(request)
 			if err != nil {
 				http.Error(w, "Park session supervisor unavailable", http.StatusServiceUnavailable)
 				return
 			}
 			defer response.Body.Close()
-			if response.StatusCode != http.StatusOK {
-				http.Error(w, "Park session supervisor unavailable", http.StatusServiceUnavailable)
-				return
-			}
 			w.Header().Set("Cache-Control", "private, no-store")
 			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(response.StatusCode)
 			_, _ = io.Copy(w, io.LimitReader(response.Body, 16<<10))
+		}
+		mux.HandleFunc("/private/park-session", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				http.Error(w, "GET required", http.StatusMethodNotAllowed)
+				return
+			}
+			forward(w, r, "/state")
+		})
+		mux.HandleFunc("/private/park-session/", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "POST required", http.StatusMethodNotAllowed)
+				return
+			}
+			if !sameOrigin(r) {
+				http.Error(w, "Origin denied", http.StatusForbidden)
+				return
+			}
+			if ownerToken == "" {
+				http.Error(w, "Session owner token is not configured", http.StatusServiceUnavailable)
+				return
+			}
+			provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if len(provided) != len(ownerToken) || subtle.ConstantTimeCompare([]byte(provided), []byte(ownerToken)) != 1 {
+				http.Error(w, "Session owner authorization required", http.StatusUnauthorized)
+				return
+			}
+			route := strings.TrimPrefix(r.URL.Path, "/private/park-session")
+			if route != "/load" && route != "/cancel" && route != "/title" && route != "/upload" {
+				http.NotFound(w, r)
+				return
+			}
+			limit := int64(4096)
+			if route == "/upload" {
+				limit = 64 << 20
+			}
+			if r.ContentLength < 1 || r.ContentLength > limit {
+				http.Error(w, "Invalid session request size", http.StatusRequestEntityTooLarge)
+				return
+			}
+			forward(w, r, route)
 		})
 	}
 	if assets != nil {

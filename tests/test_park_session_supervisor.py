@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+import io
 from pathlib import Path
 from unittest import mock
 import sys
@@ -25,18 +26,21 @@ class ParkSessionSupervisorTest(unittest.TestCase):
             root = Path(directory)
             library = root / "library"
             library.mkdir()
-            supervisor = ParkSessionSupervisor(library, root / "runtime", start_browser=False)
-            self.assertEqual(supervisor.state()["phase"], "idle")
-            self.assertEqual(supervisor.state()["current"], "")
-            self.assertEqual(supervisor.state()["parks"], [])
-            with mock.patch.object(supervisor, "prepare") as prepare:
-                supervisor.start_initial()
-                prepare.assert_not_called()
-            self.assertFalse(supervisor.ready_session_exited())
+            with mock.patch.dict("os.environ", {"RCT2_DATA_DIR": str(root / "rct2")}):
+                supervisor = ParkSessionSupervisor(library, root / "runtime", start_browser=False)
+                self.assertEqual(supervisor.state()["phase"], "idle")
+                self.assertEqual(supervisor.state()["current"], "")
+                self.assertEqual(supervisor.state()["parks"], [])
+                with mock.patch.object(supervisor, "prepare") as prepare:
+                    supervisor.start_initial()
+                    prepare.assert_not_called()
+                self.assertFalse(supervisor.ready_session_exited())
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(dir=ROOT / "run-data")
         self.root = Path(self.directory.name)
+        self.environment = mock.patch.dict("os.environ", {"RCT2_DATA_DIR": str(self.root / "rct2")})
+        self.environment.start()
         self.library = self.root / "library"
         self.library.mkdir()
         for name in ("Park A.park", "Park B.park"):
@@ -51,7 +55,53 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.supervisor.phase = "ready"
 
     def tearDown(self):
+        self.environment.stop()
         self.directory.cleanup()
+
+    def test_first_selection_starts_from_idle(self):
+        self.supervisor.phase = "idle"
+        self.supervisor.session = None
+        self.supervisor.plan = None
+        self.supervisor.current = ""
+        self.supervisor.generation = ""
+        with mock.patch("park_session_supervisor.threading.Thread.start"):
+            accepted = self.supervisor.request("Park A.park", "discard", "")
+        self.assertEqual(accepted["phase"], "preparing")
+        with mock.patch.object(self.supervisor, "prepare", return_value=("fresh", {"park": "fresh"})), \
+             mock.patch.object(self.supervisor, "launch", return_value=(self.old, self.root / "fresh.log")), \
+             mock.patch.object(self.supervisor, "await_ready"):
+            self.supervisor.transition("Park A.park", "discard", "")
+        self.assertEqual(self.supervisor.state()["generation"], "fresh")
+        self.assertEqual(self.supervisor.state()["phase"], "ready")
+
+    def test_first_preparation_failure_returns_to_idle(self):
+        self.supervisor.phase = "preparing"
+        self.supervisor.session = None
+        with mock.patch.object(self.supervisor, "prepare", side_effect=RuntimeError("invalid map")):
+            self.supervisor.transition("Park B.park", "discard", "")
+        self.assertEqual(self.supervisor.state()["phase"], "idle")
+        self.assertIn("invalid map", self.supervisor.state()["error"])
+
+    def test_catalog_includes_licensed_formats_and_upload_is_isolated(self):
+        scenarios = self.root / "rct2" / "Scenarios"
+        scenarios.mkdir(parents=True)
+        (scenarios / "Small.SC6").write_bytes(b"scenario")
+        self.assertIn("Small.SC6", self.supervisor.state()["parks"])
+        self.assertEqual(self.supervisor.source_for("Small.SC6"), scenarios / "Small.SC6")
+        uploaded = self.supervisor.upload("My Save.sv6", io.BytesIO(b"saved"), 5)["park"]
+        self.assertTrue((self.root / "runtime" / "uploads" / uploaded).is_file())
+        with self.assertRaisesRegex(ValueError, "invalid_save_filename"):
+            self.supervisor.upload("../escape.sv6", io.BytesIO(b"saved"), 5)
+        with self.assertRaisesRegex(ValueError, "invalid_park_header"):
+            self.supervisor.upload("bad.park", io.BytesIO(b"nope"), 4)
+
+    def test_return_to_title_requires_current_generation(self):
+        with self.assertRaisesRegex(ValueError, "stale_park_generation"):
+            self.supervisor.return_to_title("older")
+        with mock.patch.object(self.supervisor, "stop", side_effect=lambda process: setattr(process, "stopped", True)):
+            state = self.supervisor.return_to_title("old-generation")
+        self.assertEqual(state["phase"], "idle")
+        self.assertEqual(state["generation"], "")
 
     def test_private_catalog_rejects_symlink_and_path_requests(self):
         (self.library / "link.park").symlink_to(self.library / "Park A.park")

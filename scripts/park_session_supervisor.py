@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import socket
@@ -18,10 +19,10 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from prepare_existing_defense import prepare
-from scenario_package import ROOT, build_native_map, ensure_park, session_environment
+from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, build_native_map, ensure_park, session_environment
 
 
-PARK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}\.park$")
+PARK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}\.(?:park|sc6|sc4|sv6|sv4)$", re.I)
 
 
 class ParkSessionSupervisor:
@@ -42,8 +43,22 @@ class ParkSessionSupervisor:
         self.plan = None
         self.browser = None
         self.start_browser = start_browser
+        self.cancel_pending = False
         self.socket_path = self.runtime / "control.sock"
         self.runtime.mkdir(parents=True, exist_ok=True)
+        token_path = self.runtime / "owner-token"
+        configured = os.environ.get("BRIDGE_SESSION_OWNER_TOKEN", "")
+        if configured:
+            self.owner_token = configured
+        elif token_path.is_file():
+            self.owner_token = token_path.read_text().strip()
+        else:
+            self.owner_token = secrets.token_hex(32)
+            descriptor = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w") as stream:
+                stream.write(self.owner_token + "\n")
+        if len(self.owner_token) < 32:
+            raise ValueError("session owner token must contain at least 32 characters")
         if initial and initial not in self.catalog():
             raise ValueError("initial park is not in the private library")
         selection = self.runtime / "active-park.json"
@@ -67,12 +82,18 @@ class ParkSessionSupervisor:
 
     def catalog(self):
         parks = {}
-        for candidate in self.library.iterdir():
-            if not PARK_NAME.fullmatch(candidate.name) or candidate.is_symlink() or not candidate.is_file():
+        rct2 = Path(os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2")))
+        # Only fixed directories on the host are catalogued. A client-supplied
+        # path can never select a file outside one of these directories.
+        for directory in (rct2 / "Scenarios", self.library, self.runtime / "uploads"):
+            if not directory.is_dir():
                 continue
-            if candidate.resolve().parent != self.library:
-                continue
-            parks[candidate.name] = candidate
+            for candidate in directory.iterdir():
+                if (not PARK_NAME.fullmatch(candidate.name) or candidate.suffix.lower() not in SUPPORTED_PARK_FORMATS
+                        or candidate.is_symlink() or not candidate.is_file()
+                        or candidate.resolve().parent != directory.resolve()):
+                    continue
+                parks[candidate.name] = candidate
         return dict(sorted(parks.items(), key=lambda item: item[0].lower()))
 
     def state(self):
@@ -91,6 +112,40 @@ class ParkSessionSupervisor:
             raise ValueError("park_not_in_private_library")
         saved = self.runtime / "saved" / name
         return saved if saved.is_file() else source
+
+    def upload(self, filename, stream, length):
+        if (not isinstance(filename, str) or not PARK_NAME.fullmatch(filename)
+                or Path(filename).suffix.lower() not in SUPPORTED_PARK_FORMATS):
+            raise ValueError("invalid_save_filename")
+        if length < 4 or length > 64 * 1024 * 1024:
+            raise ValueError("invalid_save_size")
+        with self.lock:
+            if self.phase not in ("idle", "ready"):
+                raise ValueError("park_transition_busy")
+        directory = self.runtime / "uploads"
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        name = uuid.uuid4().hex + Path(filename).suffix.lower()
+        destination = directory / name
+        with destination.open("xb") as output:
+            remaining = length
+            while remaining:
+                block = stream.read(min(remaining, 1 << 20))
+                if not block:
+                    break
+                output.write(block)
+                remaining -= len(block)
+        if remaining or destination.stat().st_size < 4:
+            destination.unlink(missing_ok=True)
+            raise ValueError("incomplete_save_upload")
+        if destination.suffix == ".park":
+            with destination.open("rb") as saved:
+                header = saved.read(4)
+            if header != b"PARK":
+                destination.unlink(missing_ok=True)
+                raise ValueError("invalid_park_header")
+        # Full format and geometry validation occurs in prepare() through
+        # OpenRCT2 before the active game can be stopped.
+        return {"park": name}
 
     def prepare(self, name):
         generation = uuid.uuid4().hex
@@ -140,7 +195,9 @@ class ParkSessionSupervisor:
                    "--rct2-data-path", str(Path(os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2"))).resolve()),
                    "--supervisor-socket", str(self.socket_path)]
         log = (self.runtime / "wasm-server.log").open("ab", buffering=0)
-        self.browser = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+        environment = os.environ.copy()
+        environment["BRIDGE_SESSION_OWNER_TOKEN"] = self.owner_token
+        self.browser = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                         start_new_session=True)
         log.close()
 
@@ -211,7 +268,7 @@ class ParkSessionSupervisor:
 
     def request(self, park, decision, generation, save_name=""):
         with self.lock:
-            if self.phase != "ready":
+            if self.phase not in ("idle", "ready"):
                 raise ValueError("park_transition_busy")
             if generation != self.generation:
                 raise ValueError("stale_park_generation")
@@ -219,13 +276,39 @@ class ParkSessionSupervisor:
                 raise ValueError("park_not_in_private_library")
             if decision not in ("save", "discard"):
                 raise ValueError("select_save_or_discard")
+            if self.phase == "idle" and decision != "discard":
+                raise ValueError("nothing_to_save")
             if decision == "save" and (not re.fullmatch(r"starcoaster-switch-[0-9a-f]{16}\.park", save_name)):
                 raise ValueError("invalid_save_name")
             self.phase, self.pending, self.error = "preparing", park, ""
+            self.cancel_pending = False
         self.transition_thread = threading.Thread(target=self.transition,
                                                   args=(park, decision, save_name))
         self.transition_thread.start()
         return self.state()
+
+    def cancel(self, generation):
+        with self.lock:
+            if generation != self.generation:
+                raise ValueError("stale_park_generation")
+            if self.phase != "preparing":
+                raise ValueError("park_transition_not_cancellable")
+            self.cancel_pending = True
+            return self.state()
+
+    def return_to_title(self, generation):
+        with self.lock:
+            if self.phase != "ready" or generation != self.generation:
+                raise ValueError("stale_park_generation")
+            self.phase = "switching"
+            process = self.session
+        self.stop(process)
+        with self.lock:
+            self.session, self.plan = None, None
+            self.current, self.generation, self.pending = "", "", ""
+            self.phase, self.error = "idle", ""
+            self.persist_current()
+            return self.state()
 
     def archive_save(self, name, save_name):
         source = Path(self.plan["server_data"]) / "save" / save_name
@@ -251,6 +334,11 @@ class ParkSessionSupervisor:
             if decision == "save":
                 self.archive_save(old_name, save_name)
             with self.lock:
+                if self.cancel_pending:
+                    self.pending = ""
+                    self.phase = "ready" if old_process is not None else "idle"
+                    self.error = "park_transition_cancelled"
+                    return
                 self.phase = "switching"
             self.stop(old_process)
             with self.lock:
@@ -269,6 +357,10 @@ class ParkSessionSupervisor:
         except Exception as error:
             with self.lock:
                 self.phase, self.error = "failed", str(error)
+            if old_process is None:
+                with self.lock:
+                    self.phase, self.pending = "idle", ""
+                return
             if old_process.poll() is None:
                 with self.lock:
                     self.phase, self.pending = "ready", ""
@@ -288,6 +380,8 @@ class ParkSessionSupervisor:
             except Exception as recovery:
                 with self.lock:
                     self.error += "; recovery failed: " + str(recovery)
+        finally:
+            (self.runtime / "uploads" / park).unlink(missing_ok=True)
 
     def close(self):
         if self.transition_thread is not None and self.transition_thread.is_alive():
@@ -308,16 +402,24 @@ class Handler(BaseHTTPRequestHandler):
         self.answer(200, self.server.supervisor.state())
 
     def do_POST(self):
-        if self.path != "/load":
+        if self.path not in ("/load", "/cancel", "/title", "/upload"):
             self.send_error(404)
             return
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            if size < 1 or size > 4096:
-                raise ValueError("invalid_request_size")
-            request = json.loads(self.rfile.read(size))
-            result = self.server.supervisor.request(request.get("park"), request.get("decision"),
-                                                    request.get("generation"), request.get("save_name", ""))
+            if self.path == "/upload":
+                result = self.server.supervisor.upload(self.headers.get("X-StarCoaster-Filename"), self.rfile, size)
+            else:
+                if size < 1 or size > 4096:
+                    raise ValueError("invalid_request_size")
+                request = json.loads(self.rfile.read(size))
+                if self.path == "/load":
+                    result = self.server.supervisor.request(request.get("park"), request.get("decision"),
+                                                            request.get("generation"), request.get("save_name", ""))
+                elif self.path == "/cancel":
+                    result = self.server.supervisor.cancel(request.get("generation"))
+                else:
+                    result = self.server.supervisor.return_to_title(request.get("generation"))
             self.answer(202, result)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             self.answer(400, {"error": str(error)})
