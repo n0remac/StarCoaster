@@ -119,9 +119,14 @@ public:
         if (socket_ < 0) connect(game);
         if (socket_ < 0) return;
         char data[8192];
-        for (;;) {
+        // A dense park can stream thousands of snapshot chunks. Bound each
+        // frame's read so TCP backpressure follows native parsing progress.
+        // The old drain-to-EAGAIN loop accumulated the entire burst before
+        // parsing and disconnected at 8 MiB despite valid 1 MiB lines.
+        constexpr size_t maxBuffered = (1 << 20) + 8192;
+        while (incoming_.size() < maxBuffered) {
             const ssize_t n = ::recv(socket_, data, sizeof(data), 0);
-            if (n > 0) { incoming_.append(data, static_cast<size_t>(n)); if (incoming_.size() > 8388608) { disconnect(); return; } }
+            if (n > 0) incoming_.append(data, static_cast<size_t>(n));
             else if (n == 0) { disconnect(); return; }
             else if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             else { disconnect(); return; }
@@ -132,6 +137,10 @@ public:
             const auto line = incoming_.substr(0,newline); incoming_.erase(0,newline+1);
             if (line.size() > 1048576) { disconnect(); return; }
             try { handle(game,json::parse(line)); } catch (const std::exception& e) { std::cerr << "[world] invalid message: " << e.what() << std::endl; }
+        }
+        if (incoming_.size() >= maxBuffered && incoming_.find('\n') == std::string::npos) {
+            std::cerr << "[world] snapshot line exceeds 1 MiB" << std::endl;
+            disconnect(); return;
         }
         flush();
         applyScheduledNavigation(game);

@@ -248,6 +248,8 @@ func (s *service) sendNavigationMask(p *peer, applyFrame int) {
 func (s *service) sendMask(p *peer, mask world.NavigationMask, revision uint64, applyFrame int, stageOnly bool) {
 	const bytesPerChunk = 6000
 	chunks := (len(mask.Bits) + bytesPerChunk - 1) / bytesPerChunk
+	log.Printf("native navigation transfer bytes=%d hex_bytes=%d chunks=%d stage_only=%t",
+		len(mask.Bits), len(mask.Bits)*2, chunks, stageOnly)
 	if err := s.emit(p, "navigation.mask.begin", s.registry.Session, revision,
 		map[string]any{"width": s.bwWidth, "height": s.bwHeight, "chunks": chunks,
 			"hash": mask.Hash, "apply_frame": applyFrame, "stage_only": stageOnly}); err != nil {
@@ -1217,6 +1219,16 @@ func (s *service) forwardSnapshot() {
 		}
 		chunks = append(chunks, world.SnapshotChunk{Terrain: derivedTerrain[start:end]})
 	}
+	snapshotBytes, largestChunk := 0, 0
+	for _, chunk := range chunks {
+		encoded, _ := json.Marshal(chunk)
+		snapshotBytes += len(encoded)
+		if len(encoded) > largestChunk {
+			largestChunk = len(encoded)
+		}
+	}
+	log.Printf("native snapshot transfer entities=%d terrain=%d chunks=%d payload_bytes=%d max_chunk_bytes=%d",
+		len(r.Entities), len(derivedTerrain), len(chunks), snapshotBytes, largestChunk)
 	begin := world.SnapshotBegin{Width: derivedWidth, Height: derivedHeight, Chunks: len(chunks)}
 	if s.scenario != nil && s.scenario.Mode != "park_defense" {
 		if s.runtime != nil && (s.runtime.ObjectiveDestroyed || s.runtime.ObjectiveRemoved) {

@@ -41,6 +41,7 @@ def main() -> int:
         ("openbw", "0005-editor-building-fog-openbw.patch", None),
         ("openbw", "0006-native-production-egress-openbw.patch", None),
         ("openbw", "0007-scenario-spawning-pool-openbw.patch", None),
+        ("openbw", "0008-native-region-capacity-openbw.patch", None),
         ("bwapi", "0003-native-navigation-bwapi.patch", None),
     ):
         if (patch == "0005-editor-building-fog-openbw.patch" and
