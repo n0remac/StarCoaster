@@ -13,6 +13,36 @@ import (
 	"starcoaster/internal/world"
 )
 
+func TestParkCatalogReadSurvivesConstructionRevision(t *testing.T) {
+	s := defenseService(t)
+	s.registry.Revision = 2
+	check := func(session string, accepted bool) {
+		client, server := net.Pipe()
+		defer client.Close()
+		defer server.Close()
+		message := world.Message("park.catalog.request", session, "catalog", "openrct2", 1, map[string]string{})
+		done := make(chan struct{})
+		go func() {
+			s.parkCatalogRequest(&peer{Conn: server}, message)
+			close(done)
+		}()
+		var reply world.Envelope
+		if err := json.NewDecoder(client).Decode(&reply); err != nil {
+			t.Fatal(err)
+		}
+		var ack world.Ack
+		if err := reply.Decode(&ack); err != nil {
+			t.Fatal(err)
+		}
+		if reply.Kind != "world.ack" || ack.Accepted != accepted {
+			t.Fatalf("catalog acknowledgement for %q: %+v", session, ack)
+		}
+		<-done
+	}
+	check(s.registry.Session, true)
+	check("retired-session", false)
+}
+
 func TestParkLoadRequiresCommanderCurrentGenerationAndNativeReadiness(t *testing.T) {
 	s := defenseService(t)
 	path := filepath.Join(os.TempDir(), "sc-park-"+strconv.Itoa(os.Getpid())+".sock")

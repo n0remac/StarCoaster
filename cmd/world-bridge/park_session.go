@@ -88,7 +88,10 @@ func (s *service) supervisorRequest(method, route string, body any) (parkSession
 }
 
 func (s *service) parkCatalogRequest(p *peer, m world.Envelope) {
-	if m.Session != s.registry.Session || m.Revision != s.registry.Revision {
+	// Catalog reads can sit in the plugin's ordered queue while a live park
+	// patch advances the revision. Reject retired sessions, but answer a read
+	// from the current session even if its queued revision is older.
+	if m.Session != s.registry.Session {
 		s.ack(p, m, false, "stale_or_unavailable_park_session")
 		return
 	}
