@@ -63,6 +63,14 @@ def fixture(count: int, workload: str, target: Path, park: str) -> Path:
     return target
 
 
+def workload_environment(workload: str, release_file=None):
+    if workload == "fighting":
+        result = {"BRIDGE_TEST_ASSAULT_MARINES":"1"}
+        if release_file: result["BRIDGE_BENCHMARK_ASSAULT_FILE"] = str(release_file)
+        return result
+    return {"BRIDGE_DISABLE_ASSAULT_AI":"1"}
+
+
 def distribution(values):
     numbers = sorted(float(value) for value in values if value is not None and math.isfinite(float(value)))
     if not numbers:
@@ -188,6 +196,7 @@ def read_events(path):
 def merge_case(case_dir, run_events, run_system, run_network, label):
     raw = case_dir / "raw"
     sources = [(raw / "bridge-events.jsonl", "events"),
+               (case_dir / "benchmark-events.jsonl", "events"),
                (raw / "openbw-publisher-events.jsonl", "events"),
                (raw / "openbw-controller-events.jsonl", "events"),
                (case_dir / "browser/browser-events.jsonl", "events"),
@@ -237,11 +246,17 @@ def summarize_case(events, system, network, case):
         if event.get("clock_domain") == "pi-monotonic":
             if not start or not end: continue
             tick = event.get("mono_ns")
-            if tick and not start <= tick <= end: continue
+            if tick is None and event.get("mono_ms") is not None: tick = event["mono_ms"] * 1e6
+            if tick is None or not start <= tick <= end: continue
         elif event.get("clock_domain") == "browser-monotonic":
             if not browser_window: continue
-            wall = event.get("wall_ms")
-            if wall and not browser_window["start"] <= wall <= browser_window["end"]: continue
+            native_ms = event.get("mono_ms")
+            if native_ms is None and event.get("mono_ns") is not None: native_ms = event["mono_ns"] / 1e6
+            if native_ms is not None and browser_window.get("mono_start") is not None:
+                if not browser_window["mono_start"] <= native_ms <= browser_window["mono_end"]: continue
+            else:
+                wall = event.get("wall_ms")
+                if wall is None or not browser_window["start"] <= wall <= browser_window["end"]: continue
         selected.append(event)
     timing = {}
     for event in selected:
@@ -257,6 +272,7 @@ def summarize_case(events, system, network, case):
                     and event.get("mode") == "server" and event.get("clock_domain") == "pi-monotonic"]
     snapshots = [event for event in selected if event.get("stage") == "snapshot_publish"]
     omitted = sum(event.get("unit_omitted", 0) for event in snapshots)
+    attack_samples = [event.get("unit_attacking", 0) for event in snapshots]
     bw_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in bw if event.get("elapsed_ns", 0) > 0]
     bw_work_p95 = [event["work_p95_us"] / 1000 for event in bw if event.get("work_p95_us") is not None]
     render_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in render if event.get("elapsed_ns", 0) > 0]
@@ -274,6 +290,8 @@ def summarize_case(events, system, network, case):
             if process.get("cpu_percent_one_core") is not None:
                 cpu.setdefault(process["role"], []).append(process["cpu_percent_one_core"])
     if omitted: errors.append("snapshot_omitted_units")
+    if case["workload"] == "fighting" and snapshots and not any(attack_samples):
+        errors.append("no_native_attacks_observed")
     if not snapshots: errors.append("missing_openbw_snapshots")
     if not bw: errors.append("missing_openbw_frame_summary")
     if case["client"] in ("local", "remote") and not render: errors.append("missing_browser_native_presentation")
@@ -322,7 +340,8 @@ def summarize_case(events, system, network, case):
             "browser_websocket_messages_per_second":distribution([event.get("messages_in") for event in browser_net]),
             "pi_network_bytes_per_second":distribution([(event["bytes_in"] + event["bytes_out"]) / event["elapsed_s"]
                                                        for event in pi_net]),
-            "omitted_units":omitted,"tailscale_rtt_ms":distribution(rtt),
+            "omitted_units":omitted,"attacking_units":distribution(attack_samples),
+            "tailscale_rtt_ms":distribution(rtt),
             "tailscale_rtt_variation_ms":round(statistics.pstdev(rtt),3) if len(rtt)>1 else None,
             "tailscale_loss_samples":sum(event.get("loss", 0) for event in net if event.get("stage") == "tailscale_ping"),
             "cpu_percent_one_core":{role:distribution(values) for role, values in cpu.items()},
@@ -365,13 +384,14 @@ def report(summary):
     lines = ["# StarCoaster gameplay performance", "", f"Run: `{summary['run_id']}`",
              f"Git revision: `{summary['git_revision']}`", "",
              "## Results", "",
-             "| Case | Valid | OpenBW FPS median | OpenBW work p95 ms | BW overruns | Client FPS median | Client p95 frame window ms | Snapshot bytes median | Pi °C max | RTT ms median |",
-             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+             "| Case | Valid | OpenBW FPS median | OpenBW work p95 ms | BW overruns | Native attackers max | Client FPS median | Client p95 frame window ms | Snapshot bytes median | Pi °C max | RTT ms median |",
+             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     def fmt(value): return "unavailable" if value is None else f"{value:.1f}" if isinstance(value, float) else str(value)
     for case in summary["cases"]:
         lines.append("| " + " | ".join([case["label"], "yes" if case["valid"] else "no",
             fmt(case["openbw_fps"]["median"]),fmt(case["openbw_frame_work_p95_ms_windows"]["median"]),
-            fmt(case["openbw_frame_overruns"]),fmt(case["client_fps"]["median"]),
+            fmt(case["openbw_frame_overruns"]),fmt(case["attacking_units"]["max"]),
+            fmt(case["client_fps"]["median"]),
             fmt(case["client_frame_p95_ms_windows"]["median"]),fmt(case["snapshot_bytes"]["median"]),
             fmt(case["max_temperature_c"]),fmt(case["tailscale_rtt_ms"]["median"])]) + " |")
     lines += ["", "## Pipeline and resources", "",
@@ -497,7 +517,7 @@ def run_case(case, run_dir, args, plan):
         "BRIDGE_WASM_LOG_FILE":str(case_dir / "gateway.log"),
         "STARCOASTER_PERF_DIR":str(raw),"STARCOASTER_PERF":"1",
         "STARCOASTER_SUPPRESS_PAINT":"1" if case["paint"] == "suppressed" else "0",
-        "BRIDGE_DISABLE_ASSAULT_AI":"1" if case["workload"] != "fighting" else "0"})
+        **workload_environment(case["workload"], runtime / "assault-enable")})
     session_log = (case_dir / "session.log").open("w")
     session = subprocess.Popen([str(ROOT / "scripts/run-world-session.sh"),plan["park"]],
         cwd=ROOT, env=env, stdout=session_log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -541,6 +561,10 @@ def run_case(case, run_dir, args, plan):
                 case["errors"].append("browser_not_ready")
                 return
         time.sleep(args.warmup)
+        if case["workload"] == "fighting":
+            (runtime / "assault-enable").touch()
+            (case_dir / "benchmark-events.jsonl").write_text(json.dumps({"source":"benchmark",
+                "stage":"assault_release","mono_ns":time.monotonic_ns(),"count":case["count"]})+"\n")
         case["measurement_start_utc"] = datetime.now(timezone.utc).isoformat()
         case["measurement_start_pi_mono_ns"] = time.monotonic_ns()
         previous = {}
@@ -602,6 +626,9 @@ def run_case(case, run_dir, args, plan):
                     metrics = result.get("metrics", {})
                     if metrics.get("measureStartWallMs") and metrics.get("measureEndWallMs"):
                         case["browser_window"] = {"start":metrics["measureStartWallMs"],"end":metrics["measureEndWallMs"]}
+                        if metrics.get("measureStartBrowserMonoMs") and metrics.get("measureEndBrowserMonoMs"):
+                            case["browser_window"].update(mono_start=metrics["measureStartBrowserMonoMs"],
+                                                          mono_end=metrics["measureEndBrowserMonoMs"])
                 except (json.JSONDecodeError,OSError): pass
     finally:
         if browser and browser.poll() is None: browser.terminate()

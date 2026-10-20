@@ -151,7 +151,8 @@ try {
     const line = message.text();
     if (perfRun && line.includes('STARCOASTER_PERF ')) {
       try {
-        const event = JSON.parse(line.slice(line.indexOf('STARCOASTER_PERF ') + 17));
+        const match = /STARCOASTER_PERF (\{.*\})/.exec(line);
+        const event = JSON.parse(match[1]);
         perfEvents.write(JSON.stringify(Object.assign({ role: 'browser-client', wall_ms: Date.now() }, event)) + '\n');
       } catch (_) {}
     } else if (!perfRun || records.length < 10000) {
@@ -168,7 +169,7 @@ try {
     if (line.includes('WASM_ACTOR_MOVED') && metrics.secondOrderSentAt &&
       metrics.secondActorMoveLatencyMs === undefined)
       metrics.secondActorMoveLatencyMs = Date.now() - metrics.secondOrderSentAt;
-    if (!line.includes('Paint.Entity.cpp')
+    if ((!perfRun || !line.includes('STARCOASTER_PERF ')) && !line.includes('Paint.Entity.cpp')
       && /index|network|plugin|WORLD_|RTS Bridge|UNIVERSAL_DEFENSE|WASM_CAMERA|WASM_ACTOR|NATIVE_HUD|Failed to connect/i.test(line))
       console.log(`CLIENT: ${line}`);
   });
@@ -826,6 +827,7 @@ try {
     await capture(page, 'handoff-returned-to-title.png');
   }
   if (perfRun) await page.waitForTimeout(Number(process.env.WASM_PERF_WARMUP_MS || 0));
+  metrics.measureStartBrowserMonoMs = await page.evaluate(() => performance.timeOrigin + performance.now());
   metrics.measureStartWallMs = Date.now();
   for (let elapsed = 0; elapsed < durationMs; elapsed += captureIntervalMs) {
     const step = Math.min(captureIntervalMs, durationMs - elapsed);
@@ -834,6 +836,7 @@ try {
     console.log(`PROGRESS: ${elapsed + step} ms, ${metrics.websocketFramesIn} inbound frames`);
   }
   metrics.measureEndWallMs = Date.now();
+  metrics.measureEndBrowserMonoMs = metrics.measureStartBrowserMonoMs + durationMs;
   await capture(page, 'final.png');
   metrics.elapsedMs = Date.now() - start;
   metrics.heapBytes = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? null);

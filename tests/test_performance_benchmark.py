@@ -14,6 +14,14 @@ benchmark = runpy.run_path(str(ROOT / "scripts/benchmark-gameplay-performance.py
 
 
 class PerformanceBenchmarkTest(unittest.TestCase):
+    def test_fighting_keeps_native_assault_enabled(self):
+        fighting = benchmark["workload_environment"]("fighting")
+        self.assertNotIn("BRIDGE_DISABLE_ASSAULT_AI", fighting)
+        self.assertEqual("1", fighting["BRIDGE_TEST_ASSAULT_MARINES"])
+        self.assertEqual("/tmp/release", benchmark["workload_environment"]("fighting", "/tmp/release")
+                         ["BRIDGE_BENCHMARK_ASSAULT_FILE"])
+        self.assertIn("BRIDGE_DISABLE_ASSAULT_AI", benchmark["workload_environment"]("idle"))
+
     def test_population_matrix_uses_distinct_native_start_tiles(self):
         with tempfile.TemporaryDirectory() as temporary:
             for count in (0, 10, 25, 50, 100, 200):
@@ -39,6 +47,17 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertIn("snapshot_omitted_units", result["errors"])
 
+    def test_fighting_requires_observed_native_attacks(self):
+        case = {"label":"fight","count":10,"workload":"fighting","camera":"visible",
+                "paint":"normal","client":"none","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000000000}
+        events = [{"case":"fight","clock_domain":"pi-monotonic","mono_ns":2,
+                   "source":"openbw-publisher","stage":"snapshot_publish","seq":1,
+                   "unit_attacking":0,"unit_omitted":0}]
+        self.assertIn("no_native_attacks_observed", benchmark["summarize_case"](events,[],[],case)["errors"])
+        events[0]["unit_attacking"] = 2
+        self.assertNotIn("no_native_attacks_observed", benchmark["summarize_case"](events,[],[],case)["errors"])
+
     def test_pi_and_browser_clocks_are_not_subtracted_directly(self):
         case = {"label":"remote","count":10,"workload":"moving","camera":"visible","paint":"normal",
                 "client":"remote","measure":60,"errors":[],"browser_window":{"start":1000,"end":5000},
@@ -53,6 +72,21 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         ]
         result = benchmark["summarize_case"](events,[],[],case)
         self.assertEqual(60, result["command_to_visible_ms"]["median"])
+
+    def test_delayed_browser_console_delivery_uses_native_event_time(self):
+        case = {"label":"delayed","count":10,"workload":"idle","camera":"visible",
+                "paint":"normal","client":"local","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000000000,
+                "browser_window":{"start":1000,"end":2000,"mono_start":1000,"mono_end":2000}}
+        events = [{"case":"delayed","clock_domain":"browser-monotonic","wall_ms":3000,
+                   "source":"openrct2","role":"browser-client","stage":"present_summary",
+                   "mono_ns":1500000000,"frames":30,"elapsed_ns":1000000000},
+                  {"case":"delayed","clock_domain":"pi-monotonic","mono_ms":2000000,
+                   "source":"openrct2-plugin","stage":"tick_summary","mode":"server",
+                   "ticks":40,"elapsed_ms":1000}]
+        result = benchmark["summarize_case"](events,[],[],case)
+        self.assertEqual(30, result["client_fps"]["median"])
+        self.assertEqual(0, result["server_tick_rate"]["count"])
 
 
 if __name__ == "__main__": unittest.main()

@@ -33,16 +33,16 @@ inline FILE* output(const char* role) {
     if (file) std::setvbuf(file, nullptr, _IOLBF, 0);
     return file;
 }
-inline void snapshot(const char* role, unsigned long long seq, int frame, int total, int omitted,
+inline void snapshot(const char* role, unsigned long long seq, int frame, int total, int omitted, int attacking,
                      size_t bytes, long long buildUS, long long serializeUS,
                      long long writeUS, size_t queued) {
     FILE* file = output(role);
     if (!file) return;
     std::fprintf(file, "{\"source\":\"openbw-%s\",\"stage\":\"snapshot_publish\","
         "\"mono_ns\":%lld,\"seq\":%llu,\"bw_tick\":%d,\"unit_total\":%d,"
-        "\"unit_omitted\":%d,\"bytes\":%zu,\"build_us\":%lld,\"serialize_us\":%lld,"
+        "\"unit_omitted\":%d,\"unit_attacking\":%d,\"bytes\":%zu,\"build_us\":%lld,\"serialize_us\":%lld,"
         "\"write_us\":%lld,\"queued_bytes\":%zu}\n",
-        role, nowNS(), seq, frame, total, omitted, bytes, buildUS, serializeUS, writeUS, queued);
+        role, nowNS(), seq, frame, total, omitted, attacking, bytes, buildUS, serializeUS, writeUS, queued);
 }
 inline void frame(const char* role, int frame, int count, long long elapsedNS,
                   long long workUS, long long maxWorkUS, long long sleepUS, int overruns,

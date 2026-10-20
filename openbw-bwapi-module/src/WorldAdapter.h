@@ -289,7 +289,9 @@ public:
                 std::cerr << "[world] target destroyed id=" << id << " frame=" << frame << std::endl;
             }
         }
-        if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI") && assault_.active(frame)) assaultAI(game);
+        const char* benchmarkAssaultFile = std::getenv("BRIDGE_BENCHMARK_ASSAULT_FILE");
+        if (frame%24==0 && !std::getenv("BRIDGE_DISABLE_ASSAULT_AI") && assault_.active(frame)
+            && (!benchmarkAssaultFile || ::access(benchmarkAssaultFile, F_OK) == 0)) assaultAI(game);
         for (auto unit:game->getAllUnits()) {
             if (unit && unit->exists() && worldUnitType(unit->getType()) && unit->isAttackFrame())
                 ++attackFrames_[unit->getID()];
@@ -333,7 +335,8 @@ private:
             else { disconnect(); return; }
         }
     }
-    void send(const std::string& kind,const json& payload,uint64_t revision,int frame,long long buildUS=0) {
+    void send(const std::string& kind,const json& payload,uint64_t revision,int frame,long long buildUS=0,
+              int attacking=0) {
         const bool measured = kind == "combat.snapshot" && bridge_perf::output("publisher") != nullptr;
         const auto serializeStart = measured ? bridge_perf::nowNS() : 0;
         const json message={{"v",1},{"kind",kind},{"session",session_.empty()?"openbw-startup":session_},
@@ -344,7 +347,7 @@ private:
         outgoing_+=serialized+"\n"; flush();
         if (measured)
             bridge_perf::snapshot("publisher", payload.value("seq",0ULL), frame,
-                payload.value("unit_total",0), payload.value("unit_omitted",0), serialized.size()+1,
+                payload.value("unit_total",0), payload.value("unit_omitted",0), attacking, serialized.size()+1,
                 buildUS, (writeStart-serializeStart)/1000,
                 (bridge_perf::nowNS()-writeStart)/1000, outgoing_.size());
     }
@@ -1372,6 +1375,7 @@ private:
         int total=0;
         // getAllUnits() follows this participant's vision. A trained Terran
         // unit must still be published when no Zerg scout can see it.
+        int attacking = 0;
         for (const auto& [canonical, unit] : actorRegistry_.registeredUnits()) {
             if (!unit || !unit->exists()) continue;
             const auto type=unit->getType();
@@ -1411,6 +1415,7 @@ private:
             if (type == BWAPI::UnitTypes::Zerg_Egg)
                 motion = frame - observedType.second < 25 ? "morph"
                     : unit->getRemainingBuildTime() == 0 ? "hatch" : "idle";
+            if (motion[0] == 'a') attacking++;
             json actor={{"id",actorID},
                 {"kind",definition->id},
                 {"owner",unit->getPlayer()?unit->getPlayer()->getID():0},
@@ -1448,7 +1453,7 @@ private:
         const auto buildUS = perfStart ? (bridge_perf::nowNS()-perfStart)/1000 : 0;
         send("combat.snapshot",{{"seq",++snapshotSequence_},{"bw_tick",frame},
             {"unit_total",total},{"unit_omitted",std::max(0,total-static_cast<int>(units.size()))},
-            {"units",units}},revision_,frame,buildUS);
+            {"units",units}},revision_,frame,buildUS,attacking);
     }
     int socket_=-1,width_=0,height_=0;
     bool ready_=false,initializing_=false; uint64_t revision_=1,sequence_=0,event_=0,snapshotSequence_=0;
