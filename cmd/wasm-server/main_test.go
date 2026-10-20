@@ -147,6 +147,53 @@ func TestPrivateParkSessionStatus(t *testing.T) {
 	}
 }
 
+func TestPrivateSaveUploadRequiresOwnerAndForwardsOnlyToSupervisor(t *testing.T) {
+	t.Setenv("BRIDGE_SESSION_OWNER_TOKEN", "test-owner-token")
+	directory, err := os.MkdirTemp("", "sc-sock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(directory)
+	path := filepath.Join(directory, "s")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/upload" || r.Header.Get("X-StarCoaster-Filename") != "selected.sv6" {
+			t.Errorf("unexpected upload metadata: %s %s", r.URL.Path, r.Header.Get("X-StarCoaster-Filename"))
+		}
+		bytes, _ := io.ReadAll(r.Body)
+		if string(bytes) != "save bytes" {
+			t.Errorf("upload body changed: %q", bytes)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, `{"park":"private-id.sv6"}`)
+	})}
+	go func() { _ = backend.Serve(listener) }()
+	defer backend.Close()
+	server := httptest.NewServer(handler(t.TempDir(), "127.0.0.1:11753", nil, path))
+	defer server.Close()
+	request := func(token string) int {
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/private/park-session/upload", strings.NewReader("save bytes"))
+		req.Header.Set("Origin", server.URL)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-StarCoaster-Filename", "selected.sv6")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		return res.StatusCode
+	}
+	if got := request("wrong"); got != http.StatusUnauthorized {
+		t.Fatalf("unauthorized upload: %d", got)
+	}
+	if got := request("test-owner-token"); got != http.StatusAccepted {
+		t.Fatalf("authorized upload: %d", got)
+	}
+}
+
 func TestPrivateLicensedProvisioning(t *testing.T) {
 	root := t.TempDir()
 	for name, contents := range map[string]string{

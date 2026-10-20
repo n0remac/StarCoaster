@@ -44,6 +44,7 @@ class ParkSessionSupervisor:
         self.browser = None
         self.start_browser = start_browser
         self.cancel_pending = False
+        self.last_upload_cleanup = 0.0
         self.socket_path = self.runtime / "control.sock"
         self.runtime.mkdir(parents=True, exist_ok=True)
         token_path = self.runtime / "owner-token"
@@ -122,6 +123,7 @@ class ParkSessionSupervisor:
         with self.lock:
             if self.phase not in ("idle", "ready"):
                 raise ValueError("park_transition_busy")
+        self.cleanup_uploads()
         directory = self.runtime / "uploads"
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         name = uuid.uuid4().hex + Path(filename).suffix.lower()
@@ -146,6 +148,19 @@ class ParkSessionSupervisor:
         # Full format and geometry validation occurs in prepare() through
         # OpenRCT2 before the active game can be stopped.
         return {"park": name}
+
+    def cleanup_uploads(self):
+        now = time.time()
+        if now - self.last_upload_cleanup < 60:
+            return
+        self.last_upload_cleanup = now
+        directory = self.runtime / "uploads"
+        if not directory.is_dir():
+            return
+        for candidate in directory.iterdir():
+            if (candidate.is_file() and not candidate.is_symlink() and candidate.name != self.pending
+                    and now - candidate.stat().st_mtime > 900):
+                candidate.unlink(missing_ok=True)
 
     def prepare(self, name):
         generation = uuid.uuid4().hex
@@ -222,15 +237,18 @@ class ParkSessionSupervisor:
 
     def await_ready(self, process, log_path, timeout=150):
         deadline = time.monotonic() + timeout
-        marker = b"WORLD_SCENARIO_STATUS scenario="
+        status_marker = b"WORLD_SCENARIO_STATUS scenario="
+        ready_marker = b"WORLD_READY entities="
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 lines = log_path.read_text(errors="replace").splitlines()[-20:]
                 errors = [line for line in lines if "Error:" in line or "WORLD_ERROR" in line]
                 raise RuntimeError("native session exited before readiness: "
                                    + (errors[-1] if errors else "see " + str(log_path)))
-            if log_path.exists() and marker in log_path.read_bytes():
-                return
+            if log_path.exists():
+                output = log_path.read_bytes()
+                if status_marker in output and ready_marker in output and b"navigation=native" in output:
+                    return
             time.sleep(.3)
         raise RuntimeError("new game session did not synchronize both OpenBW participants")
 
@@ -457,6 +475,7 @@ def main():
         supervisor.start_wasm()
         supervisor.start_initial()
         while supervisor.browser is None or supervisor.browser.poll() is None:
+            supervisor.cleanup_uploads()
             # A transition intentionally stops the old session before the new
             # one is ready. Only a stopped session in the ready phase is fatal.
             if supervisor.ready_session_exited():

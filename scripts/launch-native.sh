@@ -19,6 +19,13 @@ test -d "$game_data" || {
 }
 mkdir -p "$user_data/plugin"
 cp "$project_dir/openrct2-plugin/rts-bridge.js" "$user_data/plugin/rts-bridge.js"
+owner_token_file="${STARCOASTER_OWNER_TOKEN_FILE:-$project_dir/run-data/park-supervisor/owner-token}"
+if [[ -z "${STARCOASTER_CONTROL_URL:-}" && -r "$owner_token_file" ]]; then
+    export STARCOASTER_CONTROL_URL="http://127.0.0.1:8091"
+fi
+if [[ -n "${STARCOASTER_CONTROL_URL:-}" && -z "${BRIDGE_SESSION_OWNER_TOKEN:-}" && -r "$owner_token_file" ]]; then
+    export BRIDGE_SESSION_OWNER_TOKEN="$(cat "$owner_token_file")"
+fi
 exec "$project_dir/build/openrct2/openrct2" \
     --rct2-data-path="$(realpath "$game_data")" \
     --openrct2-data-path="$openrct2_data" \

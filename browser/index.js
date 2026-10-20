@@ -172,6 +172,105 @@
         const module = await window.OPENRCT2_WEB(runtimeOptions);
         window.Module = module;
         const fs = module.FS;
+        let sessionGeneration = "";
+        let mapLoadPending = false;
+        let ownerToken = sessionStorage.getItem("starcoaster-owner-token") || "";
+        const sessionStatus = async () => {
+            const response = await fetch("/private/park-session", { cache: "no-store" });
+            if (!response.ok) throw new Error(`Session status: HTTP ${response.status}`);
+            return response.json();
+        };
+        const ownerRequest = async (route, body, filename = "") => {
+            if (!ownerToken) {
+                ownerToken = window.prompt("Enter the StarCoaster session owner token from the Pi:") || "";
+                if (!ownerToken) throw new Error("A session owner token is required to select a map.");
+                sessionStorage.setItem("starcoaster-owner-token", ownerToken);
+            }
+            const response = await fetch(`/private/park-session/${route}`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${ownerToken}`,
+                    "Content-Type": route === "upload" ? "application/octet-stream" : "application/json",
+                    ...(filename ? { "X-StarCoaster-Filename": filename } : {}),
+                },
+                body,
+            });
+            if (response.status === 401) {
+                sessionStorage.removeItem("starcoaster-owner-token");
+                ownerToken = "";
+                throw new Error("The session owner token was rejected. Select the map again to retry.");
+            }
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || `${route}: HTTP ${response.status}`);
+            return result;
+        };
+        let backendAvailable = false;
+        try {
+            const initialState = await sessionStatus();
+            sessionGeneration = initialState.generation || "";
+            backendAvailable = manifest.network_enabled;
+        } catch (_) {}
+        if (backendAvailable) {
+            window.starcoasterMapLoad = (path, isScenario) => {
+                if (mapLoadPending) return;
+                const filename = path.split(/[\\/]/).pop();
+                // The Emscripten file picker removes the temporary file as
+                // soon as its callback returns, so copy bytes before awaiting.
+                let saveBytes = null;
+                try { if (!isScenario) saveBytes = fs.readFile(path); }
+                catch (error) {
+                    status.classList.add("error");
+                    document.body.appendChild(status);
+                    setStatus(`Cannot read selected save: ${error.message || error}`);
+                    return;
+                }
+                mapLoadPending = true;
+                status.classList.remove("error");
+                document.body.appendChild(status);
+                setStatus(`Preparing ${filename} on the authoritative host…`);
+                (async () => {
+                    const before = await sessionStatus();
+                    let park = filename;
+                    if (saveBytes) {
+                        const suffix = filename.match(/\.(park|sc6|sc4|sv6|sv4)$/i)?.[0];
+                        if (!suffix) throw new Error("Unsupported OpenRCT2 save format.");
+                        const uploaded = await ownerRequest("upload", saveBytes, `selected${suffix}`);
+                        park = uploaded.park;
+                    }
+                    await ownerRequest("load", JSON.stringify({park, decision: "discard", generation: before.generation || ""}));
+                    const deadline = Date.now() + 240000;
+                    while (Date.now() < deadline) {
+                        await new Promise((resolve) => setTimeout(resolve, 500));
+                        const current = await sessionStatus();
+                        if (current.phase === "ready" && current.generation !== before.generation) {
+                            sessionGeneration = current.generation;
+                            setStatus("Joining authoritative OpenRCT2 session…");
+                            module.ccall("StarCoasterJoin", null, [], []);
+                            status.remove();
+                            canvas.focus();
+                            return;
+                        }
+                        if (current.error && (current.phase === "idle" || current.phase === "failed" ||
+                            current.phase === "ready" && current.generation === before.generation))
+                            throw new Error(current.error);
+                    }
+                    throw new Error("The authoritative game did not become ready in time.");
+                })().catch((error) => {
+                    status.classList.add("error");
+                    setStatus(`StarCoaster synchronization failed: ${error.message || error}`);
+                }).finally(() => { mapLoadPending = false; });
+            };
+            window.starcoasterReturnToTitle = () => {
+                if (!sessionGeneration) return;
+                ownerRequest("title", JSON.stringify({ generation: sessionGeneration }))
+                    .then(() => { sessionGeneration = ""; })
+                    .catch((error) => {
+                        status.classList.add("error");
+                        document.body.appendChild(status);
+                        setStatus(`StarCoaster session cleanup failed: ${error.message || error}`);
+                    });
+            };
+        }
         for (const path of ["/persistent", "/RCT", "/OpenRCT2"]) {
             ensureDir(fs, path);
             // The engine's user data changes during play. The two asset trees
@@ -261,6 +360,11 @@
         if (new URLSearchParams(window.location.search).has("verbose")) startupArgs.push("--verbose");
         module.callMain(startupArgs);
         status.remove();
+        if (!backendAvailable && manifest.network_enabled) {
+            status.classList.add("warning");
+            setStatus("StarCoaster host unavailable. Local OpenRCT2 can load parks; StarCraft synchronization is offline.");
+            document.body.appendChild(status);
+        }
         canvas.focus();
     } catch (error) {
         fail(error);

@@ -1,0 +1,306 @@
+diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
+--- a/src/openrct2/Game.cpp
++++ b/src/openrct2/Game.cpp
+@@ -27,6 +27,8 @@
+ #include "core/File.h"
+ #include "core/FileScanner.h"
+ #include "core/FileSystem.hpp"
++#include "core/Http.h"
++#include "core/Json.hpp"
+ #include "core/Path.hpp"
+ #include "core/String.hpp"
+ #include "drawing/Palette.h"
+@@ -55,6 +57,17 @@
+ #include "world/tile_element/SurfaceElement.h"
+ 
+ #include <memory>
++#include <chrono>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <future>
++#include <thread>
++#include <utility>
++
++#ifdef __EMSCRIPTEN__
++    #include <emscripten.h>
++#endif
+ 
+ using namespace OpenRCT2;
+ 
+@@ -78,6 +91,183 @@
+ 
+ bool gLoadKeepWindowsOpen = false;
+ 
++namespace
++{
++    struct StarCoasterResult
++    {
++        std::string generation;
++        std::string error;
++    };
++    std::future<StarCoasterResult> starCoasterWorker;
++    std::string starCoasterGeneration;
++
++#if !defined(__EMSCRIPTEN__) && !defined(DISABLE_HTTP)
++    std::string StarCoasterControlURL()
++    {
++        const char* value = std::getenv("STARCOASTER_CONTROL_URL");
++        return value == nullptr ? "" : value;
++    }
++
++    std::string StarCoasterOwnerToken()
++    {
++        const char* value = std::getenv("BRIDGE_SESSION_OWNER_TOKEN");
++        return value == nullptr ? "" : value;
++    }
++
++    json_t StarCoasterRequest(const std::string& url, const std::string& route, const std::string& token,
++                              OpenRCT2::Http::Method method = OpenRCT2::Http::Method::get,
++                              const std::string& body = "", const std::string& filename = "")
++    {
++        OpenRCT2::Http::Request request;
++        request.url = url + "/private/park-session" + route;
++        request.method = method;
++        request.body = body;
++        if (method == OpenRCT2::Http::Method::post)
++        {
++            request.header["Authorization"] = "Bearer " + token;
++            request.header["Content-Type"] = filename.empty() ? "application/json" : "application/octet-stream";
++            auto authorityEnd = url.find('/', url.find("://") + 3);
++            request.header["Origin"] = url.substr(0, authorityEnd);
++            if (!filename.empty())
++                request.header["X-StarCoaster-Filename"] = filename;
++        }
++        auto response = OpenRCT2::Http::Do(request);
++        if (static_cast<int>(response.status) < 200 || static_cast<int>(response.status) >= 300)
++        {
++            std::string reason = response.error.empty() ? response.body : response.error;
++            throw std::runtime_error("authoritative session request failed: " + reason.substr(0, 240));
++        }
++        return OpenRCT2::Json::FromString(response.body);
++    }
++#endif
++}
++
++bool StarCoasterRequestMapLoad(const char* path, bool scenario)
++{
++#ifdef __EMSCRIPTEN__
++    return MAIN_THREAD_EM_ASM_INT({
++        if (!window.starcoasterMapLoad) return 0;
++        window.starcoasterMapLoad(UTF8ToString($0), $1 !== 0);
++        return 1;
++    }, path, scenario ? 1 : 0) != 0;
++#elif !defined(DISABLE_HTTP)
++    const auto url = StarCoasterControlURL();
++    if (url.empty())
++        return false;
++    if (starCoasterWorker.valid())
++        return true;
++    const auto source = std::string(path);
++    const auto token = StarCoasterOwnerToken();
++    starCoasterWorker = std::async(std::launch::async, [url, source, scenario, token]() -> StarCoasterResult {
++        try
++        {
++            if (token.size() < 32)
++                throw std::runtime_error("session owner token is missing");
++            auto before = StarCoasterRequest(url, "", token);
++            const auto previous = before.value("generation", std::string());
++            auto name = std::filesystem::path(source).filename().string();
++            if (!scenario)
++            {
++                std::ifstream file(source, std::ios::binary | std::ios::ate);
++                if (!file)
++                    throw std::runtime_error("cannot read selected save");
++                auto size = file.tellg();
++                if (size < 4 || size > 64 * 1024 * 1024)
++                    throw std::runtime_error("selected save exceeds the 64 MiB upload limit");
++                std::string bytes(static_cast<size_t>(size), '\0');
++                file.seekg(0);
++                file.read(bytes.data(), bytes.size());
++                auto suffix = std::filesystem::path(source).extension().string();
++                auto uploaded = StarCoasterRequest(url, "/upload", token, OpenRCT2::Http::Method::post,
++                                                   bytes, "selected" + suffix);
++                name = uploaded.value("park", std::string());
++            }
++            json_t selection = { { "park", name }, { "decision", "discard" }, { "generation", previous } };
++            StarCoasterRequest(url, "/load", token, OpenRCT2::Http::Method::post, selection.dump());
++            for (int attempt = 0; attempt < 480; ++attempt)
++            {
++                std::this_thread::sleep_for(std::chrono::milliseconds(500));
++                auto state = StarCoasterRequest(url, "", token);
++                auto phase = state.value("phase", std::string());
++                auto generation = state.value("generation", std::string());
++                if (phase == "ready" && !generation.empty() && generation != previous)
++                    return { generation, "" };
++                auto error = state.value("error", std::string());
++                if (!error.empty() && (phase == "failed" || phase == "idle" || phase == "ready"))
++                    throw std::runtime_error(error);
++            }
++            throw std::runtime_error("authoritative session did not become ready in time");
++        }
++        catch (const std::exception& error)
++        {
++            return { "", error.what() };
++        }
++    });
++    return true;
++#else
++    return false;
++#endif
++}
++
++void StarCoasterSessionTick()
++{
++#if !defined(__EMSCRIPTEN__) && !defined(DISABLE_HTTP)
++    if (!starCoasterWorker.valid() || starCoasterWorker.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
++        return;
++    auto result = starCoasterWorker.get();
++    if (!result.error.empty())
++    {
++        OpenRCT2::Console::Error::WriteLine("StarCoaster synchronization failed: %s", result.error.c_str());
++        ContextShowError(STR_UNABLE_TO_CONNECT_TO_SERVER, kStringIdNone, {});
++        return;
++    }
++    if (OpenRCT2::Network::GetMode() == OpenRCT2::Network::Mode::client)
++        OpenRCT2::Network::ShutdownClient();
++    starCoasterGeneration = result.generation;
++    const char* host = std::getenv("STARCOASTER_MULTIPLAYER_HOST");
++    const char* portValue = std::getenv("STARCOASTER_MULTIPLAYER_PORT");
++    int port = portValue == nullptr ? OpenRCT2::Network::kDefaultPort : std::atoi(portValue);
++    if (port < 1 || port > 65535)
++        port = OpenRCT2::Network::kDefaultPort;
++    if (!OpenRCT2::Network::BeginClient(host == nullptr ? "127.0.0.1" : host, port))
++        ContextShowError(STR_UNABLE_TO_CONNECT_TO_SERVER, kStringIdNone, {});
++#endif
++}
++
++void StarCoasterReturnToTitle()
++{
++#ifdef __EMSCRIPTEN__
++    MAIN_THREAD_EM_ASM({ if (window.starcoasterReturnToTitle) window.starcoasterReturnToTitle(); });
++#elif !defined(DISABLE_HTTP)
++    if (starCoasterGeneration.empty())
++        return;
++    const auto generation = std::exchange(starCoasterGeneration, std::string());
++    const auto url = StarCoasterControlURL();
++    const auto token = StarCoasterOwnerToken();
++    std::thread([url, token, generation] {
++        try
++        {
++            json_t request = { { "generation", generation } };
++            StarCoasterRequest(url, "/title", token, OpenRCT2::Http::Method::post, request.dump());
++        }
++        catch (const std::exception& error)
++        {
++            OpenRCT2::Console::Error::WriteLine("StarCoaster title cleanup failed: %s", error.what());
++        }
++    }).detach();
++#endif
++}
++
++#ifdef __EMSCRIPTEN__
++extern "C" EMSCRIPTEN_KEEPALIVE void StarCoasterJoin()
++{
++    if (OpenRCT2::Network::GetMode() == OpenRCT2::Network::Mode::client)
++        OpenRCT2::Network::ShutdownClient();
++    if (!OpenRCT2::Network::BeginClient("127.0.0.1", OpenRCT2::Network::kDefaultPort))
++        ContextShowError(STR_UNABLE_TO_CONNECT_TO_SERVER, kStringIdNone, {});
++}
++#endif
++
+ uint32_t gCurrentRealTimeTicks;
+ 
+ #ifdef ENABLE_SCRIPTING
+@@ -664,6 +854,8 @@
+ 
+ static void NewGameWindowCallback(const utf8* path)
+ {
++    if (StarCoasterRequestMapLoad(path, true))
++        return;
+     // Closing this will cause a Ride window to pop up, so we have to do this to ensure that
+     // no windows are open (besides the toolbars and LoadSave window).
+     auto* windowMgr = Ui::GetWindowManager();
+@@ -710,6 +902,7 @@
+         }
+         case PromptMode::saveBeforeQuit:
+         {
++            StarCoasterReturnToTitle();
+             auto loadOrQuitAction = GameActions::LoadOrQuitAction(GameActions::LoadOrQuitModes::closeSavePrompt);
+             GameActions::Execute(&loadOrQuitAction, gameState);
+             ToolCancel();
+diff --git a/src/openrct2/Game.h b/src/openrct2/Game.h
+--- a/src/openrct2/Game.h
++++ b/src/openrct2/Game.h
+@@ -77,6 +77,13 @@
+ void GameUnloadScripts();
+ void GameNotifyMapChange();
+ void GameNotifyMapChanged();
++// StarCoaster's graphical client handoff; false keeps ordinary local loading.
++bool StarCoasterRequestMapLoad(const char* path, bool scenario);
++void StarCoasterSessionTick();
++void StarCoasterReturnToTitle();
++#ifdef __EMSCRIPTEN__
++extern "C" void StarCoasterJoin();
++#endif
+ void PauseToggle();
+ bool GameIsPaused();
+ bool GameIsNotPaused();
+diff --git a/src/openrct2/Context.cpp b/src/openrct2/Context.cpp
+--- a/src/openrct2/Context.cpp
++++ b/src/openrct2/Context.cpp
+@@ -1280,6 +1280,7 @@
+             UpdateTimeAccumulators(deltaTime);
+ 
+             Network::Update();
++            StarCoasterSessionTick();
+ 
+             if (useVariableFrame)
+             {
+diff --git a/src/openrct2-ui/windows/TitleMenu.cpp b/src/openrct2-ui/windows/TitleMenu.cpp
+--- a/src/openrct2-ui/windows/TitleMenu.cpp
++++ b/src/openrct2-ui/windows/TitleMenu.cpp
+@@ -64,6 +64,8 @@
+ 
+     static void WindowTitleMenuScenarioselectCallback(const utf8* path)
+     {
++        if (StarCoasterRequestMapLoad(path, true))
++            return;
+         GameNotifyMapChange();
+         GetContext()->LoadParkFromFile(path, false, true);
+         GameLoadScripts();
+diff --git a/src/openrct2-ui/interface/FileBrowser.cpp b/src/openrct2-ui/interface/FileBrowser.cpp
+--- a/src/openrct2-ui/interface/FileBrowser.cpp
++++ b/src/openrct2-ui/interface/FileBrowser.cpp
+@@ -281,6 +281,11 @@
+                 {
+                     case (LoadSaveType::park):
+                     {
++                        if (StarCoasterRequestMapLoad(pathBuffer, false))
++                        {
++                            windowMgr->CloseByClass(WindowClass::loadsave);
++                            break;
++                        }
+                         SetAndSaveConfigPath(Config::Get().general.lastSaveGameDirectory, pathBuffer);
+                         if (GetContext()->LoadParkFromFile(pathBuffer))
+                         {
+diff --git a/emscripten/deps.js b/emscripten/deps.js
+--- a/emscripten/deps.js
++++ b/emscripten/deps.js
+@@ -81,7 +81,7 @@
+                             description: "Park File",
+                             accept: {
+                                 "application/octet-stream": [
+-                                    ".park"
++                                    ".park", ".sc6", ".sc4", ".sv6", ".sv4"
+                                 ]
+                             }
+                         },
+@@ -117,6 +117,7 @@
+         }
+         const input = document.createElement("input");
+         input.type = "file";
++        input.accept = type === 0 ? ".park,.sc6,.sc4,.sv6,.sv4" : ".td6";
+         input.addEventListener("change", async () => {
+             const file = input.files[0];
+             if (!file) return;
