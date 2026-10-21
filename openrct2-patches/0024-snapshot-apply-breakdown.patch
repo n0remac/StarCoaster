@@ -1,0 +1,51 @@
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -148,14 +148,17 @@
+     next->session = std::move(session);
+     next->seq = seq;
+     next->actors = std::move(actors);
++    const auto allocatedNS = perfStart ? BridgePerf::nowNS() : 0;
+     std::sort(next->actors.begin(), next->actors.end(), [](const auto& a, const auto& b) { return a.id < b.id; });
+     const auto sortedNS = perfStart ? BridgePerf::nowNS() : 0;
+     std::map<std::string, BridgeActor> oldActors;
+     if (previous->session == next->session)
+         for (const auto& actor : previous->actors)
+             oldActors.emplace(actor.id, actor);
++    const auto previousIndexNS = perfStart ? BridgePerf::nowNS() : 0;
+     const auto tick = getGameState().currentTicks;
+     int64_t indexUS = 0;
++    int64_t compareUS = 0;
+     for (size_t index = 0; index < next->actors.size(); ++index)
+     {
+         const auto& actor = next->actors[index];
+@@ -164,6 +167,7 @@
+         visual.previousY = actor.y;
+         visual.animationStartTick = tick - BridgePhase(actor.id);
+         visual.blendStartTick = tick;
++        const auto compareStart = perfStart ? BridgePerf::nowNS() : 0;
+         const auto old = oldActors.find(actor.id);
+         if (old != oldActors.end())
+         {
+@@ -189,6 +193,7 @@
+         if (actor.kind == "terran_firebat" && actor.motion == "attack" && actor.attackFrames > 0
+             && (old == oldActors.end() || old->second.motion != "attack" || actor.attackFrames != old->second.attackFrames))
+             visual.flameStartTick = tick;
++        if (compareStart) compareUS += (BridgePerf::nowNS() - compareStart) / 1000;
+         next->visual.emplace(actor.id, visual);
+         const auto indexStart = perfStart ? BridgePerf::nowNS() : 0;
+         for (int32_t tileX = std::min(actor.x, visual.previousX) / 32; tileX <= std::max(actor.x, visual.previousX) / 32; ++tileX)
+@@ -229,8 +234,11 @@
+     {
+         const auto doneNS = BridgePerf::nowNS();
+         BridgePerf::event("snapshot_apply", seq, next->actors.size(), (doneNS - perfStart) / 1000);
+-        BridgePerf::event("snapshot_sort", seq, next->actors.size(), (sortedNS - perfStart) / 1000);
+-        BridgePerf::event("snapshot_visual", seq, next->actors.size(), (visualNS - sortedNS) / 1000 - indexUS);
++        BridgePerf::event("snapshot_allocate", seq, next->actors.size(), (allocatedNS - perfStart) / 1000);
++        BridgePerf::event("snapshot_sort", seq, next->actors.size(), (sortedNS - allocatedNS) / 1000);
++        BridgePerf::event("snapshot_previous_index", seq, next->actors.size(), (previousIndexNS - sortedNS) / 1000);
++        BridgePerf::event("snapshot_state_compare", seq, next->actors.size(), compareUS);
++        BridgePerf::event("snapshot_visual", seq, next->actors.size(), (visualNS - previousIndexNS) / 1000 - compareUS - indexUS);
+         BridgePerf::event("snapshot_index", seq, next->actors.size(), indexUS);
+         BridgePerf::event("snapshot_invalidate", seq, next->actors.size(), (invalidatedNS - visualNS) / 1000);
+         BridgePerf::event("snapshot_log", seq, next->actors.size(), (doneNS - invalidatedNS) / 1000);

@@ -297,6 +297,12 @@ def summarize_case(events, system, network, case):
     render_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in render if event.get("elapsed_ns", 0) > 0]
     rendered_frames = sum(event.get("frames", 0) for event in render)
     rendered_bridge_actors = sum(event.get("actors_painted", 0) for event in render)
+    def client_stage_ms(stage):
+        return distribution([event["duration_us"] / 1000 for event in selected
+                             if event.get("stage") == stage and event.get("role") == client_role
+                             and event.get("duration_us") is not None])
+    def render_ms_per_frame(key):
+        return sum(event.get(key, 0) for event in render) / 1000 / rendered_frames if rendered_frames else None
     if case["client"] in ("local", "remote") and case["count"] > 0 and render:
         if case["paint"] == "suppressed" and rendered_bridge_actors:
             errors.append("paint_suppression_failed")
@@ -475,8 +481,20 @@ def summarize_case(events, system, network, case):
                                                     / rendered_frames if rendered_frames else None),
             "client_actors_considered":sum(event.get("actors_considered",0) for event in render),
             "client_actors_painted":rendered_bridge_actors,
-            "client_paint_ms_per_frame":(sum(event.get("paint_us",0) for event in render)
-                                         / 1000 / rendered_frames if rendered_frames else None),
+            "client_paint_ms_per_frame":render_ms_per_frame("paint_us"),
+            "client_sprite_ms_per_frame":render_ms_per_frame("sprite_us"),
+            "client_health_ms_per_frame":render_ms_per_frame("health_us"),
+            "client_invalidation_ms_per_frame":render_ms_per_frame("invalidation_us"),
+            "client_animation_ms_per_frame":render_ms_per_frame("animation_us"),
+            "client_snapshot_allocate_ms":client_stage_ms("snapshot_allocate"),
+            "client_snapshot_sort_ms":client_stage_ms("snapshot_sort"),
+            "client_snapshot_previous_index_ms":client_stage_ms("snapshot_previous_index"),
+            "client_snapshot_state_compare_ms":client_stage_ms("snapshot_state_compare"),
+            "client_snapshot_visual_ms":client_stage_ms("snapshot_visual"),
+            "client_snapshot_index_ms":client_stage_ms("snapshot_index"),
+            "client_snapshot_invalidate_ms":client_stage_ms("snapshot_invalidate"),
+            "client_snapshot_log_ms":client_stage_ms("snapshot_log"),
+            "client_snapshot_js_convert_ms":client_stage_ms("snapshot_js_convert"),
             "openbw_frame_work_p95_ms_windows":distribution(bw_work_p95),
             "openbw_sleep_ms_per_frame_windows":distribution(bw_sleep_per_frame),
             "openbw_mean_work_ms_per_frame_windows":distribution(bw_mean_work_per_frame),
@@ -693,6 +711,24 @@ def report(summary):
                      f"{fmt(case['client_invalidation_calls_per_frame'])} | "
                      f"{case['client_actors_considered']} | {case['client_actors_painted']} | "
                      f"{fmt(case['client_paint_ms_per_frame'])} |")
+    lines += ["", "| Case | JS conversion p95 ms | Allocate p95 ms | Sort p95 ms | Previous-state index p95 ms | State compare p95 ms | Visual state p95 ms | Tile index p95 ms | Snapshot invalidation p95 ms | Snapshot logging p95 ms | Invalidation ms/frame | Animation ms/frame | Sprite ms/frame | Health bar ms/frame |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for case in summary["cases"]:
+        lines.append("| " + " | ".join([case["label"],
+            fmt(case["client_snapshot_js_convert_ms"]["p95"]),
+            fmt(case["client_snapshot_allocate_ms"]["p95"]),
+            fmt(case["client_snapshot_sort_ms"]["p95"]),
+            fmt(case["client_snapshot_previous_index_ms"]["p95"]),
+            fmt(case["client_snapshot_state_compare_ms"]["p95"]),
+            fmt(case["client_snapshot_visual_ms"]["p95"]),
+            fmt(case["client_snapshot_index_ms"]["p95"]),
+            fmt(case["client_snapshot_invalidate_ms"]["p95"]),
+            fmt(case["client_snapshot_log_ms"]["p95"]),
+            fmt(case["client_invalidation_ms_per_frame"]),
+            fmt(case["client_animation_ms_per_frame"]),
+            fmt(case["client_sprite_ms_per_frame"]),
+            fmt(case["client_health_ms_per_frame"])]) + " |")
+    lines += ["", "Paint time includes tile lookup and actor consideration; suppressed painting skips sprite and health-bar drawing after the actor-position check."]
     lines += ["", "## Network diagnostics", "",
               "| Case | RTT p95 ms | RTT variation ms | Lost probes | Direct | DERP | WS interruptions | WebSocket received KiB/s median |",
               "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
