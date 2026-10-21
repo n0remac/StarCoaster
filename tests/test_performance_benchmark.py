@@ -163,6 +163,16 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         self.assertEqual(.5, result["client_fps"]["median"])
         self.assertEqual(30, result["client_fps_active_windows"]["median"])
 
+    def test_process_role_cpu_aggregates_all_chromium_children(self):
+        case = {"label":"cpu","count":0,"workload":"idle","camera":"visible",
+                "paint":"normal","client":"none","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000000}
+        system = [{"case":"cpu","source":"pi","processes":[
+            {"role":"local-chromium","cpu_percent_one_core":20},
+            {"role":"local-chromium","cpu_percent_one_core":30}]}]
+        result = benchmark["summarize_case"]([],system,[],case)
+        self.assertEqual(50, result["cpu_percent_one_core"]["local-chromium"]["median"])
+
     def test_overhead_pair_compares_matching_workloads(self):
         template = {"count":50,"workload":"fighting","camera":"visible","paint":"normal",
                     "client":"local","valid":True}

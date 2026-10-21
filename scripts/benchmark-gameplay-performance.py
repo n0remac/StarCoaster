@@ -324,9 +324,12 @@ def summarize_case(events, system, network, case):
         prior_stall = value
     cpu = {}
     for sample in pi:
+        by_role = {}
         for process in sample.get("processes", []):
             if process.get("cpu_percent_one_core") is not None:
-                cpu.setdefault(process["role"], []).append(process["cpu_percent_one_core"])
+                by_role[process["role"]] = by_role.get(process["role"], 0) + process["cpu_percent_one_core"]
+        for role,total in by_role.items():
+            cpu.setdefault(role, []).append(total)
     baseline = case.get("diagnostic_level") == "baseline"
     if omitted: errors.append("snapshot_omitted_units")
     if not baseline and case["workload"] == "fighting" and snapshots and not any(attack_samples):
