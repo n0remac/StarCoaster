@@ -77,6 +77,9 @@ revision.
 
 ## Remote laptop
 
+The [laptop agent handoff](gameplay-performance-laptop-agent.md) gives a
+step-by-step remote run, validity checks, and evidence requirements.
+
 The laptop needs an SSH-reachable checkout, Chromium, the browser test's Node
 dependencies, and access to the **private** Pi HTTPS origin that points to
 the isolated benchmark gateway. Do not use Tailscale Funnel. Run a case with
