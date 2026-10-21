@@ -72,6 +72,24 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         ]
         result = benchmark["summarize_case"](events,[],[],case)
         self.assertEqual(60, result["command_to_visible_ms"]["median"])
+        self.assertEqual(60, result["command_to_presented_state_ms"]["median"])
+
+    def test_offscreen_command_keeps_long_presented_delay_distinct_from_visibility(self):
+        case = {"label":"offscreen","count":25,"workload":"moving","camera":"away",
+                "paint":"normal","client":"local","measure":60,"errors":[],
+                "browser_window":{"start":1000,"end":100000},
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000000000}
+        events = [
+            {"case":"offscreen","clock_domain":"browser-monotonic","wall_ms":1001,
+             "stage":"command_input","request_id":7,"mono_ms":1000},
+            {"case":"offscreen","clock_domain":"pi-monotonic","stage":"command_first_movement",
+             "request_id":7,"seq":9,"mono_ns":2000},
+            {"case":"offscreen","clock_domain":"browser-monotonic","wall_ms":39000,
+             "stage":"snapshot_present","seq":9,"mono_ns":39000000000},
+        ]
+        result = benchmark["summarize_case"](events,[],[],case)
+        self.assertEqual(38000, result["command_to_presented_state_ms"]["median"])
+        self.assertEqual(0, result["command_to_visible_ms"]["count"])
 
     def test_delayed_browser_console_delivery_uses_native_event_time(self):
         case = {"label":"delayed","count":10,"workload":"idle","camera":"visible",

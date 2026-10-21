@@ -352,13 +352,14 @@ def summarize_case(events, system, network, case):
     latest_published = max((event.get("seq",0) for event in snapshots),default=None)
     latest_applied = max((event.get("seq",0) for event in client_applied),default=None)
     latest_presented = max((event.get("seq",0) for event in client_presents),default=None)
-    command_visible = []
+    command_presented = []
     for move in first_moves:
         sent = command_inputs.get(move.get("request_id"))
         shown = next((event for event in client_presents if event.get("seq",0) >= move.get("seq",0)),None)
         if sent and shown:
             duration = shown.get("mono_ns",0)/1e6 - sent.get("mono_ms",0)
-            if 0 <= duration < 30000: command_visible.append(duration)
+            if 0 <= duration < 600000: command_presented.append(duration)
+    command_visible = command_presented if case["camera"] == "visible" and case["paint"] == "normal" else []
     return {"label":case["label"],"count":case["count"],"workload":case["workload"],
             "camera":case["camera"],"paint":case["paint"],"client":case["client"],
             "diagnostic_level":case.get("diagnostic_level","full"),
@@ -378,9 +379,11 @@ def summarize_case(events, system, network, case):
             "snapshot_to_bridge_ms":distribution(snapshot_to_bridge),
             "bridge_to_plugin_ms":distribution(bridge_to_plugin),
             "command_to_visible_ms":distribution(command_visible),
+            "command_to_presented_state_ms":distribution(command_presented),
             "command_inputs_observed":len(command_inputs),
             "command_first_moves_observed":len(first_moves),
             "command_visible_observed":len(command_visible),
+            "command_presented_state_observed":len(command_presented),
             "latest_snapshot_seq_published":latest_published,
             "latest_snapshot_seq_client_applied":latest_applied,
             "latest_snapshot_seq_client_presented":latest_presented,
@@ -517,7 +520,7 @@ def report(summary):
             fmt(case["client_frame_p95_ms_windows"]["median"]),fmt(case["snapshot_bytes"]["median"]),
             fmt(case["max_temperature_c"]),fmt(case["tailscale_rtt_ms"]["median"])]) + " |")
     lines += ["", "## Pipeline and resources", "",
-              "| Case | Server ticks/s | Tick overruns | Snapshots/s | Unapplied snapshots | Applied not presented | BW→Go p95 ms | Go→plugin p95 ms | Native apply p95 ms | WS KiB/s median | Command→visible p95 ms | RTT variation ms |",
+              "| Case | Server ticks/s | Tick overruns | Snapshots/s | Unapplied snapshots | Applied not presented | BW→Go p95 ms | Go→plugin p95 ms | Native apply p95 ms | WS KiB/s median | Command→presented p95 ms | Command→visible p95 ms | RTT variation ms |",
               "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for case in summary["cases"]:
         apply = case["timing"].get("snapshot_apply.duration_us",{}).get("p95")
@@ -527,6 +530,7 @@ def report(summary):
             fmt(case["unapplied_snapshots_at_end"]),fmt(case["applied_not_presented_at_end"]),
             fmt(case["snapshot_to_bridge_ms"]["p95"]),fmt(case["bridge_to_plugin_ms"]["p95"]),
             fmt(apply / 1000 if apply is not None else None),fmt(ws / 1024 if ws is not None else None),
+            fmt(case["command_to_presented_state_ms"]["p95"]),
             fmt(case["command_to_visible_ms"]["p95"]),fmt(case["tailscale_rtt_variation_ms"])]) + " |")
     lines += ["", "| Case | Pi process CPU median (% of one core) | Client CPU median (% of one core) | Client RSS max MiB | Pi free memory min GiB | Pi network KiB/s median | Native units min–max | Snapshot p95 bytes | Client frame window p99 ms | Omitted actors |",
               "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"]
@@ -559,11 +563,12 @@ def report(summary):
                      f"{case['tailscale_paths']['direct']} | {case['tailscale_paths']['derp']} | "
                      f"{fmt(case['browser_websocket_interruptions'])} | "
                      f"{fmt(ws_bytes / 1024 if ws_bytes is not None else None)} |")
-    lines += ["", "| Case | Input commands | Native first movements | Movements displayed |",
-              "| --- | ---: | ---: | ---: |"]
+    lines += ["", "| Case | Input commands | Native first movements | State presented | Movement visible |",
+              "| --- | ---: | ---: | ---: | ---: |"]
     for case in summary["cases"]:
         lines.append(f"| {case['label']} | {case['command_inputs_observed']} | "
-                     f"{case['command_first_moves_observed']} | {case['command_visible_observed']} |")
+                     f"{case['command_first_moves_observed']} | {case['command_presented_state_observed']} | "
+                     f"{case['command_visible_observed']} |")
     lines += ["", "## Instrumentation overhead", ""]
     if summary["overhead_pairs"]:
         lines += ["| Case | Minimal timing p95 work ms | Full diagnostics p95 work ms | Additional work | Under 5% target |",
