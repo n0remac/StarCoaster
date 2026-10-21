@@ -59,7 +59,7 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
             if (!noMove) {
                 ui.mainViewport.rotation = 0;
                 ui.mainViewport.zoom = sweep ? sweepTargets[0].zoom : 0;
-                ui.mainViewport.moveTo(perfCamera === "away" ? { x: 1800, y: 350, z: 112 } : focus);
+                ui.mainViewport.moveTo(perfCamera === "away" ? { x: 2000, y: 1900, z: 112 } : focus);
             }
             console.log("WASM_CAMERA_READY session=" + snapshot.session
                 + " units=" + snapshot.units.length + " marine=" + JSON.stringify(marine)

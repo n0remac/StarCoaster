@@ -296,6 +296,14 @@ def summarize_case(events, system, network, case):
                               if event.get("frames", 0) > 0 and event.get("work_us") is not None]
     render_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in render if event.get("elapsed_ns", 0) > 0]
     rendered_frames = sum(event.get("frames", 0) for event in render)
+    rendered_bridge_actors = sum(event.get("actors_painted", 0) for event in render)
+    if case["client"] in ("local", "remote") and case["count"] > 0 and render:
+        if case["paint"] == "suppressed" and rendered_bridge_actors:
+            errors.append("paint_suppression_failed")
+        elif case["paint"] == "normal" and case["camera"] == "away" and rendered_bridge_actors:
+            errors.append("offscreen_camera_painted_actors")
+        elif case["paint"] == "normal" and case["camera"] == "visible" and not rendered_bridge_actors:
+            errors.append("visible_camera_painted_no_actors")
     server_action_ms = [event["duration_ms"] for event in selected
                         if event.get("stage") == "snapshot_action_execute" and event.get("mode") == "server"
                         and event.get("duration_ms") is not None]
@@ -466,7 +474,7 @@ def summarize_case(events, system, network, case):
             "client_invalidation_calls_per_frame":(sum(event.get("invalidations",0) for event in render)
                                                     / rendered_frames if rendered_frames else None),
             "client_actors_considered":sum(event.get("actors_considered",0) for event in render),
-            "client_actors_painted":sum(event.get("actors_painted",0) for event in render),
+            "client_actors_painted":rendered_bridge_actors,
             "client_paint_ms_per_frame":(sum(event.get("paint_us",0) for event in render)
                                          / 1000 / rendered_frames if rendered_frames else None),
             "openbw_frame_work_p95_ms_windows":distribution(bw_work_p95),

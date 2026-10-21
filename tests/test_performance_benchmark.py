@@ -236,6 +236,20 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         self.assertEqual(2, result["client_invalidation_calls_per_frame"])
         self.assertEqual(.5, result["client_paint_ms_per_frame"])
 
+    def test_offscreen_camera_must_actually_avoid_actor_painting(self):
+        case = {"label":"camera","count":25,"workload":"idle","camera":"away",
+                "paint":"normal","client":"local","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000000,
+                "browser_window":{"start":1000,"end":2000}}
+        render = {"case":"camera","clock_domain":"browser-monotonic","wall_ms":1500,
+                  "stage":"present_summary","role":"browser-client","frames":10,
+                  "elapsed_ns":1000000000,"actors_painted":1}
+        result = benchmark["summarize_case"]([render],[],[],case)
+        self.assertIn("offscreen_camera_painted_actors", result["errors"])
+        render["actors_painted"] = 0
+        result = benchmark["summarize_case"]([render],[],[],case)
+        self.assertNotIn("offscreen_camera_painted_actors", result["errors"])
+
     def test_overhead_pair_compares_matching_workloads(self):
         template = {"count":50,"workload":"fighting","camera":"visible","paint":"normal",
                     "client":"local","valid":True}
