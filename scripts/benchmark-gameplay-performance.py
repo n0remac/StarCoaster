@@ -295,12 +295,25 @@ def summarize_case(events, system, network, case):
     bw_mean_work_per_frame = [event["work_us"] / event["frames"] / 1000 for event in bw
                               if event.get("frames", 0) > 0 and event.get("work_us") is not None]
     render_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in render if event.get("elapsed_ns", 0) > 0]
+    rendered_frames = sum(event.get("frames", 0) for event in render)
+    server_action_ms = [event["duration_ms"] for event in selected
+                        if event.get("stage") == "snapshot_action_execute" and event.get("mode") == "server"
+                        and event.get("duration_ms") is not None]
+    client_action_ms = [event["duration_ms"] for event in selected
+                        if event.get("stage") == "snapshot_action_execute" and event.get("mode") == "client"
+                        and event.get("role") == client_role and event.get("duration_ms") is not None]
+    server_apply_ms = [event["duration_us"] / 1000 for event in selected
+                       if event.get("stage") == "snapshot_apply" and event.get("clock_domain") == "pi-monotonic"
+                       and event.get("role") != "native-client" and event.get("duration_us") is not None]
+    client_apply_ms = [event["duration_us"] / 1000 for event in selected
+                       if event.get("stage") == "snapshot_apply" and event.get("role") == client_role
+                       and event.get("duration_us") is not None]
     if case["client"] in ("local", "remote") and browser_window:
         render_window_seconds = ((browser_window.get("mono_end", browser_window["end"])
                                   - browser_window.get("mono_start", browser_window["start"])) / 1000)
     else:
         render_window_seconds = (end - start) / 1e9 if start and end and end > start else 0
-    client_whole_fps = (sum(event.get("frames", 0) for event in render) / render_window_seconds
+    client_whole_fps = (rendered_frames / render_window_seconds
                         if render and render_window_seconds > 0 else None)
     client_frames = [event.get("frame_p95_us") / 1000 for event in render if event.get("frame_p95_us") is not None]
     net = [event for event in network if event.get("case") == case["label"] and start and end]
@@ -443,8 +456,19 @@ def summarize_case(events, system, network, case):
             "valid":not errors,"errors":errors,"timing":stages,
             "openbw_fps":distribution(bw_fps),"client_fps":distribution([client_whole_fps]),
             "client_fps_active_windows":distribution(render_fps),
-            "client_presented_frames":sum(event.get("frames", 0) for event in render),
+            "client_presented_frames":rendered_frames,
             "client_presentation_window_seconds":render_window_seconds,
+            "server_snapshot_action_ms":distribution(server_action_ms),
+            "client_snapshot_action_ms":distribution(client_action_ms),
+            "server_snapshot_apply_ms":distribution(server_apply_ms),
+            "client_snapshot_apply_ms":distribution(client_apply_ms),
+            "client_invalidation_calls":sum(event.get("invalidations",0) for event in render),
+            "client_invalidation_calls_per_frame":(sum(event.get("invalidations",0) for event in render)
+                                                    / rendered_frames if rendered_frames else None),
+            "client_actors_considered":sum(event.get("actors_considered",0) for event in render),
+            "client_actors_painted":sum(event.get("actors_painted",0) for event in render),
+            "client_paint_ms_per_frame":(sum(event.get("paint_us",0) for event in render)
+                                         / 1000 / rendered_frames if rendered_frames else None),
             "openbw_frame_work_p95_ms_windows":distribution(bw_work_p95),
             "openbw_sleep_ms_per_frame_windows":distribution(bw_sleep_per_frame),
             "openbw_mean_work_ms_per_frame_windows":distribution(bw_mean_work_per_frame),
@@ -619,17 +643,17 @@ def report(summary):
             fmt(case["client_frame_p95_ms_windows"]["median"]),fmt(case["snapshot_bytes"]["median"]),
             fmt(case["max_temperature_c"]),fmt(case["tailscale_rtt_ms"]["median"])]) + " |")
     lines += ["", "## Pipeline and resources", "",
-              "| Case | Server ticks/s | Client ticks/s | Tick overruns | Snapshots/s | Client actions/s | Unapplied snapshots | Applied not presented | BW→Go p95 ms | Go→plugin p95 ms | Native apply p95 ms | WS KiB/s median | Command→presented p95 ms | Command→visible p95 ms | RTT variation ms |",
-              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+              "| Case | Server ticks/s | Client ticks/s | Tick overruns | Snapshots/s | Client actions/s | Unapplied snapshots | Applied not presented | BW→Go p95 ms | Go→plugin p95 ms | Server action p95 ms | Client action p95 ms | WS KiB/s median | Command→presented p95 ms | Command→visible p95 ms | RTT variation ms |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for case in summary["cases"]:
-        apply = case["timing"].get("snapshot_apply.duration_us",{}).get("p95")
         ws = case["browser_websocket_bytes_per_second"]["median"]
         lines.append("| " + " | ".join([case["label"],fmt(case["server_tick_rate"]["median"]),
             fmt(case["client_tick_rate"]["median"]),fmt(case["server_tick_overruns"]),
             fmt(case["snapshot_rate_per_second"]),fmt(case["client_snapshot_actions_per_second"]),
             fmt(case["unapplied_snapshots_at_end"]),fmt(case["applied_not_presented_at_end"]),
             fmt(case["snapshot_to_bridge_ms"]["p95"]),fmt(case["bridge_to_plugin_ms"]["p95"]),
-            fmt(apply / 1000 if apply is not None else None),fmt(ws / 1024 if ws is not None else None),
+            fmt(case["server_snapshot_action_ms"]["p95"]),fmt(case["client_snapshot_action_ms"]["p95"]),
+            fmt(ws / 1024 if ws is not None else None),
             fmt(case["command_to_presented_state_ms"]["p95"]),
             fmt(case["command_to_visible_ms"]["p95"]),fmt(case["tailscale_rtt_variation_ms"])]) + " |")
     lines += ["", "| Case | Pi process CPU median (% of one core) | Client CPU median (% of one core) | Client RSS max MiB | Pi free memory min GiB | Pi network KiB/s median | Native units min–max | Snapshot p95 bytes | Client frame window p99 ms | Omitted actors |",
@@ -652,6 +676,15 @@ def report(summary):
         heap = case["client_js_heap_bytes_max"]
         lines.append(f"| {case['label']} | {fmt(case['client_long_task_ms_per_sample']['p95'])} | "
                      f"{fmt(heap / 1048576 if heap is not None else None)} |")
+    lines += ["", "## Renderer and native snapshot application", "",
+              "| Case | Server apply p95 ms | Client apply p95 ms | Invalidation calls/frame | Actors considered | Actors painted | Paint ms/presented frame |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for case in summary["cases"]:
+        lines.append(f"| {case['label']} | {fmt(case['server_snapshot_apply_ms']['p95'])} | "
+                     f"{fmt(case['client_snapshot_apply_ms']['p95'])} | "
+                     f"{fmt(case['client_invalidation_calls_per_frame'])} | "
+                     f"{case['client_actors_considered']} | {case['client_actors_painted']} | "
+                     f"{fmt(case['client_paint_ms_per_frame'])} |")
     lines += ["", "## Network diagnostics", "",
               "| Case | RTT p95 ms | RTT variation ms | Lost probes | Direct | DERP | WS interruptions | WebSocket received KiB/s median |",
               "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]

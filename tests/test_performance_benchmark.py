@@ -210,6 +210,32 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         result = benchmark["summarize_case"](events,[],[],case)
         self.assertNotIn("missing_native_client_synced_snapshot", result["errors"])
 
+    def test_server_and_client_action_costs_are_separate(self):
+        case = {"label":"stages","count":10,"workload":"idle","camera":"visible",
+                "paint":"normal","client":"native","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000000}
+        events = [
+            {"case":"stages","clock_domain":"pi-monotonic","mono_ms":.0002,
+             "stage":"snapshot_action_execute","mode":"server","duration_ms":1},
+            {"case":"stages","clock_domain":"pi-monotonic","mono_ms":.0003,
+             "stage":"snapshot_action_execute","mode":"client","role":"native-client",
+             "duration_ms":9,"seq":1},
+            {"case":"stages","clock_domain":"pi-monotonic","mono_ns":400,
+             "stage":"snapshot_apply","duration_us":100},
+            {"case":"stages","clock_domain":"pi-monotonic","mono_ns":500,
+             "stage":"snapshot_apply","role":"native-client","duration_us":2000},
+            {"case":"stages","clock_domain":"pi-monotonic","mono_ns":600,
+             "stage":"present_summary","role":"native-client","frames":10,
+             "elapsed_ns":1000000000,"invalidations":20,"actors_considered":30,
+             "actors_painted":5,"paint_us":5000},
+        ]
+        result = benchmark["summarize_case"](events,[],[],case)
+        self.assertEqual(1, result["server_snapshot_action_ms"]["p95"])
+        self.assertEqual(9, result["client_snapshot_action_ms"]["p95"])
+        self.assertEqual(2, result["client_snapshot_apply_ms"]["p95"])
+        self.assertEqual(2, result["client_invalidation_calls_per_frame"])
+        self.assertEqual(.5, result["client_paint_ms_per_frame"])
+
     def test_overhead_pair_compares_matching_workloads(self):
         template = {"count":50,"workload":"fighting","camera":"visible","paint":"normal",
                     "client":"local","valid":True}
