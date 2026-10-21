@@ -555,6 +555,7 @@ def summarize_case(events, system, network, case):
             "client_long_task_ms_per_sample":distribution(client_stall_ms),
             "max_temperature_c":max((event["temperature_c"] for event in pi
                                      if event.get("temperature_c") is not None),default=None),
+            "cpu_frequency_mhz":distribution([event.get("cpu_mhz") for event in pi]),
             "min_memory_available_bytes":min((event["memory_available_bytes"] for event in pi
                                               if event.get("memory_available_bytes") is not None),default=None),
             "min_swap_free_bytes":min((event["swap_free_bytes"] for event in pi
@@ -569,7 +570,7 @@ def diagnose(cases):
     valid = [case for case in cases if case["valid"] and case.get("diagnostic_level") != "baseline"]
     for case in valid:
         bw = case["openbw_fps"]["median"]
-        if bw is not None and bw < 22:
+        if bw is not None and bw < 23.5:
             sleep = case["openbw_sleep_ms_per_frame_windows"]["median"]
             work = case["openbw_frame_work_p95_ms_windows"]["median"]
             if sleep is not None and sleep >= 40 and work is not None and work < 42:
@@ -580,7 +581,10 @@ def diagnose(cases):
                 findings.append((max(0, 24 - bw), "simulation", f"{case['label']}: OpenBW median {bw:.1f} FPS"))
         frame = case["client_frame_p95_ms_windows"]["median"]
         if frame is not None and frame > 40:
-            findings.append((frame / 10, "rendering", f"{case['label']}: native presented-frame p95 window median {frame:.1f} ms"))
+            client_fps = case["client_fps"]["median"]
+            findings.append((frame / 10, "client presentation",
+                             f"{case['label']}: native presented-frame p95 window median {frame:.1f} ms"
+                             + (f" and whole-window FPS {client_fps:.1f}" if client_fps is not None else "")))
         apply = case["timing"].get("snapshot_apply.duration_us", {}).get("p95")
         if apply is not None and apply > 10000:
             findings.append((apply / 10000, "synchronization", f"{case['label']}: snapshot apply p95 {apply / 1000:.1f} ms"))
@@ -594,8 +598,9 @@ def diagnose(cases):
                              f"{case['label']}: synchronized snapshot queue p95 {queue:.1f} ms"))
         backlog = case.get("unpresented_snapshots_at_end")
         if backlog is not None and backlog > 20:
-            findings.append((backlog / 20, "synchronization",
-                             f"{case['label']}: {backlog} published snapshots remained unpresented at the aligned window end"))
+            findings.append((min(backlog / 100, 5), "client synchronization backlog",
+                             f"{case['label']}: {backlog} published snapshots remained unpresented at the aligned window end; "
+                             "client stalls, action processing, and delivery may all contribute"))
         if case["thermal_throttling_observed"]:
             findings.append((5, "resource saturation", f"{case['label']}: Pi reported throttling"))
         free_memory = case.get("min_memory_available_bytes")
@@ -682,17 +687,22 @@ def report(summary):
             fmt(ws / 1024 if ws is not None else None),
             fmt(case["command_to_presented_state_ms"]["p95"]),
             fmt(case["command_to_visible_ms"]["p95"]),fmt(case["tailscale_rtt_variation_ms"])]) + " |")
-    lines += ["", "| Case | Pi process CPU median (% of one core) | Client CPU median (% of one core) | Client RSS max MiB | Pi free memory min GiB | Pi network KiB/s median | Native units min–max | Snapshot p95 bytes | Client frame window p99 ms | Omitted actors |",
-              "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |"]
+    lines += ["", "| Case | Pi process CPU median (% of one core) | Client CPU median (% of one core) | Client RSS max MiB | Pi free memory min GiB | Pi swap free min MiB | Pi CPU MHz min | Thermal throttle | Pi network KiB/s median | Native units min–max | Snapshot p95 bytes | Client frame window p99 ms | Omitted actors |",
+              "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | ---: | ---: | ---: |"]
     for case in summary["cases"]:
         cpu = ", ".join(f"{role} {fmt(stats['median'])}" for role,stats in sorted(case["cpu_percent_one_core"].items())) or "unavailable"
         pi_bytes = case["pi_network_bytes_per_second"]["median"]
         client_rss = case["client_rss_bytes_max"]
         free_memory = case["min_memory_available_bytes"]
+        swap_free = case["min_swap_free_bytes"]
+        throttled = case["thermal_throttling_observed"]
         unit_count = case["native_unit_count"]
         lines.append(f"| {case['label']} | {cpu} | {fmt(case['client_cpu_percent_one_core']['median'])} | "
                      f"{fmt(client_rss / 1048576 if client_rss is not None else None)} | "
                      f"{fmt(free_memory / 1073741824 if free_memory is not None else None)} | "
+                     f"{fmt(swap_free / 1048576 if swap_free is not None else None)} | "
+                     f"{fmt(case['cpu_frequency_mhz']['min'])} | "
+                     f"{'unavailable' if throttled is None else 'yes' if throttled else 'no'} | "
                      f"{fmt(pi_bytes / 1024 if pi_bytes is not None else None)} | "
                      f"{fmt(unit_count['min'])}–{fmt(unit_count['max'])} | {fmt(case['snapshot_bytes']['p95'])} | "
                      f"{fmt(case['client_frame_p95_ms_windows']['p99'])} | {case['omitted_units']} |")
