@@ -369,6 +369,57 @@ def summarize_case(events, system, network, case):
             duration = shown.get("mono_ns",0)/1e6 - sent.get("mono_ms",0)
             if 0 <= duration < 600000: command_presented.append(duration)
     command_visible = command_presented if case["camera"] == "visible" and case["paint"] == "normal" else []
+    def browser_ms(event):
+        if not event: return None
+        if event.get("mono_ms") is not None: return event["mono_ms"]
+        if event.get("mono_ns") is not None: return event["mono_ns"] / 1e6
+        return None
+    def pi_between(first, last):
+        if not first or not last or first.get("mono_ns") is None or last.get("mono_ns") is None:
+            return None
+        value = (last["mono_ns"] - first["mono_ns"]) / 1e6
+        return round(value, 3) if 0 <= value < 600000 else None
+    def browser_between(first, last):
+        left, right = browser_ms(first), browser_ms(last)
+        if left is None or right is None: return None
+        value = right - left
+        return round(value, 3) if 0 <= value < 600000 else None
+    movement_by_request = {event.get("request_id"):event for event in first_moves}
+    forward_by_request = {event.get("request_id"):event for event in trace_events
+                          if event.get("stage") == "command_forward"}
+    validation_by_request = {event.get("request_id"):event for event in trace_events
+                             if event.get("stage") == "command_validate_end" and event.get("mode") == "server"}
+    execution_by_command = {event.get("command_id"):event for event in trace_events
+                            if event.get("stage") == "command_execute" and event.get("source") == "openbw-controller"}
+    all_client_applied = sorted((event for event in trace_events
+                                 if event.get("stage") == "snapshot_action_execute" and event.get("mode") == "client"
+                                 and event.get("clock_domain") == "browser-monotonic"),
+                                key=lambda event:event.get("seq",0))
+    sorted_presents = sorted(client_presents,key=lambda event:event.get("seq",0))
+    command_traces = []
+    for request_id,sent in sorted(command_inputs.items())[:64]:
+        movement = movement_by_request.get(request_id)
+        forward = forward_by_request.get(request_id)
+        execution = execution_by_command.get(forward.get("command_id")) if forward else None
+        applied = next((event for event in all_client_applied
+                        if movement and event.get("seq",0) >= movement.get("seq",0)),None)
+        presented = next((event for event in sorted_presents
+                          if movement and event.get("seq",0) >= movement.get("seq",0)),None)
+        validated = validation_by_request.get(request_id)
+        command_traces.append({"request_id":request_id,"command_id":forward.get("command_id") if forward else None,
+            "native_accepted":execution.get("accepted") if execution else None,
+            "bw_execute_frame":execution.get("bw_tick") if execution else None,
+            "first_movement_frame":movement.get("bw_tick") if movement else None,
+            "first_movement_seq":movement.get("seq") if movement else None,
+            "server_validation_ms":round(validated["duration_ms"],3)
+                                   if validated and validated.get("duration_ms") is not None else None,
+            "forward_to_openbw_execute_ms":pi_between(forward,execution),
+            "openbw_execute_to_first_movement_ms":pi_between(execution,movement),
+            "browser_input_to_client_apply_ms":browser_between(sent,applied),
+            "client_apply_to_present_ms":browser_between(applied,presented),
+            "browser_input_to_presented_state_ms":browser_between(sent,presented),
+            "browser_input_to_visible_ms":browser_between(sent,presented)
+                if case["camera"] == "visible" and case["paint"] == "normal" else None})
     return {"label":case["label"],"count":case["count"],"workload":case["workload"],
             "camera":case["camera"],"paint":case["paint"],"client":case["client"],
             "diagnostic_level":case.get("diagnostic_level","full"),
@@ -401,6 +452,8 @@ def summarize_case(events, system, network, case):
             "command_first_moves_observed":len(first_moves),
             "command_visible_observed":len(command_visible),
             "command_presented_state_observed":len(command_presented),
+            "command_traces":command_traces,
+            "command_traces_omitted":max(0,len(command_inputs)-len(command_traces)),
             "latest_snapshot_seq_published":latest_published,
             "latest_snapshot_seq_client_applied":latest_applied,
             "latest_snapshot_seq_client_presented":latest_presented,
@@ -588,6 +641,16 @@ def report(summary):
         lines.append(f"| {case['label']} | {case['command_inputs_observed']} | "
                      f"{case['command_first_moves_observed']} | {case['command_presented_state_observed']} | "
                      f"{case['command_visible_observed']} |")
+    lines += ["", "## Command trace examples", "",
+              "| Case | Request | Server validation ms | Go forward→OpenBW execute ms | OpenBW execute→movement ms | Browser input→client apply ms | Client apply→present ms | Browser input→visible ms |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for case in summary["cases"]:
+        for trace in case["command_traces"][:3]:
+            lines.append("| " + " | ".join([case["label"],fmt(trace["request_id"]),
+                fmt(trace["server_validation_ms"]),fmt(trace["forward_to_openbw_execute_ms"]),
+                fmt(trace["openbw_execute_to_first_movement_ms"]),
+                fmt(trace["browser_input_to_client_apply_ms"]),fmt(trace["client_apply_to_present_ms"]),
+                fmt(trace["browser_input_to_visible_ms"])]) + " |")
     lines += ["", "## Instrumentation overhead", ""]
     if summary["overhead_pairs"]:
         lines += ["| Case | Minimal timing p95 work ms | Full diagnostics p95 work ms | Additional work | Under 5% target |",

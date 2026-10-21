@@ -73,6 +73,34 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         result = benchmark["summarize_case"](events,[],[],case)
         self.assertEqual(60, result["command_to_visible_ms"]["median"])
         self.assertEqual(60, result["command_to_presented_state_ms"]["median"])
+        self.assertEqual(60, result["command_traces"][0]["browser_input_to_visible_ms"])
+
+    def test_command_trace_keeps_pi_and_browser_durations_separate(self):
+        case = {"label":"trace","count":10,"workload":"moving","camera":"visible",
+                "paint":"normal","client":"local","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000000,
+                "browser_window":{"start":1000,"end":2000}}
+        events = [
+            {"case":"trace","clock_domain":"browser-monotonic","stage":"command_input",
+             "request_id":9,"mono_ms":100,"wall_ms":1100},
+            {"case":"trace","clock_domain":"pi-monotonic","stage":"command_forward",
+             "request_id":9,"command_id":"session:9","mono_ns":100000000},
+            {"case":"trace","clock_domain":"pi-monotonic","stage":"command_execute",
+             "source":"openbw-controller","command_id":"session:9","bw_tick":20,
+             "accepted":True,"mono_ns":140000000},
+            {"case":"trace","clock_domain":"pi-monotonic","stage":"command_first_movement",
+             "request_id":9,"seq":50,"bw_tick":23,"mono_ns":180000000},
+            {"case":"trace","clock_domain":"browser-monotonic","stage":"snapshot_action_execute",
+             "mode":"client","seq":50,"mono_ms":250,"wall_ms":1250},
+            {"case":"trace","clock_domain":"browser-monotonic","stage":"snapshot_present",
+             "seq":50,"mono_ns":300000000,"wall_ms":1300},
+        ]
+        trace = benchmark["summarize_case"](events,[],[],case)["command_traces"][0]
+        self.assertEqual(40, trace["forward_to_openbw_execute_ms"])
+        self.assertEqual(40, trace["openbw_execute_to_first_movement_ms"])
+        self.assertEqual(150, trace["browser_input_to_client_apply_ms"])
+        self.assertEqual(50, trace["client_apply_to_present_ms"])
+        self.assertEqual(200, trace["browser_input_to_visible_ms"])
 
     def test_offscreen_command_keeps_long_presented_delay_distinct_from_visibility(self):
         case = {"label":"offscreen","count":25,"workload":"moving","camera":"away",
