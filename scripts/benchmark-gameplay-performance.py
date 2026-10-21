@@ -283,7 +283,9 @@ def summarize_case(events, system, network, case):
     render = [event for event in selected if event.get("stage") == "present_summary" and event.get("role") == client_role]
     server_ticks = [event for event in selected if event.get("stage") == "tick_summary"
                     and event.get("mode") == "server" and event.get("clock_domain") == "pi-monotonic"]
-    snapshots = [event for event in selected if event.get("stage") == "snapshot_publish"]
+    publisher_samples = [event for event in selected if event.get("stage") == "snapshot_publish"]
+    bridge_snapshots = [event for event in selected if event.get("stage") == "snapshot_transform"]
+    snapshots = bridge_snapshots if bridge_snapshots and "unit_attacking" in bridge_snapshots[0] else publisher_samples
     omitted = sum(event.get("unit_omitted", 0) for event in snapshots)
     attack_samples = [event.get("unit_attacking", 0) for event in snapshots]
     bw_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in bw if event.get("elapsed_ns", 0) > 0]
@@ -343,7 +345,7 @@ def summarize_case(events, system, network, case):
     if case["client"] in ("local", "remote", "native") and not render and not baseline:
         errors.append("missing_client_native_presentation")
     if case["client"] == "remote" and not rtt: errors.append("missing_tailscale_rtt")
-    server_snapshot = {event.get("seq"):event for event in selected if event.get("stage") == "snapshot_publish"}
+    server_snapshot = {event.get("seq"):event for event in publisher_samples}
     bridge_snapshot = {event.get("seq"):event for event in selected if event.get("stage") == "snapshot_transform"}
     plugin_received = {event.get("seq"):event for event in selected if event.get("stage") == "snapshot_receive"
                        and event.get("clock_domain") == "pi-monotonic"}
@@ -351,9 +353,10 @@ def summarize_case(events, system, network, case):
     bridge_to_plugin = []
     for seq,published in server_snapshot.items():
         transformed = bridge_snapshot.get(seq)
-        received = plugin_received.get(seq)
         if transformed and transformed.get("mono_ns",0) >= published.get("mono_ns",0):
             snapshot_to_bridge.append((transformed["mono_ns"]-published["mono_ns"])/1e6)
+    for seq,transformed in bridge_snapshot.items():
+        received = plugin_received.get(seq)
         if received and transformed and received.get("mono_ms",0)*1e6 >= transformed.get("mono_ns",0):
             bridge_to_plugin.append(received["mono_ms"]-transformed["mono_ns"]/1e6)
     trace_events = [event for event in events if event.get("case") == case["label"]]
@@ -445,7 +448,7 @@ def summarize_case(events, system, network, case):
                                              if event.get("elapsed_ms", 0) > 0]),
             "server_tick_overruns":sum(event.get("overruns", 0) for event in server_ticks),
             "client_frame_p95_ms_windows":distribution(client_frames),
-            "snapshot_bytes":distribution([event.get("bytes") for event in snapshots]),
+            "snapshot_bytes":distribution([event.get("payload_bytes",event.get("bytes")) for event in snapshots]),
             "native_unit_count":distribution([event.get("unit_total") for event in snapshots]),
             "snapshot_rate_per_second":len(snapshots) / ((end - start) / 1e9)
                                        if start and end and end > start and not baseline else None,
@@ -695,6 +698,7 @@ def report(summary):
         lines.append(f"- Other gameplay processes were active on the Pi at startup ({roles}); host resource comparisons include that load.")
     lines.append("- Pi stages use Linux monotonic time. Browser timings use its local monotonic clock; cross-machine one-way delay is not inferred.")
     lines.append("- Paced frame overruns include the configured sleep plus work; work >42 ms windows isolate processing that exceeded a nominal 24 FPS budget by itself.")
+    lines.append("- OpenBW detailed snapshot timing samples one in four publications; Go bridge records every snapshot for rate, size, attack, and omitted-unit checks.")
     lines.append("- Client FPS counts native presented frames over the entire measurement window, including periods with no frame.")
     lines.append("- Client frame percentiles are native presentation-interval summaries per second; the table shows the median of those p95 windows.")
     lines.append("- Command traces may span warm-up and measurement; only a command and its matched browser presentation contribute a latency sample.")
@@ -1040,7 +1044,8 @@ def main():
                           "wasm_sha256":wasm_manifest.get("artifacts",{}).get("openrct2.wasm")},
         "settings":{"warmup_seconds":args.warmup,"measure_seconds":args.measure,"viewport":"1280x800",
                     "zoom":0,"camera":"test driver","video_capture":False,
-                    "openbw_frame_sleep_ms":int(os.environ.get("BRIDGE_FRAME_MS","42"))},
+                    "openbw_frame_sleep_ms":int(os.environ.get("BRIDGE_FRAME_MS","42")),
+                    "openbw_snapshot_timing_sample_every":4},
         "clock_domains":{"pi":"Linux CLOCK_MONOTONIC","browser":"WASM steady clock, separate epoch"},
         "background_roles":background_roles(),
         "cases":[{key:value for key,value in case.items() if key != "errors"} for case in cases]}

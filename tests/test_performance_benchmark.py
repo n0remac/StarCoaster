@@ -58,6 +58,28 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         events[0]["unit_attacking"] = 2
         self.assertNotIn("no_native_attacks_observed", benchmark["summarize_case"](events,[],[],case)["errors"])
 
+    def test_full_bridge_snapshots_preserve_counts_with_sampled_publisher_timing(self):
+        case = {"label":"sampled","count":25,"workload":"fighting","camera":"visible",
+                "paint":"normal","client":"none","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000001}
+        events = [
+            {"case":"sampled","clock_domain":"pi-monotonic","mono_ns":100,
+             "source":"openbw-publisher","stage":"snapshot_publish","seq":1,"unit_attacking":0},
+            {"case":"sampled","clock_domain":"pi-monotonic","mono_ns":200,
+             "source":"bridge","stage":"snapshot_transform","seq":1,"unit_attacking":0,
+             "unit_total":25,"unit_omitted":0,"payload_bytes":1000},
+            {"case":"sampled","clock_domain":"pi-monotonic","mono_ns":300,
+             "source":"bridge","stage":"snapshot_transform","seq":2,"unit_attacking":2,
+             "unit_total":25,"unit_omitted":0,"payload_bytes":1100},
+            {"case":"sampled","clock_domain":"pi-monotonic","mono_ns":400,
+             "source":"openbw-publisher","stage":"frame_summary","frames":24,"elapsed_ns":1000000000},
+        ]
+        result = benchmark["summarize_case"](events,[],[],case)
+        self.assertNotIn("no_native_attacks_observed", result["errors"])
+        self.assertEqual(2, result["snapshot_rate_per_second"])
+        self.assertEqual(2, result["attacking_units"]["max"])
+        self.assertEqual(1100, result["snapshot_bytes"]["max"])
+
     def test_pi_and_browser_clocks_are_not_subtracted_directly(self):
         case = {"label":"remote","count":10,"workload":"moving","camera":"visible","paint":"normal",
                 "client":"remote","measure":60,"errors":[],"browser_window":{"start":1000,"end":5000},

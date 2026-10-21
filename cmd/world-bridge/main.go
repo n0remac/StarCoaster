@@ -1728,6 +1728,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 					s.publishScenarioStatus(false)
 				}
 				visible := make([]map[string]any, 0, len(snapshot.Units))
+				attacking := 0
 				for _, unit := range snapshot.Units {
 					x, xOK := unit["x"].(float64)
 					y, yOK := unit["y"].(float64)
@@ -1743,12 +1744,16 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 					}
 					unit["x"], unit["y"] = parkX, parkY
 					visible = append(visible, unit)
+					if motion, ok := unit["motion"].(string); ok && motion == "attack" {
+						attacking++
+					}
 				}
 				snapshot.Units = visible
 				transformNS := monoNS()
 				perf.event("snapshot_transform", map[string]any{"session": m.Session, "seq": snapshot.Seq,
 					"bw_tick": snapshot.BWTick, "revision": s.registry.Revision, "unit_count": len(visible),
 					"unit_total": snapshot.UnitTotal, "unit_omitted": snapshot.UnitOmitted,
+					"unit_attacking": attacking,
 					"payload_bytes": len(m.Payload), "decode_us": (decodedNS - decodeNS) / 1000,
 					"transform_us": (transformNS - decodedNS) / 1000})
 				_ = s.emit(s.park, "combat.snapshot", m.Session, s.registry.Revision, snapshot)
