@@ -289,6 +289,13 @@ def summarize_case(events, system, network, case):
     bw_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in bw if event.get("elapsed_ns", 0) > 0]
     bw_work_p95 = [event["work_p95_us"] / 1000 for event in bw if event.get("work_p95_us") is not None]
     render_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in render if event.get("elapsed_ns", 0) > 0]
+    if case["client"] in ("local", "remote") and browser_window:
+        render_window_seconds = ((browser_window.get("mono_end", browser_window["end"])
+                                  - browser_window.get("mono_start", browser_window["start"])) / 1000)
+    else:
+        render_window_seconds = (end - start) / 1e9 if start and end and end > start else 0
+    client_whole_fps = (sum(event.get("frames", 0) for event in render) / render_window_seconds
+                        if render and render_window_seconds > 0 else None)
     client_frames = [event.get("frame_p95_us") / 1000 for event in render if event.get("frame_p95_us") is not None]
     net = [event for event in network if event.get("case") == case["label"] and start and end]
     rtt = [event["rtt_ms"] for event in net if event.get("stage") == "tailscale_ping" and event.get("rtt_ms") is not None]
@@ -365,7 +372,10 @@ def summarize_case(events, system, network, case):
             "diagnostic_level":case.get("diagnostic_level","full"),
             "browser_start_attempts":case.get("browser_start_attempts",0),
             "valid":not errors,"errors":errors,"timing":stages,
-            "openbw_fps":distribution(bw_fps),"client_fps":distribution(render_fps),
+            "openbw_fps":distribution(bw_fps),"client_fps":distribution([client_whole_fps]),
+            "client_fps_active_windows":distribution(render_fps),
+            "client_presented_frames":sum(event.get("frames", 0) for event in render),
+            "client_presentation_window_seconds":render_window_seconds,
             "openbw_frame_work_p95_ms_windows":distribution(bw_work_p95),
             "openbw_frame_overruns":sum(event.get("overruns", 0) for event in bw),
             "server_tick_rate":distribution([event["ticks"] * 1000 / event["elapsed_ms"] for event in server_ticks
@@ -376,6 +386,11 @@ def summarize_case(events, system, network, case):
             "native_unit_count":distribution([event.get("unit_total") for event in snapshots]),
             "snapshot_rate_per_second":len(snapshots) / ((end - start) / 1e9)
                                        if start and end and end > start and not baseline else None,
+            "client_snapshot_actions_per_second":len(client_applied) / render_window_seconds
+                                                   if render_window_seconds > 0 and client_applied else None,
+            "client_tick_rate":distribution([event["ticks"] * 1000 / event["elapsed_ms"] for event in selected
+                                             if event.get("stage") == "tick_summary" and event.get("mode") == "client"
+                                             and event.get("role") == client_role and event.get("elapsed_ms", 0) > 0]),
             "snapshot_to_bridge_ms":distribution(snapshot_to_bridge),
             "bridge_to_plugin_ms":distribution(bridge_to_plugin),
             "command_to_visible_ms":distribution(command_visible),
@@ -507,9 +522,10 @@ def overhead_pairs(cases):
 
 def report(summary):
     lines = ["# StarCoaster gameplay performance", "", f"Run: `{summary['run_id']}`",
-             f"Git revision: `{summary['git_revision']}`", "",
+             f"Git revision: `{summary['git_revision']}`",
+             f"Analysis revision: `{summary['analysis_revision']}`", "",
              "## Results", "",
-             "| Case | Valid | OpenBW FPS median | OpenBW work p95 ms | BW overruns | Native attackers max | Client FPS median | Client p95 frame window ms | Snapshot bytes median | Pi °C max | RTT ms median |",
+             "| Case | Valid | OpenBW FPS median | OpenBW work p95 ms | BW overruns | Native attackers max | Client FPS whole window | Client p95 frame window ms | Snapshot bytes median | Pi °C max | RTT ms median |",
              "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     def fmt(value): return "unavailable" if value is None else f"{value:.1f}" if isinstance(value, float) else str(value)
     for case in summary["cases"]:
@@ -520,13 +536,14 @@ def report(summary):
             fmt(case["client_frame_p95_ms_windows"]["median"]),fmt(case["snapshot_bytes"]["median"]),
             fmt(case["max_temperature_c"]),fmt(case["tailscale_rtt_ms"]["median"])]) + " |")
     lines += ["", "## Pipeline and resources", "",
-              "| Case | Server ticks/s | Tick overruns | Snapshots/s | Unapplied snapshots | Applied not presented | BW→Go p95 ms | Go→plugin p95 ms | Native apply p95 ms | WS KiB/s median | Command→presented p95 ms | Command→visible p95 ms | RTT variation ms |",
-              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+              "| Case | Server ticks/s | Client ticks/s | Tick overruns | Snapshots/s | Client actions/s | Unapplied snapshots | Applied not presented | BW→Go p95 ms | Go→plugin p95 ms | Native apply p95 ms | WS KiB/s median | Command→presented p95 ms | Command→visible p95 ms | RTT variation ms |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for case in summary["cases"]:
         apply = case["timing"].get("snapshot_apply.duration_us",{}).get("p95")
         ws = case["browser_websocket_bytes_per_second"]["median"]
         lines.append("| " + " | ".join([case["label"],fmt(case["server_tick_rate"]["median"]),
-            fmt(case["server_tick_overruns"]),fmt(case["snapshot_rate_per_second"]),
+            fmt(case["client_tick_rate"]["median"]),fmt(case["server_tick_overruns"]),
+            fmt(case["snapshot_rate_per_second"]),fmt(case["client_snapshot_actions_per_second"]),
             fmt(case["unapplied_snapshots_at_end"]),fmt(case["applied_not_presented_at_end"]),
             fmt(case["snapshot_to_bridge_ms"]["p95"]),fmt(case["bridge_to_plugin_ms"]["p95"]),
             fmt(apply / 1000 if apply is not None else None),fmt(ws / 1024 if ws is not None else None),
@@ -593,7 +610,9 @@ def report(summary):
         roles = ", ".join(f"{role} {count}" for role,count in sorted(summary["background_roles"].items()))
         lines.append(f"- Other gameplay processes were active on the Pi at startup ({roles}); host resource comparisons include that load.")
     lines.append("- Pi stages use Linux monotonic time. Browser timings use its local monotonic clock; cross-machine one-way delay is not inferred.")
+    lines.append("- Client FPS counts native presented frames over the entire measurement window, including periods with no frame.")
     lines.append("- Client frame percentiles are native presentation-interval summaries per second; the table shows the median of those p95 windows.")
+    lines.append("- Command-to-visible timing uses the first native presented frame carrying the movement snapshot when the camera is centered and painting is enabled; it does not verify individual pixels.")
     lines.append("- Screenshot and video capture were disabled for measured cases.")
     lines += ["", "## Next optimization milestone", ""]
     if summary["suspected_bottlenecks"]:
@@ -632,13 +651,22 @@ def case_matrix(args):
     return cases
 
 
-def wait_marker(log_path, markers, process, timeout):
+def wait_marker(log_path, markers, process, timeout, disconnect_log=None, disconnect_offset=0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline and process.poll() is None:
         try:
             content = log_path.read_text(errors="replace")[-500000:]
             if any(marker in content for marker in markers): return True
         except FileNotFoundError: pass
+        if disconnect_log and disconnect_log.exists():
+            with disconnect_log.open("rb") as gateway_file:
+                gateway_file.seek(disconnect_offset)
+                gateway = gateway_file.read(10000).decode(errors="replace")
+            if "OpenRCT2 gateway disconnected:" in gateway or "OpenRCT2 gateway closed:" in gateway:
+                process.terminate()
+                try: process.wait(timeout=5)
+                except subprocess.TimeoutExpired: process.kill()
+                return False
         time.sleep(1)
     return False
 
@@ -737,13 +765,15 @@ def run_case(case, run_dir, args, plan):
             for attempt in (1, 2):
                 case["browser_start_attempts"] = attempt
                 browser_log = (case_dir / "browser.log").open("w")
+                gateway_offset = (case_dir / "gateway.log").stat().st_size if (case_dir / "gateway.log").exists() else 0
                 if case["client"] == "remote":
                     browser = subprocess.Popen(["ssh","-o","BatchMode=yes",args.remote_host,command],
                         stdout=browser_log,stderr=subprocess.STDOUT)
                 else:
                     browser = subprocess.Popen(["node",str(ROOT / "browser/live-test.mjs")],cwd=ROOT,
                         env={**os.environ,**browser_env},stdout=browser_log,stderr=subprocess.STDOUT)
-                browser_ready = wait_marker(case_dir / "browser.log", ("CANVAS:",), browser, args.browser_timeout)
+                browser_ready = wait_marker(case_dir / "browser.log", ("CANVAS:",), browser,
+                                            args.browser_timeout, case_dir / "gateway.log", gateway_offset)
                 if browser_ready: break
                 if browser.poll() is None or attempt == 2: break
                 browser_log.close()
@@ -768,6 +798,9 @@ def run_case(case, run_dir, args, plan):
             sample_index = 0
             while time.monotonic() < end and session.poll() is None:
                 now = time.monotonic()
+                if browser and browser.poll() is not None and now < end - 1:
+                    case["errors"].append("browser_exited_during_measurement")
+                    break
                 elapsed = max(.001, now - last_sample)
                 last_sample = now
                 pids = process_ids(session.pid)
@@ -844,6 +877,21 @@ def run_case(case, run_dir, args, plan):
         session_log.close()
 
 
+def analyze_run(run_dir, metadata, analysis_revision):
+    events = list(read_events(run_dir / "events.jsonl"))
+    system = list(read_events(run_dir / "system.jsonl"))
+    network = list(read_events(run_dir / "network.jsonl"))
+    results = [summarize_case(events, system, network, case) for case in metadata["cases"]]
+    summary = {"run_id":metadata["run_id"],"git_revision":metadata["git_revision"],
+               "analysis_revision":analysis_revision,"background_roles":metadata.get("background_roles",{}),
+               "complete":all(case["valid"] for case in results),
+               "cases":results,"suspected_bottlenecks":diagnose(results),
+               "overhead_pairs":overhead_pairs(results)}
+    (run_dir / "summary.json").write_text(json.dumps(summary,indent=2)+"\n")
+    (run_dir / "report.md").write_text(report(summary))
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix",action="store_true",help="run all unit/workload/camera/paint comparisons")
@@ -869,7 +917,15 @@ def main():
     parser.add_argument("--openrct2-port",type=int,default=11754)
     parser.add_argument("--bridge-port-base",type=int,default=40110)
     parser.add_argument("--plan",action="store_true")
+    parser.add_argument("--reanalyze-run",type=Path,help="regenerate summary and report from existing artifacts")
     args = parser.parse_args()
+    if args.reanalyze_run:
+        run_dir = args.reanalyze_run.resolve()
+        metadata = json.loads((run_dir / "metadata.json").read_text())
+        revision = subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
+        summary = analyze_run(run_dir,metadata,revision)
+        print(run_dir,flush=True)
+        return 0 if summary["complete"] else 1
     if args.measure < 60 and not args.plan: parser.error("steady-state measurement must be at least 60 seconds")
     if args.warmup < 1 or args.repeats < 1 or args.representative_repeats < 3:
         parser.error("warmup/repeats must be positive; representative repeats must be at least three")
@@ -918,16 +974,7 @@ def main():
     (run_dir / "metadata.json").write_text(json.dumps(metadata,indent=2)+"\n")
     with (run_dir / "events.jsonl").open("w") as events_file, (run_dir / "system.jsonl").open("w") as system_file, (run_dir / "network.jsonl").open("w") as network_file:
         for case in cases: merge_case(run_dir / "cases" / case["label"],events_file,system_file,network_file,case["label"])
-    events = list(read_events(run_dir / "events.jsonl"))
-    system = list(read_events(run_dir / "system.jsonl"))
-    network = list(read_events(run_dir / "network.jsonl"))
-    results = [summarize_case(events,system,network,case) for case in cases]
-    summary = {"run_id":run_id,"git_revision":git_revision,"background_roles":metadata["background_roles"],
-               "complete":all(case["valid"] for case in results),
-               "cases":results,"suspected_bottlenecks":diagnose(results),
-               "overhead_pairs":overhead_pairs(results)}
-    (run_dir / "summary.json").write_text(json.dumps(summary,indent=2)+"\n")
-    (run_dir / "report.md").write_text(report(summary))
+    summary = analyze_run(run_dir,metadata,git_revision)
     print(run_dir,flush=True)
     return 0 if summary["complete"] else 1
 

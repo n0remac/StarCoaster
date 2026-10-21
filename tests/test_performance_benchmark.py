@@ -106,6 +106,18 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         self.assertEqual(30, result["client_fps"]["median"])
         self.assertEqual(0, result["server_tick_rate"]["count"])
 
+    def test_client_fps_includes_seconds_without_presented_frames(self):
+        case = {"label":"stalled","count":25,"workload":"idle","camera":"visible",
+                "paint":"normal","client":"local","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":60000000001,
+                "browser_window":{"start":1000,"end":61000,"mono_start":1000,"mono_end":61000}}
+        events = [{"case":"stalled","clock_domain":"browser-monotonic","wall_ms":2000,
+                   "source":"openrct2","role":"browser-client","stage":"present_summary",
+                   "mono_ns":2000000000,"frames":30,"elapsed_ns":1000000000}]
+        result = benchmark["summarize_case"](events,[],[],case)
+        self.assertEqual(.5, result["client_fps"]["median"])
+        self.assertEqual(30, result["client_fps_active_windows"]["median"])
+
     def test_overhead_pair_compares_matching_workloads(self):
         template = {"count":50,"workload":"fighting","camera":"visible","paint":"normal",
                     "client":"local","valid":True}
