@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import runpy
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,23 @@ benchmark = runpy.run_path(str(ROOT / "scripts/benchmark-gameplay-performance.py
 
 
 class PerformanceBenchmarkTest(unittest.TestCase):
+    def test_gateway_disconnect_stops_and_reaps_stalled_browser(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            browser_log = directory / "browser.log"
+            gateway_log = directory / "gateway.log"
+            browser_log.write_text("")
+            gateway_log.write_text("OpenRCT2 gateway closed: EOF\n")
+            process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                                       start_new_session=True)
+            try:
+                self.assertFalse(benchmark["wait_marker"](browser_log, ("CANVAS:",), process,
+                                                           2, gateway_log, 0))
+                benchmark["stop_browser_process"](process)
+                self.assertIsNotNone(process.poll())
+            finally:
+                benchmark["stop_browser_process"](process)
+
     def test_fighting_keeps_native_assault_enabled(self):
         fighting = benchmark["workload_environment"]("fighting")
         self.assertNotIn("BRIDGE_DISABLE_ASSAULT_AI", fighting)
