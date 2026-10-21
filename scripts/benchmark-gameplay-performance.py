@@ -288,6 +288,10 @@ def summarize_case(events, system, network, case):
     attack_samples = [event.get("unit_attacking", 0) for event in snapshots]
     bw_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in bw if event.get("elapsed_ns", 0) > 0]
     bw_work_p95 = [event["work_p95_us"] / 1000 for event in bw if event.get("work_p95_us") is not None]
+    bw_sleep_per_frame = [event["sleep_us"] / event["frames"] / 1000 for event in bw
+                          if event.get("frames", 0) > 0 and event.get("sleep_us") is not None]
+    bw_mean_work_per_frame = [event["work_us"] / event["frames"] / 1000 for event in bw
+                              if event.get("frames", 0) > 0 and event.get("work_us") is not None]
     render_fps = [event["frames"] * 1e9 / event["elapsed_ns"] for event in render if event.get("elapsed_ns", 0) > 0]
     if case["client"] in ("local", "remote") and browser_window:
         render_window_seconds = ((browser_window.get("mono_end", browser_window["end"])
@@ -433,6 +437,9 @@ def summarize_case(events, system, network, case):
             "client_presented_frames":sum(event.get("frames", 0) for event in render),
             "client_presentation_window_seconds":render_window_seconds,
             "openbw_frame_work_p95_ms_windows":distribution(bw_work_p95),
+            "openbw_sleep_ms_per_frame_windows":distribution(bw_sleep_per_frame),
+            "openbw_mean_work_ms_per_frame_windows":distribution(bw_mean_work_per_frame),
+            "openbw_work_over_42ms_windows":sum(event.get("max_work_us",0) > 42000 for event in bw),
             "openbw_frame_overruns":sum(event.get("overruns", 0) for event in bw),
             "server_tick_rate":distribution([event["ticks"] * 1000 / event["elapsed_ms"] for event in server_ticks
                                              if event.get("elapsed_ms", 0) > 0]),
@@ -504,7 +511,14 @@ def diagnose(cases):
     for case in valid:
         bw = case["openbw_fps"]["median"]
         if bw is not None and bw < 22:
-            findings.append((max(0, 24 - bw), "simulation", f"{case['label']}: OpenBW median {bw:.1f} FPS"))
+            sleep = case["openbw_sleep_ms_per_frame_windows"]["median"]
+            work = case["openbw_frame_work_p95_ms_windows"]["median"]
+            if sleep is not None and sleep >= 40 and work is not None and work < 42:
+                findings.append((max(0,24-bw), "frame pacing",
+                                 f"{case['label']}: OpenBW median {bw:.1f} FPS with {sleep:.1f} ms sleep/frame "
+                                 f"and {work:.1f} ms median p95 work/frame"))
+            else:
+                findings.append((max(0, 24 - bw), "simulation", f"{case['label']}: OpenBW median {bw:.1f} FPS"))
         frame = case["client_frame_p95_ms_windows"]["median"]
         if frame is not None and frame > 40:
             findings.append((frame / 10, "rendering", f"{case['label']}: native presented-frame p95 window median {frame:.1f} ms"))
@@ -583,13 +597,15 @@ def report(summary):
              f"Git revision: `{summary['git_revision']}`",
              f"Analysis revision: `{summary['analysis_revision']}`", "",
              "## Results", "",
-             "| Case | Valid | OpenBW FPS median | OpenBW work p95 ms | BW overruns | Native attackers max | Client FPS whole window | Client p95 frame window ms | Snapshot bytes median | Pi °C max | RTT ms median |",
-             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+             "| Case | Valid | OpenBW FPS median | BW sleep ms/frame | OpenBW work p95 ms | Paced frame overruns | Work >42 ms windows | Native attackers max | Client FPS whole window | Client p95 frame window ms | Snapshot bytes median | Pi °C max | RTT ms median |",
+             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     def fmt(value): return "unavailable" if value is None else f"{value:.1f}" if isinstance(value, float) else str(value)
     for case in summary["cases"]:
         lines.append("| " + " | ".join([case["label"], "yes" if case["valid"] else "no",
-            fmt(case["openbw_fps"]["median"]),fmt(case["openbw_frame_work_p95_ms_windows"]["median"]),
-            fmt(case["openbw_frame_overruns"]),fmt(case["attacking_units"]["max"]),
+            fmt(case["openbw_fps"]["median"]),fmt(case["openbw_sleep_ms_per_frame_windows"]["median"]),
+            fmt(case["openbw_frame_work_p95_ms_windows"]["median"]),
+            fmt(case["openbw_frame_overruns"]),fmt(case["openbw_work_over_42ms_windows"]),
+            fmt(case["attacking_units"]["max"]),
             fmt(case["client_fps"]["median"]),
             fmt(case["client_frame_p95_ms_windows"]["median"]),fmt(case["snapshot_bytes"]["median"]),
             fmt(case["max_temperature_c"]),fmt(case["tailscale_rtt_ms"]["median"])]) + " |")
@@ -678,6 +694,7 @@ def report(summary):
         roles = ", ".join(f"{role} {count}" for role,count in sorted(summary["background_roles"].items()))
         lines.append(f"- Other gameplay processes were active on the Pi at startup ({roles}); host resource comparisons include that load.")
     lines.append("- Pi stages use Linux monotonic time. Browser timings use its local monotonic clock; cross-machine one-way delay is not inferred.")
+    lines.append("- Paced frame overruns include the configured sleep plus work; work >42 ms windows isolate processing that exceeded a nominal 24 FPS budget by itself.")
     lines.append("- Client FPS counts native presented frames over the entire measurement window, including periods with no frame.")
     lines.append("- Client frame percentiles are native presentation-interval summaries per second; the table shows the median of those p95 windows.")
     lines.append("- Command traces may span warm-up and measurement; only a command and its matched browser presentation contribute a latency sample.")
