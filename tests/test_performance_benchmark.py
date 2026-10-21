@@ -195,6 +195,21 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         result = benchmark["summarize_case"]([],system,[],case)
         self.assertEqual(50, result["cpu_percent_one_core"]["local-chromium"]["median"])
 
+    def test_native_client_requires_a_synchronized_snapshot(self):
+        case = {"label":"native","count":10,"workload":"idle","camera":"visible",
+                "paint":"normal","client":"native","measure":60,"errors":[],
+                "measurement_start_pi_mono_ns":1,"measurement_end_pi_mono_ns":1000000000}
+        events = [{"case":"native","clock_domain":"pi-monotonic","mono_ns":100,
+                   "role":"native-client","source":"openrct2","stage":"present_summary",
+                   "frames":30,"elapsed_ns":1000000000}]
+        result = benchmark["summarize_case"](events,[],[],case)
+        self.assertIn("missing_native_client_synced_snapshot", result["errors"])
+        events.append({"case":"native","clock_domain":"pi-monotonic","mono_ms":.0002,
+                       "role":"native-client","source":"openrct2-plugin",
+                       "stage":"snapshot_action_execute","mode":"client","seq":1})
+        result = benchmark["summarize_case"](events,[],[],case)
+        self.assertNotIn("missing_native_client_synced_snapshot", result["errors"])
+
     def test_overhead_pair_compares_matching_workloads(self):
         template = {"count":50,"workload":"fighting","camera":"visible","paint":"normal",
                     "client":"local","valid":True}

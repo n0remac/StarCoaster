@@ -366,7 +366,13 @@ def summarize_case(events, system, network, case):
     client_presents = [event for event in trace_events if event.get("stage") == "snapshot_present"
                        and event.get("clock_domain") == "browser-monotonic"]
     client_applied = [event for event in selected if event.get("stage") == "snapshot_action_execute"
-                      and event.get("mode") == "client" and event.get("clock_domain") == "browser-monotonic"]
+                      and event.get("mode") == "client"
+                      and ((case["client"] == "native" and event.get("role") == "native-client")
+                           or (case["client"] != "native" and event.get("clock_domain") == "browser-monotonic"))]
+    if case["client"] == "native" and case["count"] > 0 and not baseline:
+        if not any(event.get("stage") == "snapshot_action_execute" and event.get("mode") == "client"
+                   and event.get("role") == "native-client" for event in selected):
+            errors.append("missing_native_client_synced_snapshot")
     latest_published = max((event.get("seq",0) for event in snapshots),default=None)
     latest_applied = max((event.get("seq",0) for event in client_applied),default=None)
     latest_presented = max((event.get("seq",0) for event in selected if event.get("stage") == "snapshot_present"
@@ -825,6 +831,11 @@ def run_case(case, run_dir, args, plan):
         if not wait_marker(case_dir / "session.log", ("WORLD_READY", "world.ready"), session, args.ready_timeout):
             case["errors"].append("session_not_ready")
             return
+        if case["client"] == "native" and case["count"] > 0 and case.get("diagnostic_level") != "baseline":
+            if not wait_marker(case_dir / "native-client.log", ('"stage":"snapshot_action_execute"',),
+                               session, args.browser_timeout):
+                case["errors"].append("native_client_not_ready")
+                return
         if case["client"] in ("local", "remote"):
             if args.gateway == "launch" and not wait_port(args.wasm_port,session,args.ready_timeout):
                 case["errors"].append("gateway_not_ready")
