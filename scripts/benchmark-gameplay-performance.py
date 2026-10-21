@@ -824,6 +824,23 @@ def case_matrix(args):
     return cases
 
 
+def stop_browser_process(process):
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+
 def wait_marker(log_path, markers, process, timeout, disconnect_log=None, disconnect_offset=0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline and process.poll() is None:
@@ -836,9 +853,6 @@ def wait_marker(log_path, markers, process, timeout, disconnect_log=None, discon
                 gateway_file.seek(disconnect_offset)
                 gateway = gateway_file.read(10000).decode(errors="replace")
             if "OpenRCT2 gateway disconnected:" in gateway or "OpenRCT2 gateway closed:" in gateway:
-                process.terminate()
-                try: process.wait(timeout=5)
-                except subprocess.TimeoutExpired: process.kill()
                 return False
         time.sleep(1)
     return False
@@ -946,14 +960,16 @@ def run_case(case, run_dir, args, plan):
                 gateway_offset = (case_dir / "gateway.log").stat().st_size if (case_dir / "gateway.log").exists() else 0
                 if case["client"] == "remote":
                     browser = subprocess.Popen(["ssh","-o","BatchMode=yes",args.remote_host,command],
-                        stdout=browser_log,stderr=subprocess.STDOUT)
+                        stdout=browser_log,stderr=subprocess.STDOUT,start_new_session=True)
                 else:
                     browser = subprocess.Popen(["node",str(ROOT / "browser/live-test.mjs")],cwd=ROOT,
-                        env={**os.environ,**browser_env},stdout=browser_log,stderr=subprocess.STDOUT)
+                        env={**os.environ,**browser_env},stdout=browser_log,stderr=subprocess.STDOUT,
+                        start_new_session=True)
                 browser_ready = wait_marker(case_dir / "browser.log", ("CANVAS:",), browser,
                                             args.browser_timeout, case_dir / "gateway.log", gateway_offset)
                 if browser_ready: break
-                if browser.poll() is None or attempt == 2: break
+                stop_browser_process(browser)
+                if attempt == 2: break
                 browser_log.close()
                 browser_log = None
                 (case_dir / "browser.log").rename(case_dir / "browser-attempt1.log")
@@ -1013,11 +1029,7 @@ def run_case(case, run_dir, args, plan):
                 browser.wait(timeout=120)
             except subprocess.TimeoutExpired:
                 case["errors"].append("browser_completion_timeout")
-                browser.terminate()
-                try: browser.wait(timeout=20)
-                except subprocess.TimeoutExpired:
-                    browser.kill()
-                    browser.wait()
+                stop_browser_process(browser)
             if browser.returncode != 0: case["errors"].append("browser_failed")
             if case["client"] == "remote":
                 source = f"{args.remote_host}:{args.remote_root}/run-data/performance/{run_dir.name}/cases/{case['label']}/browser/."
@@ -1045,7 +1057,7 @@ def run_case(case, run_dir, args, plan):
                             case["errors"].append("browser_joined_different_session")
                 except (json.JSONDecodeError,OSError): pass
     finally:
-        if browser and browser.poll() is None: browser.terminate()
+        if browser: stop_browser_process(browser)
         if browser_log: browser_log.close()
         if case["client"] == "remote": redact_remote_artifacts(case_dir,args)
         if session.poll() is None:
