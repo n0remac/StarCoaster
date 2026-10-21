@@ -3,13 +3,16 @@
 // need an existing local import in this browser profile.
 import { chromium } from 'playwright-core';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const chromiumExecutable = process.env.CHROMIUM_PATH ||
+  ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome-stable']
+    .find((candidate) => existsSync(candidate)) || '/usr/bin/chromium';
 const perfRun = process.env.WASM_PERF_RUN === '1';
 const artifacts = process.env.WASM_PERF_ARTIFACTS || path.join(root, 'build', 'wasm-live-test');
 const profile = process.env.WASM_LIVE_PROFILE || path.join(root, 'build', 'wasm-browser-test', 'chromium-live-profile');
@@ -40,7 +43,7 @@ const metrics = { origin: perfRun ? 'private-origin' : url, startedAt: new Date(
   websocketFramesOut: 0, websocketBytesIn: 0, websocketBytesOut: 0, workers: 0 };
 if (perfRun) {
   let chromiumVersion = null;
-  try { chromiumVersion = execFileSync(process.env.CHROMIUM_PATH || '/usr/bin/chromium', ['--version'],
+  try { chromiumVersion = execFileSync(chromiumExecutable, ['--version'],
     { encoding: 'utf8', timeout: 5000 }).trim(); } catch (_) {}
   metrics.clientHardware = { platform: process.platform, arch: process.arch,
     cpuCount: os.cpus().length, memoryBytes: os.totalmem(),
@@ -93,7 +96,7 @@ if (perfRun) {
 }
 try {
   context = await chromium.launchPersistentContext(profile, {
-    executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true,
+    executablePath: chromiumExecutable, headless: true,
     viewport: { width: 1280, height: 800 },
     ...(recordVideo ? { recordVideo: { dir: artifacts, size: { width: 640, height: 400 } } } : {}),
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
