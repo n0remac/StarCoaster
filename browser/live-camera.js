@@ -13,7 +13,10 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
         && STARCOASTER_CAMERA_NO_MOVE;
     const perfCamera = typeof STARCOASTER_PERF_CAMERA !== "undefined" ? STARCOASTER_PERF_CAMERA : "";
     const perfWorkload = typeof STARCOASTER_PERF_WORKLOAD !== "undefined" ? STARCOASTER_PERF_WORKLOAD : "";
+    const perfCommandDelayMs = typeof STARCOASTER_PERF_COMMAND_DELAY_MS !== "undefined"
+        ? STARCOASTER_PERF_COMMAND_DELAY_MS : 0;
     let perfRequest = 900000, perfBatch = 0, perfDirection = false;
+    let perfCommandReadyAt = 0, perfLastCommandAt = 0;
     const sweepTargets = [
         { x: 1024, y: 1024, z: 128, zoom: 0 },
         { x: 1536, y: 1536, z: 128, zoom: 0 },
@@ -30,6 +33,7 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
             lastSession = snapshot.session;
             ready = false; trackedId = ""; lastPosition = ""; screenReported = false;
             focusCount = 0; marineFocus = null;
+            perfCommandReadyAt = 0; perfLastCommandAt = 0;
             console.log("WASM_CAMERA_SESSION session=" + lastSession
                 + " units=" + snapshot.units.length
                 + " ids=" + snapshot.units.map(function (unit) { return unit.id; }).join(","));
@@ -43,6 +47,7 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
         }
         if (!ready) {
             ready = true;
+            perfCommandReadyAt = Date.now() + perfCommandDelayMs;
             trackedId = marine.id;
             lastPosition = marine.x + "," + marine.y;
             const tile = map.getTile(Math.floor(marine.x / 32), Math.floor(marine.y / 32));
@@ -104,8 +109,12 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
                 }
             }
         }
-        if ((perfWorkload === "moving" && ticks % 48 === 1)
-            || (perfWorkload === "fighting" && ticks % 500 === 1)) {
+        const perfIntervalMs = perfWorkload === "moving" ? 5000 : 15000;
+        const perfNow = Date.now();
+        if ((perfWorkload === "moving" || perfWorkload === "fighting")
+            && perfNow >= perfCommandReadyAt
+            && (!perfLastCommandAt || perfNow - perfLastCommandAt >= perfIntervalMs)) {
+            perfLastCommandAt = perfNow;
             const marines = snapshot.units.filter(function (unit) {
                 return unit.kind === "terran_marine" && unit.hp > 0;
             }).map(function (unit) { return unit.id; });

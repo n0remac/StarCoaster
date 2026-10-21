@@ -349,16 +349,18 @@ def summarize_case(events, system, network, case):
             snapshot_to_bridge.append((transformed["mono_ns"]-published["mono_ns"])/1e6)
         if received and transformed and received.get("mono_ms",0)*1e6 >= transformed.get("mono_ns",0):
             bridge_to_plugin.append(received["mono_ms"]-transformed["mono_ns"]/1e6)
-    command_inputs = {event.get("request_id"):event for event in selected
+    trace_events = [event for event in events if event.get("case") == case["label"]]
+    command_inputs = {event.get("request_id"):event for event in trace_events
                       if event.get("stage") == "command_input" and event.get("clock_domain") == "browser-monotonic"}
-    first_moves = [event for event in selected if event.get("stage") == "command_first_movement"]
-    client_presents = [event for event in selected if event.get("stage") == "snapshot_present"
+    first_moves = [event for event in trace_events if event.get("stage") == "command_first_movement"]
+    client_presents = [event for event in trace_events if event.get("stage") == "snapshot_present"
                        and event.get("clock_domain") == "browser-monotonic"]
     client_applied = [event for event in selected if event.get("stage") == "snapshot_action_execute"
                       and event.get("mode") == "client" and event.get("clock_domain") == "browser-monotonic"]
     latest_published = max((event.get("seq",0) for event in snapshots),default=None)
     latest_applied = max((event.get("seq",0) for event in client_applied),default=None)
-    latest_presented = max((event.get("seq",0) for event in client_presents),default=None)
+    latest_presented = max((event.get("seq",0) for event in selected if event.get("stage") == "snapshot_present"
+                            and event.get("clock_domain") == "browser-monotonic"),default=None)
     command_presented = []
     for move in first_moves:
         sent = command_inputs.get(move.get("request_id"))
@@ -612,6 +614,7 @@ def report(summary):
     lines.append("- Pi stages use Linux monotonic time. Browser timings use its local monotonic clock; cross-machine one-way delay is not inferred.")
     lines.append("- Client FPS counts native presented frames over the entire measurement window, including periods with no frame.")
     lines.append("- Client frame percentiles are native presentation-interval summaries per second; the table shows the median of those p95 windows.")
+    lines.append("- Command traces may span warm-up and measurement; only a command and its matched browser presentation contribute a latency sample.")
     lines.append("- Command-to-visible timing uses the first native presented frame carrying the movement snapshot when the camera is centered and painting is enabled; it does not verify individual pixels.")
     lines.append("- Screenshot and video capture were disabled for measured cases.")
     lines += ["", "## Next optimization milestone", ""]

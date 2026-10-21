@@ -131,6 +131,8 @@ try {
     const perfCameraSource = perfRun && cameraProbe
       ? 'var STARCOASTER_PERF_CAMERA = ' + JSON.stringify(process.env.WASM_PERF_CAMERA || 'visible') + ';\n'
         + 'var STARCOASTER_PERF_WORKLOAD = ' + JSON.stringify(process.env.WASM_PERF_WORKLOAD || 'idle') + ';\n'
+        + 'var STARCOASTER_PERF_COMMAND_DELAY_MS = ' + JSON.stringify(
+          Number(process.env.WASM_PERF_WARMUP_MS || 15000) + 10000) + ';\n'
         + cameraSource : cameraSource;
     const defenseSource = defenseConfigure
       ? 'var UNIVERSAL_DEFENSE_ANCHOR = ' + JSON.stringify(

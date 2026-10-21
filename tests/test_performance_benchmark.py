@@ -91,6 +91,23 @@ class PerformanceBenchmarkTest(unittest.TestCase):
         self.assertEqual(38000, result["command_to_presented_state_ms"]["median"])
         self.assertEqual(0, result["command_to_visible_ms"]["count"])
 
+    def test_command_trace_can_span_the_warmup_window(self):
+        case = {"label":"warmup","count":10,"workload":"moving","camera":"visible",
+                "paint":"normal","client":"local","measure":60,"errors":[],
+                "browser_window":{"start":1000,"end":2000},
+                "measurement_start_pi_mono_ns":1000000000,
+                "measurement_end_pi_mono_ns":2000000000}
+        events = [
+            {"case":"warmup","clock_domain":"browser-monotonic","wall_ms":900,
+             "stage":"command_input","request_id":8,"mono_ms":900},
+            {"case":"warmup","clock_domain":"pi-monotonic","mono_ns":900000000,
+             "stage":"command_first_movement","request_id":8,"seq":10},
+            {"case":"warmup","clock_domain":"browser-monotonic","wall_ms":1100,
+             "stage":"snapshot_present","seq":10,"mono_ns":1100000000},
+        ]
+        result = benchmark["summarize_case"](events,[],[],case)
+        self.assertEqual(200, result["command_to_visible_ms"]["median"])
+
     def test_delayed_browser_console_delivery_uses_native_event_time(self):
         case = {"label":"delayed","count":10,"workload":"idle","camera":"visible",
                 "paint":"normal","client":"local","measure":60,"errors":[],
