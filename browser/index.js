@@ -95,9 +95,16 @@
         const storage = await navigator.storage.estimate();
         if (storage.quota && storage.quota - storage.usage < totalBytes * 1.1)
             throw new Error("Browser storage is too small for the Pi's licensed RCT2 data.");
-        setStatus(`Loading your RCT2 assets from the private Pi… 0/${manifest.files.length}`);
+        let downloadedBytes = 0, lastProgress = 0;
+        const showProgress = (force = false) => {
+            const now = performance.now();
+            if (!force && now - lastProgress < 200) return;
+            lastProgress = now;
+            setStatus(`Loading RCT2 assets… ${(downloadedBytes / 1048576).toFixed(1)} / ${(totalBytes / 1048576).toFixed(1)} MiB · ${completed}/${manifest.files.length} files`);
+        };
         clearDirectory(fs, "/RCT");
         let completed = 0;
+        showProgress(true);
         // Chromium can reject a single IndexedDB transaction containing the
         // full licensed installation. Commit small verified batches instead.
         const batches = [];
@@ -116,7 +123,26 @@
                 while (next < files.length) {
                     const file = files[next++];
                 const url = "/private/rct2/files/" + file.path.split("/").map(encodeURIComponent).join("/");
-                const data = await (await fetchRequired(url)).arrayBuffer();
+                const response = await fetchRequired(url);
+                const reader = response.body.getReader();
+                const data = new Uint8Array(file.size);
+                let offset = 0;
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        if (offset + value.byteLength > data.byteLength)
+                            throw new Error(`RCT2 asset exceeds its manifest size: ${file.path}`);
+                        data.set(value, offset);
+                        offset += value.byteLength;
+                        downloadedBytes += value.byteLength;
+                        showProgress();
+                    }
+                } finally {
+                    reader.releaseLock();
+                }
+                if (offset !== file.size)
+                    throw new Error(`Incomplete RCT2 download: ${file.path}`);
                 if (data.byteLength !== file.size || await hash(data) !== file.sha256)
                     throw new Error(`Private RCT2 asset differs from its manifest: ${file.path}`);
                 const parts = file.path.split("/");
@@ -127,11 +153,12 @@
                 }
                 fs.writeFile(`${parent}/${parts.at(-1)}`, new Uint8Array(data));
                 completed++;
-                if (completed % 100 === 0 || completed === manifest.files.length)
-                    setStatus(`Loading your RCT2 assets from the private Pi… ${completed}/${manifest.files.length}`);
+                showProgress(true);
                 }
             }));
+            setStatus(`Saving RCT2 assets in the browser… ${completed}/${manifest.files.length} files`);
             await sync(fs, false);
+            showProgress(true);
         }
         if (!fs.analyzePath("/RCT/Data/ch.dat").exists)
             throw new Error("The Pi's RCT2 installation is missing Data/ch.dat.");
