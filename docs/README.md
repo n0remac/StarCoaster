@@ -1,6 +1,8 @@
 # Documentation
 
 The [project README](../README.md) is the supported gameplay workflow.
+The [map prebuild plan](map-prebuild/README.md) contains the completed Phase 1 baseline
+and Happier implementation checklists for phases 2–5.
 Use the [bootstrap guide](bootstrap.md) for dependencies and local game data,
 [world bridge guide](world-bridge.md) for runtime authority and protocol,
 [world geometry milestone](world-geometry-milestone.md) for terrain and 256×256
