@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 import io
+import json
 from pathlib import Path
 from unittest import mock
 import sys
@@ -10,6 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from park_session_supervisor import ParkSessionSupervisor
+from load_timing import LoadTiming, STAGES
 
 
 class Process:
@@ -21,6 +23,10 @@ class Process:
 
 
 class ParkSessionSupervisorTest(unittest.TestCase):
+    def timing_records(self):
+        path = self.supervisor.runtime / "load-timings.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()]
+
     def test_idle_supervisor_needs_no_initial_park(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "run-data") as directory:
             root = Path(directory)
@@ -137,6 +143,48 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.assertEqual(self.supervisor.state()["generation"], "new-generation")
         self.assertEqual(self.supervisor.state()["current"], "Park B.park")
         self.assertEqual(self.supervisor.state()["phase"], "ready")
+        record = self.timing_records()[0]
+        self.assertEqual((record["map"], record["generation"], record["outcome"]),
+                         ("Park B.park", "new-generation", "ready"))
+        self.assertEqual(record["stages"]["session_startup"]["status"], "ok")
+        self.assertEqual(record["stages"]["client_join"]["status"], "unavailable")
+        self.assertGreaterEqual(record["total_ms"], record["stages"]["session_startup"]["elapsed_ms"])
+
+    def test_prepare_records_distinct_stages_and_preflight_failure(self):
+        plan = {"validated_source_sha256": "abc", "park": "prepared"}
+        timing = self.supervisor.load_timing("Park B.park")
+        with mock.patch("park_session_supervisor.prepare", return_value=plan) as prepare, \
+             mock.patch("park_session_supervisor.ensure_park") as ensure, \
+             mock.patch("park_session_supervisor.build_native_map") as native, \
+             mock.patch.object(self.supervisor, "preflight_native_map", side_effect=RuntimeError("bad sync")):
+            with self.assertRaisesRegex(RuntimeError, "bad sync") as raised:
+                self.supervisor.prepare("Park B.park", timing)
+        timing.finish("failed", raised.exception)
+        record = self.timing_records()[0]
+        self.assertEqual(record["source_sha256"], "abc")
+        self.assertEqual(record["error_type"], "RuntimeError")
+        self.assertEqual(record["stages"]["source_resolution"]["status"], "ok")
+        self.assertEqual(record["stages"]["park_preparation"]["status"], "ok")
+        self.assertEqual(record["stages"]["native_map_generation"]["status"], "ok")
+        self.assertEqual(record["stages"]["isolated_preflight"]["status"], "failed")
+        self.assertEqual(record["stages"]["session_startup"]["status"], "unavailable")
+        self.assertTrue(record["generation"])
+        prepare.assert_called_once()
+        ensure.assert_called_once_with(plan)
+        native.assert_called_once_with(plan)
+
+    def test_timing_stage_failure_keeps_unreached_milestones_explicit(self):
+        timing = LoadTiming("broken.sc6", self.supervisor.runtime / "load-timings.jsonl")
+        with self.assertRaises(ValueError):
+            with timing.stage("source_inspection"):
+                raise ValueError("invalid park")
+        timing.finish("failed", ValueError("invalid park"))
+        timing.finish("ready")
+        record, = self.timing_records()
+        self.assertEqual(record["stages"]["source_inspection"]["error_type"], "ValueError")
+        self.assertEqual(record["stages"]["native_map_generation"]["status"], "unavailable")
+        self.assertEqual(set(record["stages"]), set(STAGES))
+        self.assertEqual(record["outcome"], "failed")
 
     def test_stopped_old_session_does_not_restart_browser_during_transition(self):
         self.old.stopped = True

@@ -17,6 +17,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
+from load_timing import LoadTiming
 from prepare_existing_defense import prepare
 from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, build_native_map, ensure_park, session_environment
 
@@ -148,14 +149,31 @@ class ParkSessionSupervisor:
                     and now - candidate.stat().st_mtime > 900):
                 candidate.unlink(missing_ok=True)
 
-    def prepare(self, name):
+    def prepare(self, name, timing=None):
         generation = uuid.uuid4().hex
+        if timing:
+            timing.generation = generation
         directory = self.runtime / "sessions" / generation
-        plan = prepare(str(self.source_for(name)), directory)
-        ensure_park(plan)
-        build_native_map(plan)
-        self.preflight_native_map(generation, plan)
+        if timing:
+            with timing.stage("source_resolution"):
+                source = self.source_for(name)
+            plan = prepare(str(source), directory, timing=timing)
+            timing.source_sha256 = plan.get("validated_source_sha256")
+            with timing.stage("park_preparation"):
+                ensure_park(plan)
+            with timing.stage("native_map_generation"):
+                build_native_map(plan)
+            with timing.stage("isolated_preflight"):
+                self.preflight_native_map(generation, plan)
+        else:
+            plan = prepare(str(self.source_for(name)), directory)
+            ensure_park(plan)
+            build_native_map(plan)
+            self.preflight_native_map(generation, plan)
         return generation, plan
+
+    def load_timing(self, name, kind="selection"):
+        return LoadTiming(name, self.runtime / "load-timings.jsonl", kind)
 
     def preflight_native_map(self, generation, plan):
         # Run the actual three-participant synchronization in a private network
@@ -251,21 +269,26 @@ class ParkSessionSupervisor:
         if not self.initial:
             return
         process = None
+        timing = self.load_timing(self.initial, "initial")
         try:
-            generation, plan = self.prepare(self.initial)
+            generation, plan = self.prepare(self.initial, timing)
+            timing.generation = generation
             with self.lock:
                 self.phase = "starting"
-            process, log_path = self.launch(generation, plan)
-            self.session = process
-            self.await_ready(process, log_path)
+            with timing.stage("session_startup"):
+                process, log_path = self.launch(generation, plan)
+                self.session = process
+                self.await_ready(process, log_path)
             with self.lock:
                 self.session, self.plan = process, plan
                 self.generation, self.current, self.phase = generation, self.initial, "ready"
                 self.persist_current()
+            timing.finish("ready")
         except BaseException as error:
             self.stop(process)
             with self.lock:
                 self.phase, self.error = "failed", str(error)
+            timing.finish("failed", error)
             raise
 
     def request(self, park, decision, generation, save_name=""):
@@ -331,8 +354,11 @@ class ParkSessionSupervisor:
 
     def transition(self, park, decision, save_name):
         old_name, old_process, old_plan = self.current, self.session, self.plan
+        process = None
+        timing = self.load_timing(park)
         try:
-            generation, plan = self.prepare(park)
+            generation, plan = self.prepare(park, timing)
+            timing.generation = generation
             if decision == "save":
                 self.archive_save(old_name, save_name)
             with self.lock:
@@ -340,14 +366,18 @@ class ParkSessionSupervisor:
                     self.pending = ""
                     self.phase = "ready" if old_process is not None else "idle"
                     self.error = "park_transition_cancelled"
+                    timing.finish("cancelled")
                     return
                 self.phase = "switching"
-            self.stop(old_process)
+            if old_process is not None:
+                with timing.stage("prior_session_stop"):
+                    self.stop(old_process)
             with self.lock:
                 self.phase = "starting"
-            process, log_path = self.launch(generation, plan)
             try:
-                self.await_ready(process, log_path)
+                with timing.stage("session_startup"):
+                    process, log_path = self.launch(generation, plan)
+                    self.await_ready(process, log_path)
             except Exception:
                 self.stop(process)
                 raise
@@ -356,7 +386,9 @@ class ParkSessionSupervisor:
                 self.generation, self.current = generation, park
                 self.pending, self.phase = "", "ready"
                 self.persist_current()
+            timing.finish("ready")
         except Exception as error:
+            timing.finish("failed", error)
             with self.lock:
                 self.phase, self.error = "failed", str(error)
             if old_process is None:
@@ -368,18 +400,23 @@ class ParkSessionSupervisor:
                     self.phase, self.pending = "ready", ""
                 return
             try:
-                generation, plan = self.prepare(old_name)
+                recovery_timing = self.load_timing(old_name, "recovery")
+                generation, plan = self.prepare(old_name, recovery_timing)
+                recovery_timing.generation = generation
                 with self.lock:
                     self.phase = "starting"
-                process, log_path = self.launch(generation, plan)
-                self.await_ready(process, log_path)
+                with recovery_timing.stage("session_startup"):
+                    process, log_path = self.launch(generation, plan)
+                    self.await_ready(process, log_path)
                 with self.lock:
                     self.session, self.plan = process, plan
                     self.generation, self.current = generation, old_name
                     self.pending, self.phase = "", "ready"
                     self.error = "new park failed; restored prior park: " + self.error
                     self.persist_current()
+                recovery_timing.finish("ready")
             except Exception as recovery:
+                recovery_timing.finish("failed", recovery)
                 with self.lock:
                     self.error += "; recovery failed: " + str(recovery)
         finally:
