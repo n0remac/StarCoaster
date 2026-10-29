@@ -7,6 +7,7 @@ import os
 import shutil
 import socket
 import subprocess
+import tempfile
 from pathlib import Path
 
 from load_timing import LoadTiming
@@ -48,6 +49,10 @@ def main():
     if args.save.suffix.lower() not in (".park", ".sc6", ".sc4", ".sv6", ".sv4"):
         parser.error("save must use a supported OpenRCT2 format")
     output.mkdir(parents=True, exist_ok=True)
+    temporary = output / "tmp"
+    temporary.mkdir(exist_ok=True)
+    os.environ["TMPDIR"] = str(temporary)
+    tempfile.tempdir = str(temporary)
     library = output / "library"
     library.mkdir(exist_ok=True)
     saved_name = "Baseline Save" + args.save.suffix.lower()
