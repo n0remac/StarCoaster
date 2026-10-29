@@ -9,6 +9,10 @@ while read -r old_revision new_revision ref; do
 done
 [[ "$updated" == 1 ]] || exit 0
 project_dir=/home/pi/Projects/rts-bridge
+if ! grep -Fq 'scripts/deploy-production.sh' "$project_dir/scripts/update-pi-game.sh"; then
+    echo 'Production moved to 100.119.114.99; refusing legacy local deployment.' >&2
+    exit 1
+fi
 export STARCOASTER_PUSH_REPO="$(git rev-parse --absolute-git-dir)"
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
