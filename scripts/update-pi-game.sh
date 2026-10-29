@@ -32,7 +32,8 @@ fi
 if git merge-base --is-ancestor HEAD "$target"; then
     git merge --ff-only "$target"
 elif git merge-base --is-ancestor "$target" HEAD; then
-    log 'Local main already includes the pushed revision'
+    log 'Build checkout is ahead of pushed main; refusing to deploy a different revision'
+    exit 1
 else
     log 'main diverged from pushed main'
     exit 1
@@ -43,6 +44,10 @@ if [[ "$force" == 0 && -f "$marker" && "$(cat "$marker")" == "$revision" ]]; the
     log "Already running $revision"
     exit 0
 fi
+scripts/deploy-production.sh --check
+log "Preparing pinned dependencies for $revision"
+python3 scripts/fetch-upstream.py
+BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-1}" scripts/project.sh prepare-wasm-arm64
 log "Building $revision"
 BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-1}" scripts/project.sh build
 scripts/install-openrct2-local.sh

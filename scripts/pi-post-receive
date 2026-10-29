@@ -8,7 +8,7 @@ while read -r old_revision new_revision ref; do
     fi
 done
 [[ "$updated" == 1 ]] || exit 0
-project_dir=/home/pi/Projects/rts-bridge
+project_dir=/media/pi/media1/starcoaster-production-build
 if ! grep -Fq 'scripts/deploy-production.sh' "$project_dir/scripts/update-pi-game.sh"; then
     echo 'Production moved to 100.119.114.99; refusing legacy local deployment.' >&2
     exit 1

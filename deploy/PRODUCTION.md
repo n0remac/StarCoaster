@@ -34,7 +34,10 @@ Current rollout status: new native service and new tunnel validated. Browser
 validation, privileged activator installation and end-to-end automatic activation
 remain gates. Do not describe this pipeline as fully operational before those pass.
 
-The development checkout is currently on phase1-map-loading-timings with ongoing
-uncommitted work. The push updater deliberately refuses non-main or dirty
-checkouts; merge these deployment changes to main and finish or isolate that work
-before enabling unattended builds. Never discard active development changes.
+The build checkout is /media/pi/media1/starcoaster-production-build, with its
+own clean main branch and build directories. The receive hook uses this checkout,
+not the active phase1-map-loading-timings development branch. It fetches pinned
+upstreams and bootstraps the ARM64 WASM toolchain on first use. First builds are
+therefore substantially slower than incremental builds. The updater refuses a
+pushed revision behind its checkout; merge the production-target changes before
+the first production push. A successful push must match the revision deployed.

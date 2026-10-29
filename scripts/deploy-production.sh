@@ -8,6 +8,8 @@ revision="$(git rev-parse HEAD)"
 target=cameron@100.119.114.99
 ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/pi/.ssh/starcoaster-prod-known-hosts -i /home/pi/.ssh/starcoaster_deploy_ed25519 -o IdentitiesOnly=yes)
 ssh "${ssh_opts[@]}" "$target" 'sudo -n /usr/local/sbin/starcoaster-activate --check'
+if [[ ${1:-} == --check ]]; then exit 0; fi
+[[ $# == 0 ]] || { echo 'Usage: deploy-production.sh [--check]' >&2; exit 2; }
 stage="$(mktemp -d "$root/run-data/prod-package.XXXXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 paths=(scripts tests scenarios bridge-protocol openrct2-plugin assets dependencies.lock.json
