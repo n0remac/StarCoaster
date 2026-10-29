@@ -324,6 +324,12 @@ try {
       if (screenshot.length > 100000) { mainMenu = true; break; }
     }
     if (!mainMenu) throw new Error('OpenRCT2 did not render its main menu');
+    // First visits can open OpenRCT2's changelog over the main menu.
+    // Use its normal close-window shortcut before clicking through the canvas.
+    await page.locator('canvas').focus();
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(1000);
+    await capture(page, 'handoff-menu-ready.png');
     console.log('HANDOFF: clicking New Game');
     await page.mouse.click(514, 688);
     await page.waitForTimeout(5000);
