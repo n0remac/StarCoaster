@@ -4,6 +4,8 @@ StarCoaster is a playable RTS encounter inside a real OpenRCT2 park. Its package
 
 The native `scripts/project.sh launch` command and private browser app start at OpenRCT2's standard main menu. New Game and Load Game use OpenRCT2's normal interfaces. On a managed Pi host, selecting a stock scenario or save prepares a fresh authoritative OpenRCT2, OpenBW, and Go session; the graphical client joins it through OpenRCT2 multiplayer without asking for a session token. Explicit `play` commands remain available for packaged missions and development.
 
+Production releases follow the [dev Pi → GitHub main → production Pi pipeline](deploy/PRODUCTION.md).
+
 ## Build and play
 
 Provide your own licensed RCT2 and classic StarCraft data, then set `RCT2_DATA_DIR` and `STARCRAFT_DATA_DIR`. A fresh clone also needs the pinned upstream checkouts from `python3 scripts/fetch-upstream.py`. See the [bootstrap guide](docs/bootstrap.md) for system packages and local sprite options.
