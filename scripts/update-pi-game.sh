@@ -38,7 +38,7 @@ else
     exit 1
 fi
 revision="$(git rev-parse HEAD)"
-marker=run-data/pi-deployed-revision
+marker=run-data/prod-deployed-revision
 if [[ "$force" == 0 && -f "$marker" && "$(cat "$marker")" == "$revision" ]]; then
     log "Already running $revision"
     exit 0
@@ -52,51 +52,6 @@ log 'Running offline and browser checks'
 scripts/project.sh test
 scripts/project.sh test-wasm
 "${GO_BIN:-/usr/local/go/bin/go}" build -o build/wasm-server ./cmd/wasm-server
-log 'Deploying private browser bundle'
-scripts/project.sh deploy-wasm
-log 'Restarting StarCoaster game'
-systemctl --user restart starcoaster-game.service
-ready=0
-for attempt in $(seq 1 45); do
-    if systemctl --user is-active --quiet starcoaster-game.service && \
-        curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8091/manifest.json \
-            -o run-data/pi-served-manifest.json 2>/dev/null && \
-        curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8091/private/park-session \
-            -o run-data/pi-served-park-session.json 2>/dev/null && \
-        python3 - <<'PY'
-import hashlib
-import json
-from pathlib import Path
-
-served = json.loads(Path('run-data/pi-served-manifest.json').read_text())
-local = json.loads(Path('build/wasm-client/manifest.json').read_text())
-assert served == local
-assert served['visual_source'] == 'starcraft-local'
-assert served['plugin_sha256'] == hashlib.sha256(
-    Path('openrct2-plugin/rts-bridge.js').read_bytes()).hexdigest()
-session = json.loads(Path('run-data/pi-served-park-session.json').read_text())
-assert session['phase'] in ('idle', 'ready')
-if session['phase'] == 'ready':
-    assert session['generation'] and session['current']
-PY
-    then ready=1; break; fi
-    sleep 2
-done
-if [[ "$ready" != 1 ]]; then
-    log 'Game or private browser bundle failed health check'
-    exit 1
-fi
-game_pid="$(systemctl --user show starcoaster-game.service --property=MainPID --value)"
-sleep 30
-if [[ "$game_pid" == 0 ]] || \
-    [[ "$(systemctl --user show starcoaster-game.service --property=MainPID --value)" != "$game_pid" ]] || \
-    ! systemctl --user is-active --quiet starcoaster-game.service || \
-    ! curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8091/manifest.json \
-        -o run-data/pi-served-manifest.json || \
-    ! cmp -s run-data/pi-served-manifest.json build/wasm-client/manifest.json; then
-    log 'Game did not remain healthy for 30 seconds'
-    exit 1
-fi
-printf '%s\n' "$revision" > "$marker.tmp"
-mv -f "$marker.tmp" "$marker"
-log "Deployed and serving $revision"
+log 'Deploying verified build to production Pi'
+scripts/deploy-production.sh
+log "Production deployment finished for $revision"

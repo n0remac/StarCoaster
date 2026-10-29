@@ -1,0 +1,35 @@
+# Production deployment
+
+Production is noremac-prod, Tailscale 100.119.114.99. The old Pi
+100.109.28.107 builds and tests; it must not serve the public production route.
+
+The existing bare Git receiver remains on the build Pi. Its main push hook runs
+scripts/update-pi-game.sh, which refuses dirty/diverged source, builds native and
+WASM outputs, runs offline/browser checks, and invokes scripts/deploy-production.sh.
+This stages a checksum-verified release on production and calls the fixed
+root-owned activator. The activator switches /opt/starcoaster/current, updates the
+service bind mount and library paths, tests an Electric Fields native session,
+returns to the title screen, and restores the prior release on activation failure.
+Browser input/render validation is an additional release check, not established
+by the activator's native smoke test.
+
+One-time installation on production:
+sudo bash /home/cameron/starcoaster-deploy-setup/install-production-activator.sh
+
+The dedicated builder key is allowed only from the build Pi's Tailscale address.
+Only /usr/local/sbin/starcoaster-activate is passwordless; it accepts a full Git
+revision or --check and only reads the fixed incoming directory. It extracts only
+regular files/directories into a root-owned release. No licensed assets enter Git
+or the release archive; licensed files stay under /var/lib/starcoaster/licensed.
+Private WASM outputs and compatibility libraries are transferred over SSH.
+
+The authenticated public Caddy site uses a reverse SSH tunnel:
+old production 127.0.0.1:18091; new production 127.0.0.1:28091.
+The new tunnel is cameron's starcoaster-production-tunnel user service with linger.
+Keep the previous release and the old server's files for rollback. Stop and disable
+the old public tunnel after validation and cutover. Mask the old production game
+unit so outdated local deployment scripts cannot restart it.
+
+Current rollout status: new native service and new tunnel validated. Browser
+validation, privileged activator installation and end-to-end automatic activation
+remain gates. Do not describe this pipeline as fully operational before those pass.
