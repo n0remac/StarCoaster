@@ -256,3 +256,5 @@ injured organic target. The controller rechecks native ownership and target
 health, then issues BWAPI Healing. Combat snapshots expose native energy and
 `motion: "heal"` during a native healing pulse. Firebat flame drawing uses the
 native attack-frame counter; the renderer does not calculate healing or damage.
+
+The path-only `starcraft-sprite-order.json` ledger preserves established G2 sprite IDs across clean and incremental builds. Append new established paths without changing prior entries; it contains no licensed image data.
