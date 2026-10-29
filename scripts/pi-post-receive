@@ -1,27 +1,13 @@
 #!/usr/bin/env bash
-# Installed in the ignored Pi bare repository; SSH Git invokes it after a push.
+# Optional local wake-up; deploy worker always fetches canonical GitHub main.
 set -euo pipefail
 updated=0
 while read -r old_revision new_revision ref; do
-    if [[ "$ref" == refs/heads/main && "$new_revision" != 0000000000000000000000000000000000000000 ]]; then
-        updated=1
-    fi
+ if [[ "$ref" == refs/heads/main && "$new_revision" != 0000000000000000000000000000000000000000 ]]; then updated=1; fi
 done
 [[ "$updated" == 1 ]] || exit 0
-project_dir=/media/pi/media1/starcoaster-production-build
-if ! grep -Fq 'scripts/deploy-production.sh' "$project_dir/scripts/update-pi-game.sh"; then
-    echo 'Production moved to 100.119.114.99; refusing legacy local deployment.' >&2
-    exit 1
-fi
-export STARCOASTER_PUSH_REPO="$(git rev-parse --absolute-git-dir)"
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
-mkdir -p "$project_dir/build"
-if /bin/bash "$project_dir/scripts/update-pi-game.sh" --from-push >> "$project_dir/build/pi-update-service.log" 2>&1; then
-    printf 'StarCoaster production deployed: %s\n' "$(cat "$project_dir/run-data/prod-deployed-revision")"
-else
-    printf 'StarCoaster deployment failed; recent log follows:\n' >&2
-    tail -n 20 "$project_dir/build/pi-update-service.log" >&2
-    exit 1
-fi
+systemctl --user start --no-block starcoaster-deploy.service
+echo 'Release check queued. Worker deploys GitHub main; inspect journalctl --user -u starcoaster-deploy.'

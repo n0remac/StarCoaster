@@ -1,62 +1,69 @@
 #!/usr/bin/env bash
-# Verify a pushed main revision, then restart the managed game.
-set -euo pipefail
+# Build exactly GitHub main in the isolated checkout, then publish to production.
+set -Eeuo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 force=0
-from_push=0
 for arg in "$@"; do
-    case "$arg" in
-        --force) force=1 ;;
-        --from-push) from_push=1 ;;
-        *) printf 'Usage: scripts/update-pi-game.sh [--force] [--from-push]\n' >&2; exit 2 ;;
-    esac
+ case "$arg" in
+  --force) force=1 ;;
+  --from-push) : ;; # Compatibility: GitHub remains authoritative.
+  *) echo 'Usage: update-pi-game.sh [--force] [--from-push]' >&2; exit 2 ;;
+ esac
 done
 mkdir -p run-data
 exec 9>run-data/pi-update.lock
 flock 9
+stage=fetch
+revision=""
+status() {
+ python3 - "$1" "$stage" "$revision" <<'PY'
+import datetime,json,os,sys
+from pathlib import Path
+p=Path('run-data/deployment-status.json')
+tmp=p.with_suffix('.tmp')
+tmp.write_text(json.dumps(dict(status=sys.argv[1],stage=sys.argv[2],revision=sys.argv[3],
+ updated_at=datetime.datetime.now(datetime.timezone.utc).isoformat()),indent=2)+'\n')
+os.replace(tmp,p)
+PY
+}
+trap 'status failed' ERR
 log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
-[[ "$(git branch --show-current)" == main ]] || { log 'Expected the main branch'; exit 1; }
-[[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { log 'Checkout has local changes; update refused'; exit 1; }
-if [[ "$from_push" == 1 ]]; then
-    push_repo="${STARCOASTER_PUSH_REPO:-$project_dir/run-data/pi-push.git}"
-    test -d "$push_repo" || { log "Push repository missing: $push_repo"; exit 1; }
-    log 'Fetching Pi push/main'
-    git fetch "$push_repo" refs/heads/main
-    target=FETCH_HEAD
-else
-    log 'Fetching origin/main'
-    git fetch origin main:refs/remotes/origin/main
-    target=origin/main
+step() { stage="$1";status running;log "$stage $revision"; }
+[[ "$(git branch --show-current)" == main ]] || { log 'Expected isolated main branch'; status failed; exit 1; }
+[[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { log 'Checkout has local changes; refused'; status failed; exit 1; }
+git fetch origin main:refs/remotes/origin/main
+target=origin/main
+if ! git merge-base --is-ancestor HEAD "$target"; then
+ log 'Build checkout diverged or is ahead of GitHub main; refused'
+ status failed;exit 1
 fi
-if git merge-base --is-ancestor HEAD "$target"; then
-    git merge --ff-only "$target"
-elif git merge-base --is-ancestor "$target" HEAD; then
-    log 'Build checkout is ahead of pushed main; refusing to deploy a different revision'
-    exit 1
-else
-    log 'main diverged from pushed main'
-    exit 1
-fi
+git merge --ff-only "$target"
 revision="$(git rev-parse HEAD)"
-marker=run-data/prod-deployed-revision
-if [[ "$force" == 0 && -f "$marker" && "$(cat "$marker")" == "$revision" ]]; then
-    log "Already running $revision"
-    exit 0
+# Production is the source of truth; do not trust a stale local marker.
+deployed="$(scripts/deploy-production.sh --status || true)"
+if [[ "$force" == 0 && "$deployed" == "$revision" ]]; then
+ printf '%s\n' "$revision" > run-data/prod-deployed-revision
+ stage=complete;status succeeded
+ log "Already serving $revision";exit 0
 fi
+step preflight
 scripts/deploy-production.sh --check
-log "Preparing pinned dependencies for $revision"
+step dependencies
 python3 scripts/fetch-upstream.py
-BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-1}" scripts/project.sh prepare-wasm-arm64
-log "Building $revision"
-BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-1}" scripts/project.sh build
+BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-2}" scripts/project.sh prepare-wasm-arm64
+step native-build
+BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-2}" scripts/project.sh build
 scripts/install-openrct2-local.sh
-OPENRCT2_WASM_LOCAL=1 BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-1}" \
-    scripts/project.sh build-wasm
-log 'Running offline and browser checks'
+step wasm-build
+OPENRCT2_WASM_LOCAL=1 BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-2}" scripts/project.sh build-wasm
+step tests
 scripts/project.sh test
 scripts/project.sh test-wasm
 "${GO_BIN:-/usr/local/go/bin/go}" build -o build/wasm-server ./cmd/wasm-server
-log 'Deploying verified build to production Pi'
+step browser-gameplay
+python3 scripts/test-release-candidate.py
+step deployment
 scripts/deploy-production.sh
+stage=complete;status succeeded
 log "Production deployment finished for $revision"

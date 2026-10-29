@@ -1,0 +1,8 @@
+[Unit]
+Description=Check GitHub main for a production release every two minutes
+[Timer]
+OnCalendar=*-*-* *:0/2:00
+Persistent=true
+Unit=starcoaster-deploy.service
+[Install]
+WantedBy=timers.target

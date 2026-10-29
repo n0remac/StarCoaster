@@ -1,48 +1,70 @@
-# Production deployment
+# StarCoaster production delivery
 
-Production is noremac-prod, Tailscale 100.119.114.99. The old Pi
-100.109.28.107 builds and tests; it must not serve the public production route.
+Development happens in /media/pi/media1/rts-bridge on the 8 GB dev Pi.
+GitHub (n0remac/StarCoaster) main is the only release source. Feature branches
+do not deploy. Push a feature branch, merge reviewed/tested work into main, and
+the dev Pi checks GitHub within two minutes. Direct pushes to main also trigger
+the same path. A local Git receive hook can wake the worker early, but cannot
+substitute a local-only revision for GitHub main.
 
-The existing bare Git receiver remains on the build Pi. Its main push hook runs
-scripts/update-pi-game.sh, which refuses dirty/diverged source, builds native and
-WASM outputs, runs offline/browser checks, and invokes scripts/deploy-production.sh.
-This stages a checksum-verified release on production and calls the fixed
-root-owned activator. The activator switches /opt/starcoaster/current, updates the
-service bind mount and library paths, tests an Electric Fields native session,
-returns to the title screen, and restores the prior release on activation failure.
-Browser input/render validation is an additional release check, not established
-by the activator's native smoke test.
+## Build and release
 
-One-time installation on production:
-sudo bash /home/cameron/starcoaster-deploy-setup/install-production-activator.sh
+The user timer starcoaster-deploy.timer starts starcoaster-deploy.service.
+It survives logout/reboot through user lingering. Builds use their own clean
+main checkout at /media/pi/media1/starcoaster-production-build, separate from
+active development. A lock prevents overlapping releases. Failed checks leave
+the existing production release running.
 
-The dedicated builder key is allowed only from the build Pi's Tailscale address.
-Only /usr/local/sbin/starcoaster-activate is passwordless; it accepts a full Git
-revision or --check and only reads the fixed incoming directory. It extracts only
-regular files/directories into a root-owned release. No licensed assets enter Git. Licensed game source files stay under
-/var/lib/starcoaster/licensed. Private WASM outputs (including staged game graphics)
-and compatibility libraries are transferred only over SSH.
+1. Fetch GitHub main, require a clean fast-forward, and compare its SHA to
+   /opt/starcoaster/current/REVISION on the new Pi.
+2. Verify deployment access; fetch pinned engine sources and prepare the ARM64
+   Emscripten toolchain; build native engines, bridge and browser bundle.
+3. Run Go, C++, Python, JavaScript, bundle and browser checks. Launch an isolated
+   candidate on loopback port 18095 (native ports 11853/41110–41112).
+   The browser selects Bumbly Bazaar, builds a Barracks, trains a Marine, issues
+   movement and verifies native multiplayer traffic and actor movement.
+4. Package a clean source/build snapshot with its full Git revision and checksums.
+   Upload over SSH to 100.119.114.99, then rename the completed upload.
+5. The root-owned starcoaster-activate helper extracts only relative regular
+   files/directories, verifies checksums, switches the current release and matching
+   browser bundle, and restarts starcoaster.service. An Electric Fields native
+   startup and stability check must pass. Activation failure restores the old
+   release, bundle and service configuration.
 
-The authenticated public Caddy site uses a reverse SSH tunnel:
-old production 127.0.0.1:18091; new production 127.0.0.1:28091.
-The new tunnel is cameron's starcoaster-production-tunnel user service with linger.
-Keep the previous release and the old server's files for rollback. Stop and disable
-the old public tunnel after validation and cutover. Mask the old production game
-unit so outdated local deployment scripts cannot restart it.
+Deployment restarts game sessions. Saved parks and licensed data live separately
+under /var/lib/starcoaster. Only the fixed activator is passwordless; its installer
+is deploy/install-production-activator.sh. Engine binaries and licensed browser
+graphics travel privately over SSH and must never be committed to Git.
 
-Current rollout status: native startup, normal browser scenario selection,
-Barracks construction, native Marine training, and browser movement passed on
-production. Eight archive/activation tests passed, including simulated rollback.
-The Caddy switch was attempted through the laptop, but the remote connection
-timed out; verify the live upstream before stopping old services. The old game
-and tunnel are still running. Privileged activator installation and a real
-end-to-end automatic build/deploy remain gates. The activator installer is staged
-on production at /home/cameron/starcoaster-deploy-setup/.
+The new Pi is noremac-prod (100.119.114.99). Its public tunnel now owns VPS loopback
+port 18091, the existing authenticated Caddy upstream for starcoaster.noremac.dev.
+A second production tunnel on port 28091 is also available. Both tunnels run on
+the new Pi. The old Pi's game and public tunnel units are stopped and disabled;
+it now serves as the development/build host.
 
-The build checkout is /media/pi/media1/starcoaster-production-build, with its
-own clean main branch and build directories. The receive hook uses this checkout,
-not the active phase1-map-loading-timings development branch. It fetches pinned
-upstreams and bootstraps the ARM64 WASM toolchain on first use. First builds are
-therefore substantially slower than incremental builds. The updater refuses a
-pushed revision behind its checkout; merge the production-target changes before
-the first production push. A successful push must match the revision deployed.
+## Operating the pipeline
+
+On the dev Pi:
+
+    systemctl --user status starcoaster-deploy.timer starcoaster-deploy.service
+    journalctl --user -u starcoaster-deploy.service -n 80 --no-pager
+    cat /media/pi/media1/starcoaster-production-build/run-data/deployment-status.json
+
+To check GitHub immediately:
+
+    systemctl --user start --no-block starcoaster-deploy.service
+
+The status file records the source revision, stage, timestamp and success/failure.
+run-data/prod-deployed-revision is a convenience marker; production's actual
+REVISION and active service are authoritative. Browser evidence is in
+build/release-browser/runtime.json and screenshots. First builds can be slow;
+later builds reuse isolated compiler/build caches.
+
+The timer retries failed checks. An extracted release whose activation failed is
+retained for investigation: publish a corrected commit instead of overwriting an
+existing release directory. /opt/starcoaster/previous preserves the last good
+release. Rollback tests exercise restoration of release, bundle and config.
+
+The pipeline is local systemd CI/CD, not a GitHub Actions workflow. GitHub commit
+status reporting/alerts, protected-main review requirements, and maintenance-aware
+deployment scheduling are useful follow-up improvements.
