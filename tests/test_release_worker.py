@@ -73,6 +73,16 @@ esac
         result=self.run_worker(TEST_FAIL='0')
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         self.assertEqual(self.deployed.read_text().strip(),self.revision)
+    def test_reexecutes_updated_worker_after_fetch(self):
+        worker=self.origin/'scripts/update-pi-game.sh'
+        worker.write_text(worker.read_text()+'\necho worker-upgraded >> "$TEST_TRACE"\n')
+        self.git(self.origin,'add','scripts/update-pi-game.sh')
+        self.git(self.origin,'commit','-m','update release worker')
+        target=self.git(self.origin,'rev-parse','HEAD').strip()
+        result=self.run_worker()
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertEqual(self.deployed.read_text().strip(),target)
+        self.assertEqual(self.trace.read_text().splitlines()[-1],'worker-upgraded')
     def test_failed_browser_gameplay_never_activates(self):
         result=self.run_worker(TEST_BROWSER_FAIL='1')
         self.assertNotEqual(result.returncode,0)

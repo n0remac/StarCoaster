@@ -32,6 +32,7 @@ log() { printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 step() { stage="$1";status running;log "$stage $revision"; }
 [[ "$(git branch --show-current)" == main ]] || { log 'Expected isolated main branch'; status failed; exit 1; }
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { log 'Checkout has local changes; refused'; status failed; exit 1; }
+runner_before="$(sha256sum scripts/update-pi-game.sh | cut -d " " -f 1)"
 git fetch origin main:refs/remotes/origin/main
 target=origin/main
 if ! git merge-base --is-ancestor HEAD "$target"; then
@@ -39,6 +40,10 @@ if ! git merge-base --is-ancestor HEAD "$target"; then
  status failed;exit 1
 fi
 git merge --ff-only "$target"
+if [[ "$runner_before" != "$(sha256sum scripts/update-pi-game.sh | cut -d " " -f 1)" ]]; then
+ log 'Release worker changed; re-executing the checked-out version'
+ exec /bin/bash "$project_dir/scripts/update-pi-game.sh" "$@"
+fi
 revision="$(git rev-parse HEAD)"
 # Production is the source of truth; do not trust a stale local marker.
 deployed="$(scripts/deploy-production.sh --status || true)"
