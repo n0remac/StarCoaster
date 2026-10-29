@@ -19,9 +19,9 @@ sudo bash /home/cameron/starcoaster-deploy-setup/install-production-activator.sh
 The dedicated builder key is allowed only from the build Pi's Tailscale address.
 Only /usr/local/sbin/starcoaster-activate is passwordless; it accepts a full Git
 revision or --check and only reads the fixed incoming directory. It extracts only
-regular files/directories into a root-owned release. No licensed assets enter Git
-or the release archive; licensed files stay under /var/lib/starcoaster/licensed.
-Private WASM outputs and compatibility libraries are transferred over SSH.
+regular files/directories into a root-owned release. No licensed assets enter Git. Licensed game source files stay under
+/var/lib/starcoaster/licensed. Private WASM outputs (including staged game graphics)
+and compatibility libraries are transferred only over SSH.
 
 The authenticated public Caddy site uses a reverse SSH tunnel:
 old production 127.0.0.1:18091; new production 127.0.0.1:28091.
@@ -33,3 +33,8 @@ unit so outdated local deployment scripts cannot restart it.
 Current rollout status: new native service and new tunnel validated. Browser
 validation, privileged activator installation and end-to-end automatic activation
 remain gates. Do not describe this pipeline as fully operational before those pass.
+
+The development checkout is currently on phase1-map-loading-timings with ongoing
+uncommitted work. The push updater deliberately refuses non-main or dirty
+checkouts; merge these deployment changes to main and finish or isolate that work
+before enabling unattended builds. Never discard active development changes.
