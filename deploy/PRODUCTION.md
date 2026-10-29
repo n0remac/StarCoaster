@@ -47,7 +47,7 @@ it now serves as the development/build host.
 On the dev Pi:
 
     systemctl --user status starcoaster-deploy.timer starcoaster-deploy.service
-    journalctl --user -u starcoaster-deploy.service -n 80 --no-pager
+    journalctl _SYSTEMD_USER_UNIT=starcoaster-deploy.service -n 80 --no-pager
     cat /media/pi/media1/starcoaster-production-build/run-data/deployment-status.json
 
 To check GitHub immediately:

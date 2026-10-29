@@ -52,11 +52,11 @@ scripts/deploy-production.sh --check
 step dependencies
 python3 scripts/fetch-upstream.py
 BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-2}" scripts/project.sh prepare-wasm-arm64
-step native-build
-BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-2}" scripts/project.sh build
-scripts/install-openrct2-local.sh
-step wasm-build
-OPENRCT2_WASM_LOCAL=1 BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-2}" scripts/project.sh build-wasm
+step build
+# The canonical prepare workflow also extracts sprites/icons and installs
+# construction objects; a fresh checkout has none of the dev machine's assets.
+OPENRCT2_WASM_LOCAL=1 BRIDGE_BUILD_JOBS="${BRIDGE_BUILD_JOBS:-2}" \
+ scripts/project.sh start --prepare-only --headless --browser
 step tests
 scripts/project.sh test
 scripts/project.sh test-wasm
