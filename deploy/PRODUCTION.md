@@ -30,9 +30,14 @@ Keep the previous release and the old server's files for rollback. Stop and disa
 the old public tunnel after validation and cutover. Mask the old production game
 unit so outdated local deployment scripts cannot restart it.
 
-Current rollout status: new native service and new tunnel validated. Browser
-validation, privileged activator installation and end-to-end automatic activation
-remain gates. Do not describe this pipeline as fully operational before those pass.
+Current rollout status: native startup, normal browser scenario selection,
+Barracks construction, native Marine training, and browser movement passed on
+production. Eight archive/activation tests passed, including simulated rollback.
+The Caddy switch was attempted through the laptop, but the remote connection
+timed out; verify the live upstream before stopping old services. The old game
+and tunnel are still running. Privileged activator installation and a real
+end-to-end automatic build/deploy remain gates. The activator installer is staged
+on production at /home/cameron/starcoaster-deploy-setup/.
 
 The build checkout is /media/pi/media1/starcoaster-production-build, with its
 own clean main branch and build directories. The receive hook uses this checkout,
