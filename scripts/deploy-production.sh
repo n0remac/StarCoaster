@@ -36,7 +36,7 @@ python3 scripts/verify-wasm-bundle.py "$stage/wasm"
 printf '%s\n' "$revision" > "$stage/REVISION"
 (cd "$stage" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 archive="$root/run-data/production-$revision.tar"
-tar -chf "$archive" -C "$stage" .
+scripts/package-production-archive.sh "$stage" "$archive"
 ssh "${ssh_opts[@]}" "$target" 'mkdir -p /home/cameron/starcoaster-incoming'
 scp "${ssh_opts[@]}" "$archive" "$target:/home/cameron/starcoaster-incoming/$revision.tar.uploading"
 ssh "${ssh_opts[@]}" "$target" "mv /home/cameron/starcoaster-incoming/$revision.tar.uploading /home/cameron/starcoaster-incoming/$revision.tar"
