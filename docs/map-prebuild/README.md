@@ -1,6 +1,6 @@
 # Map prebuild plan
 
-Status: Phases 1–2 complete; phases 3–5 planned. Continue with [Phase 3](phase-3-supervisor-integration.md).
+Status: Phases 1–3 complete; phases 4–5 planned. Continue with [Phase 4](phase-4-catalog-prebuild.md).
 This directory is the shared context for Happier sessions implementing map prebuilds.
 Creating these plans does not start implementation or authorize production deployment.
 
@@ -12,7 +12,7 @@ Prepare every supported installed OpenRCT2 map with the default StarCraft settin
 | --- | --- | --- |
 | 1 | Complete | [Instrumentation and baseline](../map-loading-baseline-phase1.md) |
 | 2 | Complete | [Single-map cache and preparation API](phase-2-single-map-cache.md) |
-| 3 | Planned | [Supervisor cache integration](phase-3-supervisor-integration.md) |
+| 3 | Complete | [Supervisor cache integration](phase-3-supervisor-integration.md) |
 | 4 | Planned | [Automatic catalog prebuild](phase-4-catalog-prebuild.md) |
 | 5 | Planned | [Correctness, gameplay, and performance verification](phase-5-verification.md) |
 
