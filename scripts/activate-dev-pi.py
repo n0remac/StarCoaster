@@ -135,6 +135,7 @@ def activate(revision, root=RELEASE_ROOT, override=OVERRIDE):
                 replace_link(root / "previous", previous)
             elif previous is None and old_override is not None:
                 replace_file(root / "legacy-service-override.conf", old_override)
+            (root / "hold").unlink(missing_ok=True)
         except BaseException:
             replace_link(current, previous)
             if old_override is None:
@@ -175,6 +176,7 @@ def rollback(root=RELEASE_ROOT, override=OVERRIDE):
             run("systemctl", "--user", "restart", SERVICE)
             if not serving_revision(target):
                 raise RuntimeError("previous DEV game service did not become ready")
+            replace_file(root / "hold", b"manual rollback; resume automatic releases explicitly\n")
         except BaseException:
             replace_link(current, active)
             replace_file(override, active_override)
@@ -197,8 +199,12 @@ def main():
         rollback()
         print("DEV Pi restored the previous service")
         return
+    if len(sys.argv) == 2 and sys.argv[1] == "--resume":
+        (RELEASE_ROOT / "hold").unlink(missing_ok=True)
+        print("DEV Pi automatic releases resumed")
+        return
     if len(sys.argv) != 2:
-        raise SystemExit("Usage: activate-dev-pi.py [--status|--rollback|REVISION]")
+        raise SystemExit("Usage: activate-dev-pi.py [--status|--rollback|--resume|REVISION]")
     activate(sys.argv[1])
     print("DEV Pi deployed:", sys.argv[1])
 

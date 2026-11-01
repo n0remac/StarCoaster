@@ -44,10 +44,12 @@ class DevActivationTests(unittest.TestCase):
 
     def test_activation_switches_to_validated_dev_release(self):
         calls = []
+        (self.root / "hold").write_text("old pause\n")
         with patch.object(activation, "run", side_effect=lambda *args: calls.append(args)), \
              patch.object(activation, "serving_revision", return_value=True):
             activation.activate(self.REVISION, self.root, self.override)
         self.assertEqual((self.root / "current").resolve(), self.candidate)
+        self.assertFalse((self.root / "hold").exists())
         self.assertIn(str(self.root / "current"), self.override.read_text())
         self.assertEqual((self.root / "legacy-service-override.conf").read_text(),
                          "[Service]\nWorkingDirectory=/legacy-dev\n")
@@ -61,6 +63,7 @@ class DevActivationTests(unittest.TestCase):
             activation.rollback(self.root, self.override)
         self.assertFalse((self.root / "current").is_symlink())
         self.assertEqual(self.override.read_bytes(), original)
+        self.assertTrue((self.root / "hold").is_file())
 
     def test_manual_rollback_selects_previous_versioned_release(self):
         previous = self.root / "releases" / ("b" * 40)
@@ -72,6 +75,7 @@ class DevActivationTests(unittest.TestCase):
              patch.object(activation, "verify_release"):
             activation.rollback(self.root, self.override)
         self.assertEqual((self.root / "current").resolve(), previous)
+        self.assertTrue((self.root / "hold").is_file())
 
     def test_failed_readiness_restores_prior_link_and_service_configuration(self):
         previous = self.root / "releases" / ("b" * 40)
@@ -132,11 +136,12 @@ class DevActivationTests(unittest.TestCase):
         hostname.write_text("#!/bin/sh\necho not-dev\n")
         hostname.chmod(0o755)
         script = Path(__file__).resolve().parents[1] / "scripts/deploy-dev-pi.sh"
-        result = subprocess.run(["bash", str(script), "--rollback"],
-                                env={**os.environ, "PATH": str(fake_bin) + ":" + os.environ["PATH"]},
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("Refusing non-DEV host", result.stderr)
+        for action in ("--rollback", "--resume"):
+            result = subprocess.run(["bash", str(script), action],
+                                    env={**os.environ, "PATH": str(fake_bin) + ":" + os.environ["PATH"]},
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Refusing non-DEV host", result.stderr)
 
 
 if __name__ == "__main__":

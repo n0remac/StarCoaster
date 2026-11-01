@@ -21,6 +21,11 @@ PY
 }
 trap 'status failed' ERR
 step() { stage="$1";status running;printf '[DEV %s] %s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$stage" "$revision"; }
+if [[ -f /media/pi/media1/starcoaster-dev-releases/hold ]]; then
+ stage=paused;status paused
+ echo 'DEV automatic release is paused after a manual rollback; use scripts/deploy-dev-pi.sh --resume'
+ exit 0
+fi
 [[ "$(git branch --show-current)" == main ]] || { echo 'Expected isolated main checkout' >&2; exit 1; }
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { echo 'Dirty release checkout' >&2; exit 1; }
 runner_before="$(sha256sum scripts/update-dev-pi-game.sh | cut -d ' ' -f 1)"

@@ -6,8 +6,8 @@ cd "$root"
 release_root=/media/pi/media1/starcoaster-dev-releases
 case "${1:-}" in
  --status) exec python3 scripts/activate-dev-pi.py --status ;;
- --rollback|--check|"") ;;
- *) echo 'Usage: deploy-dev-pi.sh [--check|--status|--rollback]' >&2; exit 2 ;;
+ --rollback|--resume|--check|"") ;;
+ *) echo 'Usage: deploy-dev-pi.sh [--check|--status|--rollback|--resume]' >&2; exit 2 ;;
 esac
 [[ "$(hostname -s)" == raspberrypi ]] || { echo 'Refusing non-DEV host' >&2; exit 1; }
 ip -4 addr show | grep -F '100.109.28.107/' >/dev/null || { echo 'DEV Tailscale address is absent' >&2; exit 1; }
@@ -17,6 +17,7 @@ test -d /home/pi/games/starcraft
 test -d /media/pi/media1/starcoaster-production-build/run-data/pi-park-library
 mkdir -p "$release_root/releases" "$release_root/building"
 if [[ "${1:-}" == --rollback ]]; then exec python3 scripts/activate-dev-pi.py --rollback; fi
+if [[ "${1:-}" == --resume ]]; then exec python3 scripts/activate-dev-pi.py --resume; fi
 if [[ "${1:-}" == --check ]]; then exit 0; fi
 [[ $# == 0 ]] || exit 2
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { echo 'Refusing dirty release checkout' >&2; exit 1; }
