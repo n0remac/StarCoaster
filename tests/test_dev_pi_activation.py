@@ -79,6 +79,13 @@ class DevActivationTests(unittest.TestCase):
         (runtime / "session.log").write_text("ready\n")
         activation.verify_release(self.candidate, self.REVISION)
 
+    def test_worker_override_routes_automatic_release_to_dev_builder(self):
+        config = (Path(__file__).resolve().parents[1] /
+                  "deploy/starcoaster-dev-worker.conf").read_text()
+        self.assertIn("/media/pi/media1/starcoaster-dev-build/scripts/update-dev-pi-game.sh", config)
+        self.assertNotIn("update-pi-game.sh", config)
+        self.assertNotIn("100.119.114.99", config)
+
 
 if __name__ == "__main__":
     unittest.main()
