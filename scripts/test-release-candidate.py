@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Exercise normal browser gameplay against an isolated release candidate."""
-import json,os,signal,socket,subprocess,time,urllib.request
+import json,os,signal,socket,subprocess,tempfile,time,urllib.request
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
 artifacts=ROOT/'build/release-browser'
 artifacts.mkdir(parents=True,exist_ok=True)
+profile=Path(tempfile.mkdtemp(prefix='release-browser-profile-',dir=ROOT/'build'))
+print(f'Isolated browser profile: {profile}',flush=True)
 ports=[18095,11853,41110,41111,41112]
 for port in ports:
  with socket.socket() as sock: sock.bind(('127.0.0.1',port))
@@ -14,7 +16,7 @@ env=dict(os.environ,RCT2_DATA_DIR=os.environ.get('RCT2_DATA_DIR','/home/pi/games
  WASM_LISTEN_ADDRESS='127.0.0.1:18095',OPENRCT2_PORT='11853',
  STARCOASTER_BRIDGE_PORT='41110',BRIDGE_OPENBW_PORT='41111',BRIDGE_CONTROLLER_PORT='41112',
  BRIDGE_LAUNCH_CLIENT='0',WASM_LIVE_URL='http://127.0.0.1:18095/',
- WASM_LIVE_PROFILE=str(ROOT/'build/release-browser-profile'),
+ WASM_LIVE_PROFILE=str(profile),
  WASM_PERF_ARTIFACTS=str(artifacts),WASM_NORMAL_HANDOFF='1',WASM_HANDOFF_ALLOW_READY='1',
  WASM_LIVE_CAMERA='1',WASM_AUTO_ORDER='1',WASM_DEFENSE_CONFIGURE='1',
  WASM_DEFENSE_BUILD='1',WASM_DEFENSE_NO_WAVE='1',
