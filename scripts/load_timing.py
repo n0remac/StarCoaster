@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 
 STAGES = ("source_resolution", "source_validation", "source_staging", "source_inspection",
           "package_staging", "park_preparation", "native_map_generation", "isolated_preflight",
-          "prior_session_stop", "session_startup", "client_join")
+          "prior_session_stop", "session_startup", "client_join", "cache_lookup",
+          "cache_recheck", "cache_validation", "cache_build", "materialization")
 
 
 class LoadTiming:
@@ -18,6 +19,7 @@ class LoadTiming:
         self.path = path
         self.kind = kind
         self.generation = ""
+        self.cache_key = None
         self.source_sha256 = None
         self.started = time.monotonic_ns()
         self.wall_time = datetime.now(timezone.utc).isoformat()
@@ -47,6 +49,7 @@ class LoadTiming:
         self._finished = True
         record = {"schema_version": 1, "record": "park_load", "started_at_utc": self.wall_time,
                   "kind": self.kind, "map": self.park, "generation": self.generation,
+                  "cache_key": self.cache_key,
                   "source_sha256": self.source_sha256, "outcome": outcome,
                   "error_type": type(error).__name__ if error else None,
                   "error": str(error)[:240] if error else None,
