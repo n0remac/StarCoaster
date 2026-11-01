@@ -17,16 +17,16 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from load_timing import LoadTiming
-from park_preparation import prepare_pipeline, isolated_preflight, await_native_ready, stop_native_process
-from prepare_existing_defense import prepare
-from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, build_native_map, ensure_park, session_environment
+from park_preparation import isolated_preflight, await_native_ready, stop_native_process
+from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, session_environment
+from single_map_cache import SingleMapCache
 
 
 PARK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,119}\.(?:park|sc6|sc4|sv6|sv4)$", re.I)
 
 
 class ParkSessionSupervisor:
-    def __init__(self, library: Path, runtime: Path, initial: str = "", start_browser=True):
+    def __init__(self, library: Path, runtime: Path, initial: str = "", start_browser=True, cache=None):
         self.library = library.resolve(strict=True)
         self.runtime = runtime.resolve()
         if not self.library.is_dir() or not self.runtime.is_relative_to((ROOT / "run-data").resolve()):
@@ -43,6 +43,7 @@ class ParkSessionSupervisor:
         self.plan = None
         self.browser = None
         self.start_browser = start_browser
+        self.cache = cache if cache is not None else SingleMapCache()
         self.cancel_pending = False
         self.last_upload_cleanup = 0.0
         self.socket_path = self.runtime / "control.sock"
@@ -98,7 +99,10 @@ class ParkSessionSupervisor:
         source = self.catalog().get(name)
         if source is None:
             raise ValueError("park_not_in_private_library")
-        saved = self.runtime / "saved" / name
+        saved_directory = self.runtime / "saved"
+        saved = saved_directory / name
+        if saved_directory.is_symlink() or saved.is_symlink():
+            raise ValueError("unsafe_saved_park")
         return saved if saved.is_file() else source
 
     def upload(self, filename, stream, length):
@@ -159,8 +163,15 @@ class ParkSessionSupervisor:
                 source = self.source_for(name)
         else:
             source = self.source_for(name)
-        plan = prepare_pipeline(source, directory, generation, prepare, ensure_park, build_native_map,
-                                self.preflight_native_map, timing)
+        manifest, reused = self.cache.build(source, timing=timing, repair_invalid=True)
+        if reused and timing:
+            for stage in ("source_validation", "source_staging", "source_inspection",
+                          "package_staging", "park_preparation", "native_map_generation",
+                          "isolated_preflight", "cache_build"):
+                timing.skip(stage, "validated_cache_hit")
+        plan = self.cache.materialize(source, directory, timing=timing)
+        if plan["validated_source_sha256"] != manifest["key_inputs"]["source_sha256"]:
+            raise RuntimeError("park source changed during cache materialization; retry selection")
         return generation, plan
 
     def load_timing(self, name, kind="selection"):

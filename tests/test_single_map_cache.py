@@ -169,6 +169,18 @@ class SingleMapCacheTest(unittest.TestCase):
             self.cache.build(self.source)
         self.assertEqual(self.cache.status(self.source)["status"], "missing")
 
+    def test_failed_rebuild_keeps_prior_valid_package_ready(self):
+        manifest, _ = self.cache.build(self.source)
+        package = self.cache.package_path(manifest["key"])
+        native = package / f"map/{manifest['scenario_id']}.scm"
+        original = native.read_bytes()
+        self.cache.preflight = mock.Mock(side_effect=RuntimeError("new preflight failed"))
+        with self.assertRaisesRegex(RuntimeError, "new preflight failed"):
+            self.cache.build(self.source, rebuild=True)
+        self.assertEqual(self.cache.status(self.source)["status"], "ready")
+        self.assertEqual(native.read_bytes(), original)
+        self.assertEqual(list((self.cache.root / "retired").iterdir()), [])
+
     def test_dependency_change_during_build_never_publishes_old_key(self):
         old_key = self.cache.status(self.source)["key"]
         def changed(generation, plan, runtime):
