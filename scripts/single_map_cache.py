@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import uuid
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from park_preparation import isolated_preflight, prepare_pipeline
@@ -115,6 +115,14 @@ class SingleMapCache:
     def package_path(self, key):
         return self.root / "packages" / key
 
+    @contextmanager
+    def key_lock(self, key, exclusive=False):
+        # Readers hold a shared lock through validation and copying. A rebuild
+        # cannot retire a package while any reader still uses its path.
+        with (self.root / "locks" / f"{key}.lock").open("a+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            yield
+
     def validate(self, path, key, inputs):
         manifest_path = path / "manifest.json"
         if path.is_symlink() or not manifest_path.is_file() or manifest_path.is_symlink():
@@ -162,6 +170,10 @@ class SingleMapCache:
 
     def status(self, source, timing=None):
         key, inputs = self.identity(source, timing)
+        with self.key_lock(key):
+            return self._status_locked(key, inputs, timing)
+
+    def _status_locked(self, key, inputs, timing=None):
         path = self.package_path(key)
         if not path.exists():
             return {"status": "missing", "key": key, "package": str(path), "inputs": inputs}
@@ -176,9 +188,7 @@ class SingleMapCache:
 
     def build(self, source, rebuild=False, timing=None):
         key, inputs = self.identity(source, timing)
-        lock_path = self.root / "locks" / f"{key}.lock"
-        with lock_path.open("a+b") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with self.key_lock(key, exclusive=True):
             # A waiting requester must not publish under an outdated source key.
             with timing.stage("cache_recheck") if timing else nullcontext():
                 if key_inputs(source, self.dependencies) != inputs:
@@ -259,7 +269,12 @@ class SingleMapCache:
                 raise
 
     def materialize(self, source, session_dir, timing=None):
-        state = self.status(source, timing)
+        key, inputs = self.identity(source, timing)
+        with self.key_lock(key):
+            state = self._status_locked(key, inputs, timing)
+            return self._materialize_locked(source, session_dir, state, timing)
+
+    def _materialize_locked(self, source, session_dir, state, timing=None):
         if state["status"] != "ready":
             raise CacheInvalid(f"cache {state['status']}: {state.get('reason', 'run map-cache build first')}")
         destination = Path(session_dir).resolve()
