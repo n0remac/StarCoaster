@@ -111,6 +111,16 @@ a move order, and observed movement in the browser. The report says
 `run-data/integration-cache-dev-pi/release-browser.log`; the report and
 private captures are under `build/release-browser/`.
 
+The first automatic worker run passed build, offline, and WASM checks, but
+its browser gate timed out while reusing that run's generated browser profile:
+`OpenRCT2 did not finish its object index`. It did not activate a release.
+The same rebuilt bundle passed the same browser test with a fresh profile,
+including a rendered Marine, an accepted move order, and movement (2,823
+inbound and 55 outbound frames; 975 ms movement latency). Its diagnostic log
+is `run-data/integration-cache-dev-pi/release-browser-fresh-profile.log`.
+Commit `b23d41c` now allocates a unique ignored profile for each release gate
+run.
+
 ## DEV target and release safeguards
 
 On `raspberrypi` (`100.109.28.107`), the active private game service used
@@ -118,8 +128,10 @@ loopback `8091`; Tailscale Serve port `10001` was tailnet only and proxied to
 that loopback port. The existing timer ran `starcoaster-deploy.service` every
 two minutes through a local override to `update-old-pi-game.sh`; that script
 restarted the DEV user service. The stock main release script still targets
-`100.119.114.99`, so the committed `deploy/starcoaster-dev-worker.conf` must be
-installed and its effective `ExecStart` verified before a main push.
+`100.119.114.99`. Before the main push, the committed
+`deploy/starcoaster-dev-worker.conf` was installed as `zz-dev-pi.conf`, and
+`systemctl --user show starcoaster-deploy.service -p ExecStart` confirmed the
+effective worker path was `/media/pi/media1/starcoaster-dev-build/scripts/update-dev-pi-game.sh`.
 
 `scripts/update-dev-pi-game.sh` fetches canonical GitHub main into the
 isolated DEV build checkout, fast-forwards only, rebuilds native and browser
