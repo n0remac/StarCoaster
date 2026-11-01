@@ -1,6 +1,8 @@
 # Map prebuild plan
 
 Status: Phases 1–3 complete; phases 4–5 planned. Continue with [Phase 4](phase-4-catalog-prebuild.md).
+The selective Phase 2/3 mainline integration and DEV Pi release checks are recorded in
+[the integration notes](integration-phase23-dev-pi.md).
 This directory is the shared context for Happier sessions implementing map prebuilds.
 Creating these plans does not start implementation or authorize production deployment.
 
