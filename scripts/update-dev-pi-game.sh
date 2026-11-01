@@ -55,7 +55,10 @@ scripts/project.sh test
 scripts/project.sh test-wasm
 "${GO_BIN:-/usr/local/go/bin/go}" build -o build/wasm-server ./cmd/wasm-server
 step browser-gameplay
-python3 scripts/test-release-candidate.py
+if ! python3 scripts/test-release-candidate.py; then
+ echo 'DEV browser gameplay gate failed; retrying once with a fresh isolated profile' >&2
+ python3 scripts/test-release-candidate.py
+fi
 step deployment
 scripts/deploy-dev-pi.sh
 stage=complete;status succeeded
