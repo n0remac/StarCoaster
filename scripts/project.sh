@@ -96,6 +96,9 @@ case "$command" in
     play)
         exec python3 scripts/play-scenario.py "$@"
         ;;
+    map-cache)
+        exec python3 scripts/map-cache.py "$@"
+        ;;
     record)
         exec python3 scripts/record-scenario.py "$@"
         ;;
@@ -143,12 +146,13 @@ case "$command" in
         ;;
     help|-h|--help)
         cat <<'EOF'
-Usage: scripts/project.sh {launch|start|build|prepare-wasm-arm64|build-wasm|serve-wasm|deploy-wasm|test-wasm|generate|park|play|record|test|test-live|test-live-construction|validate-scenario} [options]
+Usage: scripts/project.sh {launch|start|build|prepare-wasm-arm64|build-wasm|serve-wasm|deploy-wasm|test-wasm|generate|park|play|map-cache|record|test|test-live|test-live-construction|validate-scenario} [options]
 
 start [--scenario ID|--park FILE] [--headless|--client] [--browser|--browser-bundle DIR]
                                         Fetch, build, stage, and play.
 play ID|--park FILE [--plan]            Play an existing build; --plan only resolves paths.
 park [ID]                               Force-generate a park (Frontier default).
+map-cache {build|status|reuse} FILE     Prepare or reuse one existing park; --help for options.
 record [--scenario ID] [capture flags]   Capture gameplay (Frontier default).
 validate-scenario ID                    Validate scenario configuration.
 build, test, test-live                   Build and run offline or licensed live tests.

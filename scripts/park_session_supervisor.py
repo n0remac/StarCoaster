@@ -6,7 +6,6 @@ import json
 import os
 import re
 import shutil
-import signal
 import socket
 import socketserver
 import subprocess
@@ -18,6 +17,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from load_timing import LoadTiming
+from park_preparation import prepare_pipeline, isolated_preflight, await_native_ready, stop_native_process
 from prepare_existing_defense import prepare
 from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, build_native_map, ensure_park, session_environment
 
@@ -157,50 +157,17 @@ class ParkSessionSupervisor:
         if timing:
             with timing.stage("source_resolution"):
                 source = self.source_for(name)
-            plan = prepare(str(source), directory, timing=timing)
-            timing.source_sha256 = plan.get("validated_source_sha256")
-            with timing.stage("park_preparation"):
-                ensure_park(plan)
-            with timing.stage("native_map_generation"):
-                build_native_map(plan)
-            with timing.stage("isolated_preflight"):
-                self.preflight_native_map(generation, plan)
         else:
-            plan = prepare(str(self.source_for(name)), directory)
-            ensure_park(plan)
-            build_native_map(plan)
-            self.preflight_native_map(generation, plan)
+            source = self.source_for(name)
+        plan = prepare_pipeline(source, directory, generation, prepare, ensure_park, build_native_map,
+                                self.preflight_native_map, timing)
         return generation, plan
 
     def load_timing(self, name, kind="selection"):
         return LoadTiming(name, self.runtime / "load-timings.jsonl", kind)
 
     def preflight_native_map(self, generation, plan):
-        # Run the actual three-participant synchronization in a private network
-        # namespace. OpenBW rebuilds its regions after the park collision mask
-        # arrives, so loading the .scm in isolation cannot validate navigation.
-        preflight = dict(plan)
-        directory = self.runtime / "sessions" / generation / "preflight"
-        preflight["spawn_journal"] = str(directory / "spawn-queue.json")
-        preflight["server_data"] = str(directory / "server")
-        preflight["client_data"] = str(directory / "client")
-        environment = session_environment(preflight, {
-            "BRIDGE_RUNTIME_DIR": str(ROOT / "run-data/ps" / generation[:16] / "check"),
-            "BRIDGE_SERVER_DATA_DIR": preflight["server_data"],
-            "BRIDGE_CLIENT_DATA_DIR": preflight["client_data"],
-            "BRIDGE_PARK_SUPERVISOR_SOCKET": "", "BRIDGE_PARK_GENERATION": "",
-            "BRIDGE_SERVE_WASM": "0", "BRIDGE_LAUNCH_CLIENT": "0",
-        })
-        log_path = directory / "session.log"
-        directory.mkdir(parents=True, exist_ok=True)
-        with log_path.open("ab", buffering=0) as log:
-            process = subprocess.Popen(["unshare", "-Urn", str(ROOT / "scripts/run-isolated-world-preflight.sh"),
-                                        plan["park"]], cwd=ROOT, env=environment,
-                                       stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        try:
-            self.await_ready(process, log_path, timeout=150)
-        finally:
-            self.stop(process)
+        isolated_preflight(generation, plan, self.runtime, self.await_ready, self.stop)
 
     def start_wasm(self):
         if not self.start_browser:
@@ -238,32 +205,11 @@ class ParkSessionSupervisor:
         return process, log_path
 
     def await_ready(self, process, log_path, timeout=150):
-        deadline = time.monotonic() + timeout
-        status_marker = b"WORLD_SCENARIO_STATUS scenario="
-        ready_marker = b"WORLD_READY entities="
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                lines = log_path.read_text(errors="replace").splitlines()[-20:]
-                errors = [line for line in lines if "Error:" in line or "WORLD_ERROR" in line]
-                raise RuntimeError("native session exited before readiness: "
-                                   + (errors[-1] if errors else "see " + str(log_path)))
-            if log_path.exists():
-                output = log_path.read_bytes()
-                if status_marker in output and ready_marker in output and b"navigation=native" in output:
-                    return
-            time.sleep(.3)
-        raise RuntimeError("new game session did not synchronize both OpenBW participants")
+        return await_native_ready(process, log_path, timeout)
 
     @staticmethod
     def stop(process):
-        if process is None or process.poll() is not None:
-            return
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=12)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=5)
+        return stop_native_process(process)
 
     def start_initial(self):
         if not self.initial:
