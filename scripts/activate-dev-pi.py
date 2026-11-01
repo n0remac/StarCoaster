@@ -131,6 +131,10 @@ def activate(revision, root=RELEASE_ROOT, override=OVERRIDE):
             run("systemctl", "--user", "restart", SERVICE)
             if not serving_revision(candidate):
                 raise RuntimeError("DEV game service did not serve the new revision")
+            if previous and previous != Path("releases") / revision:
+                replace_link(root / "previous", previous)
+            elif previous is None and old_override is not None:
+                replace_file(root / "legacy-service-override.conf", old_override)
         except BaseException:
             replace_link(current, previous)
             if old_override is None:
@@ -140,10 +144,6 @@ def activate(revision, root=RELEASE_ROOT, override=OVERRIDE):
             run("systemctl", "--user", "daemon-reload")
             run("systemctl", "--user", "restart", SERVICE)
             raise
-        if previous and previous != Path("releases") / revision:
-            replace_link(root / "previous", previous)
-        elif previous is None and old_override is not None:
-            replace_file(root / "legacy-service-override.conf", old_override)
 
 
 def rollback(root=RELEASE_ROOT, override=OVERRIDE):

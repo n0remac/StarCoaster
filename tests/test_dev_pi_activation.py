@@ -85,6 +85,22 @@ class DevActivationTests(unittest.TestCase):
         self.assertEqual(self.override.read_bytes(), original)
         self.assertEqual(calls.count(("systemctl", "--user", "restart", activation.SERVICE)), 2)
 
+    def test_failed_rollback_snapshot_restores_legacy_service(self):
+        original = self.override.read_bytes()
+        replace = activation.replace_file
+
+        def fail_snapshot(path, data):
+            if path.name == "legacy-service-override.conf":
+                raise OSError("snapshot failed")
+            replace(path, data)
+
+        with patch.object(activation, "run"), patch.object(activation, "serving_revision", return_value=True), \
+             patch.object(activation, "replace_file", side_effect=fail_snapshot):
+            with self.assertRaisesRegex(OSError, "snapshot failed"):
+                activation.activate(self.REVISION, self.root, self.override)
+        self.assertFalse((self.root / "current").is_symlink())
+        self.assertEqual(self.override.read_bytes(), original)
+
     def test_tampering_cannot_switch_release(self):
         (self.candidate / "build/world-bridge").write_bytes(b"tampered")
         with patch.object(activation, "run") as run:
