@@ -11,6 +11,8 @@ An uncached map is prepared once through the same pipeline and becomes reusable.
 
 ## Checklist
 
+- [ ] First fix the Phase 2 reader/rebuild race before supervisor integration. `build(rebuild=True)` currently renames the published package into `retired/` before publishing its replacement, while `status()` and `materialize()` read without the per-key lock. A concurrent reader can observe a missing package or read across package replacements. Coordinate readers and replacement so a load observes one complete validated package; hold the necessary protection through validation and copying.
+- [ ] Add deterministic concurrency regressions covering a reader during the replacement gap and a rebuild during materialization. Require a valid independent session or a documented wait/retry, with no transient missing-cache failure, mixed package contents, or partial session publication. Retain concurrent-builder and failed-rebuild coverage.
 - [ ] Update ParkSessionSupervisor.prepare() and initial/recovery callers to use the shared resolver and cache.
 - [ ] Preserve source_for()/catalog() validation, allowed directories, symlink restrictions, supported formats, upload checks, and current size limits.
 - [ ] Resolve by exact validated source bytes and effective dependencies, including changed saves/uploads; never infer saved geometry from an original scenario name.
@@ -26,6 +28,7 @@ An uncached map is prepared once through the same pipeline and becomes reusable.
 
 ## Acceptance and evidence
 
+- Reproduce the Phase 2 reader/rebuild failure with a deterministic regression, then show it passes with the fix before integrating supervisor selection. Record the synchronization/publication policy and reader behavior during rebuild.
 - Select the Phase 2 map twice through the supervisor. Repeat selection invokes no prep, generation, or isolated preflight; actual startup/readiness executes each time.
 - An uncached supported map builds successfully and is a hit next time.
 - A content-edited save uses new geometry and identity; source/settings/engine changes cannot reuse stale validation.
