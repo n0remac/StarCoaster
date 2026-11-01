@@ -21,7 +21,7 @@ PY
 }
 trap 'status failed' ERR
 step() { stage="$1";status running;printf '[DEV %s] %s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$stage" "$revision"; }
-if [[ -f /media/pi/media1/starcoaster-dev-releases/hold ]]; then
+if [[ -f /media/pi/media1/sc-dev/hold ]]; then
  stage=paused;status paused
  echo 'DEV automatic release is paused after a manual rollback; use scripts/deploy-dev-pi.sh --resume'
  exit 0

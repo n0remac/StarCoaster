@@ -12,7 +12,9 @@ import urllib.request
 from pathlib import Path
 
 
-RELEASE_ROOT = Path("/media/pi/media1/starcoaster-dev-releases")
+RELEASE_ROOT = Path("/media/pi/media1/sc-dev")
+RELEASES_DIR = "r"
+RELEASE_ID_LENGTH = 20
 OVERRIDE = Path.home() / ".config/systemd/user/starcoaster-game.service.d/old-pi.conf"
 LEGACY_BUILD = Path("/media/pi/media1/starcoaster-production-build")
 LIBRARY = LEGACY_BUILD / "run-data/pi-park-library"
@@ -27,7 +29,7 @@ def run(*args):
 def verify_release(path, revision):
     if not revision or len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
         raise ValueError("invalid release revision")
-    if path.is_symlink() or not path.is_dir() or path.name != revision:
+    if path.is_symlink() or not path.is_dir() or path.name != revision[:RELEASE_ID_LENGTH]:
         raise ValueError("release directory missing or unsafe")
     checksums = path / "SHA256SUMS"
     if not checksums.is_file() or checksums.is_symlink():
@@ -113,7 +115,7 @@ def serving_revision(path, timeout=45):
 
 def activate(revision, root=RELEASE_ROOT, override=OVERRIDE):
     root = Path(root)
-    candidate = root / "releases" / revision
+    candidate = root / RELEASES_DIR / revision[:RELEASE_ID_LENGTH]
     verify_release(candidate, revision)
     root.mkdir(parents=True, exist_ok=True)
     (root / "logs").mkdir(exist_ok=True)
@@ -125,13 +127,13 @@ def activate(revision, root=RELEASE_ROOT, override=OVERRIDE):
         previous = current.readlink() if current.is_symlink() else None
         old_override = override.read_bytes() if override.exists() else None
         try:
-            replace_link(current, Path("releases") / revision)
+            replace_link(current, Path(RELEASES_DIR) / revision[:RELEASE_ID_LENGTH])
             replace_file(override, override_text(root).encode())
             run("systemctl", "--user", "daemon-reload")
             run("systemctl", "--user", "restart", SERVICE)
             if not serving_revision(candidate):
                 raise RuntimeError("DEV game service did not serve the new revision")
-            if previous and previous != Path("releases") / revision:
+            if previous and previous != Path(RELEASES_DIR) / revision[:RELEASE_ID_LENGTH]:
                 replace_link(root / "previous", previous)
             elif previous is None and old_override is not None:
                 replace_file(root / "legacy-service-override.conf", old_override)
@@ -161,7 +163,7 @@ def rollback(root=RELEASE_ROOT, override=OVERRIDE):
         if previous.is_symlink():
             destination = previous.readlink()
             target = (root / destination).resolve()
-            verify_release(target, target.name)
+            verify_release(target, (target / "REVISION").read_text().strip())
             replacement_override = active_override
         elif legacy.is_file():
             destination = None
@@ -188,10 +190,10 @@ def rollback(root=RELEASE_ROOT, override=OVERRIDE):
 def main():
     if len(sys.argv) == 2 and sys.argv[1] == "--status":
         current = RELEASE_ROOT / "current"
-        if current.is_symlink() and current.resolve().is_relative_to(RELEASE_ROOT / "releases"):
+        if current.is_symlink() and current.resolve().is_relative_to(RELEASE_ROOT / RELEASES_DIR):
             try:
                 if check_serving(current.resolve()):
-                    print(current.resolve().name)
+                    print((current.resolve() / "REVISION").read_text().strip())
             except (OSError, ValueError, subprocess.CalledProcessError, TimeoutError):
                 pass
         return

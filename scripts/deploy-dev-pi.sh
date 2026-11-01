@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
-release_root=/media/pi/media1/starcoaster-dev-releases
+release_root=/media/pi/media1/sc-dev
 case "${1:-}" in
  --status) exec python3 scripts/activate-dev-pi.py --status ;;
  --rollback|--resume|--check|"") ;;
@@ -15,7 +15,7 @@ systemctl --user show starcoaster-game.service --property=LoadState --value | gr
 test -d /home/pi/games/rct2
 test -d /home/pi/games/starcraft
 test -d /media/pi/media1/starcoaster-production-build/run-data/pi-park-library
-mkdir -p "$release_root/releases" "$release_root/building"
+mkdir -p "$release_root/r" "$release_root/building"
 if [[ "${1:-}" == --rollback ]]; then exec python3 scripts/activate-dev-pi.py --rollback; fi
 if [[ "${1:-}" == --resume ]]; then exec python3 scripts/activate-dev-pi.py --resume; fi
 if [[ "${1:-}" == --check ]]; then exit 0; fi
@@ -45,7 +45,7 @@ printf '%s\n' "$revision" > "$stage/REVISION"
  cd "$stage"
  find . -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS
 )
-candidate="$release_root/releases/$revision"
+candidate="$release_root/r/${revision:0:20}"
 if [[ -e "$candidate" ]]; then
  python3 scripts/activate-dev-pi.py "$revision"
  exit 0

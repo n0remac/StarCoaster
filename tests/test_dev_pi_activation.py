@@ -17,11 +17,19 @@ SPEC.loader.exec_module(activation)
 class DevActivationTests(unittest.TestCase):
     REVISION = "a" * 40
 
+    def test_versioned_service_socket_fits_unix_address_limit(self):
+        root = activation.RELEASE_ROOT / activation.RELEASES_DIR / self.REVISION[:activation.RELEASE_ID_LENGTH]
+        for suffix in ("run-data/park-supervisor/control.sock",
+                       "run-data/ps/" + "0" * 16 + "/openbw-local.socket",
+                       "run-data/ps/" + "0" * 16 + "/check/openbw-local.socket"):
+            with self.subTest(suffix=suffix):
+                self.assertLess(len(os.fsencode(root / suffix)), 108)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "releases-root"
-        self.candidate = self.root / "releases" / self.REVISION
+        self.candidate = self.root / activation.RELEASES_DIR / self.REVISION[:activation.RELEASE_ID_LENGTH]
         self.candidate.mkdir(parents=True)
         self.override = Path(self.temporary.name) / "old-pi.conf"
         self.override.write_text("[Service]\nWorkingDirectory=/legacy-dev\n")
@@ -66,10 +74,11 @@ class DevActivationTests(unittest.TestCase):
         self.assertTrue((self.root / "hold").is_file())
 
     def test_manual_rollback_selects_previous_versioned_release(self):
-        previous = self.root / "releases" / ("b" * 40)
+        previous = self.root / activation.RELEASES_DIR / ("b" * activation.RELEASE_ID_LENGTH)
         previous.mkdir()
-        (self.root / "current").symlink_to(Path("releases") / self.REVISION)
-        (self.root / "previous").symlink_to(Path("releases") / previous.name)
+        (previous / "REVISION").write_text("b" * 40 + "\n")
+        (self.root / "current").symlink_to(Path(activation.RELEASES_DIR) / self.REVISION[:activation.RELEASE_ID_LENGTH])
+        (self.root / "previous").symlink_to(Path(activation.RELEASES_DIR) / previous.name)
         self.override.write_text(activation.override_text(self.root))
         with patch.object(activation, "run"), patch.object(activation, "serving_revision", return_value=True), \
              patch.object(activation, "verify_release"):
@@ -78,9 +87,9 @@ class DevActivationTests(unittest.TestCase):
         self.assertTrue((self.root / "hold").is_file())
 
     def test_failed_readiness_restores_prior_link_and_service_configuration(self):
-        previous = self.root / "releases" / ("b" * 40)
+        previous = self.root / activation.RELEASES_DIR / ("b" * activation.RELEASE_ID_LENGTH)
         previous.mkdir()
-        (self.root / "current").symlink_to(Path("releases") / previous.name)
+        (self.root / "current").symlink_to(Path(activation.RELEASES_DIR) / previous.name)
         original = self.override.read_bytes()
         calls = []
         with patch.object(activation, "run", side_effect=lambda *args: calls.append(args)), \
@@ -115,6 +124,11 @@ class DevActivationTests(unittest.TestCase):
         run.assert_not_called()
         self.assertFalse((self.root / "current").exists())
         self.assertEqual(self.override.read_text(), "[Service]\nWorkingDirectory=/legacy-dev\n")
+
+    def test_directory_prefix_collision_does_not_change_release_identity(self):
+        other_revision = self.REVISION[:activation.RELEASE_ID_LENGTH] + "c" * 20
+        with self.assertRaisesRegex(ValueError, "revision mismatch"):
+            activation.verify_release(self.candidate, other_revision)
 
     def test_mutable_session_data_does_not_invalidate_immutable_release(self):
         runtime = self.candidate / "run-data/park-supervisor/sessions/first"
