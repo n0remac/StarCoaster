@@ -47,8 +47,29 @@ class DevActivationTests(unittest.TestCase):
             activation.activate(self.REVISION, self.root, self.override)
         self.assertEqual((self.root / "current").resolve(), self.candidate)
         self.assertIn(str(self.root / "current"), self.override.read_text())
+        self.assertEqual((self.root / "legacy-service-override.conf").read_text(),
+                         "[Service]\nWorkingDirectory=/legacy-dev\n")
         self.assertNotIn("100.119.114.99", self.override.read_text())
         self.assertEqual(calls[-1], ("systemctl", "--user", "restart", activation.SERVICE))
+
+    def test_manual_rollback_restores_legacy_dev_service(self):
+        original = self.override.read_bytes()
+        with patch.object(activation, "run"), patch.object(activation, "serving_revision", return_value=True):
+            activation.activate(self.REVISION, self.root, self.override)
+            activation.rollback(self.root, self.override)
+        self.assertFalse((self.root / "current").is_symlink())
+        self.assertEqual(self.override.read_bytes(), original)
+
+    def test_manual_rollback_selects_previous_versioned_release(self):
+        previous = self.root / "releases" / ("b" * 40)
+        previous.mkdir()
+        (self.root / "current").symlink_to(Path("releases") / self.REVISION)
+        (self.root / "previous").symlink_to(Path("releases") / previous.name)
+        self.override.write_text(activation.override_text(self.root))
+        with patch.object(activation, "run"), patch.object(activation, "serving_revision", return_value=True), \
+             patch.object(activation, "verify_release"):
+            activation.rollback(self.root, self.override)
+        self.assertEqual((self.root / "current").resolve(), previous)
 
     def test_failed_readiness_restores_prior_link_and_service_configuration(self):
         previous = self.root / "releases" / ("b" * 40)

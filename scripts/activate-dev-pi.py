@@ -14,7 +14,8 @@ from pathlib import Path
 
 RELEASE_ROOT = Path("/media/pi/media1/starcoaster-dev-releases")
 OVERRIDE = Path.home() / ".config/systemd/user/starcoaster-game.service.d/old-pi.conf"
-LIBRARY = Path("/media/pi/media1/starcoaster-production-build/run-data/pi-park-library")
+LEGACY_BUILD = Path("/media/pi/media1/starcoaster-production-build")
+LIBRARY = LEGACY_BUILD / "run-data/pi-park-library"
 SERVICE = "starcoaster-game.service"
 STATUS_URL = "http://127.0.0.1:8091/private/park-session"
 
@@ -139,6 +140,47 @@ def activate(revision, root=RELEASE_ROOT, override=OVERRIDE):
             run("systemctl", "--user", "daemon-reload")
             run("systemctl", "--user", "restart", SERVICE)
             raise
+        if previous and previous != Path("releases") / revision:
+            replace_link(root / "previous", previous)
+        elif previous is None and old_override is not None:
+            replace_file(root / "legacy-service-override.conf", old_override)
+
+
+def rollback(root=RELEASE_ROOT, override=OVERRIDE):
+    root = Path(root)
+    current = root / "current"
+    with (root / "activate.lock").open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not current.is_symlink():
+            raise ValueError("no DEV release is active")
+        active = current.readlink()
+        active_override = override.read_bytes()
+        previous = root / "previous"
+        legacy = root / "legacy-service-override.conf"
+        if previous.is_symlink():
+            destination = previous.readlink()
+            target = (root / destination).resolve()
+            verify_release(target, target.name)
+            replacement_override = active_override
+        elif legacy.is_file():
+            destination = None
+            target = LEGACY_BUILD
+            replacement_override = legacy.read_bytes()
+        else:
+            raise ValueError("no previous DEV release or legacy service is recorded")
+        try:
+            replace_link(current, destination)
+            replace_file(override, replacement_override)
+            run("systemctl", "--user", "daemon-reload")
+            run("systemctl", "--user", "restart", SERVICE)
+            if not serving_revision(target):
+                raise RuntimeError("previous DEV game service did not become ready")
+        except BaseException:
+            replace_link(current, active)
+            replace_file(override, active_override)
+            run("systemctl", "--user", "daemon-reload")
+            run("systemctl", "--user", "restart", SERVICE)
+            raise
 
 
 def main():
@@ -151,8 +193,12 @@ def main():
             except (OSError, ValueError, subprocess.CalledProcessError, TimeoutError):
                 pass
         return
+    if len(sys.argv) == 2 and sys.argv[1] == "--rollback":
+        rollback()
+        print("DEV Pi restored the previous service")
+        return
     if len(sys.argv) != 2:
-        raise SystemExit("Usage: activate-dev-pi.py [--status|REVISION]")
+        raise SystemExit("Usage: activate-dev-pi.py [--status|--rollback|REVISION]")
     activate(sys.argv[1])
     print("DEV Pi deployed:", sys.argv[1])
 

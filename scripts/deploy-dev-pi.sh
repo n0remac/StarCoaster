@@ -5,9 +5,9 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 release_root=/media/pi/media1/starcoaster-dev-releases
 case "${1:-}" in
- --status) exec python3 scripts/activate-dev-pi.py --status ;;
+ --status|--rollback) exec python3 scripts/activate-dev-pi.py "$1" ;;
  --check|"") ;;
- *) echo 'Usage: deploy-dev-pi.sh [--check|--status]' >&2; exit 2 ;;
+ *) echo 'Usage: deploy-dev-pi.sh [--check|--status|--rollback]' >&2; exit 2 ;;
 esac
 [[ "$(hostname -s)" == raspberrypi ]] || { echo 'Refusing non-DEV host' >&2; exit 1; }
 ip -4 addr show | grep -F '100.109.28.107/' >/dev/null || { echo 'DEV Tailscale address is absent' >&2; exit 1; }
