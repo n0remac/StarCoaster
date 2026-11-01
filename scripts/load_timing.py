@@ -20,6 +20,8 @@ class LoadTiming:
         self.kind = kind
         self.generation = ""
         self.cache_key = None
+        self.cache_outcome = None
+        self.cache_build_generation = None
         self.source_sha256 = None
         self.started = time.monotonic_ns()
         self.wall_time = datetime.now(timezone.utc).isoformat()
@@ -28,6 +30,7 @@ class LoadTiming:
 
     @contextmanager
     def stage(self, name):
+        previous = self.stages[name]
         start = time.monotonic_ns()
         stage = {"status": "running", "start_ms": round((start - self.started) / 1e6, 3),
                  "elapsed_ms": None}
@@ -42,6 +45,14 @@ class LoadTiming:
             stage["status"] = "ok"
         finally:
             stage["elapsed_ms"] = round((time.monotonic_ns() - start) / 1e6, 3)
+            if previous["elapsed_ms"] is not None:
+                stage["elapsed_ms"] = round(stage["elapsed_ms"] + previous["elapsed_ms"], 3)
+                stage["start_ms"] = previous["start_ms"]
+                stage["count"] = previous.get("count", 1) + 1
+
+    def skip(self, name, reason):
+        if self.stages[name]["status"] == "unavailable":
+            self.stages[name] = {"status": "skipped", "elapsed_ms": None, "reason": reason}
 
     def finish(self, outcome, error=None):
         if self._finished:
@@ -50,6 +61,8 @@ class LoadTiming:
         record = {"schema_version": 1, "record": "park_load", "started_at_utc": self.wall_time,
                   "kind": self.kind, "map": self.park, "generation": self.generation,
                   "cache_key": self.cache_key,
+                  "cache_outcome": self.cache_outcome,
+                  "cache_build_generation": self.cache_build_generation,
                   "source_sha256": self.source_sha256, "outcome": outcome,
                   "error_type": type(error).__name__ if error else None,
                   "error": str(error)[:240] if error else None,

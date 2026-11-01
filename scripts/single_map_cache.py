@@ -186,7 +186,7 @@ class SingleMapCache:
             return {"status": "invalid", "key": key, "package": str(path),
                     "inputs": inputs, "reason": str(error)}
 
-    def build(self, source, rebuild=False, timing=None):
+    def build(self, source, rebuild=False, timing=None, repair_invalid=False):
         key, inputs = self.identity(source, timing)
         with self.key_lock(key, exclusive=True):
             # A waiting requester must not publish under an outdated source key.
@@ -194,18 +194,24 @@ class SingleMapCache:
                 if key_inputs(source, self.dependencies) != inputs:
                     raise RuntimeError("source or dependencies changed while waiting; retry build")
             path = self.package_path(key)
+            cache_outcome = "built" if not path.exists() else "rebuilt"
             if path.exists():
                 try:
                     with timing.stage("cache_validation") if timing else nullcontext():
                         manifest = self.validate(path, key, inputs)
                     if not rebuild:
+                        if timing:
+                            timing.cache_outcome = "hit"
                         return manifest, True
                 except CacheInvalid:
-                    if not rebuild:
+                    cache_outcome = "repaired"
+                    if not (rebuild or repair_invalid):
                         raise
             generation = uuid.uuid4().hex
             if timing:
-                timing.generation = generation
+                timing.cache_build_generation = generation
+                if not timing.generation:
+                    timing.generation = generation
             temporary = self.root / "building" / f"{key}.{generation}"
             temporary.mkdir()
             try:
@@ -262,6 +268,8 @@ class SingleMapCache:
                             raise
                     else:
                         os.replace(temporary, path)
+                if timing:
+                    timing.cache_outcome = cache_outcome
                 return manifest, False
             except BaseException:
                 if temporary.exists():

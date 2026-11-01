@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import io
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 import sys
@@ -12,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from park_session_supervisor import ParkSessionSupervisor
 from load_timing import LoadTiming, STAGES
+from single_map_cache import SingleMapCache
+import prepare_existing_defense
+import single_map_cache
 
 
 class Process:
@@ -51,8 +55,12 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.library.mkdir()
         for name in ("Park A.park", "Park B.park"):
             (self.library / name).write_bytes(b"PARKpark")
+        self.preflights = []
+        self.native_maps = []
+        self.cache = SingleMapCache(self.root / "cache", dependencies=lambda: {"fixture": "v1"},
+                                    preflight=lambda generation, plan, runtime: self.preflights.append(generation))
         self.supervisor = ParkSessionSupervisor(self.library, self.root / "runtime", "Park A.park",
-                                                 start_browser=False)
+                                                 start_browser=False, cache=self.cache)
         self.old = Process()
         self.supervisor.session = self.old
         self.supervisor.plan = {"server_data": str(self.root / "old-server")}
@@ -63,6 +71,18 @@ class ParkSessionSupervisorTest(unittest.TestCase):
     def tearDown(self):
         self.environment.stop()
         self.directory.cleanup()
+
+    @contextmanager
+    def fake_cache_engines(self, inspect=None):
+        def native(plan):
+            self.native_maps.append(plan["native_map"])
+            output = Path(plan["native_map"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"native-map")
+        with mock.patch.object(prepare_existing_defense, "inspect_existing_park",
+                               side_effect=inspect or (lambda source: (64, 64))), \
+             mock.patch.object(single_map_cache, "build_native_map", side_effect=native):
+            yield
 
     def test_first_selection_starts_from_idle(self):
         self.supervisor.phase = "idle"
@@ -116,6 +136,11 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         for name in ("../Park A.park", "link.park", "/tmp/Other.park"):
             with self.assertRaisesRegex(ValueError, "private_library"):
                 self.supervisor.source_for(name)
+        saved = self.supervisor.runtime / "saved"
+        saved.mkdir()
+        (saved / "Park A.park").symlink_to(self.library / "Park A.park")
+        with self.assertRaisesRegex(ValueError, "unsafe_saved_park"):
+            self.supervisor.source_for("Park A.park")
         with self.assertRaisesRegex(ValueError, "stale_park_generation"):
             self.supervisor.request("Park B.park", "discard", "older")
         with self.assertRaisesRegex(ValueError, "select_save_or_discard"):
@@ -151,17 +176,14 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.assertGreaterEqual(record["total_ms"], record["stages"]["session_startup"]["elapsed_ms"])
 
     def test_prepare_records_distinct_stages_and_preflight_failure(self):
-        plan = {"validated_source_sha256": "abc", "park": "prepared"}
         timing = self.supervisor.load_timing("Park B.park")
-        with mock.patch("park_session_supervisor.prepare", return_value=plan) as prepare, \
-             mock.patch("park_session_supervisor.ensure_park") as ensure, \
-             mock.patch("park_session_supervisor.build_native_map") as native, \
-             mock.patch.object(self.supervisor, "preflight_native_map", side_effect=RuntimeError("bad sync")):
+        with self.fake_cache_engines(), \
+             mock.patch.object(self.cache, "preflight", side_effect=RuntimeError("bad sync")):
             with self.assertRaisesRegex(RuntimeError, "bad sync") as raised:
                 self.supervisor.prepare("Park B.park", timing)
         timing.finish("failed", raised.exception)
         record = self.timing_records()[0]
-        self.assertEqual(record["source_sha256"], "abc")
+        self.assertEqual(record["source_sha256"], single_map_cache.sha256_file(self.library / "Park B.park"))
         self.assertEqual(record["error_type"], "RuntimeError")
         self.assertEqual(record["stages"]["source_resolution"]["status"], "ok")
         self.assertEqual(record["stages"]["park_preparation"]["status"], "ok")
@@ -169,9 +191,94 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.assertEqual(record["stages"]["isolated_preflight"]["status"], "failed")
         self.assertEqual(record["stages"]["session_startup"]["status"], "unavailable")
         self.assertTrue(record["generation"])
-        prepare.assert_called_once()
-        ensure.assert_called_once_with(plan)
-        native.assert_called_once_with(plan)
+        self.assertEqual(len(self.native_maps), 1)
+        self.assertEqual(self.cache.status(self.library / "Park B.park")["status"], "missing")
+
+    def test_uncached_then_cached_selection_has_fresh_state_and_skipped_stages(self):
+        with self.fake_cache_engines():
+            first_timing = self.supervisor.load_timing("Park B.park")
+            first_generation, first = self.supervisor.prepare("Park B.park", first_timing)
+            first_timing.finish("prepared")
+            second_timing = self.supervisor.load_timing("Park B.park")
+            second_generation, second = self.supervisor.prepare("Park B.park", second_timing)
+            second_timing.finish("prepared")
+        self.assertNotEqual(first_generation, second_generation)
+        self.assertEqual(len(self.native_maps), 1)
+        self.assertEqual(len(self.preflights), 1)
+        self.assertNotEqual(first["park"], second["park"])
+        self.assertNotEqual(Path(first["park"]).stat().st_ino, Path(second["park"]).stat().st_ino)
+        self.assertFalse(Path(first["spawn_journal"]).exists())
+        self.assertFalse(Path(second["spawn_journal"]).exists())
+        first_record, second_record = self.timing_records()
+        self.assertEqual(first_record["cache_outcome"], "built")
+        self.assertEqual(second_record["cache_outcome"], "hit")
+        self.assertEqual(second_record["generation"], second_generation)
+        self.assertEqual(second_record["stages"]["isolated_preflight"]["status"], "skipped")
+        self.assertEqual(second_record["stages"]["native_map_generation"]["status"], "skipped")
+        self.assertEqual(second_record["stages"]["client_join"]["status"], "unavailable")
+        self.assertEqual(second_record["stages"]["materialization"]["status"], "ok")
+        self.assertEqual(second_record["stages"]["cache_lookup"]["count"], 2)
+
+    def test_initial_load_uses_cache_and_still_awaits_native_readiness(self):
+        self.supervisor.session = None
+        self.supervisor.phase = "preparing"
+        process = Process()
+        with self.fake_cache_engines(), \
+             mock.patch.object(self.supervisor, "launch", return_value=(process, self.root / "initial.log")) as launch, \
+             mock.patch.object(self.supervisor, "await_ready") as await_ready:
+            self.supervisor.start_initial()
+        launch.assert_called_once()
+        await_ready.assert_called_once()
+        self.assertEqual(self.supervisor.state()["phase"], "ready")
+        self.assertEqual(self.supervisor.state()["current"], "Park A.park")
+        self.assertEqual(self.timing_records()[0]["cache_outcome"], "built")
+
+    def test_edited_authoritative_save_uses_new_bytes_and_geometry(self):
+        saved = self.supervisor.runtime / "saved" / "Park A.park"
+        def inspect(source):
+            return (96, 64) if Path(source).read_bytes() == b"PARKsave" else (64, 64)
+        with self.fake_cache_engines(inspect):
+            first_timing = self.supervisor.load_timing("Park A.park")
+            _, first = self.supervisor.prepare("Park A.park", first_timing)
+            saved.parent.mkdir()
+            saved.write_bytes(b"PARKsave")  # same length as the original park
+            second_timing = self.supervisor.load_timing("Park A.park")
+            _, second = self.supervisor.prepare("Park A.park", second_timing)
+        self.assertNotEqual(first_timing.cache_key, second_timing.cache_key)
+        self.assertEqual(json.loads(Path(first["scenario"]).read_text())["park_size"], [64, 64])
+        self.assertEqual(json.loads(Path(second["scenario"]).read_text())["park_size"], [96, 64])
+        self.assertEqual(Path(second["source"]).read_bytes(), b"PARKsave")
+        self.assertEqual(second_timing.cache_outcome, "built")
+
+    def test_corrupt_cache_is_repaired_before_selection(self):
+        with self.fake_cache_engines():
+            first_timing = self.supervisor.load_timing("Park A.park")
+            self.supervisor.prepare("Park A.park", first_timing)
+            manifest = self.cache.status(self.library / "Park A.park")["manifest"]
+            map_file = self.cache.package_path(manifest["key"]) / f"map/{manifest['scenario_id']}.scm"
+            map_file.chmod(0o644)
+            map_file.write_bytes(b"bad map")
+            second_timing = self.supervisor.load_timing("Park A.park")
+            _, plan = self.supervisor.prepare("Park A.park", second_timing)
+        self.assertEqual(second_timing.cache_outcome, "repaired")
+        self.assertEqual(len(self.native_maps), 2)
+        self.assertEqual(len(self.preflights), 2)
+        self.assertEqual(Path(plan["native_map"]).read_bytes(), b"native-map")
+        self.assertEqual(self.cache.status(self.library / "Park A.park")["status"], "ready")
+
+    def test_cancelled_cached_switch_preserves_old_session(self):
+        with self.fake_cache_engines():
+            self.supervisor.prepare("Park B.park")
+            self.supervisor.phase = "preparing"
+            self.supervisor.cancel_pending = True
+            with mock.patch.object(self.supervisor, "launch") as launch:
+                self.supervisor.transition("Park B.park", "discard", "")
+        launch.assert_not_called()
+        self.assertFalse(self.old.stopped)
+        self.assertEqual(self.supervisor.state()["phase"], "ready")
+        self.assertEqual(self.supervisor.state()["generation"], "old-generation")
+        self.assertEqual(self.timing_records()[0]["outcome"], "cancelled")
+        self.assertEqual(self.timing_records()[0]["cache_outcome"], "hit")
 
     def test_timing_stage_failure_keeps_unreached_milestones_explicit(self):
         timing = LoadTiming("broken.sc6", self.supervisor.runtime / "load-timings.jsonl")
@@ -210,6 +317,24 @@ class ParkSessionSupervisorTest(unittest.TestCase):
         self.assertIs(self.supervisor.session, recovered)
         self.assertEqual(self.supervisor.state()["generation"], "recovered-generation")
         self.assertIn("restored prior park", self.supervisor.state()["error"])
+
+    def test_recovery_failure_is_recorded_without_stale_ready_generation(self):
+        failed = Process()
+        self.supervisor.phase = "preparing"
+        with mock.patch.object(self.supervisor, "prepare", side_effect=[
+                 ("failed-generation", {"park": "bad"}), RuntimeError("recovery cache failed")]), \
+             mock.patch.object(self.supervisor, "launch", return_value=(failed, self.root / "bad.log")), \
+             mock.patch.object(self.supervisor, "await_ready", side_effect=RuntimeError("native unavailable")), \
+             mock.patch.object(self.supervisor, "stop", side_effect=lambda process: setattr(process, "stopped", True)):
+            self.supervisor.transition("Park B.park", "discard", "")
+        self.assertTrue(self.old.stopped)
+        self.assertTrue(failed.stopped)
+        self.assertEqual(self.supervisor.state()["phase"], "failed")
+        self.assertEqual(self.supervisor.state()["generation"], "old-generation")
+        self.assertIn("recovery failed: recovery cache failed", self.supervisor.state()["error"])
+        records = self.timing_records()
+        self.assertEqual([(r["kind"], r["outcome"]) for r in records],
+                         [("selection", "failed"), ("recovery", "failed")])
 
     def test_concurrent_request_is_rejected_before_transition_finishes(self):
         with mock.patch("park_session_supervisor.threading.Thread.start"):
