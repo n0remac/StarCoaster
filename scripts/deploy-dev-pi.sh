@@ -5,8 +5,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 release_root=/media/pi/media1/starcoaster-dev-releases
 case "${1:-}" in
- --status|--rollback) exec python3 scripts/activate-dev-pi.py "$1" ;;
- --check|"") ;;
+ --status) exec python3 scripts/activate-dev-pi.py --status ;;
+ --rollback|--check|"") ;;
  *) echo 'Usage: deploy-dev-pi.sh [--check|--status|--rollback]' >&2; exit 2 ;;
 esac
 [[ "$(hostname -s)" == raspberrypi ]] || { echo 'Refusing non-DEV host' >&2; exit 1; }
@@ -16,6 +16,7 @@ test -d /home/pi/games/rct2
 test -d /home/pi/games/starcraft
 test -d /media/pi/media1/starcoaster-production-build/run-data/pi-park-library
 mkdir -p "$release_root/releases" "$release_root/building"
+if [[ "${1:-}" == --rollback ]]; then exec python3 scripts/activate-dev-pi.py --rollback; fi
 if [[ "${1:-}" == --check ]]; then exit 0; fi
 [[ $# == 0 ]] || exit 2
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { echo 'Refusing dirty release checkout' >&2; exit 1; }

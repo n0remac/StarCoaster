@@ -1,5 +1,7 @@
 import hashlib
 import importlib.util
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -122,6 +124,19 @@ class DevActivationTests(unittest.TestCase):
         self.assertIn("/media/pi/media1/starcoaster-dev-build/scripts/update-dev-pi-game.sh", config)
         self.assertNotIn("update-pi-game.sh", config)
         self.assertNotIn("100.119.114.99", config)
+
+    def test_manual_rollback_refuses_non_dev_host(self):
+        fake_bin = Path(self.temporary.name) / "bin"
+        fake_bin.mkdir()
+        hostname = fake_bin / "hostname"
+        hostname.write_text("#!/bin/sh\necho not-dev\n")
+        hostname.chmod(0o755)
+        script = Path(__file__).resolve().parents[1] / "scripts/deploy-dev-pi.sh"
+        result = subprocess.run(["bash", str(script), "--rollback"],
+                                env={**os.environ, "PATH": str(fake_bin) + ":" + os.environ["PATH"]},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Refusing non-DEV host", result.stderr)
 
 
 if __name__ == "__main__":
