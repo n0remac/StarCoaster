@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import io
 import json
+import signal
 from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
@@ -14,6 +15,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from park_session_supervisor import ParkSessionSupervisor
 from load_timing import LoadTiming, STAGES
 from single_map_cache import SingleMapCache
+import park_session_supervisor as supervisor_module
 import prepare_existing_defense
 import single_map_cache
 
@@ -45,6 +47,24 @@ class ParkSessionSupervisorTest(unittest.TestCase):
                     supervisor.start_initial()
                     prepare.assert_not_called()
                 self.assertFalse(supervisor.ready_session_exited())
+
+    def test_cli_installs_termination_handler_before_browser_start(self):
+        prior_handler = signal.getsignal(signal.SIGTERM)
+        with mock.patch.object(supervisor_module, "ParkSessionSupervisor", return_value=self.supervisor), \
+             mock.patch.object(supervisor_module, "ThreadedUnixServer") as server_type, \
+             mock.patch.object(supervisor_module.os, "chmod"), \
+             mock.patch.object(supervisor_module.threading, "Thread"), \
+             mock.patch.object(self.supervisor, "start_wasm", side_effect=KeyboardInterrupt) as start, \
+             mock.patch.object(self.supervisor, "close") as close, \
+             mock.patch.object(sys, "argv", ["park_session_supervisor.py", "--parks", str(self.library),
+                                             "--runtime", str(self.root / "runtime")]):
+            try:
+                supervisor_module.main()
+            finally:
+                signal.signal(signal.SIGTERM, prior_handler)
+        start.assert_called_once_with()
+        close.assert_called_once_with()
+        server_type.return_value.shutdown.assert_called_once_with()
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(dir=ROOT / "run-data")
