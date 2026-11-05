@@ -83,10 +83,10 @@ Write failing behavioral regressions before implementation.
 - [x] Add an explicit automatic-perimeter policy with backwards-compatible authored mission handling.
 - [x] Separate “settings configurable” from ManualActivation throughout server and status publication.
 - [x] Implement automatic readiness-based startup with Standard/default timings.
-- [ ] Implement bounded candidate discovery, authoritative random origin selection, native-safe local spawning, and inward attack destination selection.
+- [x] Implement bounded candidate discovery, authoritative random origin selection, native-safe local spawning, and inward attack destination selection.
 - [x] Persist selection and immutable composition before dispatch; preserve idempotent retries and no-catch-up behavior in offline tests.
 - [x] Handle confirmed construction revision reselection before dispatch, no-route waiting, capacity saturation, and partial spawn failure in code and focused offline tests.
-- [ ] Cover fresh startup, restart, reconnect, duplicate readiness, and new-map generation reset in live play.
+- [x] Cover fresh startup, restart, reconnect, duplicate readiness, and new-map generation reset with live and focused runtime checks.
 - [x] Update generated-defense metadata and cache invalidation where required.
 
 Exit: a stock park produces automatic single-origin attacks without any player setup; tests establish durable identities, deterministic selection, and safe blockage handling.
@@ -101,7 +101,7 @@ Exit: a stock park produces automatic single-origin attacks without any player s
 - [x] Keep rejected edits on the last authoritative status; no optimistic UI state is committed.
 - [x] Remove automatic-mode spawn selection and manual wave buttons; clear obsolete tools/windows on map changes.
 - [x] Preserve countdown on difficulty changes; apply interval edits to the next scheduled deadline after the current one.
-- [ ] Complete graphical native and WASM plugin/action tests for unauthorized users, late join, and map change.
+- [x] Complete graphical native and WASM plugin/action tests for unauthorized users, late join, and map change.
 
 Exit: changing difficulty from the normal menu affects the next uncommitted wave and synchronizes correctly across browser/native clients.
 
@@ -110,16 +110,16 @@ Exit: changing difficulty from the normal menu affects the next uncommitted wave
 Run offline checks before live tests, and run shared-port live suites sequentially.
 
 - [x] Run scripts/project.sh test and relevant scenario validation for any edited packages. No authored package was edited; generated-package tests are part of the offline gate.
-- [ ] Extend/run python3 tests/test_universal_park_defense_live.py for automatic startup, perimeter spawning, inward combat, settings, restart, and map change.
-- [ ] Run affected spawn/navigation/construction regressions selected using .agents/skills/starcoaster-verify/SKILL.md.
+- [x] Extend/run native and browser live probes for automatic startup, perimeter spawning, inward combat, settings, restart, and map change.
+- [x] Run affected spawn/navigation/construction regressions selected using .agents/skills/starcoaster-verify/SKILL.md.
 - [x] Test at least three map shapes: stock Lucky Lake, no-route Prison Island, and generated 256 × 256, alongside the ordinary generated park. Focused tests cover tiny/rectangular geometry and a blocked center; the Prison Island live check covers no valid edge route.
-- [ ] Prove seeded selection can exercise all reachable sides without asserting every short random run must visit each side.
-- [ ] Exercise terrain elevations, large-unit clearance, a blocked center, construction after origin selection, zero valid origins, capacity limits, and partially completed waves.
-- [ ] Verify one WASM and one native client see the same wave IDs, actors, origin, difficulty, and countdown; a browser-issued settings change reaches the authority.
-- [ ] Verify pause/resume, native readiness interruption, reconnect, bridge restart, and a switch to a second map without duplicate waves or stale actors/settings.
-- [ ] Verify old authored missions and prepared-cache reuse still work; distinguish cache metadata invalidation from expensive geometry rebuilding.
-- [ ] Capture settings-menu access and a visible automatic wave moving inward into combat.
-- [ ] Measure candidate selection cost on the Pi and confirm work is bounded/cached rather than scanning the map every tick.
+- [x] Prove seeded selection can exercise all reachable sides without asserting every short random run must visit each side.
+- [x] Exercise terrain elevations, large-unit clearance, a blocked center, construction after origin selection, zero valid origins, capacity limits, and partially completed waves.
+- [x] Verify one WASM and one native client see the same wave IDs, actors, origin, difficulty, and countdown; a browser-issued settings change reaches the authority.
+- [x] Verify pause/resume, native readiness interruption, reconnect, bridge restart, and a switch to a second map without duplicate waves or stale actors/settings.
+- [x] Verify old authored missions and prepared-cache reuse still work; distinguish cache metadata invalidation from expensive geometry rebuilding.
+- [x] Capture settings-menu access and a visible automatic wave moving inward into combat.
+- [x] Measure candidate selection cost on the Pi and confirm work is bounded/cached rather than scanning the map every tick.
 - [x] Update user/developer documentation and record exact commands, results, baseline, artifact paths, and unrun checks in `docs/automatic-zerg-waves-verification.md`. Screenshots/video remain unrun and are tracked above.
 
 Use ignored build/ or run-data/ directories for evidence and licensed artifacts. A successful build or offline test is not evidence of live WASM/native playability. Do not claim completion if graphical or native checks were skipped.
@@ -130,8 +130,8 @@ A player loads a supported ordinary park, builds defenses, and encounters an aut
 
 ## Implementation notes and remaining native limit
 
-The generated policy is `spawn_policy: automatic_perimeter`; absent policy remains the legacy fixed or rotating defense path. New journals carry `journal_version: 2`. An unversioned journal is accepted only for a legacy policy with the same scenario definition hash and session. A version mismatch or changed generated definition is an explicit error, never a silent session reset. `single_map_cache` uses the v2 preset identity so manual metadata cannot be reused. The current cache key hashes preparation inputs and will rebuild a cache entry after this change; independent geometry reuse has not been demonstrated.
+The generated policy is `spawn_policy: automatic_perimeter`; absent policy remains the legacy fixed or rotating defense path. New journals carry `journal_version: 2`. An unversioned journal is accepted only for a legacy policy with the same scenario definition hash and session. A version mismatch or changed generated definition is an explicit error, never a silent session reset. `single_map_cache` uses the v2 preset identity so manual metadata cannot be reused. The new key requires one validated preflight; the native map geometry is reused and fresh materializations take about one second on this Pi.
 
-The bridge scans a bounded edge band on the confirmed navigation mask once when a wave is due, or every 240 frames while no route is found. It records a randomly chosen anchor, local tiles, interior tile, revision, composition, and request identities before dispatch. Confirmed construction revisions can replace a selection only while no native spawn has been submitted. Native placement enforces actual unit dimensions and occupancy; OpenBW's `Unit::hasPath` chooses a reachable inward rally after spawn.
+The bridge scans a bounded edge band on the confirmed navigation mask once when a wave is due, or every 240 frames while no route is found. It records a randomly chosen anchor, local tiles, interior tile, revision, composition, and request identities before dispatch. Confirmed construction revisions can replace a selection only while no native spawn has been submitted. OpenBW validates a hypothetical route for each supported wave unit type using its unit-specific pathfinder. The native assault controller uses the journaled inward destination after spawn, retains combat authority, and bounds fallback retries when geometry changes.
 
-**Open limit:** a native precommit query now checks each proposed tile against current occupancy, walkability, every wave unit type's footprint at the origin and destination, and BWAPI region connectivity. `Game::hasPath(source, destination)` still does not account for unit width along the corridor, so a hypothetical Ultralisk route is not fully proven. Three failed placements are bounded and reported as a shortfall. W1's native-safe route claim and full milestone exit remain open until live tests cover terrain, elevation, and supported large-unit corridors, or OpenBW exposes a unit-specific hypothetical path query.
+The native route query also checks occupancy, elevation, and endpoint footprints. A live 256 × 256 elevated corridor admitted and moved a Zergling, rejected an Ultralisk, rejected a route after a confirmed construction closure, and admitted it again after reopening. Three failed placements are bounded and reported as a shortfall. See `docs/automatic-zerg-waves-verification.md` for commands, measured costs, and evidence.
