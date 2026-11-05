@@ -340,14 +340,18 @@ try {
     console.log(`HANDOFF: selecting ${initialLabel}`);
     await page.mouse.click(555, Number(initialRow));
     let ready = false;
+    let sawNewLoad = false;
     for (let elapsed = 0; elapsed < 240000; elapsed += 1000) {
       const state = await (await context.request.get(sessionURL, { timeout: sessionRequestTimeoutMs })).json();
+      if (state.phase === 'preparing' || state.pending || state.generation !== before.generation)
+        sawNewLoad = true;
       if (state.phase === 'ready' && state.generation !== before.generation) {
         metrics.handoffGeneration = state.generation;
         ready = true;
         break;
       }
-      if (state.error && (state.phase === 'idle' || state.phase === 'failed'))
+      if (state.error && (state.phase === 'idle' || state.phase === 'failed') &&
+          (sawNewLoad || state.error !== before.error))
         throw new Error(`Authoritative handoff failed: ${state.error}`);
       await page.waitForTimeout(1000);
     }
