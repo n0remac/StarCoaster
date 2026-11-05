@@ -1,6 +1,6 @@
 # StarCoaster milestone: Native player economy
 
-Status: Ready for staged implementation; E0 must prove native construction and resource lifecycle before the integration design is finalized.
+Status: E0 native proof complete on `economy-e0`; E1-E5 remain unimplemented. See `docs/player-economy-e0-verification.md` for measured scope and projection limits.
 Date: 2026-11-05
 Reviewed baseline: f38e732ab756d47780777a9ea3baa18844a194d3
 Repository: /home/pi/Projects/rts-bridge
@@ -125,6 +125,13 @@ Version economy layout/bootstrap cache inputs. Reuse source geometry and native-
 ## 7. Implementation phases
 
 ### E0 — Prove native economy and construction under park navigation
+
+Status (2026-11-05): Native E0 gate passed in an isolated two-participant
+fixture. The focused probe proves mining, construction, cancellation, gas,
+geyser restoration, mask ordering, and bridge reconnect with native state
+continuing. It does not implement or verify park scenery projection of native
+resources or buildings; E1/E3 retain that integration work. The test setup
+`removeUnit` crash is documented, and the native kill path is verified.
 
 Create one isolated, minimal fixture and focused live probe using existing licensed engines and unique ports. Record commands and native observations.
 - Place a real SCV, Command Center, minerals and geyser with correct neutral ownership and initial resource quantities. Verify pinned CHK resource fields or synchronized initialization rather than guessing numeric unit IDs/amount encoding.
