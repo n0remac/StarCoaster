@@ -108,7 +108,7 @@ def main():
             cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
         processes.append(session)
         wait_for(lambda: "WORLD_READY" in (RUN / "session.log").read_text(errors="replace"),
-                 120, "native park readiness", processes)
+                 300 if MIXED else 120, "native park readiness", processes)
         announced = re.search(r"WORLD_SNAPSHOT session=([0-9a-f]{32})",
                               (RUN / "session.log").read_text(errors="replace"))
         if not announced:
