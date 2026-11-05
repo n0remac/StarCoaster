@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 
 	"starcoaster/internal/world"
@@ -98,8 +99,28 @@ type perimeterCandidate struct {
 	destination [2]int
 }
 
+type perimeterQueryState struct {
+	peer         *peer
+	revision     uint64
+	replaceIndex int // -1 creates a new wave; otherwise replaces an unsubmitted selection
+	sequence     int
+	candidates   []perimeterCandidate
+	selected     perimeterCandidate
+	queryID      string
+	tries        int
+	sentFrame    int
+}
+
 func (s *service) triggerAutomaticPerimeter() {
 	r := s.runtime
+	if s.pendingPerimeter != nil {
+		if s.pendingPerimeter.peer != s.bw || s.pendingPerimeter.revision != s.registry.Revision ||
+			r.LastFrame-s.pendingPerimeter.sentFrame >= 120 {
+			s.pendingPerimeter = nil
+			s.perimeterRetryFrame = r.LastFrame + 240
+		}
+		return
+	}
 	if !s.ready || s.bw == nil || s.controller == nil || !s.nativeOccupancyComplete ||
 		s.parkPatch != nil || s.targetPatch != nil || !r.DefenseEnabled ||
 		r.NextAutomaticFrame == 0 || r.LastFrame < r.NextAutomaticFrame ||
@@ -111,33 +132,132 @@ func (s *service) triggerAutomaticPerimeter() {
 			return
 		}
 	}
-	candidates := s.perimeterCandidates()
-	if len(candidates) == 0 {
-		s.perimeterRetryFrame = r.LastFrame + 240
-		return // no intent or missed-wave backlog while no route exists
-	}
-	selected := s.choosePerimeterCandidate(candidates)
-	r.CommitAutomaticWave(s.scenario, selected.anchor, selected.zone, selected.destination, s.registry.Revision)
+	s.startPerimeterQuery(-1)
 }
 
-func (s *service) choosePerimeterCandidate(candidates []perimeterCandidate) perimeterCandidate {
+func (s *service) choosePerimeterIndex(count int) int {
 	index := 0
 	if s.defenseRandomIndex != nil {
-		index = s.defenseRandomIndex(len(candidates))
-	} else if choice, err := rand.Int(rand.Reader, big.NewInt(int64(len(candidates)))); err == nil {
+		index = s.defenseRandomIndex(count)
+	} else if choice, err := rand.Int(rand.Reader, big.NewInt(int64(count))); err == nil {
 		index = int(choice.Int64())
 	}
-	if index < 0 || index >= len(candidates) {
+	if index < 0 || index >= count {
 		index = 0
 	}
-	return candidates[index]
+	return index
+}
+
+func (s *service) startPerimeterQuery(replaceIndex int) {
+	candidates := s.perimeterCandidates()
+	if len(candidates) == 0 {
+		s.perimeterRetryFrame = s.runtime.LastFrame + 240
+		if replaceIndex >= 0 {
+			s.runtime.Waves[replaceIndex].FailureReason = "Waves waiting: no reachable edge location"
+		}
+		return
+	}
+	sequence := s.runtime.NextWaveSequence
+	if replaceIndex >= 0 {
+		sequence = s.runtime.Waves[replaceIndex].Sequence
+	}
+	s.pendingPerimeter = &perimeterQueryState{peer: s.bw, revision: s.registry.Revision,
+		replaceIndex: replaceIndex, sequence: sequence, candidates: candidates}
+	s.sendNextPerimeterQuery()
+}
+
+func (s *service) sendNextPerimeterQuery() {
+	state := s.pendingPerimeter
+	if state == nil {
+		return
+	}
+	if state.tries >= 64 || len(state.candidates) == 0 {
+		if state.replaceIndex >= 0 {
+			s.runtime.Waves[state.replaceIndex].FailureReason = "Waves waiting: no reachable edge location"
+		}
+		s.pendingPerimeter = nil
+		s.perimeterRetryFrame = s.runtime.LastFrame + 240
+		return
+	}
+	index := s.choosePerimeterIndex(len(state.candidates))
+	state.selected = state.candidates[index]
+	state.candidates[index] = state.candidates[len(state.candidates)-1]
+	state.candidates = state.candidates[:len(state.candidates)-1]
+	state.tries++
+	state.sentFrame = s.runtime.LastFrame
+	state.queryID = fmt.Sprintf("perimeter:%s:%d:%d:%d", s.registry.Session, state.sequence, state.revision, state.tries)
+	tiles := make([][2]int, 0, len(state.selected.zone.Tiles))
+	for _, tile := range state.selected.zone.Tiles {
+		tiles = append(tiles, [2]int{s.transform.X(tile[0]*32 + 16), s.transform.Y(tile[1]*32 + 16)})
+	}
+	types := []string{}
+	for _, group := range s.scenario.ParkDefense.GroupsForWave(state.sequence) {
+		types = append(types, group.UnitType)
+	}
+	destination := state.selected.destination
+	payload := map[string]any{"query_id": state.queryID, "tiles": tiles,
+		"destination": [2]int{s.transform.X(destination[0]*32 + 16), s.transform.Y(destination[1]*32 + 16)},
+		"unit_types":  types}
+	if err := s.bw.send(world.Message("scenario.perimeter.query", s.registry.Session, state.queryID, "bridge", state.revision, payload)); err != nil {
+		s.pendingPerimeter = nil
+		s.perimeterRetryFrame = s.runtime.LastFrame + 240
+	}
+}
+
+func (s *service) acceptPerimeterRoute(queryID string, accepted bool, indices []int) {
+	state := s.pendingPerimeter
+	if state == nil || queryID != state.queryID || state.revision != s.registry.Revision || state.peer != s.bw {
+		return
+	}
+	zone := world.SpawnZone{}
+	seen := map[int]bool{}
+	anchorValid := false
+	if accepted {
+		for _, index := range indices {
+			if index < 0 || index >= len(state.selected.zone.Tiles) || seen[index] {
+				continue
+			}
+			seen[index] = true
+			tile := state.selected.zone.Tiles[index]
+			zone.Tiles = append(zone.Tiles, tile)
+			if tile == state.selected.anchor { anchorValid = true }
+		}
+	}
+	if len(zone.Tiles) < 4 || !anchorValid {
+		s.sendNextPerimeterQuery()
+		return
+	}
+	selected := state.selected
+	if state.replaceIndex < 0 {
+		if !s.runtime.CommitAutomaticWave(s.scenario, selected.anchor, zone, selected.destination, state.revision) {
+			s.pendingPerimeter = nil
+			return
+		}
+	} else {
+		wave := &s.runtime.Waves[state.replaceIndex]
+		if wave.Submitted != 0 || wave.State != "triggered" {
+			s.pendingPerimeter = nil
+			return
+		}
+		wave.SpawnAnchor, wave.Destination = &selected.anchor, &selected.destination
+		wave.FixedZone = zone
+		wave.SelectionRevision = state.revision
+		wave.FailureReason = ""
+	}
+	s.pendingPerimeter = nil
+	s.perimeterRetryFrame = 0
+	if !s.saveScenarioRuntime() {
+		s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+		return
+	}
+	s.publishScenarioStatus(false)
 }
 
 // A confirmed construction revision can invalidate a selected edge before
 // the first native submission. Once any unit is submitted, the wave remains in
 // its recorded cluster and reports a local shortfall instead of changing side.
 func (s *service) refreshUnsubmittedAutomaticWaves() {
-	if !s.ready || !s.nativeOccupancyComplete || s.parkPatch != nil || s.targetPatch != nil ||
+	if !s.ready || s.pendingPerimeter != nil || !s.nativeOccupancyComplete || s.parkPatch != nil || s.targetPatch != nil ||
 		s.runtime.LastFrame < s.perimeterRetryFrame {
 		return
 	}
@@ -147,16 +267,7 @@ func (s *service) refreshUnsubmittedAutomaticWaves() {
 			wave.SelectionRevision == s.registry.Revision {
 			continue
 		}
-		candidates := s.perimeterCandidates()
-		if len(candidates) == 0 {
-			wave.FailureReason = "Waves waiting: no reachable edge location"
-			s.perimeterRetryFrame = s.runtime.LastFrame + 240
-			return
-		}
-		selected := s.choosePerimeterCandidate(candidates)
-		wave.SpawnAnchor, wave.Destination = &selected.anchor, &selected.destination
-		wave.FixedZone = world.SpawnZone{Tiles: append([][2]int(nil), selected.zone.Tiles...)}
-		wave.SelectionRevision = s.registry.Revision
-		wave.FailureReason = ""
+		s.startPerimeterQuery(i)
+		return
 	}
 }

@@ -123,6 +123,7 @@ type service struct {
 	parkGeneration            string
 	defenseRandomIndex        func(int) int
 	perimeterRetryFrame       int
+	pendingPerimeter          *perimeterQueryState
 }
 
 type parkPatchStage struct {
@@ -1432,6 +1433,19 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 	case "unit.spawn.status":
 		s.bwSpawnMessage(p, m)
+	case "scenario.perimeter.result":
+		var result struct {
+			QueryID      string `json:"query_id"`
+			Accepted     bool   `json:"accepted"`
+			ValidIndices []int  `json:"valid_indices"`
+		}
+		if m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
+			m.Decode(&result) != nil || len(result.ValidIndices) > 25 {
+			s.ack(p, m, false, "invalid_perimeter_result")
+			return
+		}
+		s.ack(p, m, true, "")
+		s.acceptPerimeterRoute(result.QueryID, result.Accepted, result.ValidIndices)
 	case "actor.despawn":
 		var event world.ActorDespawn
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -1505,6 +1519,15 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		if strings.HasPrefix(a.OpID, "spawn:") {
+			return
+		}
+		if strings.HasPrefix(a.OpID, "perimeter:") {
+			if !a.Accepted && s.pendingPerimeter != nil && s.pendingPerimeter.queryID == a.OpID {
+				s.pendingPerimeter = nil
+				if s.runtime != nil {
+					s.perimeterRetryFrame = s.runtime.LastFrame + 240
+				}
+			}
 			return
 		}
 		if !a.Accepted && !s.bwResyncPending {

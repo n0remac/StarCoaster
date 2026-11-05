@@ -632,6 +632,16 @@ private:
             }
             return;
         }
+        if (kind=="scenario.perimeter.query") {
+            if (!ready_ || message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != revision_) {
+                ack(message,false,"stale_or_unready_perimeter_query"); return;
+            }
+            const auto result = inspectPerimeterRoute(game,payload);
+            ack(message,true);
+            send("scenario.perimeter.result",result,revision_,game->getFrameCount());
+            return;
+        }
         if (kind=="unit.spawn.reconcile") {
             if (message.value("session", "") != session_ || !payload.is_object()
                 || !payload.contains("pending") || !payload.at("pending").is_array()
@@ -830,6 +840,58 @@ private:
             {"creation_frame", actor.creationFrame}};
     }
     struct PendingCreation { BWAPI::Unit unit = nullptr; int frame = 0, x = 0, y = 0; };
+    json inspectPerimeterRoute(BWAPI::Game* game, const json& payload) {
+        json result = {{"query_id",payload.is_object() ? payload.value("query_id","") : ""},
+            {"accepted",false},{"valid_indices",json::array()}};
+        if (!game || !payload.is_object() || !payload.contains("tiles") || !payload.at("tiles").is_array()
+            || payload.at("tiles").size() < 4 || payload.at("tiles").size() > 25
+            || !payload.contains("destination") || !payload.at("destination").is_array()
+            || payload.at("destination").size() != 2
+            || !payload.contains("unit_types") || !payload.at("unit_types").is_array()
+            || payload.at("unit_types").empty() || payload.at("unit_types").size() > 4) return result;
+        const auto& destination = payload.at("destination");
+        if (!destination[0].is_number_integer() || !destination[1].is_number_integer()) return result;
+        const int goalX=destination[0].get<int>(), goalY=destination[1].get<int>();
+        if (goalX < 64 || goalY < 64 || goalX >= game->mapWidth()*32-64
+            || goalY >= game->mapHeight()*32-64) return result;
+        std::vector<BWAPI::UnitType> types;
+        for (const auto& item : payload.at("unit_types")) {
+            if (!item.is_string()) return result;
+            const auto* kind = worldUnitType(item.get<std::string>());
+            if (!kind || std::string(kind->race)!="zerg" || std::string(kind->ownership)!="enemy"
+                || !kind->spawnable || kind->native.isFlyer()) return result;
+            types.push_back(kind->native);
+        }
+        std::vector<starcoaster::Rect> occupied;
+        for (auto unit : game->getAllUnits()) {
+            if (!unit || !unit->exists() || unit->isFlying()) continue;
+            const auto other=unit->getPosition();
+            const auto shape=unit->getType();
+            occupied.push_back({other.x-shape.dimensionLeft(),other.y-shape.dimensionUp(),shape.width(),shape.height()});
+        }
+        for (size_t index=0; index<payload.at("tiles").size(); ++index) {
+            const auto& item=payload.at("tiles")[index];
+            if (!item.is_array() || item.size()!=2 || !item[0].is_number_integer()
+                || !item[1].is_number_integer()) return result;
+            const int x=item[0].get<int>(), y=item[1].get<int>();
+            if (!game->hasPath(BWAPI::Position(x,y),BWAPI::Position(goalX,goalY))) continue;
+            bool valid=true;
+            for (const auto& type : types) {
+                const int halfWidth=std::max(type.dimensionLeft(),type.dimensionRight())+2;
+                const int halfHeight=std::max(type.dimensionUp(),type.dimensionDown())+2;
+                if (!starcoaster::validSpawnPlacement(navigation_,x,y,game->mapWidth(),game->mapHeight(),
+                        halfWidth,halfHeight,occupied)
+                    || !starcoaster::validSpawnPlacement(navigation_,goalX,goalY,game->mapWidth(),game->mapHeight(),
+                        halfWidth,halfHeight,{})) { valid=false; break; }
+                for (int sy : {y-halfHeight,y,y+halfHeight}) for (int sx : {x-halfWidth,x,x+halfWidth})
+                    if (!game->isWalkable(sx/8,sy/8)) valid=false;
+                if (!valid) break;
+            }
+            if (valid) result["valid_indices"].push_back(index);
+        }
+        result["accepted"]=result["valid_indices"].size()>=4;
+        return result;
+    }
     bool executeNativeSpawn(BWAPI::Game* game, const json& payload, bool fixture) {
         spawnError_ = "invalid_spawn_execution";
         if (!payload.is_object() || !payload.contains("request_id")
