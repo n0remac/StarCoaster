@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,16 +29,18 @@ MIXED = "--wasm" in sys.argv
 BROWSER_BUILD = "--browser-build" in sys.argv
 CAPTURE_ONLY = "--capture-only" in sys.argv
 OBSERVE_COMBAT = "--observe-combat" in sys.argv
+SETTINGS = "--settings" in sys.argv
 if MANUAL and MIXED:
     raise SystemExit("choose --manual or --wasm")
 if CAPTURE_ONLY and not MIXED:
     raise SystemExit("--capture-only requires --wasm")
 if BROWSER_BUILD and not MIXED:
     raise SystemExit("--browser-build requires --wasm")
-RUN = ROOT / "run-data/universal-park-defense-live" / ("no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic")
+RUN = ROOT / "run-data/universal-park-defense-live" / ("settings" if SETTINGS else "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic") / (str(int(time.time())) + "-" + uuid.uuid4().hex[:8])
 TEST_SOURCE = RUN / f"source-{int(time.time())}-{os.getpid()}.park"
-SCENARIO_ID = "park-defense-" + hashlib.sha256(str(TEST_SOURCE).encode()).hexdigest()[:16]
+SCENARIO_ID = "park-defense-" + hashlib.sha256(str(TEST_SOURCE.resolve()).encode()).hexdigest()[:16]
 JOURNAL = ROOT / "run-data/scenarios" / SCENARIO_ID / "spawn-queue.json.scenario.json"
+EXPECTED_SESSION = ""
 
 
 def wait_for(predicate, seconds, description, processes):
@@ -57,12 +60,16 @@ def runtime():
     if not JOURNAL.is_file():
         return {}
     try:
-        return json.loads(JOURNAL.read_text())
+        current = json.loads(JOURNAL.read_text())
+        if EXPECTED_SESSION and current.get("session") != EXPECTED_SESSION:
+            raise AssertionError(f"journal session {current.get('session')} differs from launch {EXPECTED_SESSION}")
+        return current
     except json.JSONDecodeError:
         return {}
 
 
 def main():
+    global EXPECTED_SESSION
     if not SOURCE.is_file():
         raise RuntimeError(f"missing source park: {SOURCE}")
     original_hash = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
@@ -75,13 +82,15 @@ def main():
     if not MIXED:
         (client / "plugin/universal-defense-probe.js").write_text(
             ("var UNIVERSAL_DEFENSE_VERIFY_MANUAL = true;\n" if MANUAL else "")
+            + ("var UNIVERSAL_DEFENSE_VERIFY_AUTOMATIC = true;\n" if not MANUAL else "")
+            + ("var UNIVERSAL_DEFENSE_VERIFY_SETTINGS = true;\n" if SETTINGS else "")
             + ("var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n" if BUILD else "")
             + ("var UNIVERSAL_DEFENSE_VERIFY_FACTORY = true;\n" if FACTORY else "")
             + ("var UNIVERSAL_DEFENSE_VERIFY_NO_WAVE = true;\n" if NO_WAVE else "")
             + "var UNIVERSAL_DEFENSE_ANCHOR = " + json.dumps(ANCHOR) + ";\n"
             + (ROOT / "tests/universal-defense-probe.js").read_text())
     # The host distributes the production bridge plugin through multiplayer.
-    report = {"status": "failed", "mode": "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
+    report = {"status": "failed", "mode": "settings" if SETTINGS else "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
               "source": str(SOURCE), "checks": {}, "artifacts": {
         "session_log": str(RUN / "session.log"), "client_log": str(RUN / "client.log"),
         "journal": str(JOURNAL)}}
@@ -99,6 +108,11 @@ def main():
         processes.append(session)
         wait_for(lambda: "WORLD_READY" in (RUN / "session.log").read_text(errors="replace"),
                  120, "native park readiness", processes)
+        announced = re.search(r"WORLD_SNAPSHOT session=([0-9a-f]{32})",
+                              (RUN / "session.log").read_text(errors="replace"))
+        if not announced:
+            raise AssertionError("current launch did not announce a scenario session")
+        EXPECTED_SESSION = announced.group(1)
         report["checks"]["existing_park_ready"] = "passed"
         imported = re.search(r"WORLD_READY entities=(\d+)",
                              (RUN / "session.log").read_text(errors="replace"))
@@ -108,9 +122,12 @@ def main():
             raise AssertionError("source park changed during launch")
         report["checks"]["park_features_and_source_preserved"] = "passed"
         first = runtime()
-        if first.get("defense_enabled") or first.get("waves"):
-            raise AssertionError("Zerg waves started before the player enabled defense")
-        report["checks"]["disabled_default"] = "passed"
+        if not MANUAL:
+            if not first.get("defense_enabled") or first.get("waves"):
+                raise AssertionError("automatic defense was not prepared at readiness")
+            report["checks"]["automatic_default"] = "passed"
+        elif first.get("defense_enabled") or first.get("waves"):
+            raise AssertionError("legacy manual defense started early")
         if MIXED:
             def browser_gateway_ready():
                 try:
@@ -140,7 +157,8 @@ def main():
         executable = ROOT / "build/openrct2/openrct2-cli"
         joined = None
         def join_native():
-            process = subprocess.Popen([str(executable), "join", "127.0.0.1", "--headless", "--port=11753",
+            process = subprocess.Popen([str(executable), "join", "127.0.0.1", "--headless",
+                "--port=" + os.environ.get("OPENRCT2_PORT", "11753"),
                 f"--rct2-data-path={rct2}",
                 f"--openrct2-data-path={ROOT / 'build/openrct2-stage/usr/local/share/openrct2'}",
                 f"--user-data-path={client}"], cwd=ROOT, env=env,
@@ -161,14 +179,23 @@ def main():
             report["checks"]["marine_visible_without_zerg"] = "passed"
             report["status"] = "passed"
             return
-        configured = wait_for(lambda: runtime() if runtime().get("defense_enabled") else None,
+        configured = wait_for(lambda: runtime() if runtime().get("defense_enabled")
+                              and runtime().get("next_automatic_frame") else None,
                               600 if MIXED else 90, "authorized defense enable", processes)
-        if configured.get("spawn_anchor") != ANCHOR or len(configured.get("fixed_spawn_zone", {}).get("tiles", [])) < 4:
+        if MANUAL and (configured.get("spawn_anchor") != ANCHOR or len(configured.get("fixed_spawn_zone", {}).get("tiles", [])) < 4):
             raise AssertionError("fixed spawn point was not accepted")
+        if not MANUAL and configured.get("spawn_anchor") is not None:
+            raise AssertionError("automatic defense requires no selected anchor")
         if configured["next_automatic_frame"] - configured["last_frame"] > 2880:
             raise AssertionError("preparation deadline exceeds 120 seconds")
-        report["checks"]["authorized_fixed_spawn_and_countdown"] = "passed"
-        report["anchor"] = configured["spawn_anchor"]
+        if SETTINGS:
+            configured = wait_for(lambda: runtime() if runtime().get("wave_difficulty") == "hard" else None,
+                                  60, "authoritative hard difficulty", processes)
+            if configured["next_automatic_frame"] != configured["start_frame"] + 2880:
+                raise AssertionError("difficulty edit reset the current preparation deadline")
+            report["checks"]["shared_hard_difficulty_without_countdown_reset"] = "passed"
+        report["checks"]["automatic_preparation_countdown" if not MANUAL else "authorized_fixed_spawn_and_countdown"] = "passed"
+        report["anchor"] = configured.get("spawn_anchor")
         if MIXED:
             joined = join_native()
         if UNAUTHORIZED:
@@ -178,7 +205,8 @@ def main():
                 (ROOT / "tests/universal-defense-noncommander-probe.js").read_text())
             second_stream = (RUN / "second-client.log").open("w")
             streams.append(second_stream)
-            second = subprocess.Popen([str(executable), "join", "127.0.0.1", "--headless", "--port=11753",
+            second = subprocess.Popen([str(executable), "join", "127.0.0.1", "--headless",
+                "--port=" + os.environ.get("OPENRCT2_PORT", "11753"),
                 f"--rct2-data-path={rct2}",
                 f"--openrct2-data-path={ROOT / 'build/openrct2-stage/usr/local/share/openrct2'}",
                 f"--user-data-path={second_dir}"], cwd=ROOT, env=env,
@@ -192,23 +220,45 @@ def main():
                         f"first {origin} wave", processes)
         if wave["sequence"] != 1 or wave.get("spawn_zone") != "selected":
             raise AssertionError(f"{origin} wave sequence or zone differs")
+        if not MANUAL and (wave.get("spawn_anchor") is None or len(wave.get("fixed_zone", {}).get("tiles", [])) < 4 or wave.get("destination") is None):
+            raise AssertionError("automatic wave did not persist its perimeter cluster and inward destination")
+        if not MANUAL:
+            report["anchor"] = wave["spawn_anchor"]
         if origin == "periodic" and wave["triggered_frame"] < configured["next_automatic_frame"]:
             raise AssertionError("automatic wave started before preparation deadline")
-        if len(wave.get("units") or []) != 8 or any(unit["unit_type"] != "zerg_zergling"
+        expected_count = 12 if SETTINGS else 8
+        if len(wave.get("units") or []) != expected_count or any(unit["unit_type"] != "zerg_zergling"
                                                    for unit in wave["units"]):
             raise AssertionError("first wave composition differs")
         report["checks"][f"{origin}_wave_timing_zone_and_composition"] = "passed"
         ready = wait_for(lambda: next((item for item in runtime().get("waves") or []
                                       if item.get("id") == wave["id"] and
-                                      sum(unit.get("state") == "ready" for unit in item.get("units") or []) == 8), None),
+                                      sum(unit.get("state") == "ready" for unit in item.get("units") or []) == expected_count), None),
                          60, "native Zerg spawn completion",
                          [session, joined] if MIXED else processes)
         zone = set(map(tuple, ready["fixed_zone"]["tiles"]))
         if any((attempt["x"] // 32, attempt["y"] // 32) not in zone
                for unit in ready["units"] for attempt in unit.get("attempts") or []):
             raise AssertionError("wave attempted a spawn outside the selected zone")
-        report["checks"]["eight_native_zerglings_in_fixed_zone"] = "passed"
+        report["checks"][f"{expected_count}_native_zerglings_in_selected_cluster"] = "passed"
         report["wave_ids"] = [wave["id"]]
+        if not MANUAL and not MIXED:
+            destination = wave["destination"]
+            goal = (destination[0] * 32 + 16, destination[1] * 32 + 16)
+            def inward_motion():
+                log = (RUN / "client.log").read_text(errors="replace")
+                initial = re.search(r"UNIVERSAL_DEFENSE_ZERG id=([^ ]+) kind=[^ ]+ x=(\d+) y=(\d+)", log)
+                if not initial:
+                    return None
+                first = (int(initial.group(2)), int(initial.group(3)))
+                first_distance = abs(first[0] - goal[0]) + abs(first[1] - goal[1])
+                motions = re.findall(r"UNIVERSAL_DEFENSE_ZERG_MOTION id=([^ ]+) x=(\d+) y=(\d+)", log)
+                return next(((int(x), int(y)) for actor, x, y in motions
+                             if actor == initial.group(1) and
+                             abs(int(x)-goal[0]) + abs(int(y)-goal[1]) <= first_distance - 16), None)
+            moved = wait_for(inward_motion, 90, "native Zerg moved toward persisted interior", processes)
+            report["checks"]["native_inward_attack_movement"] = "passed"
+            report["inward_motion"] = {"destination": destination, "position": moved}
         if UNAUTHORIZED:
             denied = wait_for(lambda: re.search(r"WORLD_DEFENSE_DENIED player=(\d+) commander=(\d+)",
                 (RUN / "session.log").read_text(errors="replace")),

@@ -3,12 +3,14 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
     type: "local", licence: "MIT", targetApiVersion: 124, minApiVersion: 124,
     main: function () {
         var ticks = 0, anchorSent = false, enabledSent = false, waveSent = false;
+        var settingsSent = false;
         var wavePending = false;
         var defensePending = false;
         var defenseRequest = "", anchorIndex = 0;
         var buildPending = false, buildingID = "", trainPending = false, trainSent = false;
         var factoryID = "", vulturePending = false, vultureSent = false;
         var lastTrainReason = "", lastSession = "", zergSeen = false, priorHealth = {};
+        var observedZerg = null, lastZergPosition = null, zergMotionReports = 0;
         function anchorCandidates() {
             var preferred = typeof UNIVERSAL_DEFENSE_ANCHOR !== "undefined"
                 ? UNIVERSAL_DEFENSE_ANCHOR : [4, 4];
@@ -26,6 +28,7 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
                 if (event.args.accepted) anchorSent = true;
                 else anchorIndex++;
             } else if (defenseRequest === "enable" && event.args.accepted) enabledSent = true;
+            else if (defenseRequest === "difficulty" && event.args.accepted) settingsSent = true;
             defenseRequest = "";
             defensePending = false;
         });
@@ -128,14 +131,17 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
             if (!state || !state.session) return;
             if (state.session !== lastSession) {
                 lastSession = state.session;
-                anchorSent = false; enabledSent = false; waveSent = false;
+                anchorSent = false; enabledSent = false; waveSent = false; settingsSent = false;
                 wavePending = false; defensePending = false; defenseRequest = "";
                 anchorIndex = 0; buildPending = false;
                 buildingID = ""; trainPending = false; trainSent = false;
                 factoryID = ""; vulturePending = false; vultureSent = false;
                 lastTrainReason = "";
                 zergSeen = false;
+                observedZerg = null; lastZergPosition = null; zergMotionReports = 0;
                 priorHealth = {};
+                if (typeof UNIVERSAL_DEFENSE_VERIFY_AUTOMATIC !== "undefined"
+                    && UNIVERSAL_DEFENSE_VERIFY_AUTOMATIC) anchorSent = enabledSent = true;
                 console.log("UNIVERSAL_DEFENSE_SESSION session=" + lastSession);
             }
             state.units.forEach(function (unit) {
@@ -151,8 +157,20 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
                 });
                 if (zerg) {
                     zergSeen = true;
+                    observedZerg = zerg.id;
+                    lastZergPosition = { x: zerg.x, y: zerg.y };
                     console.log("UNIVERSAL_DEFENSE_ZERG id=" + zerg.id + " kind=" + zerg.kind
                         + " x=" + zerg.x + " y=" + zerg.y);
+                }
+            }
+            if (observedZerg && zergMotionReports < 20) {
+                var moving = state.units.find(function (unit) { return unit.id === observedZerg; });
+                if (moving && Math.abs(moving.x - lastZergPosition.x)
+                    + Math.abs(moving.y - lastZergPosition.y) >= 32) {
+                    lastZergPosition = { x: moving.x, y: moving.y };
+                    zergMotionReports++;
+                    console.log("UNIVERSAL_DEFENSE_ZERG_MOTION id=" + moving.id
+                        + " x=" + moving.x + " y=" + moving.y);
                 }
             }
             if (typeof UNIVERSAL_DEFENSE_VERIFY_NO_WAVE !== "undefined"
@@ -163,6 +181,18 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
                 return;
             }
             if (defensePending) return;
+            if (typeof UNIVERSAL_DEFENSE_VERIFY_SETTINGS !== "undefined"
+                && UNIVERSAL_DEFENSE_VERIFY_SETTINGS && !settingsSent) {
+                defensePending = true;
+                defenseRequest = "difficulty";
+                context.executeAction("rtsbridge.configureDefense", { session: state.session,
+                    difficulty: "hard" }, function (result) {
+                    console.log("UNIVERSAL_DEFENSE_DIFFICULTY local_accepted=" + !result.error
+                        + " reason=" + (result.errorMessage || "ok"));
+                    if (result.error) { defenseRequest = ""; defensePending = false; }
+                });
+                return;
+            }
             if (!anchorSent) {
                 var candidates = anchorCandidates();
                 if (anchorIndex >= candidates.length) {
