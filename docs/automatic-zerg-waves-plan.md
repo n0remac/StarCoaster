@@ -1,8 +1,8 @@
 # Automatic Zerg Waves and StarCraft Settings
 
-Status: Planned; implementation not started.
+Status: W1 and W2 implementation committed; W3 verification in progress. Native precommit route and footprint checks pass on two generated parks, including a 256 × 256 map. Full corridor clearance, stock and water-heavy parks, restart, mixed-client, and graphical menu checks remain open.
 Date: 2026-11-04
-Reviewed baseline: 3968934 (development Pi checkout).
+Implementation baseline: 61a065e (phase3-supervisor-cache).
 Repository: /home/pi/Projects/rts-bridge
 
 ## Goal and roadmap
@@ -79,29 +79,29 @@ Document migration explicitly:
 
 Write failing behavioral regressions before implementation.
 
-- [ ] Trace generated defense preparation, cache identity, ready lifecycle, native assault commands, and journal load/validation.
-- [ ] Add an explicit automatic-perimeter policy with backwards-compatible authored mission handling.
-- [ ] Separate “settings configurable” from ManualActivation throughout server and status publication.
-- [ ] Implement automatic readiness-based startup with Standard/default timings.
+- [x] Trace generated defense preparation, cache identity, ready lifecycle, native assault commands, and journal load/validation.
+- [x] Add an explicit automatic-perimeter policy with backwards-compatible authored mission handling.
+- [x] Separate “settings configurable” from ManualActivation throughout server and status publication.
+- [x] Implement automatic readiness-based startup with Standard/default timings.
 - [ ] Implement bounded candidate discovery, authoritative random origin selection, native-safe local spawning, and inward attack destination selection.
-- [ ] Persist selection and immutable composition before dispatch; preserve idempotent retries and no-catch-up behavior.
-- [ ] Handle live construction invalidation, no-route waiting, capacity saturation, and partial spawn failure.
-- [ ] Cover fresh startup, restart, reconnect, duplicate readiness, and new-map generation reset.
-- [ ] Update generated-defense metadata and cache invalidation where required.
+- [x] Persist selection and immutable composition before dispatch; preserve idempotent retries and no-catch-up behavior in offline tests.
+- [x] Handle confirmed construction revision reselection before dispatch, no-route waiting, capacity saturation, and partial spawn failure in code and focused offline tests.
+- [ ] Cover fresh startup, restart, reconnect, duplicate readiness, and new-map generation reset in live play.
+- [x] Update generated-defense metadata and cache invalidation where required.
 
 Exit: a stock park produces automatic single-origin attacks without any player setup; tests establish durable identities, deterministic selection, and safe blockage handling.
 
 ## Phase W2 — StarCraft settings in OpenRCT2
 
-- [ ] Inspect the pinned OpenRCT2 options/menu implementation and supported plugin extension points.
-- [ ] Add a clearly labeled StarCraft settings page reachable from the normal OpenRCT2 options/menu. Reuse plugin UI where possible; add the smallest maintained native patch if needed. A construction-window-only link does not satisfy this requirement.
-- [ ] Use the same page and synchronized action path in native and WASM clients.
-- [ ] Offer Easy / Standard / Hard, enabled/disabled, optional existing interval control, and authoritative status.
-- [ ] Preserve commander authorization, stale session/revision rejection, settings validation, and durable-save rollback.
-- [ ] Make rejected edits visibly revert to authoritative state; do not show client-local optimistic values as accepted.
-- [ ] Remove automatic-mode spawn selection and manual wave buttons; clear obsolete tools/windows on map changes.
-- [ ] Preserve countdown on difficulty changes; apply interval edits to the next scheduled deadline after the current one, avoiding accidental immediate attacks.
-- [ ] Add plugin/action tests for authorized and unauthorized users, stale actions, late join, and map change.
+- [x] Inspect the pinned OpenRCT2 menu implementation and supported plugin extension points.
+- [x] Add a clearly labeled StarCraft settings page through the normal top toolbar Map dropdown.
+- [x] Use the same plugin page and synchronized action path in native and WASM code.
+- [x] Offer Easy / Standard / Hard, enabled/disabled, optional existing interval control, and authoritative status.
+- [x] Preserve commander authorization, stale session/revision rejection, settings validation, and durable-save rollback in offline tests.
+- [x] Keep rejected edits on the last authoritative status; no optimistic UI state is committed.
+- [x] Remove automatic-mode spawn selection and manual wave buttons; clear obsolete tools/windows on map changes.
+- [x] Preserve countdown on difficulty changes; apply interval edits to the next scheduled deadline after the current one.
+- [ ] Complete graphical native and WASM plugin/action tests for unauthorized users, late join, and map change.
 
 Exit: changing difficulty from the normal menu affects the next uncommitted wave and synchronizes correctly across browser/native clients.
 
@@ -109,7 +109,7 @@ Exit: changing difficulty from the normal menu affects the next uncommitted wave
 
 Run offline checks before live tests, and run shared-port live suites sequentially.
 
-- [ ] Run scripts/project.sh test and relevant scenario validation for any edited packages.
+- [x] Run scripts/project.sh test and relevant scenario validation for any edited packages. No authored package was edited; generated-package tests are part of the offline gate.
 - [ ] Extend/run python3 tests/test_universal_park_defense_live.py for automatic startup, perimeter spawning, inward combat, settings, restart, and map change.
 - [ ] Run affected spawn/navigation/construction regressions selected using .agents/skills/starcoaster-verify/SKILL.md.
 - [ ] Test at least three map shapes: an ordinary stock park, a constrained/water-heavy perimeter, and a larger map. Add fixtures for tiny/rectangular geometry and no valid edge route.
@@ -120,7 +120,7 @@ Run offline checks before live tests, and run shared-port live suites sequential
 - [ ] Verify old authored missions and prepared-cache reuse still work; distinguish cache metadata invalidation from expensive geometry rebuilding.
 - [ ] Capture settings-menu access and a visible automatic wave moving inward into combat.
 - [ ] Measure candidate selection cost on the Pi and confirm work is bounded/cached rather than scanning the map every tick.
-- [ ] Update user/developer documentation and record exact commands, results, baseline, screenshots/video paths, and unrun checks.
+- [x] Update user/developer documentation and record exact commands, results, baseline, artifact paths, and unrun checks in `docs/automatic-zerg-waves-verification.md`. Screenshots/video remain unrun and are tracked above.
 
 Use ignored build/ or run-data/ directories for evidence and licensed artifacts. A successful build or offline test is not evidence of live WASM/native playability. Do not claim completion if graphical or native checks were skipped.
 
@@ -128,6 +128,10 @@ Use ignored build/ or run-data/ directories for evidence and licensed artifacts.
 
 A player loads a supported ordinary park, builds defenses, and encounters an automatic wave after preparation without choosing an origin or enabling the mode. Subsequent waves choose one valid perimeter cluster each and attack inward. Difficulty is editable through the normal OpenRCT2 menu, applied authoritatively to future waves, and visible to all clients. Construction and unavailable routes fail safely. Reconnects and restarts do not duplicate or relocate committed waves. Native and browser behavior match, and authored scenarios retain their intended behavior.
 
-## Implementation handoff
+## Implementation notes and remaining native limit
 
-Implement W1, then W2, then W3 in coherent increments, with regression tests written first for each behavior change. Keep documentation commits separate from unrelated implementation. Do not deploy or start a new implementation session merely because this plan exists. The present request is to create this plan in the repository.
+The generated policy is `spawn_policy: automatic_perimeter`; absent policy remains the legacy fixed or rotating defense path. New journals carry `journal_version: 2`. An unversioned journal is accepted only for a legacy policy with the same scenario definition hash and session. A version mismatch or changed generated definition is an explicit error, never a silent session reset. `single_map_cache` uses the v2 preset identity so manual metadata cannot be reused. The current cache key hashes preparation inputs and will rebuild a cache entry after this change; independent geometry reuse has not been demonstrated.
+
+The bridge scans a bounded edge band on the confirmed navigation mask once when a wave is due, or every 240 frames while no route is found. It records a randomly chosen anchor, local tiles, interior tile, revision, composition, and request identities before dispatch. Confirmed construction revisions can replace a selection only while no native spawn has been submitted. Native placement enforces actual unit dimensions and occupancy; OpenBW's `Unit::hasPath` chooses a reachable inward rally after spawn.
+
+**Open limit:** a native precommit query now checks each proposed tile against current occupancy, walkability, every wave unit type's footprint at the origin and destination, and BWAPI region connectivity. `Game::hasPath(source, destination)` still does not account for unit width along the corridor, so a hypothetical Ultralisk route is not fully proven. Three failed placements are bounded and reported as a shortfall. W1's native-safe route claim and full milestone exit remain open until live tests cover terrain, elevation, and supported large-unit corridors, or OpenBW exposes a unit-specific hypothetical path query.

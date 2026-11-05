@@ -20,9 +20,13 @@ graphics are the default visual source for native and private WASM builds; the
 build reports missing or stale licensed graphics. `BRIDGE_SPRITE_SOURCE=alien-scout`
 is an explicit development fallback.
 
-Open **StarCraft Defense** from the OpenRCT2 plugin menu. Select a valid tile
-near the park edge, then enable Zerg waves. The first wave begins after 120
-OpenBW seconds; later waves recur every 120 seconds from the selected zone.
+Zerg waves are enabled automatically when the park and native participants are
+ready. The first wave begins after 120 OpenBW simulation seconds; later waves
+recur every 120 seconds. Each wave uses one randomly selected reachable edge
+cluster. No spawn point selection is required. Open the normal OpenRCT2 top
+toolbar **Map → StarCraft Settings** menu item to change difficulty, wave
+interval, or whether new waves are enabled. This menu item is provided by the
+same plugin on native and private WASM clients.
 Disabling defense stops future automatic waves but leaves existing enemies in
 the park. Re-enabling starts a fresh preparation countdown. The current Terran
 commander can change these settings; other players can view the status.
@@ -33,9 +37,10 @@ controls supply, prerequisites, training time, movement, and combat. Park rides,
 guests, and finances continue through OpenRCT2.
 
 The defense configuration and active waves are journaled under `run-data/` for
-bridge recovery. The selected spawn zone and countdown survive a browser
-reconnect. The generated scenario uses the existing wave tiers: eight
-Zerglings for waves 1–2, seven Zerglings and two Hydralisks for waves 3–5,
+bridge recovery. A committed wave's origin, nearby tiles, and composition survive
+recovery; the preparation deadline is also journaled. The generated scenario
+uses the existing wave tiers: eight Zerglings for waves 1–2, seven Zerglings
+and two Hydralisks for waves 3–5,
 then an Ultralisk joins each later wave.
 
 ## Verification on the Pi
@@ -45,24 +50,22 @@ authored objective removed. It does not edit the input save:
 
 ```sh
 python3 tests/prepare_universal_park_fixture.py
+OPENRCT2_PORT=12153 STARCOASTER_BRIDGE_PORT=42110 \
+BRIDGE_OPENBW_PORT=42111 BRIDGE_CONTROLLER_PORT=42112 \
 UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
-  python3 tests/test_universal_park_defense_live.py --manual --observe-combat
-UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
-  python3 tests/test_universal_park_defense_live.py --factory
-UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
-  python3 tests/test_universal_park_defense_live.py --unauthorized
-UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
-  python3 tests/test_universal_park_defense_live.py --wasm
-UNIVERSAL_DEFENSE_SOURCE="$PWD/run-data/universal-park-defense-live/fixture/save/ordinary-frontier-park.park" \
-  python3 tests/test_universal_park_defense_live.py --wasm --browser-build --capture-only
+  python3 tests/test_universal_park_defense_live.py
 ```
 
-Use isolated network namespaces when another StarCoaster session already owns
-the native ports. The mixed check uses the private bundle in
-`run-data/universal-defense-deploy/current` and writes
-`run-data/universal-park-defense-live/mixed/verification.json`, screenshots,
-and `browser-gameplay.mp4`. It verifies a visible park, native Zerglings,
-fixed-zone placement, browser reconnect, and no duplicate accepted wave.
+Use free isolated ports when another StarCoaster session is running. Each live
+probe writes to a unique directory under `run-data/universal-park-defense-live/`
+and checks its journal session against its current launch. A generated ordinary
+park and a generated 256 × 256 park passed automatic startup, native clustered
+spawn, and inward movement after the native route query was added. Exact reports
+and remaining limits are in `docs/automatic-zerg-waves-verification.md`.
+
+The mixed check uses the private bundle in
+`run-data/universal-defense-deploy/current`; the automatic-wave mixed-client,
+browser reconnect, and graphical menu checks remain outstanding.
 The Factory check confirms native Marine and Vulture training; the combat
 check confirms ordered demolition without repeated park snapshots. The
 browser-build check confirms Barracks placement and Marine training issued by
