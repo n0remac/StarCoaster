@@ -45,7 +45,7 @@ func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 		return
 	}
 	if s.scenario == nil || s.scenario.Mode != "park_defense" ||
-		!s.scenario.ParkDefense.ManualActivation || s.runtime == nil {
+		(!s.scenario.ParkDefense.ManualActivation && s.scenario.ParkDefense.SpawnPolicy != "automatic_perimeter") || s.runtime == nil {
 		s.respondDefense(p, m, errors.New("defense_configuration_unavailable"))
 		return
 	}
@@ -72,6 +72,11 @@ func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 		s.runtime.WaveDifficulty = *request.Difficulty
 	}
 	if request.Anchor != nil {
+		if s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" {
+			*s.runtime = prior
+			s.respondDefense(p, m, errors.New("automatic_spawn_location"))
+			return
+		}
 		if s.runtime.SpawnAnchor != nil && *request.Anchor == *s.runtime.SpawnAnchor {
 			// Replaying an accepted selection leaves the zone and countdown intact.
 		} else if s.runtime.DefenseEnabled {
@@ -96,12 +101,13 @@ func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 	}
 	if request.Enabled != nil && *request.Enabled != s.runtime.DefenseEnabled {
 		if *request.Enabled {
-			if s.runtime.SpawnAnchor == nil || len(s.runtime.FixedSpawnZone.Tiles) == 0 {
+			if s.scenario.ParkDefense.FixedSpawn && (s.runtime.SpawnAnchor == nil || len(s.runtime.FixedSpawnZone.Tiles) == 0) {
 				*s.runtime = prior
 				s.respondDefense(p, m, errors.New("select_spawn_point_first"))
 				return
 			}
 			s.runtime.NextAutomaticFrame = s.runtime.LastFrame + s.scenario.ParkDefense.InitialDelayFrames
+			s.perimeterRetryFrame = 0
 		} else {
 			s.runtime.NextAutomaticFrame = 0
 		}

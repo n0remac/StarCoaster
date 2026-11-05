@@ -28,8 +28,9 @@ class ExistingParkDefenseTest(unittest.TestCase):
             self.assertEqual(definition["park_size"], [192, 128])
             self.assertEqual(definition["starting_units"], {"marines": [], "zerglings": []})
             self.assertEqual(definition["spawn_zones"], {})
-            self.assertTrue(definition["park_defense"]["manual_activation"])
-            self.assertTrue(definition["park_defense"]["fixed_spawn"])
+            self.assertEqual(definition["park_defense"]["spawn_policy"], "automatic_perimeter")
+            self.assertFalse(definition["park_defense"].get("manual_activation", False))
+            self.assertFalse(definition["park_defense"].get("fixed_spawn", False))
             self.assertTrue(definition["unlimited_resources"])
             self.assertEqual([tier["from_wave"] for tier in definition["park_defense"]["wave_tiers"]], [1, 3, 6])
 

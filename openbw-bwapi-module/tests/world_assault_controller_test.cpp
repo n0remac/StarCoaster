@@ -23,4 +23,7 @@ int main() {
     assert(controller.active(1000));
     controller.configure("", "park-session", true); // same-session snapshot preserves policy
     assert(controller.active(1000));
+    const auto rallies = WorldAssaultController::interiorRallies(64, 48, BWAPI::Position(96, 96));
+    assert(rallies.size() > 1);
+    assert(rallies.front().x < 64 * 16 && rallies.front().y < 48 * 16);
 }

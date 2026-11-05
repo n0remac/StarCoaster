@@ -16,7 +16,7 @@ from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, build_native_map, ens
 
 
 SCHEMA_VERSION = 1
-EFFECTIVE_SETTINGS = {"preset": "existing-park-defense-v1", "mapping": {"rules": []}}
+EFFECTIVE_SETTINGS = {"preset": "existing-park-defense-v2-automatic-perimeter", "mapping": {"rules": []}}
 REPO_INPUTS = (
     "scripts/prepare_existing_defense.py", "scripts/scenario_package.py",
     "scripts/park_preparation.py", "scripts/single_map_cache.py",

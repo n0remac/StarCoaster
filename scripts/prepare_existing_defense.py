@@ -41,8 +41,8 @@ def prepare(source: str, workspace: Path | None = None, timing=None) -> dict:
         "initial_ai": {"strategy": "park_defense", "delay_frames": 0},
         "spawn_zones": {},
         "park_defense": {"initial_delay_frames": 2880, "interval_frames": 2880,
-                         "manual_cooldown_frames": 360, "manual_activation": True,
-                         "fixed_spawn": True, "spawn_zones": [],
+                         "manual_cooldown_frames": 360,
+                         "spawn_policy": "automatic_perimeter", "spawn_zones": [],
                          "wave_tiers": [
                              {"from_wave": 1, "groups": [{"unit_type": "zerg_zergling", "count": 8}]},
                              {"from_wave": 3, "groups": [{"unit_type": "zerg_zergling", "count": 7},

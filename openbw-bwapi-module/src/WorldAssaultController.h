@@ -34,6 +34,18 @@ public:
     const std::string& objectiveID() const { return objectiveID_; }
     bool parkDefense() const { return parkDefense_; }
 
+    static std::vector<BWAPI::Position> interiorRallies(int width, int height, BWAPI::Position from) {
+        std::vector<BWAPI::Position> points;
+        for (int y = 1; y <= 3; ++y) for (int x = 1; x <= 3; ++x)
+            points.emplace_back(width * 32 * x / 4, height * 32 * y / 4);
+        std::sort(points.begin(), points.end(), [from](const auto& a, const auto& b) {
+            const int da = std::abs(a.x - from.x) + std::abs(a.y - from.y);
+            const int db = std::abs(b.x - from.x) + std::abs(b.y - from.y);
+            return da < db;
+        });
+        return points;
+    }
+
     void step(BWAPI::Game* game, BWAPI::Unit objective,
               const std::vector<BWAPI::Unit>& alternatives) const {
         if (!game || !game->self()) return;
@@ -60,9 +72,12 @@ public:
             if (target && unit->getOrderTarget() != target && unit->getTarget() != target)
                 unit->attack(target);
             if (!target && parkDefense_) {
-                const BWAPI::Position rally(game->mapWidth() * 16, game->mapHeight() * 16);
-                if (unit->hasPath(rally) && unit->getOrderTargetPosition() != rally)
-                    unit->attack(rally);
+                for (const auto& rally : interiorRallies(game->mapWidth(), game->mapHeight(), unit->getPosition())) {
+                    if (std::abs(rally.x - unit->getPosition().x) + std::abs(rally.y - unit->getPosition().y) < 64
+                        || !unit->hasPath(rally)) continue;
+                    if (unit->getOrderTargetPosition() != rally) unit->attack(rally);
+                    break;
+                }
             }
         }
     }

@@ -166,3 +166,49 @@ func TestEmptyParkDefenseStartsWithoutActorsOrAuthoredZones(t *testing.T) {
 		t.Fatal("disabled defense scheduled an attack")
 	}
 }
+
+func TestAutomaticPerimeterStartsAtReadyFrameAndKeepsCommittedZone(t *testing.T) {
+	s := validV2(t)
+	s.Mode = "park_defense"
+	s.StartingUnits.Zerglings = nil
+	s.Objectives = nil
+	s.InitialAI.Strategy, s.InitialAI.Objective = "park_defense", ""
+	s.Victory = struct {
+		AllWavesCleared        bool   `json:"all_waves_cleared,omitempty"`
+		AllZerglingsEliminated bool   `json:"all_zerglings_eliminated"`
+		ObjectiveIntact        string `json:"objective_intact"`
+	}{}
+	s.Defeat = struct {
+		ObjectiveDestroyed   string `json:"objective_destroyed"`
+		AllMarinesEliminated bool   `json:"all_marines_eliminated"`
+	}{}
+	s.SpawnZones, s.Waves = nil, nil
+	s.ParkDefense = &ParkDefenseWaves{SpawnPolicy: "automatic_perimeter", InitialDelayFrames: 2880,
+		IntervalFrames: 2880, WaveTiers: []WaveTier{{FromWave: 1,
+			Groups: []WaveTierGroup{{UnitType: "zerg_zergling", Count: 8}}}}}
+	if err := loadV2ForTest(t, s); err != nil {
+		t.Fatal(err)
+	}
+	r := NewScenarioRuntime(&s, "automatic-session")
+	if !r.DefenseEnabled {
+		t.Fatal("fresh automatic defense disabled")
+	}
+	if err := r.AcceptFrame(100, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Trigger(&s) || r.NextAutomaticFrame != 2980 {
+		t.Fatalf("wrong preparation: %+v", r)
+	}
+	zone := SpawnZone{Tiles: [][2]int{{3, 10}, {4, 10}, {3, 11}, {4, 11}}}
+	r.LastFrame = 2980
+	if !r.CommitAutomaticWave(&s, [2]int{3, 10}, zone, [2]int{20, 20}, 1) {
+		t.Fatal("due wave not committed")
+	}
+	if len(r.Waves) != 1 || r.Waves[0].SpawnAnchor == nil || *r.Waves[0].SpawnAnchor != [2]int{3, 10} ||
+		len(r.Waves[0].FixedZone.Tiles) != 4 {
+		t.Fatalf("location not recorded: %+v", r.Waves)
+	}
+	if err := r.Validate(&s, "automatic-session"); err != nil {
+		t.Fatal(err)
+	}
+}

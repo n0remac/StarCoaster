@@ -112,6 +112,9 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 	}
 	r.Reconcile(s.spawns, living, removed)
 	r.Trigger(s.scenario)
+	if s.scenario.Mode == "park_defense" && s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" {
+		s.triggerAutomaticPerimeter()
+	}
 	pruned := r.PruneParkDefenseHistory(s.scenario)
 	if !s.saveScenarioRuntime() {
 		s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
@@ -169,6 +172,15 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 				break
 			}
 			unit := &r.Waves[wi].Units[ui]
+			if s.scenario.Mode == "park_defense" && s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" && len(unit.Attempts) >= 3 {
+				unit.State = "failed"
+				r.Waves[wi].FailureReason = "native_placement_retries_exhausted"
+				if !s.saveScenarioRuntime() {
+					s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+					return
+				}
+				continue
+			}
 			zones, valid := r.WaveZones(s.scenario, wi, unit.GroupIndex)
 			if !valid {
 				s.scenarioRuntimeError(fmt.Errorf("scenario_wave_template_missing"))
@@ -195,7 +207,16 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 							permanent = false
 						}
 					}
-					if permanent && s.nativeOccupancyComplete && !s.scenario.ParkDefense.FixedSpawn {
+					if permanent && s.nativeOccupancyComplete && s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" {
+						unit.State = "failed"
+						r.Waves[wi].FailureReason = "no_valid_native_spawn_position"
+						if !s.saveScenarioRuntime() {
+							s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+							return
+						}
+						continue
+					}
+					if permanent && s.nativeOccupancyComplete && !s.scenario.ParkDefense.FixedSpawn && s.scenario.ParkDefense.SpawnPolicy == "" {
 						remaining := false
 						for _, zone := range zones {
 							if _, possible := world.SelectZonePosition(zone, s.navigationMask, s.transform, nil, excluded); possible {

@@ -27,6 +27,7 @@ type scenarioStatus struct {
 	WaveDifficulty        string  `json:"wave_difficulty,omitempty"`
 	UnlimitedResources    bool    `json:"unlimited_resources,omitempty"`
 	DefenseConfigurable   bool    `json:"defense_configurable,omitempty"`
+	AutomaticPerimeter    bool    `json:"automatic_perimeter,omitempty"`
 }
 
 func (s *service) currentScenarioStatus() scenarioStatus {
@@ -38,18 +39,25 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 		status.WaveIntervalSeconds = (s.scenario.ParkDefense.IntervalFrames + 23) / 24
 		status.WaveDifficulty = "standard"
 		status.UnlimitedResources = s.scenario.UnlimitedResources
-		status.DefenseConfigurable = s.scenario.ParkDefense.ManualActivation
+		status.DefenseConfigurable = s.scenario.ParkDefense.ManualActivation || s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter"
+		status.AutomaticPerimeter = s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter"
 		if s.runtime != nil {
 			status.WaveIntervalSeconds = (s.runtime.IntervalFrames(s.scenario) + 23) / 24
 			if s.runtime.WaveDifficulty != "" {
 				status.WaveDifficulty = s.runtime.WaveDifficulty
 			}
-			status.DefenseEnabled = !s.scenario.ParkDefense.ManualActivation || s.runtime.DefenseEnabled
+			status.DefenseEnabled = s.runtime.DefenseEnabled
 			status.SpawnAnchor = s.runtime.SpawnAnchor
+			if status.AutomaticPerimeter && len(s.runtime.Waves) > 0 {
+				status.SpawnAnchor = s.runtime.Waves[len(s.runtime.Waves)-1].SpawnAnchor
+			}
 			status.TotalTriggered = s.runtime.TotalTriggered
 			status.WaveOrdinal = s.runtime.TotalTriggered
 			status.WaveTotal = 0
 			status.NextWaveSeconds = (s.runtime.NextAutomaticFrame - s.runtime.LastFrame + 23) / 24
+			if status.AutomaticPerimeter && s.runtime.NextAutomaticFrame == 0 {
+				status.NextWaveSeconds = (s.scenario.ParkDefense.InitialDelayFrames + 23) / 24
+			}
 			if status.NextWaveSeconds < 0 {
 				status.NextWaveSeconds = 0
 			}
@@ -61,7 +69,7 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 				cooldown = 0
 			}
 			status.ManualCooldownSeconds = (cooldown + 23) / 24
-			status.ManualEligible = status.DefenseEnabled && s.ready && s.bw != nil && s.controller != nil && cooldown == 0 && s.runtime.Error == ""
+			status.ManualEligible = s.scenario.ParkDefense.SpawnPolicy != "automatic_perimeter" && status.DefenseEnabled && s.ready && s.bw != nil && s.controller != nil && cooldown == 0 && s.runtime.Error == ""
 			status.WaveState = "pending"
 			for _, wave := range s.runtime.Waves {
 				if wave.State != "cleared" && wave.State != "failed" {
@@ -73,6 +81,9 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 			}
 			if s.runtime.Error != "" {
 				status.Error = s.runtime.Error
+			}
+			if s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" && s.perimeterRetryFrame > s.runtime.LastFrame {
+				status.Error = "Waves waiting: no reachable edge location"
 			}
 		}
 		return status

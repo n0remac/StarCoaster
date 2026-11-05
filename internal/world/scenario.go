@@ -66,6 +66,7 @@ type ScenarioStructure struct {
 // ParkDefenseWaves is one recurring attack template. Frames follow the
 // authoritative OpenBW simulation clock (42 ms per frame at normal speed).
 type ParkDefenseWaves struct {
+	SpawnPolicy          string     `json:"spawn_policy,omitempty"`
 	InitialDelayFrames   int        `json:"initial_delay_frames"`
 	IntervalFrames       int        `json:"interval_frames"`
 	UnitsPerWave         int        `json:"units_per_wave"`
@@ -248,7 +249,8 @@ func LoadScenario(path string) (*Scenario, error) {
 func (s *Scenario) validateV2() error {
 	if strings.TrimSpace(s.DisplayName) == "" || strings.TrimSpace(s.ParkFile) == "" ||
 		len(s.SpawnWaves) != 0 || (len(s.SpawnZones) == 0 &&
-		(s.Mode != "park_defense" || s.ParkDefense == nil || !s.ParkDefense.FixedSpawn)) ||
+		(s.Mode != "park_defense" || s.ParkDefense == nil ||
+			(!s.ParkDefense.FixedSpawn && s.ParkDefense.SpawnPolicy != "automatic_perimeter"))) ||
 		(s.Mode != "park_defense" && (!s.Victory.AllWavesCleared || len(s.Waves) == 0 || s.ParkDefense != nil)) ||
 		(s.Mode == "park_defense" && (len(s.Waves) != 0 || s.ParkDefense == nil)) {
 		return fmt.Errorf("invalid v2 scenario configuration")
@@ -311,8 +313,11 @@ func (s *Scenario) validateV2() error {
 		if p.InitialDelayFrames < 1 || p.IntervalFrames < 1 ||
 			(len(p.WaveTiers) == 0 && (p.UnitsPerWave < 1 || p.UnitsPerWave > 64)) ||
 			(len(p.WaveTiers) > 0 && p.UnitsPerWave != 0) ||
-			p.ManualCooldownFrames < 0 || (p.FixedSpawn && (!p.ManualActivation || len(p.SpawnZones) != 0)) ||
-			(!p.FixedSpawn && len(p.SpawnZones) < 2) {
+			p.ManualCooldownFrames < 0 ||
+			(p.SpawnPolicy != "" && p.SpawnPolicy != "automatic_perimeter") ||
+			(p.SpawnPolicy == "automatic_perimeter" && (p.FixedSpawn || p.ManualActivation || len(p.SpawnZones) != 0)) ||
+			(p.SpawnPolicy == "" && p.FixedSpawn && (!p.ManualActivation || len(p.SpawnZones) != 0)) ||
+			(p.SpawnPolicy == "" && !p.FixedSpawn && len(p.SpawnZones) < 2) {
 			return fmt.Errorf("invalid park defense wave template")
 		}
 		previous := 0

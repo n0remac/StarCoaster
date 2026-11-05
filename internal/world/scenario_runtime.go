@@ -38,19 +38,22 @@ type ScenarioRuntime struct {
 	Error              string            `json:"error,omitempty"`
 }
 type RuntimeWave struct {
-	ID             string          `json:"id"`
-	TemplateID     string          `json:"template_id,omitempty"`
-	Origin         string          `json:"origin,omitempty"`
-	Sequence       int             `json:"sequence,omitempty"`
-	SpawnZone      string          `json:"spawn_zone,omitempty"`
-	FixedZone      SpawnZone       `json:"fixed_zone,omitempty"`
-	Composition    []WaveTierGroup `json:"composition,omitempty"`
-	State          string          `json:"state"`
-	TriggeredFrame int             `json:"triggered_frame,omitempty"`
-	Units          []RuntimeUnit   `json:"units,omitempty"`
-	Submitted      int             `json:"submitted"`
-	Shortfall      int             `json:"shortfall,omitempty"`
-	FailureReason  string          `json:"failure_reason,omitempty"`
+	ID                string          `json:"id"`
+	TemplateID        string          `json:"template_id,omitempty"`
+	Origin            string          `json:"origin,omitempty"`
+	Sequence          int             `json:"sequence,omitempty"`
+	SpawnZone         string          `json:"spawn_zone,omitempty"`
+	FixedZone         SpawnZone       `json:"fixed_zone,omitempty"`
+	SpawnAnchor       *[2]int         `json:"spawn_anchor,omitempty"`
+	Destination       *[2]int         `json:"destination,omitempty"`
+	SelectionRevision uint64          `json:"selection_revision,omitempty"`
+	Composition       []WaveTierGroup `json:"composition,omitempty"`
+	State             string          `json:"state"`
+	TriggeredFrame    int             `json:"triggered_frame,omitempty"`
+	Units             []RuntimeUnit   `json:"units,omitempty"`
+	Submitted         int             `json:"submitted"`
+	Shortfall         int             `json:"shortfall,omitempty"`
+	FailureReason     string          `json:"failure_reason,omitempty"`
 }
 type RuntimeUnit struct {
 	GroupIndex int              `json:"group_index"`
@@ -78,6 +81,7 @@ func NewScenarioRuntime(s *Scenario, session string) *ScenarioRuntime {
 	r := &ScenarioRuntime{Session: session, DefinitionHash: ScenarioDefinitionHash(s)}
 	if s.Mode == "park_defense" {
 		r.NextWaveSequence = 1
+		r.DefenseEnabled = !s.ParkDefense.ManualActivation
 		return r
 	}
 	for _, wave := range s.Waves {
@@ -114,12 +118,23 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 			wave := &r.Waves[i]
 			if wave.TemplateID != "park-defense" || wave.Sequence < 1 ||
 				(wave.Origin != "periodic" && wave.Origin != "manual") ||
-				(!s.ParkDefense.FixedSpawn && s.SpawnZones[wave.SpawnZone].Tiles == nil) ||
-				(s.ParkDefense.FixedSpawn && wave.SpawnZone != "selected") {
+				(s.ParkDefense.SpawnPolicy == "" && !s.ParkDefense.FixedSpawn && s.SpawnZones[wave.SpawnZone].Tiles == nil) ||
+				((s.ParkDefense.FixedSpawn || s.ParkDefense.SpawnPolicy == "automatic_perimeter") && wave.SpawnZone != "selected") {
 				return errors.New("scenario_journal_wave_mismatch")
 			}
 			if s.ParkDefense.FixedSpawn && len(wave.FixedZone.Tiles) == 0 {
 				return errors.New("scenario_journal_wave_zone_missing")
+			}
+			if s.ParkDefense.SpawnPolicy == "automatic_perimeter" {
+				if wave.SpawnAnchor == nil || wave.Destination == nil || len(wave.FixedZone.Tiles) < 4 ||
+					!s.validTile(*wave.SpawnAnchor) || !s.validTile(*wave.Destination) {
+					return errors.New("scenario_journal_automatic_location_invalid")
+				}
+				for _, tile := range wave.FixedZone.Tiles {
+					if !s.validTile(tile) {
+						return errors.New("scenario_journal_spawn_zone_invalid")
+					}
+				}
 			}
 			groups := s.ParkDefense.GroupsForWave(wave.Sequence)
 			if len(wave.Composition) > 0 {
@@ -272,7 +287,7 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 		return false
 	}
 	if s.Mode == "park_defense" {
-		if s.ParkDefense.ManualActivation && !r.DefenseEnabled {
+		if !r.DefenseEnabled && (s.ParkDefense.ManualActivation || s.ParkDefense.SpawnPolicy == "automatic_perimeter") {
 			return false
 		}
 		if r.NextAutomaticFrame == 0 {
@@ -281,6 +296,9 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 		}
 		if r.LastFrame < r.NextAutomaticFrame {
 			return false
+		}
+		if s.ParkDefense.SpawnPolicy == "automatic_perimeter" {
+			return false // the service selects from the confirmed native map before committing
 		}
 		for _, wave := range r.Waves {
 			if wave.Origin == "periodic" && (wave.State == "triggered" || wave.State == "spawning") {
@@ -333,7 +351,7 @@ func (r *ScenarioRuntime) newParkDefenseWave(s *Scenario, origin string) string 
 	r.TotalTriggered++
 	id := fmt.Sprintf("%s-%04d", origin, sequence)
 	zone := "selected"
-	if !s.ParkDefense.FixedSpawn {
+	if !s.ParkDefense.FixedSpawn && s.ParkDefense.SpawnPolicy == "" {
 		zone = s.ParkDefense.SpawnZones[(sequence-1)%len(s.ParkDefense.SpawnZones)]
 	}
 	wave := RuntimeWave{ID: id, TemplateID: "park-defense", Origin: origin,
@@ -349,6 +367,28 @@ func (r *ScenarioRuntime) newParkDefenseWave(s *Scenario, origin string) string 
 	}
 	r.Waves = append(r.Waves, wave)
 	return id
+}
+
+// CommitAutomaticWave records one immutable selection and composition before
+// the service can submit any native spawn request.
+func (r *ScenarioRuntime) CommitAutomaticWave(s *Scenario, anchor [2]int, zone SpawnZone, destination [2]int, revision uint64) bool {
+	if s.Mode != "park_defense" || s.ParkDefense.SpawnPolicy != "automatic_perimeter" ||
+		!r.Started || !r.DefenseEnabled || r.NextAutomaticFrame == 0 || r.LastFrame < r.NextAutomaticFrame ||
+		len(zone.Tiles) < 4 {
+		return false
+	}
+	for _, wave := range r.Waves {
+		if wave.Origin == "periodic" && (wave.State == "triggered" || wave.State == "spawning") {
+			return false
+		}
+	}
+	r.newParkDefenseWave(s, "periodic")
+	wave := &r.Waves[len(r.Waves)-1]
+	wave.SpawnAnchor, wave.Destination = &anchor, &destination
+	wave.FixedZone = SpawnZone{Tiles: append([][2]int(nil), zone.Tiles...)}
+	wave.SelectionRevision = revision
+	r.NextAutomaticFrame = r.LastFrame + r.IntervalFrames(s)
+	return true
 }
 
 func (r *ScenarioRuntime) IntervalFrames(s *Scenario) int {
@@ -390,7 +430,7 @@ func equalWaveGroups(a, b []WaveTierGroup) bool {
 // RequestManual records one durable extra wave without changing the automatic
 // deadline. Replays return the original wave; older evicted IDs are rejected.
 func (r *ScenarioRuntime) RequestManual(s *Scenario, requestID string, playerID, requestSequence int) (string, error) {
-	if s.Mode != "park_defense" || !r.Started || r.Outcome != "" || r.Error != "" {
+	if s.Mode != "park_defense" || s.ParkDefense.SpawnPolicy == "automatic_perimeter" || !r.Started || r.Outcome != "" || r.Error != "" {
 		return "", errors.New("scenario_not_ready")
 	}
 	if wave, ok := r.ManualRequests[requestID]; ok {
@@ -435,7 +475,7 @@ func (r *ScenarioRuntime) WaveZone(s *Scenario, wi, group int) (SpawnZone, bool)
 	instance := r.Waves[wi]
 	if s.Mode == "park_defense" {
 		zone, ok := s.SpawnZones[instance.SpawnZone]
-		if s.ParkDefense.FixedSpawn {
+		if s.ParkDefense.FixedSpawn || s.ParkDefense.SpawnPolicy == "automatic_perimeter" {
 			zone, ok = instance.FixedZone, len(instance.FixedZone.Tiles) > 0
 		}
 		groups := instance.Composition

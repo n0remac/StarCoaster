@@ -56,7 +56,7 @@ func (s *service) parkWaveRequest(p *peer, m world.Envelope) {
 		s.respondWave(p, m, request.RequestID, "", "rejected", "stale_session_or_revision")
 		return
 	}
-	if s.scenario == nil || s.scenario.Mode != "park_defense" || s.runtime == nil {
+	if s.scenario == nil || s.scenario.Mode != "park_defense" || s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" || s.runtime == nil {
 		s.respondWave(p, m, request.RequestID, "", "rejected", "park_defense_unavailable")
 		return
 	}

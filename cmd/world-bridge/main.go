@@ -121,6 +121,8 @@ type service struct {
 	lastScenarioStatus        string
 	parkSupervisorSocket      string
 	parkGeneration            string
+	defenseRandomIndex        func(int) int
+	perimeterRetryFrame       int
 }
 
 type parkPatchStage struct {
@@ -1754,7 +1756,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 					"bw_tick": snapshot.BWTick, "revision": s.registry.Revision, "unit_count": len(visible),
 					"unit_total": snapshot.UnitTotal, "unit_omitted": snapshot.UnitOmitted,
 					"unit_attacking": attacking,
-					"payload_bytes": len(m.Payload), "decode_us": (decodedNS - decodeNS) / 1000,
+					"payload_bytes":  len(m.Payload), "decode_us": (decodedNS - decodeNS) / 1000,
 					"transform_us": (transformNS - decodedNS) / 1000})
 				_ = s.emit(s.park, "combat.snapshot", m.Session, s.registry.Revision, snapshot)
 				perf.event("snapshot_forward", map[string]any{"session": m.Session, "seq": snapshot.Seq,
