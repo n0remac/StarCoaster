@@ -182,6 +182,17 @@ func TestAutomaticPerimeterCoversRectangularParkAndBlockedCenter(t *testing.T) {
 	}
 }
 
+func TestAutomaticPerimeterTinyMapWaitsWithoutIntent(t *testing.T) {
+	s := automaticDefenseService(t)
+	s.scenario.ParkSize = [2]int{7, 7}
+	s.runtime.LastFrame = 2980
+	s.triggerAutomaticPerimeter()
+	if len(s.runtime.Waves) != 0 || s.pendingPerimeter != nil ||
+		s.perimeterRetryFrame != 3220 {
+		t.Fatal("tiny map created a wave instead of waiting for a valid edge")
+	}
+}
+
 func TestAutomaticPerimeterWaitsForNativeRouteDecision(t *testing.T) {
 	s := automaticDefenseService(t)
 	s.runtime.LastFrame = 2980
