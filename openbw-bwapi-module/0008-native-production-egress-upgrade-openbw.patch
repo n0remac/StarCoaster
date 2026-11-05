@@ -1,0 +1,20 @@
+--- a/bwgame.h
++++ b/bwgame.h
+@@ -16719,12 +16719,12 @@
+ 		if (!us_hidden(u)) return true;
+ 		bool res;
+ 		xy pos;
+-		// A Barracks stands inside StarCoaster's park navigation mask.
+-		// The trainee starts inside its blocked footprint; the exit still
+-		// must be walkable and clear of other units.
+-		const bool park_marine_exit = unit_is(u, UnitTypes::Terran_Marine)
++		// Park-mapped production buildings block the trainee's starting tile.
++		// Ground trainees may leave that footprint while the destination must
++		// still be walkable and clear of other units.
++		const bool park_production_exit = !ut_building(u) && !u_flying(u)
+ 			&& !st.park_base_mega_tile_index.empty();
+-		std::tie(res, pos) = find_unit_placement(u, u->sprite->position, false, park_marine_exit);
++		std::tie(res, pos) = find_unit_placement(u, u->sprite->position, false, park_production_exit);
+ 		if (!res) {
+ 			display_last_error_for_player(u->owner);
+ 			return false;

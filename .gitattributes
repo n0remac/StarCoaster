@@ -1,2 +1,3 @@
 # Literal upstream patch context includes tabs and CRLF; preserve it byte for byte.
 openbw-bwapi-module/*.patch whitespace=-trailing-space,-space-before-tab
+openrct2-patches/*.patch whitespace=-trailing-space,-space-before-tab

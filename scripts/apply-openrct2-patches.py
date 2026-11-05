@@ -256,6 +256,26 @@ def ensure_snapshot_apply_breakdown(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_wasm_socket_connect_grace(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0025-wasm-socket-connect-grace.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected socket changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
+def ensure_wasm_connection_state(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0026-wasm-connection-state.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected connection changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
@@ -277,7 +297,9 @@ if __name__ == "__main__":
                     ROOT / "openrct2-patches/0021-authoritative-map-handoff.patch",
                     ROOT / "openrct2-patches/0022-performance-instrumentation.patch",
                     ROOT / "openrct2-patches/0023-diagnostic-wasm-join-port.patch",
-                    ROOT / "openrct2-patches/0024-snapshot-apply-breakdown.patch"]
+                    ROOT / "openrct2-patches/0024-snapshot-apply-breakdown.patch",
+                    ROOT / "openrct2-patches/0025-wasm-socket-connect-grace.patch",
+                    ROOT / "openrct2-patches/0026-wasm-connection-state.patch"]
         # Reconciliation temporarily reverses and reapplies overlays. Keep
         # unchanged file mtimes so an ordinary rebuild does not recompile all
         # SpriteIds.h dependents merely because the check ran.
@@ -317,7 +339,9 @@ if __name__ == "__main__":
                   ("Authoritative map handoff", ensure_authoritative_map_handoff),
                   ("Performance instrumentation", ensure_performance_instrumentation),
                   ("Diagnostic WASM join port", ensure_diagnostic_wasm_join_port),
-                  ("Snapshot apply breakdown", ensure_snapshot_apply_breakdown)]
+                  ("Snapshot apply breakdown", ensure_snapshot_apply_breakdown),
+                  ("WASM socket connect grace", ensure_wasm_socket_connect_grace),
+                  ("WASM connection state", ensure_wasm_connection_state)]
         for index, (label, ensure) in enumerate(checks):
             removed = []
             for overlay in reversed(overlays[index + 1:]):

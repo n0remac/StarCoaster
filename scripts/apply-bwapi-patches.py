@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply current engine patches, upgrading the known older navigation patch."""
+"""Apply current engine patches, upgrading known older patch versions."""
 
 from pathlib import Path
 import subprocess
@@ -39,7 +39,7 @@ def main() -> int:
         ("bwapi", "0001-player-slot.patch", None),
         ("openbw", "0002-native-navigation-openbw.patch", "0004-native-navigation-upgrade-openbw.patch"),
         ("openbw", "0005-editor-building-fog-openbw.patch", None),
-        ("openbw", "0006-native-production-egress-openbw.patch", None),
+        ("openbw", "0006-native-production-egress-openbw.patch", "0008-native-production-egress-upgrade-openbw.patch"),
         ("openbw", "0007-scenario-spawning-pool-openbw.patch", None),
         ("openbw", "0008-native-region-capacity-openbw.patch", None),
         ("bwapi", "0003-native-navigation-bwapi.patch", None),

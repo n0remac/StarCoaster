@@ -119,6 +119,38 @@ def main():
         session = subprocess.Popen([str(ROOT / "scripts/project.sh"), "play", "--park", str(TEST_SOURCE)],
             cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
         processes.append(session)
+        if MIXED:
+            def browser_gateway_ready():
+                try:
+                    with socket.create_connection(("127.0.0.1", browser_port), timeout=.25):
+                        return True
+                except OSError:
+                    return False
+            wait_for(browser_gateway_ready, 90, "private browser gateway", processes)
+        browser_env = env | {"WASM_LIVE_URL": f"http://127.0.0.1:{browser_port}/" if MIXED else "",
+                             "WASM_LIVE_PROFILE": os.environ.get("UNIVERSAL_DEFENSE_BROWSER_PROFILE", str(RUN / "browser-profile")),
+                             "WASM_PERF_ARTIFACTS": str(RUN / "browser-first-artifacts"),
+                             "WASM_LIVE_BOOT_TIMEOUT_MS": "420000",
+                             "WASM_TEST_PORT": os.environ.get("OPENRCT2_PORT", "11753"),
+                             "WASM_LIVE_CAMERA": "1", "WASM_DEFENSE_PROBE": "1",
+                             "WASM_DEFENSE_CONFIGURE": "1", "WASM_DEFENSE_ANCHOR": ",".join(map(str, ANCHOR)),
+                             "WASM_DEFENSE_MANUAL": "0",
+                             "WASM_DEFENSE_AUTOMATIC": "1" if MIXED else "0",
+                             "WASM_DEFENSE_SETTINGS": "1" if MIXED and SETTINGS else "0",
+                             "WASM_DEFENSE_BUILD": "1" if BROWSER_BUILD else "0",
+                             "WASM_LIVE_RECORD": "0", "WASM_LIVE_SCREENCAST": "0" if SETTINGS or MENU_ONLY else "1",
+                             "WASM_LIVE_DURATION_MS": os.environ.get("UNIVERSAL_DEFENSE_FIRST_DURATION_MS", "150000") if MIXED else "20000",
+                             "WASM_CAPTURE_INTERVAL_MS": "10000"}
+        if MENU_ONLY:
+            browser_env.update({"WASM_DEFENSE_MENU": "1", "WASM_DEFENSE_PROBE": "0",
+                                "WASM_DEFENSE_CONFIGURE": "0", "WASM_LIVE_CAMERA": "0",
+                                "WASM_LIVE_DURATION_MS": "10000"})
+        if MIXED:
+            stream = (RUN / "browser-first.log").open("w")
+            streams.append(stream)
+            browser = subprocess.Popen(["node", "browser/live-test.mjs"], cwd=ROOT,
+                env=browser_env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+            processes.append(browser)
         wait_for(lambda: "WORLD_READY" in (RUN / "session.log").read_text(errors="replace"),
                  300 if MIXED else 120, "native park readiness", processes)
         announced = re.search(r"WORLD_SNAPSHOT session=([0-9a-f]{32})",
@@ -141,38 +173,6 @@ def main():
             report["checks"]["automatic_default"] = "passed"
         elif first.get("defense_enabled") or first.get("waves"):
             raise AssertionError("legacy manual defense started early")
-        if MIXED:
-            def browser_gateway_ready():
-                try:
-                    with socket.create_connection(("127.0.0.1", browser_port), timeout=.25):
-                        return True
-                except OSError:
-                    return False
-            wait_for(browser_gateway_ready, 90, "private browser gateway", processes)
-        browser_env = env | {"WASM_LIVE_URL": f"http://127.0.0.1:{browser_port}/" if MIXED else "",
-                             "WASM_LIVE_PROFILE": os.environ.get("UNIVERSAL_DEFENSE_BROWSER_PROFILE", str(RUN / "browser-profile")),
-                             "WASM_PERF_ARTIFACTS": str(RUN / "browser-first-artifacts"),
-                             "WASM_LIVE_BOOT_TIMEOUT_MS": "420000",
-                             "WASM_TEST_PORT": os.environ.get("OPENRCT2_PORT", "11753"),
-                             "WASM_LIVE_CAMERA": "1", "WASM_DEFENSE_PROBE": "1",
-                             "WASM_DEFENSE_CONFIGURE": "1", "WASM_DEFENSE_ANCHOR": ",".join(map(str, ANCHOR)),
-                             "WASM_DEFENSE_MANUAL": "0",
-                             "WASM_DEFENSE_AUTOMATIC": "1" if MIXED else "0",
-                             "WASM_DEFENSE_SETTINGS": "1" if MIXED and SETTINGS else "0",
-                             "WASM_DEFENSE_BUILD": "1" if BROWSER_BUILD else "0",
-                             "WASM_LIVE_RECORD": "0", "WASM_LIVE_SCREENCAST": "0" if SETTINGS or MENU_ONLY else "1",
-                             "WASM_LIVE_DURATION_MS": "150000" if MIXED else "20000",
-                             "WASM_CAPTURE_INTERVAL_MS": "10000"}
-        if MENU_ONLY:
-            browser_env.update({"WASM_DEFENSE_MENU": "1", "WASM_DEFENSE_PROBE": "0",
-                                "WASM_DEFENSE_CONFIGURE": "0", "WASM_LIVE_CAMERA": "0",
-                                "WASM_LIVE_DURATION_MS": "10000"})
-        if MIXED:
-            stream = (RUN / "browser-first.log").open("w")
-            streams.append(stream)
-            browser = subprocess.Popen(["node", "browser/live-test.mjs"], cwd=ROOT,
-                env=browser_env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
-            processes.append(browser)
         stream = (RUN / "client.log").open("w")
         streams.append(stream)
         rct2 = os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2"))

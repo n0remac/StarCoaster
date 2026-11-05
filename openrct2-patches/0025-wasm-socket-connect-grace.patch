@@ -1,0 +1,14 @@
+diff --git a/src/openrct2/network/Socket.cpp b/src/openrct2/network/Socket.cpp
+--- a/src/openrct2/network/Socket.cpp
++++ b/src/openrct2/network/Socket.cpp
+@@ -77,6 +77,10 @@
+ 
+ namespace OpenRCT2::Network
+ {
++    #ifdef __EMSCRIPTEN__
++    constexpr auto kConnectTimeout = std::chrono::milliseconds(30000);
++    #else
+     constexpr auto kConnectTimeout = std::chrono::milliseconds(3000);
++    #endif
+ 
+     // RAII WSA initialisation needed for Windows

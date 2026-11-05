@@ -271,6 +271,7 @@ diff --git a/src/openrct2-ui/drawing/engines/opengl/OpenGLDrawingEngine.cpp b/sr
  
      void PaintWindows() override
 diff --git a/src/openrct2/paint/BridgePerformance.h b/src/openrct2/paint/BridgePerformance.h
+new file mode 100644
 --- /dev/null
 +++ b/src/openrct2/paint/BridgePerformance.h
 @@ -0,0 +1,100 @@

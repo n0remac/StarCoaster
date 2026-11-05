@@ -1,0 +1,13 @@
+[Unit]
+Description=Build and release GitHub main to the production Pi
+Wants=network-online.target
+After=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/media/pi/media1/starcoaster-production-build
+ExecStart=/bin/bash /media/pi/media1/starcoaster-production-build/scripts/update-pi-game.sh
+Environment=BRIDGE_BUILD_JOBS=2
+TimeoutStartSec=infinity
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

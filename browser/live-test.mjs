@@ -186,9 +186,8 @@ try {
   }
   let resolveCamera;
   const cameraReady = new Promise((resolve) => { resolveCamera = resolve; });
-  let resolveEarlyDisconnect;
-  const earlyDisconnect = new Promise((resolve) => { resolveEarlyDisconnect = resolve; });
   let snapshotReady = false;
+  let sawSocketClose = false;
   let resolveActorScreen;
   const actorScreenReady = new Promise((resolve) => { resolveActorScreen = resolve; });
   page.on('console', (message) => {
@@ -224,21 +223,22 @@ try {
     console.log(`WEBSOCKET: ${perfRun ? '/ws' : socket.url()}`);
     socket.on('framereceived', (frame) => {
       metrics.websocketFramesIn++;
+      if (sawSocketClose) metrics.websocketFramesInAfterClose = (metrics.websocketFramesInAfterClose || 0) + 1;
       const bytes = Buffer.byteLength(frame.payload);
       metrics.websocketBytesIn += bytes;
       if (perfRun && receivedSizes.length < 4096) receivedSizes.push(bytes);
     });
     socket.on('framesent', (frame) => {
       metrics.websocketFramesOut++;
+      if (sawSocketClose) metrics.websocketFramesOutAfterClose = (metrics.websocketFramesOutAfterClose || 0) + 1;
       metrics.websocketBytesOut += Buffer.byteLength(frame.payload);
     });
     socket.on('socketerror', (error) => {
       records.push({ kind: 'websocketerror', text: String(error) });
-      if (!snapshotReady) resolveEarlyDisconnect(`Multiplayer WebSocket error before native snapshot: ${error}`);
     });
     socket.on('close', () => {
       records.push({ kind: 'websocketclose', url: perfRun ? '/ws' : socket.url() });
-      if (!snapshotReady) resolveEarlyDisconnect('Multiplayer WebSocket closed before native snapshot');
+      sawSocketClose = true;
     });
   });
   if (perfRun) {
@@ -326,6 +326,12 @@ try {
       if (screenshot.length > 100000) { mainMenu = true; break; }
     }
     if (!mainMenu) throw new Error('OpenRCT2 did not render its main menu');
+    // First visits can open OpenRCT2's changelog over the main menu.
+    // Use its normal close-window shortcut before clicking through the canvas.
+    await page.locator('canvas').focus();
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(1000);
+    await capture(page, 'handoff-menu-ready.png');
     console.log('HANDOFF: clicking New Game');
     await page.mouse.click(514, 688);
     await page.waitForTimeout(5000);
@@ -367,7 +373,7 @@ try {
   if (cameraProbe || productionProbe || demolitionProbe) {
     let timeout;
     try {
-      await Promise.race([cameraReady, earlyDisconnect.then((message) => { throw new Error(message); }),
+      await Promise.race([cameraReady,
         new Promise((_, reject) => {
         timeout = setTimeout(() => reject(new Error('The live probe did not observe a native snapshot')), 420000);
       })]);
@@ -882,8 +888,9 @@ try {
   metrics.crossOriginIsolated = await page.evaluate(() => crossOriginIsolated);
   if (!metrics.websocketFramesIn || !metrics.websocketFramesOut)
     throw new Error('The browser did not exchange native multiplayer frames over /ws');
-  if (!normalHandoff && records.some((record) => record.kind === 'websocketclose' && record.url?.endsWith('/ws')))
-    throw new Error('Multiplayer WebSocket closed during gameplay');
+  if (!normalHandoff && sawSocketClose &&
+      (!metrics.websocketFramesInAfterClose || !metrics.websocketFramesOutAfterClose))
+    throw new Error('Multiplayer WebSocket did not recover after closure');
   if (records.some((record) => record.kind === 'pageerror'))
     throw new Error('Chromium reported a JavaScript exception');
   if (autoOrder && !records.some((record) => record.kind === 'console' &&

@@ -211,7 +211,13 @@
         const module = await window.OPENRCT2_WEB(runtimeOptions);
         window.Module = module;
         const fs = module.FS;
+        const joinParams = new URLSearchParams(window.location.search);
+        const directJoin = manifest.network_enabled && joinParams.has("starcoaster-test-join");
+        const testPort = Number(joinParams.get("starcoaster-test-port") || 11753);
+        const joinPort = Number.isInteger(testPort) && testPort >= 1024 && testPort <= 65535 ? testPort : 11753;
         let sessionGeneration = "";
+        let nextReconnectAt = 0;
+        let reconnectDelay = 10000;
         let mapLoadPending = false;
         const sessionStatus = async () => {
             const response = await fetch("/private/park-session", { cache: "no-store" });
@@ -234,7 +240,8 @@
         let backendAvailable = false;
         try {
             const initialState = await sessionStatus();
-            sessionGeneration = initialState.generation || "";
+            // A fresh browser must join an already running authoritative game.
+            sessionGeneration = directJoin ? initialState.generation || "" : "";
             backendAvailable = manifest.network_enabled;
         } catch (_) {}
         if (backendAvailable) {
@@ -275,6 +282,7 @@
                             sessionGeneration = current.generation;
                             setStatus("Joining authoritative OpenRCT2 session…");
                             module.ccall("StarCoasterJoin", null, [], []);
+                            nextReconnectAt = Date.now() + 10000;
                             status.remove();
                             canvas.focus();
                             return;
@@ -386,13 +394,11 @@
         canvas.style.display = "block";
         // Explicit development runs may exercise the existing multiplayer
         // harness. Ordinary visits always enter OpenRCT2's main menu.
-        const joinParams = new URLSearchParams(window.location.search);
-        const testPort = Number(joinParams.get("starcoaster-test-port") || 11753);
-        const startupArgs = manifest.network_enabled && joinParams.has("starcoaster-test-join")
-            ? ["join", "127.0.0.1", `--port=${Number.isInteger(testPort) && testPort >= 1024 && testPort <= 65535 ? testPort : 11753}`] : [];
+        const startupArgs = directJoin ? ["join", "127.0.0.1", `--port=${joinPort}`] : [];
         startupArgs.push("--rct2-data-path=/RCT", "--user-data-path=/persistent/", "--openrct2-data-path=/OpenRCT2/");
         if (new URLSearchParams(window.location.search).has("verbose")) startupArgs.push("--verbose");
         module.callMain(startupArgs);
+        if (directJoin) nextReconnectAt = Date.now() + 10000;
         status.remove();
         if (backendAvailable) {
             let watching = false;
@@ -408,6 +414,8 @@
                         document.body.appendChild(status);
                         setStatus("Joining the new authoritative OpenRCT2 session…");
                         module.ccall("StarCoasterJoin", null, [], []);
+                        nextReconnectAt = Date.now() + 10000;
+                        reconnectDelay = 10000;
                         if (state.error) {
                             status.classList.add("warning");
                             setStatus(`StarCoaster restored a prior game: ${state.error}`);
@@ -426,6 +434,29 @@
                     }
                 } finally { watching = false; }
             }, 1500);
+        }
+        if (manifest.network_enabled) {
+            let retrying = false;
+            setInterval(async () => {
+                if (retrying || mapLoadPending) return;
+                const connection = module.ccall("StarCoasterConnectionState", "number", [], []);
+                if (connection === 2) { reconnectDelay = 10000; return; }
+                if (connection === 1 || Date.now() < nextReconnectAt) return;
+                retrying = true;
+                try {
+                    if (directJoin) {
+                        module.ccall("StarCoasterJoinPort", null, ["number"], [joinPort]);
+                    } else {
+                        if (!backendAvailable || !sessionGeneration) return;
+                        const current = await sessionStatus();
+                        if (current.phase !== "ready" || current.generation !== sessionGeneration) return;
+                        module.ccall("StarCoasterJoin", null, [], []);
+                    }
+                    console.log("STARCOASTER_RECONNECT_ATTEMPT");
+                    nextReconnectAt = Date.now() + reconnectDelay;
+                    reconnectDelay = Math.min(60000, reconnectDelay * 2);
+                } finally { retrying = false; }
+            }, 5000);
         }
         if (!backendAvailable && manifest.network_enabled) {
             status.classList.add("warning");

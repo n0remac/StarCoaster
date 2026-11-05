@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the private game and SSH push hook for this Pi user.
+# Install a local development game service; see deploy/PRODUCTION.md for production.
 set -euo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
@@ -13,4 +13,4 @@ systemctl --user daemon-reload
 systemctl --user enable starcoaster-game.service
 systemctl --user disable --now starcoaster-update.timer 2>/dev/null || true
 scripts/install-pi-push-hook.sh
-printf 'Installed private StarCoaster service; run scripts/update-pi-game.sh --force to deploy now.\n'
+printf 'Installed local development service; build and stage artifacts before starting starcoaster-game.service. See deploy/PRODUCTION.md for production releases.\n'

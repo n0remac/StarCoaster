@@ -1,0 +1,28 @@
+diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
+--- a/src/openrct2/Game.cpp
++++ b/src/openrct2/Game.cpp
+@@ -327,6 +327,13 @@
+ {
+     StarCoasterJoinPort(OpenRCT2::Network::kDefaultPort);
+ }
++
++extern "C" EMSCRIPTEN_KEEPALIVE int StarCoasterConnectionState()
++{
++    if (OpenRCT2::Network::GetMode() != OpenRCT2::Network::Mode::client)
++        return 0;
++    return OpenRCT2::Network::GetStatus() == OpenRCT2::Network::Status::connected ? 2 : 1;
++}
+ #endif
+ 
+ uint32_t gCurrentRealTimeTicks;
+diff --git a/src/openrct2/Game.h b/src/openrct2/Game.h
+--- a/src/openrct2/Game.h
++++ b/src/openrct2/Game.h
+@@ -84,6 +84,7 @@
+ #ifdef __EMSCRIPTEN__
+ extern "C" void StarCoasterJoin();
+ extern "C" void StarCoasterJoinPort(int port);
++extern "C" int StarCoasterConnectionState();
+ #endif
+ void PauseToggle();
+ bool GameIsPaused();

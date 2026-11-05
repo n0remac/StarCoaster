@@ -1,5 +1,7 @@
 import importlib.util
 import io
+import os
+import subprocess
 from pathlib import Path
 import tarfile
 import tempfile
@@ -24,6 +26,22 @@ class ArchiveTests(unittest.TestCase):
             activate.unpack(archive,output)
             if kind==tarfile.REGTYPE:
                 self.assertEqual((output/name).read_bytes(),b'ok')
+    def test_packager_flattens_symbolic_and_hard_links_for_safe_extractor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            stage=root/'stage';stage.mkdir()
+            (stage/'original').write_bytes(b'scenario contents')
+            os.link(stage/'original',stage/'hardlink')
+            (stage/'symlink').symlink_to('original')
+            archive=root/'release.tar'
+            script=Path(__file__).resolve().parents[1]/'scripts/package-production-archive.sh'
+            subprocess.run(['bash',str(script),str(stage),str(archive)],check=True)
+            output=root/'output';output.mkdir()
+            activate.unpack(archive,output)
+            for name in ('original','hardlink','symlink'):
+                self.assertEqual((output/name).read_bytes(),b'scenario contents')
+                self.assertFalse((output/name).is_symlink())
+
     def test_regular_file(self): self.extract('build/server')
     def test_parent_escape(self):
         with self.assertRaises(ValueError): self.extract('../outside')

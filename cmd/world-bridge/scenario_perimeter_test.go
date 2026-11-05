@@ -91,6 +91,33 @@ func TestAutomaticPerimeterCandidatesAndDurableChoice(t *testing.T) {
 	}
 }
 
+func TestAutomaticPerimeterSeededChoiceCanReachEverySide(t *testing.T) {
+	for side := 0; side < 4; side++ {
+		s := automaticDefenseService(t)
+		candidates := s.perimeterCandidates()
+		choice := -1
+		for index, candidate := range candidates {
+			x, y := candidate.anchor[0], candidate.anchor[1]
+			if (side == 0 && x < 8) || (side == 1 && x >= 56) ||
+				(side == 2 && y < 8) || (side == 3 && y >= 56) {
+				choice = index
+				break
+			}
+		}
+		if choice < 0 {
+			t.Fatalf("side %d has no reachable candidate", side)
+		}
+		s.defenseRandomIndex = func(n int) int { return choice }
+		s.runtime.LastFrame = 2980
+		s.triggerAutomaticPerimeter()
+		acceptCurrentPerimeter(t, s)
+		if len(s.runtime.Waves) != 1 || s.runtime.Waves[0].SpawnAnchor == nil ||
+			*s.runtime.Waves[0].SpawnAnchor != candidates[choice].anchor {
+			t.Fatalf("side %d did not commit seeded location: %+v", side, s.runtime.Waves)
+		}
+	}
+}
+
 func TestAutomaticPerimeterWaitsWithoutRouteOrBacklog(t *testing.T) {
 	s := automaticDefenseService(t)
 	for i := range s.navigationMask.Bits {

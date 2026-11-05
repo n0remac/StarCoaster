@@ -27,6 +27,13 @@ def stage(source: Path, destination: Path, scenario_path: Path) -> None:
         shutil.copy2(source, destination)
         return
     data = destination.parent.parent / "structure-stage"
+    # Staging runs before the gameplay host installs its construction objects.
+    # Give this isolated OpenRCT2 process the scenario's required objects too.
+    game_dir = os.environ.get("STARCRAFT_DATA_DIR", str(Path.home() / "games/starcraft"))
+    for building_type in dict.fromkeys(item["type"] for item in specs):
+        subprocess.run(["python3", str(ROOT / "scripts/install-starcraft-construction-object.py"),
+                        str(data), "--game-dir", game_dir, "--building-type", building_type],
+                       cwd=ROOT, check=True)
     (data / "plugin").mkdir(parents=True, exist_ok=True)
     (data / "config.ini").write_text("[network]\nadvertise = false\n")
     script = (ROOT / "scripts/stage-scenario-structures.js").read_text().replace(

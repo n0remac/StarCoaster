@@ -18,51 +18,23 @@ The build writes `build/openrct2-wasm/` and `build/wasm-client/`. The bundle con
 
 ## Managed Pi game and updates
 
-The Pi user service in `deploy/starcoaster-game.service` now starts the private browser server without selecting a park. Install it once with `scripts/install-pi-game-service.sh`, then run `scripts/update-pi-game.sh --force` for the first deployment. The installer creates an ignored private park library and a bare Git repository at `run-data/pi-push.git` with a `post-receive` hook. The browser server listens on loopback port 8091; a native multiplayer host uses loopback port 11753 when one is running. Keep the existing private Tailscale Serve route on port 10001; do not enable Funnel for it.
+Production runs as `starcoaster.service` on the new Pi (`100.119.114.99`). The old Pi is the development/build host; its local game and public tunnel services are disabled. Follow [production delivery](../deploy/PRODUCTION.md) for the GitHub-main release pipeline, validation gates, rollback behavior, and monitoring. The browser server listens on loopback port 8091; a native multiplayer host uses loopback port 11753 when one is running. Production access uses the authenticated `starcoaster.noremac.dev` route through the new Pi's private SSH tunnel. Keep licensed resources behind authentication; do not enable Funnel.
 
 The browser starts at OpenRCT2's normal main menu, with the native New Game and Load Game interfaces. Its packaged StarCoaster plugin is hash checked and installed in the browser's persistent OpenRCT2 user directory. On a managed Pi host, selecting a stock scenario or save requests a new authoritative generation. The browser uploads a selected save to a private temporary directory when needed, waits for OpenRCT2, OpenBW, and Go readiness, and joins through the existing `/ws` multiplayer gateway without reloading the page. No session token or extra login is required after opening the private Tailscale URL. Explicit scenario sessions and the `starcoaster-test-join` URL parameter remain available for development.
 
 The browser control routes are `/private/park-session` for status and `/private/park-session/{load,upload,cancel,title}` for changes. Changes require a matching origin and are available to clients that can reach the private Tailscale URL; `/ws` remains the ordinary OpenRCT2 multiplayer transport. Scenario names are matched against the Pi's installed `RCT2_DATA_DIR/Scenarios` and private library, never interpreted as client paths. Save uploads are limited to 64 MiB, accept the supported `.park`, `.sc6`, `.sc4`, `.sv6`, and `.sv4` formats, and pass OpenRCT2 preflight before the old game is stopped. An invalid replacement leaves the current generation running. A native client launched through `scripts/project.sh launch` detects the local supervisor; a remote native client needs `STARCOASTER_CONTROL_URL` and `STARCOASTER_MULTIPLAYER_HOST` configured.
 
-For an idle Pi browser run, start the installed `starcoaster-game.service` or run `RCT2_DATA_DIR=/path/to/rct2 STARCRAFT_DATA_DIR=/path/to/starcraft python3 scripts/park_session_supervisor.py --parks run-data/pi-park-library --runtime run-data/park-supervisor` after the native and WASM builds. Select New Game in OpenRCT2, choose a stock scenario, and wait for the automatic join. The private browser service stays up during preparation and map transitions. `WASM_NORMAL_HANDOFF=1 WASM_LIVE_URL=http://127.0.0.1:8091/ node browser/live-test.mjs` drives the first-game path in Chromium; add `WASM_LIVE_CAMERA=1 WASM_DEFENSE_CONFIGURE=1 WASM_DEFENSE_BUILD=1 WASM_DEFENSE_MANUAL=1 WASM_AUTO_ORDER=1` to verify Barracks construction, OpenBW Marine training, Defense control, and a viewport order.
+For a separate local development browser run, run `RCT2_DATA_DIR=/path/to/rct2 STARCRAFT_DATA_DIR=/path/to/starcraft python3 scripts/park_session_supervisor.py --parks run-data/pi-park-library --runtime run-data/park-supervisor` after the native and WASM builds. Select New Game in OpenRCT2, choose a stock scenario, and wait for the automatic join. The private browser service stays up during preparation and map transitions. `WASM_NORMAL_HANDOFF=1 WASM_LIVE_URL=http://127.0.0.1:8091/ node browser/live-test.mjs` drives the first-game path in Chromium; add `WASM_LIVE_CAMERA=1 WASM_DEFENSE_CONFIGURE=1 WASM_DEFENSE_BUILD=1 WASM_DEFENSE_MANUAL=1 WASM_AUTO_ORDER=1` to verify Barracks construction, OpenBW Marine training, Defense control, and a viewport order.
 
 To exercise Load Game and Quit to menu in the graphical browser, set `WASM_HANDOFF_LOAD_SAVE_FILE` to a local `.park` autosave and `WASM_HANDOFF_RETURN_TITLE=1` alongside `WASM_NORMAL_HANDOFF=1`. The probe selects New Game, uploads the save through OpenRCT2's Load Game picker, waits for a distinct authoritative generation and scenario status, then returns the supervisor to idle. A Pi run passed this flow without a token; its ignored log is `build/tokenless-browser-save-title-retry.log`, with screenshots under `build/wasm-live-test/`. The rebuilt native client also selected Electric Fields from the normal menu, joined the authoritative host, and returned to the title screen without a token; its ignored log and captures are `build/tokenless-native-owner.log` and `run-data/handoff-graphical-20261019/native-tokenless-*.png`.
 
 A dense stock scenario reproduced two native limits during preflight. `Six Flags Great Adventure.SC6` is 256 × 256 and exports 65,536 terrain tiles, 29,873 entities, 1,457 world snapshot chunks (24,542,537 JSON bytes, largest 86,271 bytes), and 131,072 collision bytes in 22 chunks. OpenBW first failed with `too many regions (nooks and crannies)` because its region allocation was capped below the IDs reserved by its own map representation. The native region cap now follows that representation's reserved index. After that fix, the producer could outrun the OpenBW socket consumer during initial synchronization; bounded per-frame reads and normal TCP backpressure removed the disconnect without dropping collision or scenery data. `python3 tests/test_dense_stock_handoff_live.py` completed native preflight in 105.227 seconds; its ignored report and detailed log are under `run-data/dense-stock-handoff-1792457269/`. Maps larger than the current 256 × 256 OpenBW representation still receive an explicit unsupported-map error.
 
-From a development machine with SSH access to the Pi, add the private push remote and send `main`:
+Develop and push feature branches on the dev Pi, then merge the release into GitHub `main`. The dev Pi's `starcoaster-deploy.timer` polls GitHub every two minutes and builds in `/media/pi/media1/starcoaster-production-build`, independently of the development worktree. Tests and browser gameplay must pass before the release is transferred to the new Pi and activated with a native health check. A failed activation restores the previous release.
 
-```sh
-git remote add pi ssh://pi@raspberrypi.tail628049.ts.net/media/pi/media1/rts-bridge/run-data/pi-push.git
-git push pi main
-```
+Keep `origin` pointed at GitHub with a single push destination. The former dual-push configuration and local Pi receive hook are no longer required. The optional receive hook only wakes the GitHub polling worker; it cannot release a local-only commit. The legacy `install-pi-game-service.sh` installs a local development service and is not the production installer.
 
-For a single `git push origin main` to update GitHub and the Pi from a clone,
-configure both push destinations once in that clone:
-
-```sh
-git config remote.origin.pushurl git@github.com:n0remac/StarCoaster.git
-git config --add remote.origin.pushurl ssh://pi@raspberrypi.tail628049.ts.net/media/pi/media1/rts-bridge/run-data/pi-push.git
-git push origin main
-```
-
-Push URLs are local Git configuration; repeat this setup in each clone that
-should deploy. A GitHub-only push does not reach the private Pi hook.
-
-The receive hook runs the update once after each push to the Pi's `main`. It
-fast-forwards a clean checkout, builds the native engines and ARM64 WASM bundle
-from the configured licensed installations, runs `scripts/project.sh test` and
-`scripts/project.sh test-wasm`, atomically deploys the verified private bundle,
-and restarts `starcoaster-game.service`. It records the deployed commit in
-ignored `run-data/pi-deployed-revision` only after the service and browser
-manifest remain healthy for 30 seconds. The push command waits for this work
-to finish; a failed build or test leaves the running game in place, and the
-next push or `scripts/update-pi-game.sh --from-push` retries it. The update
-refuses local uncommitted changes or diverged history; inspect ignored
-`build/pi-update-service.log` to resolve either case. Existing browser tabs
-need a reload after deployment.
-
-Use `systemctl --user status starcoaster-game.service` for live status, `build/pi-update-service.log` for update output, and `build/wasm-playable-session.log` for explicit scenario startup details. The Pi needs the local ARM64 WASM toolchain prepared with `scripts/project.sh prepare-wasm-arm64`.
+See [production delivery](../deploy/PRODUCTION.md#operating-the-pipeline) for status and logs. Deployment restarts active game sessions; existing browser tabs should reload afterward. The Pi needs the local ARM64 WASM toolchain prepared with `scripts/project.sh prepare-wasm-arm64`.
 
 On amd64 Linux, `build-wasm` uses OpenRCT2's pinned `ghcr.io/openrct2/openrct2-build:26-emscripten` image. The image contains Emscripten builds of ICU, libzip, and zstd under `/ext`. On ARM64, `prepare-wasm-arm64` installs pinned Emscripten 5.0.0, ICU, libzip, zstd, zlib, and OpenSSL under ignored `build/` on the attached USB drive. `BRIDGE_BUILD_JOBS=1` can reduce peak memory. The Pi 5 has compiled and linked the network-enabled graphical client with this toolchain. If another Pi lacks sufficient build resources, build on an amd64 Linux checkout of this commit, copy only `build/wasm-client/` to the Pi, and run `scripts/project.sh deploy-wasm /path/to/copied-bundle`. Deployment checks the browser bundle against the Pi's native source and staged assets. The Pi remains the game host.
 

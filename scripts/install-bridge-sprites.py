@@ -33,6 +33,19 @@ ROOT = Path(__file__).resolve().parents[1]
 LEGACY_ASSETS = {"marine", "firebat", "medic", "vulture", "zergling"}
 
 
+def stable_sprite_entries(entries: list[dict]) -> list[dict]:
+    """Keep established IDs identical in clean and incrementally built checkouts.
+
+    The compatibility ledger contains paths only, never licensed graphics.
+    Append newly established paths to it; never reorder existing entries.
+    """
+    order = json.loads((ROOT / "bridge-protocol/starcraft-sprite-order.json").read_text())
+    ranks = {path: index for index, path in enumerate(order)}
+    if len(ranks) != len(order) or len({entry["path"] for entry in entries}) != len(entries):
+        raise ValueError("Duplicate G2 sprite path")
+    return sorted(entries, key=lambda entry: (ranks.get(entry["path"], len(order)), entry["path"]))
+
+
 def registered_units() -> list[tuple[str, dict]]:
     catalog = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
     visuals = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())["units"]
@@ -575,6 +588,16 @@ def main() -> None:
         for entry in entries[len(json.loads(contents)):]:
             contents = contents.rstrip()[:-1].rstrip()
             contents += ("," if not contents.endswith("[") else "") + "\n    " + json.dumps(entry) + "\n]\n"
+    # A first build must reproduce the historical append-only indices,
+    # including animation frames introduced after the command icons.
+    ordered = stable_sprite_entries(entries)
+    if ordered != entries:
+        contents = "[\n" + ",\n".join("    " + json.dumps(entry) for entry in ordered) + "\n]\n"
+    if icon_frames:
+        indices = {entry["path"]: index for index, entry in enumerate(ordered)}
+        icon_ids = {"empty": g2_base, **{
+            kind: g2_base + indices["bridge/command/" + meta["file"]]
+            for kind, meta in icon_frames.items()}}
         plugin = ROOT / "openrct2-plugin/rts-bridge.js"
         plugin_text = plugin.read_text()
         replacement = "    const COMMAND_ICON_IMAGES = Object.freeze(" + json.dumps(icon_ids, sort_keys=True) + ");"
