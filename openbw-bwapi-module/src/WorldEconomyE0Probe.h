@@ -212,6 +212,7 @@ public:
         if (stage_ == 13 && geyser && !refinery) {
             stage_ = 14;
             event(game, "geyser_restored", "native=" + std::to_string(geyser->getID())
+                + " owner=" + std::to_string(geyser->getPlayer()->getID())
                 + " amount=" + std::to_string(geyser->getResources()));
         }
     }

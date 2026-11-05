@@ -95,6 +95,7 @@ def main() -> None:
         "geyser_after_refinery_loss": bool(c("kill_refinery") and c("geyser_restored")
              and c("geyser_restored")[0].get("native")
              != c("refinery_complete")[0].get("native")
+             and c("geyser_restored")[0].get("owner") == "-1"
              and 0 < int(c("geyser_restored")[0]["amount"]) < 5000),
         "bridge_reconnect_without_reissue": (run / "bridge-restart.txt").is_file()
              and log.count("WORLD_READY entities=") >= 2
