@@ -10,6 +10,7 @@
 #include "WorldGoliathProbe.h"
 #include "WorldZergProductionProbe.h"
 #include "WorldEconomyE0Probe.h"
+#include "WorldEconomyObservations.h"
 #include "WorldBuildingState.h"
 #include "BridgePerformance.h"
 
@@ -136,6 +137,9 @@ public:
             }
         }
         if (!session_.empty() && game->getFrameCount() % 24 == 0) {
+            for (const auto& state : economyObservations_.observe(game))
+                send("resource.state", session_, revision_ ? revision_ : 1,
+                    state, game->getFrameCount());
             if (game->self()) send("player.resources", session_, revision_ ? revision_ : 1,
                 {{"owner", game->self()->getID()}, {"minerals", game->self()->minerals()},
                  {"gas", game->self()->gas()},
@@ -295,7 +299,8 @@ private:
         for (const auto& [native, candidate] : creationCandidates_) {
             if (candidate.frame != frame || !candidate.unit || !candidate.unit->exists()
                 || !candidate.unit->getPlayer()
-                || candidate.unit->getPlayer()->getID() != identity.value("owner", -1)) continue;
+                || (candidate.unit->getPlayer()->getID() >= 0
+                    ? candidate.unit->getPlayer()->getID() : 11) != identity.value("owner", -1)) continue;
             const auto* type = worldUnitType(candidate.unit->getType());
             if (!type || (!candidate.unit->isCompleted() && !type->visibleIncomplete)
                 || (identity.value("type", "") != type->id
@@ -820,6 +825,7 @@ private:
     std::map<std::string, std::string> lastAvailability_;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
+    WorldEconomyObservations economyObservations_;
     WorldFirebatTechProbe firebatTechProbe_{true};
     WorldMedicVultureProbe medicVultureProbe_{true};
     WorldGoliathProbe goliathProbe_{true};

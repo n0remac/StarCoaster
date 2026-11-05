@@ -17,6 +17,11 @@ type BuildingDefinition struct {
 	Production                                    []string
 }
 
+type ResourceDefinition struct {
+	ID, NativeType, DisplayName, Visual string
+	Width, Height                      int
+}
+
 // BEGIN GENERATED STARCRAFT TYPES
 var unitDefinitions = map[string]UnitDefinition{
 	"terran_marine": {ID: "terran_marine", NativeType: "Terran_Marine", Race: "terran", Ownership: "player", DisplayName: "Marine", Visual: "terran_marine", Movement: "ground", Controllable: true, Spawnable: true, VisibleIncomplete: false, LegacyStaticBase: 1000, Commands: []string{"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop"}},
@@ -29,6 +34,9 @@ var unitDefinitions = map[string]UnitDefinition{
 	"zerg_ultralisk": {ID: "zerg_ultralisk", NativeType: "Zerg_Ultralisk", Race: "zerg", Ownership: "enemy", DisplayName: "Ultralisk", Visual: "zerg_ultralisk", Movement: "ground", Controllable: false, Spawnable: true, VisibleIncomplete: false, LegacyStaticBase: 0, Commands: []string{}},
 	"zerg_larva": {ID: "zerg_larva", NativeType: "Zerg_Larva", Race: "zerg", Ownership: "enemy", DisplayName: "Larva", Visual: "zerg_larva", Movement: "ground", Controllable: false, Spawnable: false, VisibleIncomplete: false, LegacyStaticBase: 0, Commands: []string{}},
 	"zerg_egg": {ID: "zerg_egg", NativeType: "Zerg_Egg", Race: "zerg", Ownership: "enemy", DisplayName: "Egg", Visual: "zerg_egg", Movement: "ground", Controllable: false, Spawnable: false, VisibleIncomplete: true, LegacyStaticBase: 0, Commands: []string{}},
+	"terran_scv": {ID: "terran_scv", NativeType: "Terran_SCV", Race: "terran", Ownership: "player", DisplayName: "SCV", Visual: "terran_scv", Movement: "ground", Controllable: true, Spawnable: false, VisibleIncomplete: false, LegacyStaticBase: 0, Commands: []string{"unit.move", "unit.hold", "unit.stop", "unit.gather", "unit.return_cargo", "unit.build", "unit.resume_construction"}},
+	"mineral_field": {ID: "mineral_field", NativeType: "Resource_Mineral_Field", Race: "neutral", Ownership: "neutral", DisplayName: "Mineral Field", Visual: "mineral_field", Movement: "static", Controllable: false, Spawnable: false, VisibleIncomplete: false, LegacyStaticBase: 0, Commands: []string{}},
+	"vespene_geyser": {ID: "vespene_geyser", NativeType: "Resource_Vespene_Geyser", Race: "neutral", Ownership: "neutral", DisplayName: "Vespene Geyser", Visual: "vespene_geyser", Movement: "static", Controllable: false, Spawnable: false, VisibleIncomplete: false, LegacyStaticBase: 0, Commands: []string{}},
 }
 
 var buildingDefinitions = map[string]BuildingDefinition{
@@ -39,6 +47,13 @@ var buildingDefinitions = map[string]BuildingDefinition{
 	"terran_armory": {ID: "terran_armory", NativeType: "Terran_Armory", ObjectID: "starcoaster.scenery_large.terran_armory", DisplayName: "Terran Armory", Visual: "terran_armory", Width: 3, Height: 2, MaxHealth: 750, Production: []string{}},
 	"zerg_hatchery": {ID: "zerg_hatchery", NativeType: "Zerg_Hatchery", ObjectID: "starcoaster.scenery_large.zerg_hatchery", DisplayName: "Zerg Hatchery", Visual: "zerg_hatchery", Width: 4, Height: 3, MaxHealth: 1250, Production: []string{"zerg_zergling"}},
 	"zerg_spawning_pool": {ID: "zerg_spawning_pool", NativeType: "Zerg_Spawning_Pool", ObjectID: "starcoaster.scenery_large.zerg_spawning_pool", DisplayName: "Zerg Spawning Pool", Visual: "zerg_spawning_pool", Width: 3, Height: 2, MaxHealth: 750, Production: []string{}},
+	"terran_command_center": {ID: "terran_command_center", NativeType: "Terran_Command_Center", ObjectID: "starcoaster.scenery_large.terran_command_center", DisplayName: "Terran Command Center", Visual: "terran_command_center", Width: 4, Height: 3, MaxHealth: 1500, Production: []string{"terran_scv"}},
+	"terran_refinery": {ID: "terran_refinery", NativeType: "Terran_Refinery", ObjectID: "starcoaster.scenery_large.terran_refinery", DisplayName: "Terran Refinery", Visual: "terran_refinery", Width: 4, Height: 2, MaxHealth: 750, Production: []string{}},
+}
+
+var resourceDefinitions = map[string]ResourceDefinition{
+	"mineral_field": {ID: "mineral_field", NativeType: "Resource_Mineral_Field", DisplayName: "Mineral Field", Visual: "mineral_field", Width: 2, Height: 1},
+	"vespene_geyser": {ID: "vespene_geyser", NativeType: "Resource_Vespene_Geyser", DisplayName: "Vespene Geyser", Visual: "vespene_geyser", Width: 4, Height: 2},
 }
 
 // END GENERATED STARCRAFT TYPES
@@ -50,6 +65,10 @@ func SupportedUnit(id string) (UnitDefinition, bool) {
 func SupportedBuilding(id string) (BuildingDefinition, bool) {
 	building, ok := buildingDefinitions[id]
 	return building, ok
+}
+func SupportedResource(id string) (ResourceDefinition, bool) {
+	resource, ok := resourceDefinitions[id]
+	return resource, ok
 }
 
 func ValidateTypeDefinitions(units map[string]UnitDefinition, buildings map[string]BuildingDefinition) error {

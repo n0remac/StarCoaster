@@ -1,0 +1,11 @@
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -783,5 +783,6 @@
+             && BridgeReadString(ctx, unit, "motion", parsed.motion)
+             && (parsed.motion == "idle" || parsed.motion == "walk" || parsed.motion == "attack"
+                 || parsed.motion == "heal" || parsed.motion == "morph"
+-                || parsed.motion == "hatch" || parsed.motion == "death")
++                || parsed.motion == "hatch" || parsed.motion == "death"
++                || parsed.motion == "gather" || parsed.motion == "carry" || parsed.motion == "construct")
+             && BridgeReadInt(ctx, unit, "owner", owner) && owner >= 0 && owner <= 11

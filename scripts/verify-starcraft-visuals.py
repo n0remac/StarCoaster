@@ -19,7 +19,8 @@ def digest(path):
 def inventory():
     catalog = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
     visuals = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())
-    assets = {visuals["units"][unit["visual"]]["asset"] for unit in catalog["units"]}
+    assets = {visuals["units"][unit["visual"]]["asset"]
+              for unit in catalog["units"] + catalog.get("resources", [])}
     assets |= {effect["asset"] for effect in visuals["effects"].values()}
     manifests = {f"sprites/{name}/manifest.json": digest(ROOT / "run-data/generated-assets/starcraft" / name / "manifest.json")
                  for name in sorted(assets)}
@@ -54,4 +55,4 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, KeyError, RuntimeError) as exc:
-        parser.exit(1, f"StarCraft visuals: {exc}\n")
+        raise SystemExit(f"StarCraft visuals: {exc}") from exc

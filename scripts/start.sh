@@ -134,7 +134,8 @@ from pathlib import Path
 root = Path('bridge-protocol')
 catalog = json.loads((root / 'starcraft-types.json').read_text())
 visuals = json.loads((root / 'starcraft-visuals.json').read_text())
-assets = [visuals['units'][item['visual']]['asset'] for item in catalog['units']]
+assets = [visuals['units'][item['visual']]['asset']
+          for item in catalog['units'] + catalog.get('resources', [])]
 assets += [visuals['effects'][key]['asset'] for key in visuals['effects']
            if key in {visuals['units'][item['visual']].get('effect') for item in catalog['units']}]
 print('\n'.join(dict.fromkeys(assets)))

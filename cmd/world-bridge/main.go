@@ -73,6 +73,8 @@ type service struct {
 	controller                *peer
 	registry                  *world.Registry
 	actors                    *world.ActorRegistry
+	resources                 *world.ResourceLedger
+	economyBalance            map[int][4]int
 	mapping                   world.Mapping
 	stage                     *staging
 	parkPatch                 *parkPatchStage
@@ -835,6 +837,10 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		if s.actors == nil || s.actors.Session != m.Session {
 			s.actors = world.NewActorRegistry(m.Session)
 		}
+		if s.resources == nil || previousSession != m.Session {
+			s.resources = world.NewResourceLedger(s.scenario, m.Session)
+			s.economyBalance = make(map[int][4]int)
+		}
 		s.initSpawns(m.Session)
 		s.stage = nil
 		s.pending = map[string]world.CombatEvent{}
@@ -1330,6 +1336,27 @@ func (s *service) forwardSnapshot() {
 	}
 	_ = s.emit(s.bw, "world.snapshot.end", r.Session, rev, world.SnapshotEnd{Entities: len(r.Entities), Terrain: len(derivedTerrain)})
 }
+func (s *service) recordResource(p *peer, m world.Envelope, role string) {
+	if s.resources == nil || s.registry == nil || m.Session != s.registry.Session ||
+		m.Revision != s.registry.Revision || (role == "publisher" && p != s.bw) ||
+		(role == "controller" && p != s.controller) {
+		s.ack(p, m, false, "invalid_resource_source")
+		return
+	}
+	var observation world.ResourceObservation
+	if m.Decode(&observation) != nil {
+		s.ack(p, m, false, "invalid_resource_observation")
+		return
+	}
+	state, changed := s.resources.Observe(role, observation)
+	if changed {
+		log.Printf("resource site=%s generation=%d type=%s amount=%d publisher=%s controller=%s frame=%d revision=%d",
+			state.SiteID, state.Generation, state.Type, state.Amount,
+			state.PublisherNativeID, state.ControllerNativeID, m.BWTick, m.Revision)
+		_ = s.emit(s.park, "resource.state", m.Session, m.Revision, state)
+	}
+}
+
 func (s *service) bwMessage(p *peer, m world.Envelope) {
 	if m.Source != "openbw" {
 		s.ack(p, m, false, "wrong_authority")
@@ -1339,6 +1366,8 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		return
 	}
 	switch m.Kind {
+	case "resource.state":
+		s.recordResource(p, m, "publisher")
 	case "building.state", "player.resources":
 		var report struct {
 			Owner int `json:"owner"`
@@ -1799,6 +1828,8 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		return
 	}
 	switch m.Kind {
+	case "resource.state":
+		s.recordResource(p, m, "controller")
 	case "world.hello":
 		s.ack(p, m, true, "")
 		if s.registry.Session != "" {
@@ -1853,18 +1884,20 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		}
 	case "building.state":
 		var state struct {
-			ID              string `json:"id"`
-			NativeID        string `json:"native_id"`
-			Owner           int    `json:"owner"`
-			Race            string `json:"race"`
-			Completed       bool   `json:"completed"`
-			Health          int    `json:"health"`
-			MaxHealth       int    `json:"max_health,omitempty"`
-			Queue           int    `json:"queue"`
-			RemainingFrames int    `json:"remaining_frames"`
-			Minerals        int    `json:"minerals"`
-			Gas             *int   `json:"gas"`
-			Availability    map[string]struct {
+			ID                          string `json:"id"`
+			NativeID                    string `json:"native_id"`
+			Owner                       int    `json:"owner"`
+			Race                        string `json:"race"`
+			Completed                   bool   `json:"completed"`
+			Health                      int    `json:"health"`
+			MaxHealth                   int    `json:"max_health,omitempty"`
+			Queue                       int    `json:"queue"`
+			RemainingFrames             int    `json:"remaining_frames"`
+			ConstructionRemainingFrames int    `json:"construction_remaining_frames"`
+			ConstructionProgress        int    `json:"construction_progress"`
+			Minerals                    int    `json:"minerals"`
+			Gas                         *int   `json:"gas"`
+			Availability                map[string]struct {
 				Ready       bool   `json:"ready"`
 				Reason      string `json:"reason"`
 				Requirement string `json:"requirement"`
@@ -1901,6 +1934,7 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			entity.Owner != state.Owner || state.Health < 0 || state.Health > 1000000 ||
 			(state.MaxHealth != 0 && (state.MaxHealth < state.Health || state.MaxHealth > 1000000)) ||
 			state.Queue < 0 || state.Queue > 5 || state.RemainingFrames < 0 ||
+			state.ConstructionRemainingFrames < 0 || state.ConstructionProgress < 0 || state.ConstructionProgress > 100 ||
 			state.Minerals < 0 || state.Gas == nil || *state.Gas < 0 ||
 			state.SupplyUsed < 0 || state.SupplyTotal < 0 {
 			return
@@ -1950,6 +1984,17 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			(resources.Owner != 0 && p != s.controller)) {
 			s.ack(p, m, false, "wrong_native_owner")
 			return
+		}
+		if s.scenario != nil && s.scenario.Economy != nil && s.scenario.Economy.Mode == "finite" {
+			balance := [4]int{resources.Minerals, *resources.Gas, resources.SupplyUsed, resources.SupplyTotal}
+			if s.economyBalance == nil {
+				s.economyBalance = make(map[int][4]int)
+			}
+			if prior, exists := s.economyBalance[resources.Owner]; !exists || prior != balance {
+				log.Printf("player resources owner=%d minerals=%d gas=%d supply_used=%d supply_total=%d frame=%d revision=%d",
+					resources.Owner, balance[0], balance[1], balance[2], balance[3], m.BWTick, m.Revision)
+				s.economyBalance[resources.Owner] = balance
+			}
 		}
 		_ = s.emit(s.park, "player.resources", m.Session, m.Revision, resources)
 	case "world.ack":

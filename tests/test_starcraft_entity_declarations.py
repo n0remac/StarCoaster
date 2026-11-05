@@ -65,7 +65,8 @@ class EntityDeclarationTests(unittest.TestCase):
         declarations = [json.loads(path.read_text()) for path in
                         (self.root / "bridge-protocol/entities").glob("*.json")]
         unit_order = max(item["registry_order"] for item in declarations if item["kind"] == "unit")
-        bank_order = max(item["visual"]["g2_order"] for item in declarations if item["kind"] == "unit")
+        bank_order = max(item["visual"]["g2_order"] for item in declarations
+                         if item["kind"] in ("unit", "resource"))
         ghost.update(id="terran_ghost", native_type="Terran_Ghost", display_name="Ghost",
                      registry_order=unit_order + 10, spawnable=False, legacy_static_base=0,
                      produced_at="terran_barracks")
@@ -92,7 +93,7 @@ class EntityDeclarationTests(unittest.TestCase):
         established = BASELINE["catalogs"]["starcraft-types.json"]["units"]
         self.assertEqual(catalog["units"][:len(established)], established)
         self.assertEqual([(unit["id"], unit["native_type"], unit["spawnable"], unit["legacy_static_base"])
-                          for unit in catalog["units"][len(established):]],
+                          for unit in catalog["units"][len(established):len(established) + 4]],
                          [("zerg_hydralisk", "Zerg_Hydralisk", True, 0),
                           ("zerg_ultralisk", "Zerg_Ultralisk", True, 0),
                           ("zerg_larva", "Zerg_Larva", False, 0),

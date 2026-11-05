@@ -179,6 +179,15 @@ const snapshotAction = registered.get('rtsbridge.applySnapshot');
 const validActor = { id: 'openbw:7', kind: 'zerg_zergling', owner: 0,
     x: 48, y: 48, facing: 0, motion: 'walk', hp: 35, max_hp: 35, attack_frames: 0 };
 const validSnapshot = { session: sid, seq: 20, units: [validActor] };
+for (const kind of ['mineral_field', 'vespene_geyser']) {
+    const neutral = { ...validActor, id: kind === 'mineral_field' ? 'openbw:2500' : 'openbw:2501',
+        kind, owner: 11, motion: 'idle', hp: 100000, max_hp: 100000 };
+    assert.equal(snapshotAction.query({ player: 1, args: { ...validSnapshot, units: [neutral] } }).error,
+        undefined, 'native neutral resource health is accepted without altering the observation');
+    assert.equal(snapshotAction.query({ player: 1, args: { ...validSnapshot,
+        units: [{ ...neutral, hp: 100001, max_hp: 100001 }] } }).error, 1,
+        'resource health remains bounded');
+}
 assert.equal(snapshotAction.query({ player: 2, args: validSnapshot }).error, 1,
     'clients cannot author actor snapshots');
 for (const units of [[validActor, validActor], [{ ...validActor, hp: -1 }],

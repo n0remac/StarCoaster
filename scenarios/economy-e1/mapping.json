@@ -1,0 +1,8 @@
+{
+  "rules": [
+    {"kind": "small_scenery", "destructible": false, "targetable": false, "blocks": false},
+    {"kind": "large_scenery", "destructible": false, "targetable": false, "blocks": true},
+    {"kind": "structure", "type": "terran_command_center",
+     "destructible": true, "targetable": true, "blocks": false, "health": 1500}
+  ]
+}

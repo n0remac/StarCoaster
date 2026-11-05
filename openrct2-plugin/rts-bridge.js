@@ -14,6 +14,7 @@
     const RESULT_ACTION = "rtsbridge.commandResult";
     const BUILDING_ACTION = "rtsbridge.buildingState";
     const RESOURCE_ACTION = "rtsbridge.playerResources";
+    const RESOURCE_SITE_ACTION = "rtsbridge.resourceSiteState";
     const OUTCOME_ACTION = "rtsbridge.worldOutcome";
     const SCENARIO_STATUS_ACTION = "rtsbridge.scenarioStatus";
     const TARGET_ACTION = "rtsbridge.targetCatalog";
@@ -41,6 +42,9 @@
         zerg_ultralisk: { name: "Ultralisk", visual: "zerg_ultralisk", race: "zerg", controllable: false, movement: "ground", spawnable: true, commands: [] },
         zerg_larva: { name: "Larva", visual: "zerg_larva", race: "zerg", controllable: false, movement: "ground", spawnable: false, commands: [] },
         zerg_egg: { name: "Egg", visual: "zerg_egg", race: "zerg", controllable: false, movement: "ground", spawnable: false, commands: [] },
+        terran_scv: { name: "SCV", visual: "terran_scv", race: "terran", controllable: true, movement: "ground", spawnable: false, commands: ["move", "hold", "stop", "gather", "return_cargo", "build", "resume_construction"] },
+        mineral_field: { name: "Mineral Field", visual: "mineral_field", race: "neutral", controllable: false, movement: "static", spawnable: false, commands: [] },
+        vespene_geyser: { name: "Vespene Geyser", visual: "vespene_geyser", race: "neutral", controllable: false, movement: "static", spawnable: false, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
         terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat", "terran_medic"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
@@ -50,6 +54,8 @@
         terran_armory: { name: "Terran Armory", objectID: "starcoaster.scenery_large.terran_armory", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
         zerg_hatchery: { name: "Zerg Hatchery", objectID: "starcoaster.scenery_large.zerg_hatchery", width: 4, height: 3, maxHealth: 1250, production: ["zerg_zergling"], animation: null },
         zerg_spawning_pool: { name: "Zerg Spawning Pool", objectID: "starcoaster.scenery_large.zerg_spawning_pool", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
+        terran_command_center: { name: "Terran Command Center", objectID: "starcoaster.scenery_large.terran_command_center", width: 4, height: 3, maxHealth: 1500, production: ["terran_scv"], animation: null },
+        terran_refinery: { name: "Terran Refinery", objectID: "starcoaster.scenery_large.terran_refinery", width: 4, height: 2, maxHealth: 750, production: [], animation: null },
     });
     // END GENERATED STARCRAFT TYPES
     const COMMAND_ICON_IMAGES = Object.freeze({"empty": 29357, "terran_firebat": 30696, "terran_goliath": 30697, "terran_marine": 30698, "terran_medic": 30699, "terran_vulture": 30700, "zerg_zergling": 30701});
@@ -862,6 +868,11 @@
                     function (result) {
                         if (result.error) console.log("WORLD_PLAYER_RESOURCES_ERROR " + result.errorMessage);
                     });
+            else if (message.kind === "resource.state" && message.payload)
+                context.executeAction(RESOURCE_SITE_ACTION, Object.assign({ session: session }, message.payload),
+                    function (result) {
+                        if (result.error) console.log("WORLD_RESOURCE_SITE_ERROR " + result.errorMessage);
+                    });
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
             else if (message.kind === "scenario.defense.result" && message.payload) onDefenseResult(message.payload);
@@ -915,6 +926,9 @@
                     + " targets=" + message.payload.targets + " obstacles=" + message.payload.obstacles
                     + " navigation=" + message.payload.navigation
                     + " unsupported=" + (message.payload.unsupported_total || 0));
+                if (message.payload.unsupported_total) console.log("WORLD_TARGET_UNSUPPORTED_INITIAL reasons="
+                    + JSON.stringify(message.payload.unsupported_reasons || {}) + " ids="
+                    + JSON.stringify(message.payload.unsupported || []));
                 Object.keys(knownSpawns).forEach(function (requestId) {
                     send("unit.spawn.query", { request_id: requestId });
                 });
@@ -1031,11 +1045,13 @@
                     && unit.aim_facing >= 0 && unit.aim_facing <= 255)
                 && (unit.motion === "idle" || unit.motion === "walk" || unit.motion === "attack"
                     || unit.motion === "heal" || unit.motion === "morph"
-                    || unit.motion === "hatch" || unit.motion === "death")
+                    || unit.motion === "hatch" || unit.motion === "death"
+                    || unit.motion === "gather" || unit.motion === "carry"
+                    || unit.motion === "construct")
                 && (UNIT_TYPES[unit.kind]
                     && Number.isInteger(unit.owner) && unit.owner >= 0 && unit.owner <= 11
                     && Number.isInteger(unit.hp) && unit.hp >= 0
-                    && Number.isInteger(unit.max_hp) && unit.max_hp >= unit.hp && unit.max_hp <= 10000
+                    && Number.isInteger(unit.max_hp) && unit.max_hp >= unit.hp && unit.max_hp <= 100000
                     && (unit.energy === undefined || Number.isInteger(unit.energy) && unit.energy >= 0)
                     && Number.isInteger(unit.attack_frames) && unit.attack_frames >= 0);
         });
@@ -1106,6 +1122,7 @@
             removedActorGenerations = {};
             buildingStates = {};
             playerResources = {};
+            resourceSiteStates = {};
             worldTargetIds = {};
             targetCatalogSession = "";
             missionStatus = null;
@@ -1228,6 +1245,7 @@
         const pendingTrainTypes = {};
         let buildingStates = {};
         let playerResources = {};
+        let resourceSiteStates = {};
         function refreshBuildingAnimations() {
             if (!controlSession) return;
             Object.keys(BUILDING_TYPES).forEach(function (type) {
@@ -1306,6 +1324,7 @@
                 mode: network.mode });
             if (network.mode === "server") latestSnapshot = { session: event.args.session,
                 seq: event.args.seq, units: event.args.units };
+            const previousSession = controlSession;
             const sessionChanged = controlSession !== event.args.session;
             if (sessionChanged) {
                 outcomeState = null; shownOutcome = "";
@@ -1314,6 +1333,7 @@
             }
             controlSession = event.args.session;
             if (sessionChanged) playerResources = {};
+            if (sessionChanged && previousSession) resourceSiteStates = {};
             if (sessionChanged) refreshBuildingAnimations();
             controlUnits = {};
             visible.forEach(function (unit) { controlUnits[unit.id] = unit; });
@@ -1455,6 +1475,8 @@
                     if (network.mode === "server") console.log("WORLD_TARGET_CATALOG session="
                         + targetCatalogSession + " version=" + targetCatalogVersion
                         + " targets=" + Object.keys(worldTargetIds).length);
+                    else console.log("WORLD_TARGET_CATALOG_CLIENT session=" + targetCatalogSession
+                        + " version=" + targetCatalogVersion + " targets=" + Object.keys(worldTargetIds).length);
                 }
                 return {};
             });
@@ -1873,9 +1895,11 @@
                     && typeof args.completed === "boolean"
                     && (args.larva_count === undefined || (Number.isInteger(args.larva_count)
                         && args.larva_count >= 0 && args.larva_count <= 3))
-                    && ["morph_count", "morph_remaining_frames", "supply_provided"].every(function (field) {
+                    && ["morph_count", "morph_remaining_frames", "supply_provided",
+                        "construction_remaining_frames", "construction_progress"].every(function (field) {
                         return args[field] === undefined || (Number.isInteger(args[field]) && args[field] >= 0);
                     })
+                    && (args.construction_progress === undefined || args.construction_progress <= 100)
                     && typeof args.command_authorized === "boolean"
                     && (args.max_health === undefined || (Number.isInteger(args.max_health)
                         && args.max_health >= args.health && args.max_health <= 1000000))
@@ -1923,6 +1947,27 @@
                 playerResources[event.args.owner] = event.args;
                 return {};
             });
+            context.registerAction(RESOURCE_SITE_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may publish native resource sites" };
+                return /^[0-9a-f]{32}$/.test(args.session || "")
+                    && (!controlSession || args.session === controlSession)
+                    && /^[a-z0-9-]{1,64}$/.test(args.site_id || "")
+                    && Number.isInteger(args.generation) && args.generation > 0
+                    && ["x", "y", "owner", "amount"].every(function (field) {
+                        return Number.isInteger(args[field]) && args[field] >= 0;
+                    }) && ["mineral_field", "vespene_geyser", "terran_refinery", ""].includes(args.type)
+                    && ["deposit", "refinery", "absent"].includes(args.lifecycle)
+                    && typeof args.publisher_native_id === "string"
+                    && typeof args.controller_native_id === "string"
+                    ? {} : { error: 1, errorMessage: "Invalid native resource site" };
+            }, function (event) {
+                const prior = resourceSiteStates[event.args.site_id];
+                if (!prior || event.args.generation >= prior.generation)
+                    resourceSiteStates[event.args.site_id] = event.args;
+                return {};
+            });
 
 
         let animationTicks = 0;
@@ -1963,6 +2008,13 @@
                     if (state.session === controlSession)
                         context.executeAction(RESOURCE_ACTION, state, function (result) {
                             if (result.error) console.log("WORLD_CLIENT_RESOURCE_ERROR " + result.errorMessage);
+                        });
+                });
+                Object.keys(resourceSiteStates).forEach(function (id) {
+                    const state = resourceSiteStates[id];
+                    if (state.session === controlSession)
+                        context.executeAction(RESOURCE_SITE_ACTION, state, function (result) {
+                            if (result.error) console.log("WORLD_CLIENT_RESOURCE_SITE_ERROR " + result.errorMessage);
                         });
                 });
                 Object.keys(spawnStatuses).forEach(function (id) {

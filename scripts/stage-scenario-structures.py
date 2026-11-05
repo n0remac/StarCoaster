@@ -42,7 +42,7 @@ def stage(source: Path, destination: Path, scenario_path: Path) -> None:
     staged = data / "save/scenario-structures.park"
     staged.unlink(missing_ok=True)
     command = [str(ROOT / "build/openrct2/openrct2-cli"), "host", str(source), "--headless",
-               "--address=127.0.0.1", "--port=11761",
+               "--address=127.0.0.1", f"--port={int(os.environ.get('STARCOASTER_STAGE_PORT', '11761'))}",
                f"--rct2-data-path={os.environ.get('RCT2_DATA_DIR', str(Path.home() / 'games/rct2'))}",
                f"--openrct2-data-path={ROOT / 'build/openrct2-stage/usr/local/share/openrct2'}",
                f"--user-data-path={data}"]

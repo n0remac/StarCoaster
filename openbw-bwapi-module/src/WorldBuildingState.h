@@ -74,6 +74,10 @@ inline nlohmann::json worldBuildingState(BWAPI::Game* game, BWAPI::Unit unit,
         {"health", unit->getHitPoints()}, {"max_health", unit->getType().maxHitPoints()},
         {"queue", unit->getTrainingQueue().size()},
         {"remaining_frames", unit->getRemainingTrainTime()},
+        {"construction_remaining_frames", std::max(0, unit->getRemainingBuildTime())},
+        {"construction_progress", unit->isCompleted() ? 100 :
+            std::max(0, 100 * (unit->getType().buildTime() - unit->getRemainingBuildTime()) /
+                std::max(1, unit->getType().buildTime()))},
         {"minerals", owner->minerals()}, {"gas", owner->gas()},
         {"availability", availability}, {"commands", commands},
         {"supply_used", owner->supplyUsed()}, {"supply_total", owner->supplyTotal()}};

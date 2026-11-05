@@ -29,6 +29,7 @@ type Scenario struct {
 		ZergGas           int    `json:"zerg_gas,omitempty"`
 		NativeOverlord    [2]int `json:"native_overlord,omitempty"`
 	} `json:"production_fixture,omitempty"`
+	Economy           *ScenarioEconomy    `json:"economy,omitempty"`
 	InitialStructures []ScenarioStructure `json:"initial_structures,omitempty"`
 	// Native owners whose production the scenario commander may order. An
 	// absent list retains ordinary Terran-only player control.
@@ -53,6 +54,26 @@ type Scenario struct {
 	Waves              []ScenarioWave       `json:"waves,omitempty"`
 	ParkDefense        *ParkDefenseWaves    `json:"park_defense,omitempty"`
 	UnlimitedResources bool                 `json:"unlimited_resources,omitempty"`
+}
+
+// ScenarioEconomy declares only bootstrap inputs. OpenBW owns all running
+// balances, supply, deposits, worker orders and construction after map load.
+type ScenarioEconomy struct {
+	Version         int    `json:"version"`
+	Mode            string `json:"mode"`
+	InitialBalances struct {
+		Minerals int `json:"minerals"`
+		Gas      int `json:"gas"`
+	} `json:"initial_balances"`
+	LayoutPolicy     string                  `json:"layout_policy"`
+	StartingEntities []ScenarioEconomyEntity `json:"starting_entities"`
+}
+
+type ScenarioEconomyEntity struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Tile   [2]int `json:"tile"`
+	Amount int    `json:"amount,omitempty"`
 }
 
 // ScenarioStructure uses OpenRCT2 tile coordinates, before native map padding.
@@ -196,6 +217,11 @@ func LoadScenario(path string) (*Scenario, error) {
 				scenario.ProductionFixture.NativeOverlord[1] < 1 || scenario.ProductionFixture.NativeOverlord[1] > 254)) {
 		return nil, fmt.Errorf("invalid production fixture")
 	}
+	if scenario.Economy != nil {
+		if err := scenario.validateEconomy(); err != nil {
+			return nil, err
+		}
+	}
 	controlOwners := map[int]bool{}
 	for _, owner := range scenario.ProductionControlOwners {
 		if owner < 0 || owner > 15 || controlOwners[owner] {
@@ -244,6 +270,72 @@ func LoadScenario(path string) (*Scenario, error) {
 		seenWave[wave.ID] = true
 	}
 	return &scenario, nil
+}
+
+func (s *Scenario) validateEconomy() error {
+	e := s.Economy
+	if s.Version != 2 || e.Version != 1 || e.Mode != "finite" || e.LayoutPolicy != "authored" ||
+		s.UnlimitedResources || s.ProductionFixture.TerranMinerals != 0 || s.ProductionFixture.TerranGas != 0 ||
+		s.ProductionFixture.NativeSupplyDepot != [2]int{} ||
+		e.InitialBalances.Minerals < 0 || e.InitialBalances.Minerals > 100000 ||
+		e.InitialBalances.Gas < 0 || e.InitialBalances.Gas > 100000 || len(e.StartingEntities) == 0 {
+		return fmt.Errorf("invalid finite economy configuration")
+	}
+	ids := map[string]bool{}
+	tiles := map[[2]int]bool{}
+	bases, workers, minerals, geysers := 0, 0, 0, 0
+	var baseEntity ScenarioEconomyEntity
+	for _, entity := range e.StartingEntities {
+		if !identifier.MatchString(entity.ID) || ids[entity.ID] {
+			return fmt.Errorf("invalid economy entity id: %s", entity.ID)
+		}
+		ids[entity.ID] = true
+		width, height := 1, 1
+		switch entity.Type {
+		case "terran_command_center":
+			bases++
+			baseEntity = entity
+			width, height = 4, 3
+		case "terran_scv":
+			workers++
+		case "mineral_field":
+			minerals++
+			width, height = 2, 1
+		case "vespene_geyser":
+			geysers++
+			width, height = 4, 2
+		default:
+			return fmt.Errorf("unsupported economy entity: %s", entity.Type)
+		}
+		if (entity.Type == "mineral_field" || entity.Type == "vespene_geyser") != (entity.Amount > 0) || entity.Amount > 65535 {
+			return fmt.Errorf("invalid economy resource amount: %s", entity.ID)
+		}
+		for y := entity.Tile[1]; y < entity.Tile[1]+height; y++ {
+			for x := entity.Tile[0]; x < entity.Tile[0]+width; x++ {
+				tile := [2]int{x, y}
+				if x < 8 || y < 8 || x >= s.ParkSize[0]-8 || y >= s.ParkSize[1]-8 || tiles[tile] {
+					return fmt.Errorf("invalid or overlapping economy tile: %s %v", entity.ID, tile)
+				}
+				tiles[tile] = true
+			}
+		}
+	}
+	if bases != 1 || workers < 1 || minerals < 1 || geysers != 1 {
+		return fmt.Errorf("finite economy requires one base, workers, minerals and geyser")
+	}
+	baseProjections := 0
+	for _, structure := range s.InitialStructures {
+		if structure.Type == "terran_command_center" {
+			baseProjections++
+			if structure.ID != baseEntity.ID || structure.Tile != baseEntity.Tile || structure.Faction != "terran" {
+				return fmt.Errorf("economy base projection does not match native bootstrap")
+			}
+		}
+	}
+	if baseProjections != 1 {
+		return fmt.Errorf("economy base projection missing or duplicated")
+	}
+	return nil
 }
 
 func (s *Scenario) validateV2() error {

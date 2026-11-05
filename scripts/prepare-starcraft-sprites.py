@@ -313,7 +313,8 @@ def prepare_profile_pack(kind: str, profile: dict, game_dir: Path, output: Path)
 def registered_profiles() -> dict:
     catalog = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
     visuals = visual_profiles()
-    units = {unit["visual"]: visuals["units"][unit["visual"]] for unit in catalog["units"]}
+    units = {unit["visual"]: visuals["units"][unit["visual"]]
+             for unit in catalog["units"] + catalog.get("resources", [])}
     return {profile["asset"]: (kind, profile) for kind, profile in units.items()}
 
 

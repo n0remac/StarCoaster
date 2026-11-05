@@ -1,5 +1,36 @@
 # Bridge protocol v1
 
+## Finite authored economy (E1)
+
+`economy` is an optional version 1 scenario block. `mode: finite` and
+`layout_policy: authored` load typed starting sites into the fresh OpenBW map
+once, with explicit initial minerals/gas. It rejects `unlimited_resources` and
+legacy production fixtures. An absent block retains the legacy scenario path.
+Ordinary park placement remains a later integration stage.
+
+For a finite scenario, each native participant publishes `resource.state` at
+the 24 frame observation cadence. The payload contains `site_id`,
+`generation`, observed decimal `native_id`, native `type`, `owner`, center
+`x`/`y`, `amount`, and `lifecycle` (`deposit`, `refinery`, or `absent`). The
+bridge checks the authored site and exact native center, then forwards a state
+only after publisher and controller agree on generation, type, amount, and
+lifecycle. The forwarded state includes `publisher_native_id` and
+`controller_native_id`; the IDs may differ. A Refinery may keep the geyser's
+native ID, while a restored geyser receives a new native ID and generation.
+The empty ID in an `absent` state is not a target. Session/revision and native
+frame remain in the `world.v1` envelope.
+
+`combat.snapshot` carries SCV `worker_order`, `cargo` (`none`, `minerals`, or
+`gas`), and `resource_target` with site, generation, and observed native ID
+when a native resource target is known. Worker animation states include
+`gather`, `carry`, and `construct`. `building.state` retains training
+`remaining_frames` and adds `construction_remaining_frames` and
+`construction_progress` (0–100), both observed from BWAPI. These are
+observations only. `player.resources` remains the authoritative balance and
+native half-supply message. Command Center production reuses the existing
+`unit.train` route for `terran_scv`. Worker gather/build command routing and
+native construction transactions remain E2/E3 work.
+
 ## Optional park defense control
 
 For a generated `park_defense` scenario with `manual_activation`, the OpenRCT2

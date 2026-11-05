@@ -52,13 +52,18 @@ PY
   export BRIDGE_TERRAN_STARTING_MINERALS="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'
 import json, sys
 scenario = json.load(open(sys.argv[1], encoding="utf-8"))
-print(scenario.get("production_fixture", {}).get("terran_minerals", 0))
+economy = scenario.get("economy") or {}
+print(economy["initial_balances"]["minerals"] if economy.get("mode") == "finite"
+      else scenario.get("production_fixture", {}).get("terran_minerals", 0))
 PY
 )"
   export BRIDGE_TERRAN_STARTING_GAS="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'
 import json, sys
 fixture = json.load(open(sys.argv[1], encoding="utf-8")).get("production_fixture", {})
-print(fixture["terran_gas"] if "terran_gas" in fixture else "")
+scenario = json.load(open(sys.argv[1], encoding="utf-8"))
+economy = scenario.get("economy") or {}
+print(economy["initial_balances"]["gas"] if economy.get("mode") == "finite"
+      else fixture["terran_gas"] if "terran_gas" in fixture else "")
 PY
 )"
   export BRIDGE_ZERG_STARTING_MINERALS="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'

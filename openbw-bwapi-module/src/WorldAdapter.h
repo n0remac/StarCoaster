@@ -13,6 +13,7 @@
 #include "WorldGoliathProbe.h"
 #include "WorldZergProductionProbe.h"
 #include "WorldEconomyE0Probe.h"
+#include "WorldEconomyObservations.h"
 #include "WorldBuildingState.h"
 #include "BridgePerformance.h"
 
@@ -171,6 +172,8 @@ public:
         publishRuntimeEvents(frame);
         publishSpawnOutcomes(frame);
         if (!session_.empty() && frame % 24 == 0 && game->self()) {
+            for (const auto& state : economyObservations_.observe(game))
+                send("resource.state", state, revision_, frame);
             send("player.resources", {{"owner", game->self()->getID()},
                 {"minerals", game->self()->minerals()}, {"gas", game->self()->gas()},
                 {"supply_used", game->self()->supplyUsed()},
@@ -832,7 +835,8 @@ private:
         return {{"id", "openbw:" + std::to_string(actor.canonical)},
             {"engine", "openbw"},
             {"type", worldUnitType(type)->id},
-            {"owner", actor.unit->getPlayer()->getID()},
+            {"owner", actor.unit->getPlayer() && actor.unit->getPlayer()->getID() >= 0
+                ? actor.unit->getPlayer()->getID() : 11},
             {"phase", actor.unit->isCompleted() ? "complete" : "incomplete"},
             {"generation", actor.generation}, {"session", session_}};
     }
@@ -1305,8 +1309,11 @@ private:
                         || unit->getType() != worldBuildingType(pending.buildingType)->native
                         || usedUnits_.count(unit->getID())) continue;
                     const auto position = unit->getPosition();
-                    if (std::abs(position.x - pending.x) <= 16
-                        && std::abs(position.y - pending.y) <= 16) {
+                    const bool nativeEconomyBase = economyObservations_.enabled()
+                        && pending.buildingType == "terran_command_center";
+                    if ((nativeEconomyBase && position.x == pending.x && position.y == pending.y)
+                        || (!nativeEconomyBase && std::abs(position.x - pending.x) <= 16
+                            && std::abs(position.y - pending.y) <= 16)) {
                         existing = unit; ++matches;
                     }
                 }
@@ -1318,6 +1325,12 @@ private:
                 if (existing) {
                     pending.health = existing->getHitPoints();
                     associateTarget(game, pending, existing);
+                    pending_.erase(pending_.begin() + index);
+                    continue;
+                }
+                if (economyObservations_.enabled()
+                    && pending.buildingType == "terran_command_center") {
+                    reportUnsupported(pending.id, "native_economy_base_missing");
                     pending_.erase(pending_.begin() + index);
                     continue;
                 }
@@ -1505,7 +1518,8 @@ private:
             if (motion[0] == 'a') attacking++;
             json actor={{"id",actorID},
                 {"kind",definition->id},
-                {"owner",unit->getPlayer()?unit->getPlayer()->getID():0},
+                {"owner",unit->getPlayer() && unit->getPlayer()->getID() >= 0
+                    ? unit->getPlayer()->getID() : 11},
                 {"x",position.x},{"y",position.y},{"facing",facing},{"aim_facing",aimFacing},
                 {"motion",motion}, {"completed",unit->isCompleted()},
                 {"remaining_build_frames",unit->getRemainingBuildTime()},
@@ -1514,6 +1528,17 @@ private:
                 {"attack_frames",attackFrames_[unit->getID()]},
                 {"target_id",target?json(actorRegistry_.id(target)):json(nullptr)},
                 {"target_entity_id",targetEntity.empty()?json(nullptr):json(targetEntity)}};
+            if (type == BWAPI::UnitTypes::Terran_SCV) {
+                actor["worker_order"] = unit->getOrder().getName();
+                actor["cargo"] = unit->isCarryingMinerals() ? "minerals"
+                    : unit->isCarryingGas() ? "gas" : "none";
+                actor["resource_target"] = economyObservations_.bindingFor(target);
+                if (unit->isCarryingMinerals() || unit->isCarryingGas())
+                    actor["motion"] = "carry";
+                else if (unit->isGatheringMinerals() || unit->isGatheringGas())
+                    actor["motion"] = "gather";
+                else if (unit->isConstructing()) actor["motion"] = "construct";
+            }
             units.push_back(actor);
             lastActors_[unit->getID()]={actor,frame};
         }
@@ -1559,6 +1584,7 @@ private:
         pendingMaskUnchanged_ = false;
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
+    WorldEconomyObservations economyObservations_;
     WorldFirebatTechProbe firebatTechProbe_{false};
     WorldMedicVultureProbe medicVultureProbe_{false};
     WorldGoliathProbe goliathProbe_{false};

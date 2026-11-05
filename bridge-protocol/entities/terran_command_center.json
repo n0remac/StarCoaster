@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "building",
+  "id": "terran_command_center",
+  "registry_order": 80,
+  "native_type": "Terran_Command_Center",
+  "object_id": "starcoaster.scenery_large.terran_command_center",
+  "display_name": "Terran Command Center",
+  "width": 4, "height": 3, "max_health": 1500,
+  "conventional_training": true,
+  "visual": {
+    "image": "Command_Center", "asset": "command_center",
+    "source_size": [128, 160], "frame_count": 6,
+    "output_size": [128, 160], "art_method": "static"
+  }
+}

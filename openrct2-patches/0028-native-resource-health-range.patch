@@ -1,0 +1,10 @@
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -788,4 +788,4 @@
+             && BridgeReadInt(ctx, unit, "owner", owner) && owner >= 0 && owner <= 11
+-            && BridgeReadInt(ctx, unit, "hp", hp) && hp >= 0 && hp <= 10000
+-            && BridgeReadInt(ctx, unit, "max_hp", maxHp) && maxHp >= hp && maxHp <= 10000
++            && BridgeReadInt(ctx, unit, "hp", hp) && hp >= 0 && hp <= 100000
++            && BridgeReadInt(ctx, unit, "max_hp", maxHp) && maxHp >= hp && maxHp <= 100000
+             && BridgeReadInt(ctx, unit, "attack_frames", attackFrames) && attackFrames >= 0;

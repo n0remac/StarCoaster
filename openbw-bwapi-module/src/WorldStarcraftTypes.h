@@ -43,6 +43,9 @@ inline const std::vector<WorldUnitType>& worldUnitTypes() {
         {"zerg_ultralisk", BWAPI::UnitTypes::Zerg_Ultralisk, "zerg", "enemy", false, true, false, "zerg_ultralisk", 0, 20},
         {"zerg_larva", BWAPI::UnitTypes::Zerg_Larva, "zerg", "enemy", false, false, false, "zerg_larva", 0, 87},
         {"zerg_egg", BWAPI::UnitTypes::Zerg_Egg, "zerg", "enemy", false, false, true, "zerg_egg", 0, 93},
+        {"terran_scv", BWAPI::UnitTypes::Terran_SCV, "terran", "player", true, false, false, "terran_scv", 0, 1},
+        {"mineral_field", BWAPI::UnitTypes::Resource_Mineral_Field, "neutral", "neutral", false, false, false, "mineral_field", 0, 1},
+        {"vespene_geyser", BWAPI::UnitTypes::Resource_Vespene_Geyser, "neutral", "neutral", false, false, false, "vespene_geyser", 0, 1},
 
         // END GENERATED STARCRAFT UNITS
     };
@@ -69,6 +72,8 @@ inline const std::vector<WorldBuildingType>& worldBuildingTypes() {
         {"terran_armory", BWAPI::UnitTypes::Terran_Armory, "starcoaster.scenery_large.terran_armory", 3, 2, "Terran Armory", false, {}},
         {"zerg_hatchery", BWAPI::UnitTypes::Zerg_Hatchery, "starcoaster.scenery_large.zerg_hatchery", 4, 3, "Zerg Hatchery", true, {"zerg_zergling"}},
         {"zerg_spawning_pool", BWAPI::UnitTypes::Zerg_Spawning_Pool, "starcoaster.scenery_large.zerg_spawning_pool", 3, 2, "Zerg Spawning Pool", false, {}},
+        {"terran_command_center", BWAPI::UnitTypes::Terran_Command_Center, "starcoaster.scenery_large.terran_command_center", 4, 3, "Terran Command Center", true, {"terran_scv"}},
+        {"terran_refinery", BWAPI::UnitTypes::Terran_Refinery, "starcoaster.scenery_large.terran_refinery", 4, 2, "Terran Refinery", false, {}},
 
         // END GENERATED STARCRAFT BUILDINGS
     };

@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 DIRECTIONS = ("east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast")
-STATES = ("idle", "walk", "attack", "heal", "morph", "hatch", "death")
+STATES = ("idle", "walk", "attack", "heal", "gather", "carry", "construct", "morph", "hatch", "death")
 LEGACY_G2_COUNT = 601
 
 
@@ -77,7 +77,7 @@ def generate(upstream: Path) -> None:
               "struct BridgeVisualLayer { const BridgeVisualAnimation* animations; size_t count; bool targetFacing; bool optional; };",
               "struct BridgeVisualType { const char* id; uint32_t healthBase; int16_t bounds[3]; bool flame; const BridgeVisualLayer* layers; size_t layerCount; };"]
     descriptors = []
-    for unit in catalog["units"]:
+    for unit in catalog["units"] + catalog.get("resources", []):
         kind = unit["id"]
         profile = visuals["units"][unit["visual"]]
         asset = profile["asset"]

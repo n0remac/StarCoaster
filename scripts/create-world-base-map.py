@@ -8,11 +8,17 @@ import struct
 import subprocess
 import tempfile
 
-from starcraft_map_pack import SOURCE, unit, pack_map
+from starcraft_map_pack import SOURCE, UNIT, unit, pack_map
 
 
 MAP_SIZE = 256
 SOURCE_SIZE = 128
+ECONOMY_NATIVE_TYPES = {
+    "terran_command_center": (106, 4, 3, 1),
+    "terran_scv": (7, 1, 1, 1),
+    "mineral_field": (176, 2, 1, 11),
+    "vespene_geyser": (188, 4, 2, 11),
+}
 
 
 def resize_tiles(body: bytes, bytes_per_tile: int) -> bytes:
@@ -66,6 +72,28 @@ def scenario_units(path: Path) -> list[bytes]:
             x, y = (((location[0] + (MAP_SIZE - size[0]) // 2) * 32 + 16),
                     ((location[1] + (MAP_SIZE - size[1]) // 2) * 32 + 16))
             units.append(unit(first_id + index, x, y, kind, owner))
+    economy = scenario.get("economy")
+    if economy is not None:
+        if (economy.get("version") != 1 or economy.get("mode") != "finite"
+                or scenario.get("unlimited_resources") or scenario.get("production_fixture")
+                or economy.get("layout_policy") != "authored"):
+            raise ValueError("invalid finite economy map bootstrap")
+        for index, entity in enumerate(economy.get("starting_entities", [])):
+            kind, width, height, owner = ECONOMY_NATIVE_TYPES[entity["type"]]
+            tile = entity["tile"]
+            if (not isinstance(tile, list) or len(tile) != 2 or
+                    any(type(v) is not int or v < 0 or v >= size[axis] for axis, v in enumerate(tile))):
+                raise ValueError(f"invalid economy starting tile: {tile}")
+            amount = entity.get("amount", 0)
+            if owner == 11 and not 1 <= amount <= 65535 or owner != 11 and amount != 0:
+                raise ValueError("invalid economy resource amount")
+            x = (tile[0] + (MAP_SIZE - size[0]) // 2) * 32 + width * 16
+            y = (tile[1] + (MAP_SIZE - size[1]) // 2) * 32 + height * 16
+            # CHK record IDs are file-local; live bindings use observed BWAPI
+            # IDs on both participants and the scenario's logical site ID.
+            units.append(UNIT.pack(3000 + index, x, y, kind, 0, 0,
+                                   0x10 if owner == 11 else 0, owner,
+                                   100, 100, 100, amount, 0, 0, 0, 0))
     fixture = scenario.get("production_fixture") or {}
     if fixture.get("terran_minerals", 0):
         tile = fixture.get("native_supply_depot")

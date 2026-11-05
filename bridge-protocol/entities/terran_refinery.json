@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "building",
+  "id": "terran_refinery",
+  "registry_order": 90,
+  "native_type": "Terran_Refinery",
+  "object_id": "starcoaster.scenery_large.terran_refinery",
+  "display_name": "Terran Refinery",
+  "width": 4, "height": 2, "max_health": 750,
+  "conventional_training": false,
+  "visual": {
+    "image": "Refinery", "asset": "refinery",
+    "source_size": [192, 192], "frame_count": 5,
+    "output_size": [192, 192], "art_method": "static"
+  }
+}

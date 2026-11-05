@@ -797,6 +797,145 @@
         32,
         32
       ]
+    },
+    "terran_scv": {
+      "asset": "scv",
+      "g2_order": 11,
+      "image": "SCV",
+      "source": "unit/terran/SCV.grp",
+      "canvas": [
+        72,
+        72
+      ],
+      "frame_count": 51,
+      "stride": 17,
+      "animations": {
+        "idle": {
+          "banks": [
+            0
+          ],
+          "ticks": 0
+        },
+        "walk": {
+          "banks": [
+            1,
+            2
+          ],
+          "ticks": 4
+        },
+        "gather": {
+          "banks": [
+            1,
+            2
+          ],
+          "ticks": 4
+        },
+        "carry": {
+          "banks": [
+            1,
+            2
+          ],
+          "ticks": 4
+        },
+        "construct": {
+          "banks": [
+            1,
+            2
+          ],
+          "ticks": 4
+        },
+        "death": {
+          "frames": [
+            0
+          ],
+          "ticks": 1
+        }
+      },
+      "health_offset": [
+        -10,
+        -28
+      ],
+      "bounds": [
+        14,
+        14,
+        17
+      ]
+    },
+    "mineral_field": {
+      "asset": "mineral_field",
+      "g2_order": 12,
+      "image": "Mineral_Field_Type1",
+      "source": "unit/neutral/min01.grp",
+      "canvas": [
+        64,
+        96
+      ],
+      "frame_count": 4,
+      "stride": 1,
+      "animations": {
+        "idle": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "ticks": 6
+        },
+        "death": {
+          "frames": [
+            0
+          ],
+          "ticks": 1
+        }
+      },
+      "health_offset": [
+        -12,
+        -28
+      ],
+      "bounds": [
+        24,
+        20,
+        12
+      ]
+    },
+    "vespene_geyser": {
+      "asset": "vespene_geyser",
+      "g2_order": 13,
+      "image": "Vespene_Geyser",
+      "source": "unit/neutral/geyser.grp",
+      "canvas": [
+        128,
+        64
+      ],
+      "frame_count": 4,
+      "stride": 1,
+      "animations": {
+        "idle": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "ticks": 6
+        },
+        "death": {
+          "frames": [
+            0
+          ],
+          "ticks": 1
+        }
+      },
+      "health_offset": [
+        -14,
+        -28
+      ],
+      "bounds": [
+        40,
+        24,
+        12
+      ]
     }
   },
   "effects": {
@@ -942,6 +1081,34 @@
       "output_size": [
         140,
         140
+      ],
+      "art_method": "static"
+    },
+    "terran_command_center": {
+      "image": "Command_Center",
+      "asset": "command_center",
+      "source_size": [
+        128,
+        160
+      ],
+      "frame_count": 6,
+      "output_size": [
+        128,
+        160
+      ],
+      "art_method": "static"
+    },
+    "terran_refinery": {
+      "image": "Refinery",
+      "asset": "refinery",
+      "source_size": [
+        192,
+        192
+      ],
+      "frame_count": 5,
+      "output_size": [
+        192,
+        192
       ],
       "art_method": "static"
     }

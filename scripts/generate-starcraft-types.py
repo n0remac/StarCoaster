@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ENTITIES = "bridge-protocol/entities"
 BEGIN = "BEGIN GENERATED STARCRAFT TYPES"
 END = "END GENERATED STARCRAFT TYPES"
-COMMANDS = {"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop", "unit.heal"}
+COMMANDS = {"unit.move", "unit.attack", "unit.attack_move", "unit.hold", "unit.stop", "unit.heal",
+            "unit.gather", "unit.return_cargo", "unit.build", "unit.resume_construction"}
 BASE_COMMANDS = {"unit.move", "unit.hold", "unit.stop"}
 TYPE_ID = re.compile(r"[a-z][a-z0-9_]+")
 OBJECT_ID = re.compile(r"starcoaster\.scenery_large\.[a-z][a-z0-9_]+")
@@ -30,6 +31,7 @@ COMMON = {"schema_version", "kind", "id", "registry_order", "native_type",
 UNIT_FIELDS = COMMON | {"race", "ownership", "controllable", "movement",
                         "spawnable", "legacy_static_base", "commands", "produced_at",
                         "owned_effects", "visible_incomplete"}
+RESOURCE_FIELDS = UNIT_FIELDS | {"width", "height"}
 BUILDING_FIELDS = COMMON | {"object_id", "width", "height", "max_health",
                             "animation", "conventional_training"}
 UNIT_VISUAL_FIELDS = {"asset", "g2_order", "source", "image", "canvas",
@@ -72,7 +74,8 @@ def validate_animation(profile, label, required_death=True):
             ("idle" not in animations or "death" not in animations)):
         raise ValueError(f"Missing required visual state: {label}")
     for state, animation in animations.items():
-        if state not in {"idle", "walk", "attack", "heal", "death", "morph", "hatch"} or not isinstance(animation, dict):
+        if state not in {"idle", "walk", "attack", "heal", "death", "morph", "hatch",
+                         "gather", "carry", "construct"} or not isinstance(animation, dict):
             raise ValueError(f"Unsupported visual state: {label}.{state}")
         if "fallback" in animation:
             if animation["fallback"] not in animations or "fallback" in animations[animation["fallback"]]:
@@ -102,15 +105,17 @@ def validate(catalog, visuals=None, root=ROOT):
     visuals = visuals if visuals is not None else json.loads((root / "bridge-protocol/starcraft-visuals.json").read_text())
     names = native_names(root)
     units = {item["id"]: item for item in catalog["units"]}
+    resources = {item["id"]: item for item in catalog.get("resources", [])}
     buildings = {item["id"]: item for item in catalog["buildings"]}
     if (len(units) != len(catalog["units"]) or len(buildings) != len(catalog["buildings"])
-            or set(units) & set(buildings)):
+            or len(resources) != len(catalog.get("resources", []))
+            or set(units) & set(buildings) or set(units) & set(resources) or set(buildings) & set(resources)):
         raise ValueError("Duplicate StarCraft type ID")
     objects = set()
     native_types = set()
     legacy_bases = set()
     visual_orders = set()
-    for item in catalog["units"]:
+    for item in catalog["units"] + catalog.get("resources", []):
         if not TYPE_ID.fullmatch(item["id"]):
             raise ValueError("Invalid unit ID")
         if not all(item.get(key) for key in ("native_type", "race", "ownership", "display_name", "visual")):
@@ -119,9 +124,10 @@ def validate(catalog, visuals=None, root=ROOT):
         if native not in names or native in native_types or native.startswith("Hero_") or native.endswith("_Turret"):
             raise ValueError(f"Unknown or duplicate native unit type: {native}")
         native_types.add(native)
-        if item["race"] not in {"terran", "zerg", "protoss"} or not native.lower().startswith(item["race"] + "_"):
+        if item["race"] not in {"terran", "zerg", "protoss", "neutral"} or not native.lower().startswith(
+                ("resource" if item["race"] == "neutral" else item["race"]) + "_"):
             raise ValueError(f"Invalid unit race: {item['id']}")
-        if item["ownership"] not in {"player", "enemy"} or item.get("movement") != "ground":
+        if item["ownership"] not in {"player", "enemy", "neutral"} or item.get("movement") not in {"ground", "static"}:
             raise ValueError(f"Unsupported unit capability: {item['id']}")
         if (not isinstance(item.get("controllable"), bool)
                 or not isinstance(item.get("spawnable"), bool)
@@ -132,7 +138,9 @@ def validate(catalog, visuals=None, root=ROOT):
                 or not set(commands) <= COMMANDS
                 or (item["controllable"] and (item["ownership"] != "player" or not BASE_COMMANDS <= set(commands)))
                 or (not item["controllable"] and commands)
-                or ("unit.heal" in commands and native != "Terran_Medic")):
+                or ("unit.heal" in commands and native != "Terran_Medic")
+                or (set(commands) & {"unit.gather", "unit.return_cargo", "unit.build", "unit.resume_construction"}
+                    and native != "Terran_SCV")):
             raise ValueError(f"Unsupported unit commands: {item['id']}")
         base = item.get("legacy_static_base")
         if not isinstance(base, int) or base < 0 or (base and (base % 1000 or base >= 3000 or base in legacy_bases)):
@@ -220,16 +228,16 @@ def load_entities(root=ROOT):
 def validate_entities(entities, root=ROOT):
     names = native_names(root)
     seen = {"id": set(), "native_type": set(), "object_id": set(), "asset": set(),
-            "g2_order": set(), "effect": set(), "unit_order": set(), "building_order": set()}
+            "g2_order": set(), "effect": set(), "unit_order": set(), "resource_order": set(), "building_order": set()}
     by_id = {}
     for path, entity in entities:
         label = str(path)
         kind = entity.get("kind")
-        if kind not in ("unit", "building"):
-            raise ValueError(f"{label}: kind: expected 'unit' or 'building'")
-        _fields(entity, UNIT_FIELDS - {"produced_at", "owned_effects", "visible_incomplete"} if kind == "unit"
+        if kind not in ("unit", "building", "resource"):
+            raise ValueError(f"{label}: kind: expected 'unit', 'building' or 'resource'")
+        _fields(entity, (RESOURCE_FIELDS if kind == "resource" else UNIT_FIELDS) - {"produced_at", "owned_effects", "visible_incomplete"} if kind in ("unit", "resource")
                 else BUILDING_FIELDS - {"animation"},
-                {"produced_at", "owned_effects", "visible_incomplete"} if kind == "unit" else {"animation"}, label)
+                {"produced_at", "owned_effects", "visible_incomplete"} if kind in ("unit", "resource") else {"animation"}, label)
         if type(entity["schema_version"]) is not int or entity["schema_version"] != 1:
             raise ValueError(f"{label}: schema_version: only version 1 is supported")
         ident = entity["id"]
@@ -247,24 +255,24 @@ def validate_entities(entities, root=ROOT):
         if not isinstance(entity["display_name"], str) or not entity["display_name"]:
             raise ValueError(f"{label}: display_name: expected nonempty string")
         order = entity["registry_order"]
-        bucket = "unit_order" if kind == "unit" else "building_order"
-        pinned = PINNED_UNITS if kind == "unit" else PINNED_BUILDINGS
+        bucket = "resource_order" if kind == "resource" else "unit_order" if kind == "unit" else "building_order"
+        pinned = PINNED_UNITS if kind in ("unit", "resource") else PINNED_BUILDINGS
         expected = pinned.get(ident)
         if type(order) is not int or order < 1 or order in seen[bucket]:
             raise ValueError(f"{label}: registry_order: invalid or duplicate order")
-        if expected is not None and order != (expected[0] if kind == "unit" else expected):
+        if expected is not None and order != (expected[0] if kind in ("unit", "resource") else expected):
             raise ValueError(f"{label}: registry_order: established order is immutable")
-        if expected is None and order <= (60 if kind == "unit" else 50):
+        if expected is None and order <= (60 if kind in ("unit", "resource") else 50):
             raise ValueError(f"{label}: registry_order: new entities must append above established orders")
         seen[bucket].add(order)
         profile = entity["visual"]
-        if kind == "unit":
-            if entity["race"] not in {"terran", "zerg", "protoss"} or not entity["native_type"].lower().startswith(
-                    entity["race"] + "_"):
+        if kind in ("unit", "resource"):
+            if entity["race"] not in {"terran", "zerg", "protoss", "neutral"} or not entity["native_type"].lower().startswith(
+                    ("resource" if kind == "resource" else entity["race"]) + "_"):
                 raise ValueError(f"{label}: race: unsupported native race")
-            if entity["movement"] != "ground":
+            if entity["movement"] != ("static" if kind == "resource" else "ground"):
                 raise ValueError(f"{label}: movement: only ground units are supported")
-            if entity["ownership"] not in {"player", "enemy"}:
+            if entity["ownership"] not in ({"neutral"} if kind == "resource" else {"player", "enemy"}):
                 raise ValueError(f"{label}: ownership: unsupported owner")
             if type(entity["spawnable"]) is not bool or type(entity["controllable"]) is not bool:
                 raise ValueError(f"{label}: spawnable/controllable: explicit booleans required")
@@ -276,13 +284,18 @@ def validate_entities(entities, root=ROOT):
                     or (entity["controllable"] and
                         (entity["ownership"] != "player" or not BASE_COMMANDS <= set(entity["commands"])))
                     or (not entity["controllable"] and entity["commands"])
-                    or ("unit.heal" in entity["commands"] and entity["native_type"] != "Terran_Medic")):
+                    or ("unit.heal" in entity["commands"] and entity["native_type"] != "Terran_Medic")
+                    or (set(entity["commands"]) & {"unit.gather", "unit.return_cargo", "unit.build", "unit.resume_construction"}
+                        and entity["native_type"] != "Terran_SCV")):
                 raise ValueError(f"{label}: commands: unsupported command/capability combination")
             base = entity["legacy_static_base"]
             if type(base) is not int or base < 0 or (base and (base % 1000 or base >= 3000)):
                 raise ValueError(f"{label}: legacy_static_base: invalid legacy actor base")
             if ident not in PINNED_UNITS and base != 0:
                 raise ValueError(f"{label}: legacy_static_base: new runtime units must use 0")
+            if kind == "resource" and (entity["spawnable"] or entity["controllable"] or entity["commands"]
+                                       or entity.get("produced_at") or entity["width"] < 1 or entity["height"] < 1):
+                raise ValueError(f"{label}: resource: invalid neutral capability or footprint")
             _fields(profile, {"asset", "g2_order", "source", "stride", "animations",
                               "health_offset", "bounds"}, UNIT_VISUAL_FIELDS -
                     {"asset", "g2_order", "source", "stride", "animations", "health_offset", "bounds"},
@@ -420,20 +433,27 @@ def project_catalogs(entities, root=ROOT):
     validate_entities(entities, root)
     units = sorted((entity for _, entity in entities if entity["kind"] == "unit"),
                    key=lambda entity: entity["registry_order"])
+    resources = sorted((entity for _, entity in entities if entity["kind"] == "resource"),
+                       key=lambda entity: entity["registry_order"])
     buildings = sorted((entity for _, entity in entities if entity["kind"] == "building"),
                        key=lambda entity: entity["registry_order"])
     production = {building["id"]: [] for building in buildings}
     for unit in units:
         if "produced_at" in unit:
             production[unit["produced_at"]].append(unit["id"])
-    catalog = {"units": [], "buildings": []}
+    catalog = {"units": [], "buildings": [], "resources": []}
     visuals = {"directions": DIRECTIONS, "units": {}, "effects": {}, "buildings": {}}
     for unit in units:
         catalog["units"].append({key: unit[key] for key in UNIT_CATALOG_KEYS}
-                                | {"visual": unit["id"],
+                                | {"visual": unit["id"], **({"produced_at": unit["produced_at"]} if unit["id"] == "terran_scv" else {}),
                                    **({"visible_incomplete": True} if unit.get("visible_incomplete") else {})})
         visuals["units"][unit["id"]] = unit["visual"]
         visuals["effects"].update(unit.get("owned_effects", {}))
+    for resource in resources:
+        catalog["resources"].append({key: resource[key] for key in UNIT_CATALOG_KEYS}
+                                    | {"visual": resource["id"], "width": resource["width"],
+                                       "height": resource["height"]})
+        visuals["units"][resource["id"]] = resource["visual"]
     for building in buildings:
         catalog["buildings"].append({key: building[key] for key in BUILDING_CATALOG_KEYS}
                                     | {"visual": building["id"], "production": production[building["id"]]}
@@ -445,7 +465,7 @@ def project_catalogs(entities, root=ROOT):
 
 def go_definitions(catalog):
     lines = ["var unitDefinitions = map[string]UnitDefinition{"]
-    for unit in catalog["units"]:
+    for unit in catalog["units"] + catalog["resources"]:
         fields = [f'{key}: {quoted(unit[field])}' for key, field in (
             ("ID", "id"), ("NativeType", "native_type"), ("Race", "race"),
             ("Ownership", "ownership"), ("DisplayName", "display_name"), ("Visual", "visual"),
@@ -465,12 +485,19 @@ def go_definitions(catalog):
                    f'MaxHealth: {building["max_health"]}',
                    'Production: []string{' + ', '.join(map(quoted, building["production"])) + '}']
         lines.append(f'\t{quoted(building["id"])}: {{' + ', '.join(fields) + '},')
+    lines += ['}', '', 'var resourceDefinitions = map[string]ResourceDefinition{']
+    for resource in catalog['resources']:
+        lines.append(f'\t{quoted(resource["id"])}: {{ID: {quoted(resource["id"])}, '
+                     f'NativeType: {quoted(resource["native_type"])}, '
+                     f'DisplayName: {quoted(resource["display_name"])}, '
+                     f'Visual: {quoted(resource["visual"])}, '
+                     f'Width: {resource["width"]}, Height: {resource["height"]}}},')
     return '\n'.join(lines + ['}']) + '\n'
 
 
 def javascript_definitions(catalog):
     lines = ['    const UNIT_TYPES = Object.freeze({']
-    for unit in catalog['units']:
+    for unit in catalog['units'] + catalog['resources']:
         commands = [command.removeprefix('unit.') for command in unit['commands']]
         lines.append(f'        {unit["id"]}: {{ name: {quoted(unit["display_name"])}, '
                      f'visual: {quoted(unit["visual"])}, race: {quoted(unit["race"])}, '
@@ -500,7 +527,7 @@ def replace_block(path, rendered, check, begin=BEGIN, end_marker=END):
 
 def native_units(catalog, visuals):
     lines = []
-    for unit in catalog["units"]:
+    for unit in catalog["units"] + catalog["resources"]:
         death = visuals["units"][unit["visual"]]["animations"]["death"]
         frames = death.get("frames", death.get("banks"))
         death_display_frames = sum(death.get("frame_ticks", [max(1, death["ticks"])] * len(frames)))
@@ -534,7 +561,8 @@ def check_native(catalog, visuals=None, root=ROOT):
 
 
 def schema_definitions(catalog, root=ROOT):
-    all_units = [unit["id"] for unit in catalog["units"]]
+    all_units = [unit["id"] for unit in catalog["units"] + catalog["resources"]]
+    command_units = [unit["id"] for unit in catalog["units"]]
     spawnable = [unit["id"] for unit in catalog["units"] if unit["spawnable"]]
     world_path = root / 'bridge-protocol/world.v1.schema.json'
     world_text = world_path.read_text()
@@ -546,15 +574,24 @@ def schema_definitions(catalog, root=ROOT):
     else:
         raise ValueError("Missing combat.command schema")
     defs = world["$defs"]
-    if defs["actorIdentity"]["properties"]["type"]["enum"] != previous_units:
-        raise ValueError("Protocol unit enumerations disagree")
+    previous_actor_units = defs["actorIdentity"]["properties"]["type"]["enum"]
     previous_spawn = defs["spawnRequest"]["properties"]["unit_type"]["enum"]
     if defs["spawnExecute"]["properties"]["unit_type"]["enum"] != previous_spawn:
         raise ValueError("Protocol spawn enumerations disagree")
-    old, new = json.dumps(previous_units), json.dumps(all_units)
-    if world_text.count(old) != 2:
-        raise ValueError("Expected two protocol unit enumerations")
-    world_text = world_text.replace(old, new)
+    lines = world_text.splitlines(keepends=True)
+    command_line = next((index for index, line in enumerate(lines)
+                         if '"const": "combat.command"' in line), None)
+    actor_line = next((index for index, line in enumerate(lines)
+                       if '"actorIdentity"' in line), None)
+    if command_line is None or actor_line is None:
+        raise ValueError("Missing protocol actor/command enumerations")
+    for line_index, old_units, new_units in ((command_line, previous_units, command_units),
+                                             (actor_line, previous_actor_units, all_units)):
+        old, new = json.dumps(old_units), json.dumps(new_units)
+        if lines[line_index].count(old) != 1:
+            raise ValueError("Expected one protocol unit enumeration per contract")
+        lines[line_index] = lines[line_index].replace(old, new)
+    world_text = ''.join(lines)
     old, new = json.dumps(previous_spawn), json.dumps(spawnable)
     if world_text.count(old) != 2:
         raise ValueError("Expected two protocol spawn enumerations")

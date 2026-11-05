@@ -49,7 +49,8 @@ def stable_sprite_entries(entries: list[dict]) -> list[dict]:
 def registered_units() -> list[tuple[str, dict]]:
     catalog = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
     visuals = json.loads((ROOT / "bridge-protocol/starcraft-visuals.json").read_text())["units"]
-    return sorted(((unit["id"], visuals[unit["visual"]]) for unit in catalog["units"]),
+    return sorted(((unit["id"], visuals[unit["visual"]])
+                   for unit in catalog["units"] + catalog.get("resources", [])),
                   key=lambda item: item[1]["g2_order"])
 
 

@@ -276,6 +276,26 @@ def ensure_wasm_connection_state(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_economy_worker_visual_states(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0027-economy-worker-visual-states.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected actor validation changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
+def ensure_native_resource_health_range(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0028-native-resource-health-range.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected actor health validation changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
@@ -299,7 +319,9 @@ if __name__ == "__main__":
                     ROOT / "openrct2-patches/0023-diagnostic-wasm-join-port.patch",
                     ROOT / "openrct2-patches/0024-snapshot-apply-breakdown.patch",
                     ROOT / "openrct2-patches/0025-wasm-socket-connect-grace.patch",
-                    ROOT / "openrct2-patches/0026-wasm-connection-state.patch"]
+                    ROOT / "openrct2-patches/0026-wasm-connection-state.patch",
+                    ROOT / "openrct2-patches/0027-economy-worker-visual-states.patch",
+                    ROOT / "openrct2-patches/0028-native-resource-health-range.patch"]
         # Reconciliation temporarily reverses and reapplies overlays. Keep
         # unchanged file mtimes so an ordinary rebuild does not recompile all
         # SpriteIds.h dependents merely because the check ran.
@@ -341,7 +363,9 @@ if __name__ == "__main__":
                   ("Diagnostic WASM join port", ensure_diagnostic_wasm_join_port),
                   ("Snapshot apply breakdown", ensure_snapshot_apply_breakdown),
                   ("WASM socket connect grace", ensure_wasm_socket_connect_grace),
-                  ("WASM connection state", ensure_wasm_connection_state)]
+                  ("WASM connection state", ensure_wasm_connection_state),
+                  ("Economy worker visual states", ensure_economy_worker_visual_states),
+                  ("Native resource health range", ensure_native_resource_health_range)]
         for index, (label, ensure) in enumerate(checks):
             removed = []
             for overlay in reversed(overlays[index + 1:]):

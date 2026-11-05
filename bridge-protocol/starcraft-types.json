@@ -160,6 +160,28 @@
       "commands": [],
       "visual": "zerg_egg",
       "visible_incomplete": true
+    },
+    {
+      "id": "terran_scv",
+      "native_type": "Terran_SCV",
+      "race": "terran",
+      "ownership": "player",
+      "display_name": "SCV",
+      "controllable": true,
+      "movement": "ground",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [
+        "unit.move",
+        "unit.hold",
+        "unit.stop",
+        "unit.gather",
+        "unit.return_cargo",
+        "unit.build",
+        "unit.resume_construction"
+      ],
+      "visual": "terran_scv",
+      "produced_at": "terran_command_center"
     }
   ],
   "buildings": [
@@ -253,6 +275,62 @@
       "max_health": 750,
       "visual": "zerg_spawning_pool",
       "production": []
+    },
+    {
+      "id": "terran_command_center",
+      "native_type": "Terran_Command_Center",
+      "object_id": "starcoaster.scenery_large.terran_command_center",
+      "display_name": "Terran Command Center",
+      "width": 4,
+      "height": 3,
+      "max_health": 1500,
+      "visual": "terran_command_center",
+      "production": [
+        "terran_scv"
+      ]
+    },
+    {
+      "id": "terran_refinery",
+      "native_type": "Terran_Refinery",
+      "object_id": "starcoaster.scenery_large.terran_refinery",
+      "display_name": "Terran Refinery",
+      "width": 4,
+      "height": 2,
+      "max_health": 750,
+      "visual": "terran_refinery",
+      "production": []
+    }
+  ],
+  "resources": [
+    {
+      "id": "mineral_field",
+      "native_type": "Resource_Mineral_Field",
+      "race": "neutral",
+      "ownership": "neutral",
+      "display_name": "Mineral Field",
+      "controllable": false,
+      "movement": "static",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [],
+      "visual": "mineral_field",
+      "width": 2,
+      "height": 1
+    },
+    {
+      "id": "vespene_geyser",
+      "native_type": "Resource_Vespene_Geyser",
+      "race": "neutral",
+      "ownership": "neutral",
+      "display_name": "Vespene Geyser",
+      "controllable": false,
+      "movement": "static",
+      "spawnable": false,
+      "legacy_static_base": 0,
+      "commands": [],
+      "visual": "vespene_geyser",
+      "width": 4,
+      "height": 2
     }
   ]
 }

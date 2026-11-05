@@ -28,7 +28,8 @@ async function unusedPort() {
 }
 
 async function ready(url) {
-  for (let attempt = 0; attempt < 600; attempt++) {
+  const deadline = Date.now() + Number(process.env.WASM_SERVER_READY_TIMEOUT_MS || 60000);
+  while (Date.now() < deadline) {
     try {
       const response = await fetch(url);
       if (response.ok) return;
