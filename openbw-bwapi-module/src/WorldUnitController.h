@@ -9,6 +9,7 @@
 #include "WorldMedicVultureProbe.h"
 #include "WorldGoliathProbe.h"
 #include "WorldZergProductionProbe.h"
+#include "WorldEconomyE0Probe.h"
 #include "WorldBuildingState.h"
 #include "BridgePerformance.h"
 
@@ -114,6 +115,7 @@ public:
         for (const auto& [id, binding] : publisherBindings_) pendingActors.push_back(id);
         for (const auto& id : pendingActors) tryBind(id);
         applyScheduledNavigation(game);
+        economyE0Probe_.onFrame(game, !appliedMaskHash_.empty(), appliedMaskHash_);
         probeNativeBarracks(game);
         if (std::getenv("BRIDGE_TEST_MEDIC_CAPTURE_DAMAGE") && !medicCaptureDamaged_
             && actorRegistry_.prepare(game)) {
@@ -822,6 +824,7 @@ private:
     WorldMedicVultureProbe medicVultureProbe_{true};
     WorldGoliathProbe goliathProbe_{true};
     WorldZergProductionProbe zergProductionProbe_{false};
+    WorldEconomyE0Probe economyE0Probe_{true};
     std::map<int, CreationCandidate> creationCandidates_;
     std::map<std::string, json> identities_, publisherBindings_;
     std::set<std::string> ambiguousActors_;

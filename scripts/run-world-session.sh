@@ -78,6 +78,9 @@ if [[ -n "${BRIDGE_RULES_CONFIG:-}" ]]; then bridge_args+=(--rules "$BRIDGE_RULE
 if [[ -n "${BRIDGE_SPAWN_JOURNAL:-}" ]]; then bridge_args+=(--spawn-journal "$BRIDGE_SPAWN_JOURNAL"); fi
 "$project_dir/build/world-bridge" "${bridge_args[@]}" &
 bridge_pid=$!
+if [[ -n "${BRIDGE_TEST_BRIDGE_PID_FILE:-}" ]]; then
+    printf '%s\n' "$bridge_pid" > "$BRIDGE_TEST_BRIDGE_PID_FILE"
+fi
 (
   export BRIDGE_BWAPI_MENU=MULTI_PLAYER BRIDGE_BWAPI_SLOT=0 BRIDGE_BWAPI_RACE=Zerg
   export BRIDGE_WORLD_ROLE=publisher

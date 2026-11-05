@@ -12,6 +12,7 @@
 #include "WorldMedicVultureProbe.h"
 #include "WorldGoliathProbe.h"
 #include "WorldZergProductionProbe.h"
+#include "WorldEconomyE0Probe.h"
 #include "WorldBuildingState.h"
 #include "BridgePerformance.h"
 
@@ -146,6 +147,7 @@ public:
         }
         flush();
         applyScheduledNavigation(game);
+        economyE0Probe_.onFrame(game, !appliedMaskHash_.empty(), appliedMaskHash_);
         if (initializing_ || liveTargetsResolving_) resolveTargets(game);
         const int frame = game->getFrameCount();
         std::vector<std::string> failedHealthTargets;
@@ -1561,6 +1563,7 @@ private:
     WorldMedicVultureProbe medicVultureProbe_{false};
     WorldGoliathProbe goliathProbe_{false};
     WorldZergProductionProbe zergProductionProbe_{true};
+    WorldEconomyE0Probe economyE0Probe_{false};
     std::map<int, PendingCreation> pendingCreations_;
     std::set<int> publishedActors_;
     std::map<int, std::pair<std::string, std::string>> publishedActorStates_;
