@@ -120,7 +120,7 @@ Run offline checks before live tests, and run shared-port live suites sequential
 - [x] Verify old authored missions and prepared-cache reuse still work; distinguish cache metadata invalidation from expensive geometry rebuilding.
 - [x] Capture settings-menu access and a visible automatic wave moving inward into combat.
 - [x] Measure candidate selection cost on the Pi and confirm work is bounded/cached rather than scanning the map every tick.
-- [x] Update user/developer documentation and record exact commands, results, baseline, artifact paths, and unrun checks in `docs/automatic-zerg-waves-verification.md`. Screenshots/video remain unrun and are tracked above.
+- [x] Update user/developer documentation and record exact commands, results, baseline, artifact paths, and unrun checks in `docs/automatic-zerg-waves-verification.md`. Graphical screenshots were captured; a video was not requested.
 
 Use ignored build/ or run-data/ directories for evidence and licensed artifacts. A successful build or offline test is not evidence of live WASM/native playability. Do not claim completion if graphical or native checks were skipped.
 
