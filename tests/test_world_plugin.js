@@ -444,7 +444,7 @@ const parkStatus = { session: sid, scenario_id: 'mt-zergling', display_name: 'Mt
     mode: 'park_defense', objective: 'Manage and defend the park', wave_ordinal: 0, wave_total: 0,
     wave_state: 'pending', outcome: '', error: '', total_triggered: 0, next_wave_seconds: 120,
     active_zerglings: 0, manual_cooldown_seconds: 0, manual_eligible: true,
-    defense_enabled: true, defense_configurable: true, wave_interval_seconds: 120,
+    defense_enabled: true, defense_configurable: true, automatic_perimeter: false, wave_interval_seconds: 120,
     wave_difficulty: 'standard', active_enemies: 0, unlimited_resources: true };
 assert.equal(missionAction.query({ player: 1, args: parkStatus }).error, undefined);
 missionAction.execute({ player: 1, args: parkStatus });
@@ -741,13 +741,15 @@ assert.equal(actions.filter(action => action.name === 'rtsbridge.buildingState')
     hudStates.length, 'late client readiness replays every current native building state');
 assert.equal(actions.filter(action => action.name === 'rtsbridge.playerResources').length - resourceReplayStart,
     1, 'late client readiness replays native player resources');
-const defenseStatus = { ...parkStatus, defense_configurable: true, defense_enabled: false,
+const defenseStatus = { ...parkStatus, defense_configurable: true, automatic_perimeter: true,
+    manual_eligible: false, defense_enabled: false,
     wave_interval_seconds: 120, wave_difficulty: 'standard', unlimited_resources: true, commander_player: 1 };
+openedWindows.find(window => window.classification === 'starcoaster-defense').onClose();
 missionAction.execute({ player: 1, args: defenseStatus });
-assert.ok(menuItems.has('StarCraft Defense'), 'defense menu is registered');
-menuItems.get('StarCraft Defense')();
-const defenseWindow = openedWindows.find(window => window.classification === 'starcoaster-defense');
-assert.equal(defenseWindow.title, 'StarCraft Defense');
+assert.ok(menuItems.has('StarCraft Settings'), 'settings page is reachable from the normal menu');
+menuItems.get('StarCraft Settings')();
+const defenseWindow = openedWindows.filter(window => window.classification === 'starcoaster-defense').at(-1);
+assert.equal(defenseWindow.title, 'StarCraft Settings');
 menuItems.get('StarCraft Construction')();
 const constructionWindow = openedWindows.at(-1);
 assert.ok(constructionWindow.widgets.some(widget => widget.name === 'open-defense'),
@@ -767,12 +769,10 @@ defenseWindow.widgets.find(widget => widget.name === 'defense-difficulty').onCli
 drain();
 assert.equal(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.difficulty,
     'hard', 'menu sends the chosen wave difficulty');
-defenseWindow.widgets.find(widget => widget.text === 'Select Spawn Point').onClick();
-assert.equal(activeTool.id, 'starcoaster.defense-spawn');
-activeTool.onDown({ mapCoords: { x: 4 * 32, y: 4 * 32 } });
-drain();
-assert.deepEqual(Array.from(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.anchor),
-    [4, 4], 'spawn tool forwards the chosen tile');
+assert.ok(!defenseWindow.widgets.some(widget => widget.text === 'Select Spawn Point'),
+    'automatic settings do not require choosing a spawn point');
+assert.ok(!defenseWindow.widgets.some(widget => widget.text === 'Spawn Wave Now'),
+    'automatic settings do not expose a manual wave button');
 const parks = { phase: 'ready', current: 'Park A.park', pending: '', error: '',
     generation: 'a'.repeat(32), parks: ['Park A.park', 'Park B.park'] };
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'park.catalog', session: sid, payload: parks }) + '\n');

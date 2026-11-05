@@ -1482,6 +1482,7 @@
                             || args.spawn_anchor.some(function (n) { return !Number.isInteger(n) || n < 0 || n > 256; })))
                         || (args.commander_player !== undefined && !Number.isInteger(args.commander_player))))
                     || (args.defense_configurable !== undefined && typeof args.defense_configurable !== "boolean")
+                    || (args.automatic_perimeter !== undefined && typeof args.automatic_perimeter !== "boolean")
                     || !["", "pending", "triggered", "spawning", "active", "cleared", "failed"].includes(args.wave_state)
                     || !["", "victory", "defeat"].includes(args.outcome)
                     || typeof args.error !== "string" || args.error.length > 256)
@@ -2172,16 +2173,14 @@
                     return;
                 }
                 if (defenseWindow) { defenseWindow.bringToFront(); return; }
-                defenseWindow = ui.openWindow({ classification: "starcoaster-defense",
-                    width: 258, height: 256, title: "StarCraft Defense",
-                    onClose: function () { defenseWindow = null; }, widgets: [
+                const automatic = !!missionStatus.automatic_perimeter;
+                const widgets = [
                         { type: "button", name: "defense-toggle", x: 8, y: 19, width: 118, height: 24,
                             text: "Enable Zerg Waves", onClick: function () {
                                 if (missionStatus) configureDefense({ enabled: !missionStatus.defense_enabled });
                             } },
-                        { type: "button", x: 132, y: 19, width: 118, height: 24,
-                            text: "Select Spawn Point", onClick: selectDefenseSpawn },
-                        { type: "label", name: "defense-spawn", x: 8, y: 50, width: 242, height: 14, text: "Spawn: none" },
+                        { type: "label", name: "defense-spawn", x: 8, y: 50, width: 242, height: 14,
+                            text: automatic ? "Wave origins: random park edge" : "Spawn: none" },
                         { type: "button", name: "defense-interval", x: 8, y: 69, width: 242, height: 22,
                             text: "Wave interval: 120s", onClick: function () {
                                 if (!missionStatus) return;
@@ -2198,13 +2197,20 @@
                             } },
                         { type: "label", name: "defense-next", x: 8, y: 122, width: 242, height: 14, text: "Next wave: disabled" },
                         { type: "label", name: "defense-current", x: 8, y: 141, width: 242, height: 14, text: "Current wave: 0" },
-                        { type: "button", x: 8, y: 163, width: 118, height: 24,
-                            text: "Spawn Wave Now", onClick: requestWave },
                         { type: "label", name: "defense-resources", x: 8, y: 199, width: 242, height: 14,
                             text: "Minerals: Unlimited | Gas: Unlimited" },
                         { type: "label", name: "defense-feedback", x: 8, y: 218, width: 242, height: 28,
                             text: "" }
-                    ] });
+                    ];
+                if (!automatic) {
+                    widgets.push({ type: "button", x: 132, y: 19, width: 118, height: 24,
+                        text: "Select Spawn Point", onClick: selectDefenseSpawn });
+                    widgets.push({ type: "button", x: 8, y: 163, width: 118, height: 24,
+                        text: "Spawn Wave Now", onClick: requestWave });
+                }
+                defenseWindow = ui.openWindow({ classification: "starcoaster-defense",
+                    width: 258, height: 256, title: "StarCraft Settings",
+                    onClose: function () { defenseWindow = null; }, widgets: widgets });
             }
             clearUiForMap = function () {
                 if (ui.tool) ui.tool.cancel();
@@ -2224,6 +2230,7 @@
             if (typeof ui.registerMenuItem === "function") {
                 ui.registerMenuItem("StarCraft Construction", openConstructionWindow);
                 ui.registerMenuItem("StarCraft Defense", openDefenseWindow);
+                ui.registerMenuItem("StarCraft Settings", openDefenseWindow);
             }
             context.subscribe("interval.tick", function () {
                 if (!defenseWindow) return;
@@ -2234,12 +2241,13 @@
                     if (widget) widget.text = value;
                 };
                 setText("defense-toggle", "Zerg Waves: " + (status.defense_enabled ? "On" : "Off"));
-                setText("defense-spawn", "Spawn: " + (status.spawn_anchor
-                    ? status.spawn_anchor.join(", ") : "select a park edge"));
+                setText("defense-spawn", status.automatic_perimeter ? "Wave origins: random park edge"
+                    : "Spawn: " + (status.spawn_anchor ? status.spawn_anchor.join(", ") : "select a park edge"));
                 setText("defense-interval", "Wave interval: " + status.wave_interval_seconds + "s");
                 setText("defense-difficulty", "Wave difficulty: " + (status.wave_difficulty || "standard"));
                 setText("defense-next", status.defense_enabled
-                    ? "Next wave: " + status.next_wave_seconds + "s" : "Next wave: disabled");
+                    ? (status.error && status.error.indexOf("Waves waiting:") === 0 ? status.error
+                        : "Next wave: " + status.next_wave_seconds + "s") : "Next wave: disabled");
                 setText("defense-current", "Current wave: " + status.wave_ordinal + " | "
                     + status.active_enemies + " enemies (" + status.wave_state + ")");
                 setText("defense-resources", status.unlimited_resources

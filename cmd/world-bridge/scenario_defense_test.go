@@ -32,6 +32,46 @@ func defenseService(t *testing.T) *service {
 	return s
 }
 
+func TestAutomaticDefenseSettingsNeedNoAnchorAndResumeFreshCountdown(t *testing.T) {
+	s := defenseService(t)
+	s.scenario.ParkDefense.SpawnPolicy = "automatic_perimeter"
+	s.scenario.ParkDefense.ManualActivation = false
+	s.scenario.ParkDefense.FixedSpawn = false
+	s.runtime = world.NewScenarioRuntime(s.scenario, s.registry.Session)
+	if err := s.runtime.AcceptFrame(100, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	s.runtime.Trigger(s.scenario)
+	if !s.runtime.DefenseEnabled || s.runtime.NextAutomaticFrame != 2980 {
+		t.Fatal("automatic defaults missing")
+	}
+	difficulty := "hard"
+	s.parkDefenseConfig(nil, world.Message("scenario.defense.request", s.registry.Session, "difficulty", "openrct2", 1,
+		defenseConfigRequest{PlayerID: 1, CommanderID: 1, Difficulty: &difficulty}))
+	if s.runtime.WaveDifficulty != "hard" || s.runtime.NextAutomaticFrame != 2980 {
+		t.Fatal("difficulty reset current countdown")
+	}
+	anchor := [2]int{3, 10}
+	s.parkDefenseConfig(nil, world.Message("scenario.defense.request", s.registry.Session, "anchor", "openrct2", 1,
+		defenseConfigRequest{PlayerID: 1, CommanderID: 1, Anchor: &anchor}))
+	if s.runtime.SpawnAnchor != nil {
+		t.Fatal("automatic origin became manually selectable")
+	}
+	disabled := false
+	s.parkDefenseConfig(nil, world.Message("scenario.defense.request", s.registry.Session, "off", "openrct2", 1,
+		defenseConfigRequest{PlayerID: 1, CommanderID: 1, Enabled: &disabled}))
+	if s.runtime.DefenseEnabled || s.runtime.NextAutomaticFrame != 0 {
+		t.Fatal("waves not disabled")
+	}
+	s.runtime.LastFrame = 4000
+	enabled := true
+	s.parkDefenseConfig(nil, world.Message("scenario.defense.request", s.registry.Session, "on", "openrct2", 1,
+		defenseConfigRequest{PlayerID: 1, CommanderID: 1, Enabled: &enabled}))
+	if !s.runtime.DefenseEnabled || s.runtime.NextAutomaticFrame != 6880 {
+		t.Fatal("reenable caught up old waves")
+	}
+}
+
 func TestDefenseConfigPersistsAndKeepsOneFixedZone(t *testing.T) {
 	s := defenseService(t)
 	session := s.registry.Session
