@@ -1,6 +1,6 @@
 # StarCoaster milestone: Native player economy
 
-Status: E0 native proof complete on `economy-e0`; E1-E5 remain unimplemented. See `docs/player-economy-e0-verification.md` for measured scope and projection limits.
+Status: E0 native proof and E1 finite authored bootstrap complete; E2-E5 remain unimplemented. See `docs/player-economy-e0-verification.md` and `docs/player-economy-e1-verification.md` for measured evidence and limits.
 Date: 2026-11-05
 Reviewed baseline: f38e732ab756d47780777a9ea3baa18844a194d3
 Repository: /home/pi/Projects/rts-bridge
@@ -154,6 +154,14 @@ Exit: evidence proves the APIs actually work in this fork and establishes collis
 - Implement a fixed authored economy fixture first; retain ordinary-park legacy default until E4.
 
 Exit: fixed fixture renders the complete starting economy on native and browser clients; new SCVs train with native cost/supply and bind correctly; reconnect does not duplicate bootstrap.
+
+E1 status (2026-11-05): complete on the fixed `economy-e1` fixture. Both
+graphical client types rendered the base, four starting workers, six minerals
+and geyser; each observed one native SCV train, debit and binding. A bridge
+restart preserved the finite balance and resource IDs, and a fresh browser
+reload recovered five workers without reissuing a train order. The remaining
+mask-frame offset and unsupported wall proxies are recorded in the E1 report.
+No player gathering or construction transaction is claimed here.
 
 ### E2 — Playable mineral and gas gathering
 
