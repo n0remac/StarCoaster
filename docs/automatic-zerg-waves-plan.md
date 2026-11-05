@@ -112,7 +112,7 @@ Run offline checks before live tests, and run shared-port live suites sequential
 - [x] Run scripts/project.sh test and relevant scenario validation for any edited packages. No authored package was edited; generated-package tests are part of the offline gate.
 - [ ] Extend/run python3 tests/test_universal_park_defense_live.py for automatic startup, perimeter spawning, inward combat, settings, restart, and map change.
 - [ ] Run affected spawn/navigation/construction regressions selected using .agents/skills/starcoaster-verify/SKILL.md.
-- [ ] Test at least three map shapes: an ordinary stock park, a constrained/water-heavy perimeter, and a larger map. Add fixtures for tiny/rectangular geometry and no valid edge route.
+- [x] Test at least three map shapes: stock Lucky Lake, no-route Prison Island, and generated 256 × 256, alongside the ordinary generated park. Focused tests cover tiny/rectangular geometry and a blocked center; the Prison Island live check covers no valid edge route.
 - [ ] Prove seeded selection can exercise all reachable sides without asserting every short random run must visit each side.
 - [ ] Exercise terrain elevations, large-unit clearance, a blocked center, construction after origin selection, zero valid origins, capacity limits, and partially completed waves.
 - [ ] Verify one WASM and one native client see the same wave IDs, actors, origin, difficulty, and countdown; a browser-issued settings change reaches the authority.
