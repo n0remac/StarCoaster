@@ -30,6 +30,7 @@ BROWSER_BUILD = "--browser-build" in sys.argv
 CAPTURE_ONLY = "--capture-only" in sys.argv
 OBSERVE_COMBAT = "--observe-combat" in sys.argv
 SETTINGS = "--settings" in sys.argv
+NO_ROUTE = "--expect-no-route" in sys.argv
 if MANUAL and MIXED:
     raise SystemExit("choose --manual or --wasm")
 if CAPTURE_ONLY and not MIXED:
@@ -37,7 +38,7 @@ if CAPTURE_ONLY and not MIXED:
 if BROWSER_BUILD and not MIXED:
     raise SystemExit("--browser-build requires --wasm")
 RUN = ROOT / "run-data/universal-park-defense-live" / ("settings" if SETTINGS else "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic") / (str(int(time.time())) + "-" + uuid.uuid4().hex[:8])
-TEST_SOURCE = RUN / f"source-{int(time.time())}-{os.getpid()}.park"
+TEST_SOURCE = RUN / f"source-{int(time.time())}-{os.getpid()}{SOURCE.suffix}"
 SCENARIO_ID = "park-defense-" + hashlib.sha256(str(TEST_SOURCE.resolve()).encode()).hexdigest()[:16]
 JOURNAL = ROOT / "run-data/scenarios" / SCENARIO_ID / "spawn-queue.json.scenario.json"
 EXPECTED_SESSION = ""
@@ -90,7 +91,7 @@ def main():
             + "var UNIVERSAL_DEFENSE_ANCHOR = " + json.dumps(ANCHOR) + ";\n"
             + (ROOT / "tests/universal-defense-probe.js").read_text())
     # The host distributes the production bridge plugin through multiplayer.
-    report = {"status": "failed", "mode": "settings" if SETTINGS else "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
+    report = {"status": "failed", "mode": "no-route" if NO_ROUTE else "settings" if SETTINGS else "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
               "source": str(SOURCE), "checks": {}, "artifacts": {
         "session_log": str(RUN / "session.log"), "client_log": str(RUN / "client.log"),
         "journal": str(JOURNAL)}}
@@ -140,10 +141,11 @@ def main():
                              "WASM_LIVE_PROFILE": str(ROOT / "run-data/wasm-defense-profile-fixed"),
                              "WASM_LIVE_CAMERA": "1", "WASM_DEFENSE_PROBE": "1",
                              "WASM_DEFENSE_CONFIGURE": "1", "WASM_DEFENSE_ANCHOR": ",".join(map(str, ANCHOR)),
-                             "WASM_DEFENSE_MANUAL": "1" if MIXED else "0",
+                             "WASM_DEFENSE_MANUAL": "0",
+                             "WASM_DEFENSE_AUTOMATIC": "1" if MIXED else "0",
                              "WASM_DEFENSE_BUILD": "1" if BROWSER_BUILD else "0",
                              "WASM_LIVE_RECORD": "0", "WASM_LIVE_SCREENCAST": "1",
-                             "WASM_LIVE_DURATION_MS": "20000",
+                             "WASM_LIVE_DURATION_MS": "150000" if MIXED else "20000",
                              "WASM_CAPTURE_INTERVAL_MS": "10000"}
         if MIXED:
             stream = (RUN / "browser-first.log").open("w")
@@ -196,6 +198,18 @@ def main():
             report["checks"]["shared_hard_difficulty_without_countdown_reset"] = "passed"
         report["checks"]["automatic_preparation_countdown" if not MANUAL else "authorized_fixed_spawn_and_countdown"] = "passed"
         report["anchor"] = configured.get("spawn_anchor")
+        if NO_ROUTE:
+            marker = "UNIVERSAL_DEFENSE_WAVE_STATUS error=Waves waiting: no reachable edge location"
+            wait_for(lambda: marker in (RUN / "client.log").read_text(errors="replace"),
+                     180, "authoritative no-route waiting status", processes)
+            deadline = configured["next_automatic_frame"]
+            wait_for(lambda: runtime().get("last_frame", 0) >= deadline + 240,
+                     60, "bounded no-route retry interval", processes)
+            if runtime().get("waves") or runtime().get("next_automatic_frame") != deadline:
+                raise AssertionError("no-route wait created a wave or advanced its deadline")
+            report["checks"]["no_route_waits_without_wave_intent_or_backlog"] = "passed"
+            report["status"] = "passed"
+            return
         if MIXED:
             joined = join_native()
         if UNAUTHORIZED:
@@ -213,7 +227,7 @@ def main():
                 stdout=second_stream, stderr=subprocess.STDOUT, start_new_session=True)
             processes.append(second)
             report["artifacts"]["second_client_log"] = str(RUN / "second-client.log")
-        origin = "manual" if MANUAL or MIXED else "periodic"
+        origin = "manual" if MANUAL else "periodic"
         wave = wait_for(lambda: next((wave for wave in runtime().get("waves") or []
                                      if wave.get("origin") == origin), None),
                         180 if FACTORY else 100 if BUILD else 60 if MANUAL else 180,

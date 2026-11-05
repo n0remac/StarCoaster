@@ -11,6 +11,14 @@ registerPlugin({ name: "Universal Defense Probe", version: "1.0", authors: ["Sta
         var factoryID = "", vulturePending = false, vultureSent = false;
         var lastTrainReason = "", lastSession = "", zergSeen = false, priorHealth = {};
         var observedZerg = null, lastZergPosition = null, zergMotionReports = 0;
+        var lastWaveError = "";
+        context.subscribe("action.execute", function (event) {
+            if (event.action !== "rtsbridge.scenarioStatus") return;
+            var currentError = event.args && event.args.error || "";
+            if (currentError && currentError !== lastWaveError)
+                console.log("UNIVERSAL_DEFENSE_WAVE_STATUS error=" + currentError);
+            lastWaveError = currentError;
+        });
         function anchorCandidates() {
             var preferred = typeof UNIVERSAL_DEFENSE_ANCHOR !== "undefined"
                 ? UNIVERSAL_DEFENSE_ANCHOR : [4, 4];
