@@ -116,6 +116,11 @@ func (s *service) triggerAutomaticPerimeter() {
 		s.perimeterRetryFrame = r.LastFrame + 240
 		return // no intent or missed-wave backlog while no route exists
 	}
+	selected := s.choosePerimeterCandidate(candidates)
+	r.CommitAutomaticWave(s.scenario, selected.anchor, selected.zone, selected.destination, s.registry.Revision)
+}
+
+func (s *service) choosePerimeterCandidate(candidates []perimeterCandidate) perimeterCandidate {
 	index := 0
 	if s.defenseRandomIndex != nil {
 		index = s.defenseRandomIndex(len(candidates))
@@ -125,6 +130,33 @@ func (s *service) triggerAutomaticPerimeter() {
 	if index < 0 || index >= len(candidates) {
 		index = 0
 	}
-	selected := candidates[index]
-	r.CommitAutomaticWave(s.scenario, selected.anchor, selected.zone, selected.destination, s.registry.Revision)
+	return candidates[index]
+}
+
+// A confirmed construction revision can invalidate a selected edge before
+// the first native submission. Once any unit is submitted, the wave remains in
+// its recorded cluster and reports a local shortfall instead of changing side.
+func (s *service) refreshUnsubmittedAutomaticWaves() {
+	if !s.ready || !s.nativeOccupancyComplete || s.parkPatch != nil || s.targetPatch != nil ||
+		s.runtime.LastFrame < s.perimeterRetryFrame {
+		return
+	}
+	for i := range s.runtime.Waves {
+		wave := &s.runtime.Waves[i]
+		if wave.State != "triggered" || wave.Submitted != 0 ||
+			wave.SelectionRevision == s.registry.Revision {
+			continue
+		}
+		candidates := s.perimeterCandidates()
+		if len(candidates) == 0 {
+			wave.FailureReason = "Waves waiting: no reachable edge location"
+			s.perimeterRetryFrame = s.runtime.LastFrame + 240
+			return
+		}
+		selected := s.choosePerimeterCandidate(candidates)
+		wave.SpawnAnchor, wave.Destination = &selected.anchor, &selected.destination
+		wave.FixedZone = world.SpawnZone{Tiles: append([][2]int(nil), selected.zone.Tiles...)}
+		wave.SelectionRevision = s.registry.Revision
+		wave.FailureReason = ""
+	}
 }

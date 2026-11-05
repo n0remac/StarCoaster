@@ -12,6 +12,7 @@ import (
 // submitted; native creation and death are learned only from authoritative
 // queue, actor lifecycle, and complete combat snapshots.
 type ScenarioRuntime struct {
+	JournalVersion     int               `json:"journal_version,omitempty"`
 	Session            string            `json:"session"`
 	DefinitionHash     string            `json:"definition_hash"`
 	ObjectiveEntityID  string            `json:"objective_entity_id,omitempty"`
@@ -78,7 +79,7 @@ func ScenarioDefinitionHash(s *Scenario) string {
 }
 
 func NewScenarioRuntime(s *Scenario, session string) *ScenarioRuntime {
-	r := &ScenarioRuntime{Session: session, DefinitionHash: ScenarioDefinitionHash(s)}
+	r := &ScenarioRuntime{JournalVersion: 2, Session: session, DefinitionHash: ScenarioDefinitionHash(s)}
 	if s.Mode == "park_defense" {
 		r.NextWaveSequence = 1
 		r.DefenseEnabled = !s.ParkDefense.ManualActivation
@@ -93,6 +94,10 @@ func NewScenarioRuntime(s *Scenario, session string) *ScenarioRuntime {
 func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 	if r.Session != session || r.DefinitionHash != ScenarioDefinitionHash(s) {
 		return errors.New("scenario_session_or_hash_mismatch")
+	}
+	if r.JournalVersion != 0 && r.JournalVersion != 2 ||
+		(r.JournalVersion == 0 && s.Mode == "park_defense" && s.ParkDefense.SpawnPolicy == "automatic_perimeter") {
+		return errors.New("scenario_journal_version_invalid")
 	}
 	if s.Mode == "park_defense" {
 		if r.WaveIntervalFrames != 0 && (r.WaveIntervalFrames < 24*30 || r.WaveIntervalFrames > 24*600) {

@@ -96,3 +96,25 @@ func TestAutomaticPerimeterWaitsWithoutRouteOrBacklog(t *testing.T) {
 		t.Fatal("recovery did not resume one interval")
 	}
 }
+
+func TestAutomaticPerimeterReselectsOnlyBeforeNativeSubmission(t *testing.T) {
+	s := automaticDefenseService(t)
+	s.defenseRandomIndex = func(int) int { return 0 }
+	s.runtime.LastFrame = 2980
+	s.triggerAutomaticPerimeter()
+	first := *s.runtime.Waves[0].SpawnAnchor
+	s.registry.Revision++ // confirmed construction changes the navigation generation
+	s.defenseRandomIndex = func(n int) int { return n - 1 }
+	s.refreshUnsubmittedAutomaticWaves()
+	wave := &s.runtime.Waves[0]
+	if *wave.SpawnAnchor == first || wave.SelectionRevision != s.registry.Revision {
+		t.Fatalf("unsubmitted origin did not refresh: %+v", wave)
+	}
+	committed := *wave.SpawnAnchor
+	wave.Submitted = 1
+	s.registry.Revision++
+	s.refreshUnsubmittedAutomaticWaves()
+	if *wave.SpawnAnchor != committed {
+		t.Fatal("submitted wave changed perimeter origin")
+	}
+}

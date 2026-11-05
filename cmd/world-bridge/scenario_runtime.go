@@ -113,6 +113,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 	r.Reconcile(s.spawns, living, removed)
 	r.Trigger(s.scenario)
 	if s.scenario.Mode == "park_defense" && s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" {
+		s.refreshUnsubmittedAutomaticWaves()
 		s.triggerAutomaticPerimeter()
 	}
 	pruned := r.PruneParkDefenseHistory(s.scenario)
@@ -172,6 +173,11 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 				break
 			}
 			unit := &r.Waves[wi].Units[ui]
+			if s.scenario.Mode == "park_defense" && s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" &&
+				r.Waves[wi].Submitted == 0 && r.Waves[wi].SelectionRevision != s.registry.Revision {
+				blocked[[2]int{wi, ui}] = true
+				continue
+			}
 			if s.scenario.Mode == "park_defense" && s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" && len(unit.Attempts) >= 3 {
 				unit.State = "failed"
 				r.Waves[wi].FailureReason = "native_placement_retries_exhausted"

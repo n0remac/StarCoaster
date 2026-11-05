@@ -212,3 +212,25 @@ func TestAutomaticPerimeterStartsAtReadyFrameAndKeepsCommittedZone(t *testing.T)
 		t.Fatal(err)
 	}
 }
+
+func TestAutomaticJournalRequiresVersionWhileLegacyJournalRemainsReadable(t *testing.T) {
+	s := validV2(t)
+	s.Mode = "park_defense"
+	s.ParkDefense = &ParkDefenseWaves{SpawnPolicy: "automatic_perimeter", InitialDelayFrames: 2880,
+		IntervalFrames: 2880, UnitsPerWave: 8}
+	r := NewScenarioRuntime(&s, "session-a")
+	if r.JournalVersion != 2 {
+		t.Fatal("new journal has no explicit version")
+	}
+	r.JournalVersion = 0
+	if err := r.Validate(&s, "session-a"); err == nil {
+		t.Fatal("unversioned automatic journal was accepted")
+	}
+	s.ParkDefense = &ParkDefenseWaves{InitialDelayFrames: 2880, IntervalFrames: 2880,
+		UnitsPerWave: 8, ManualActivation: true, FixedSpawn: true}
+	legacy := NewScenarioRuntime(&s, "session-b")
+	legacy.JournalVersion = 0
+	if err := legacy.Validate(&s, "session-b"); err != nil {
+		t.Fatalf("legacy journal rejected: %v", err)
+	}
+}
