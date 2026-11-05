@@ -5,7 +5,10 @@
     const status = document.getElementById("status");
     const message = document.getElementById("message");
     const canvas = document.getElementById("canvas");
-    const setStatus = (value) => { message.textContent = value; };
+    const setStatus = (value) => {
+        message.textContent = value;
+        console.log(`STARCOASTER_BOOT_STATUS ${value}`);
+    };
     const fail = (error) => {
         console.error("StarCoaster startup failed:", error);
         if (!status.isConnected) document.body.appendChild(status);

@@ -47,7 +47,7 @@ class WorldAdapter {
     struct NativeSpawn {
         std::string requestID, unitType, state, actorID, reason;
         int index = 0, x = 0, y = 0, ownerID = -1, issueFrame = 0, candidateID = -1;
-        int actualX = 0, actualY = 0;
+        int actualX = 0, actualY = 0, destinationX = 0, destinationY = 0;
         bool reported = false, fixture = false;
     };
 public:
@@ -66,6 +66,7 @@ public:
     }
     void onUnitDestroy(BWAPI::Unit unit, int frame) {
         if (!unit) return;
+        assault_.forgetUnit(unit->getID());
         if (std::getenv("BRIDGE_TEST_FIREBAT_GAMEPLAY")
             && unit->getType() == BWAPI::UnitTypes::Terran_Firebat)
             std::cerr << "[firebat-gameplay] role=publisher destroyed native=" << unit->getID()
@@ -729,7 +730,7 @@ private:
             const bool applied = onTime && !occupied && (pendingMaskUnchanged_
                 || (game->setParkNavigation(pendingMask_) && navigation_.installMask(pendingMask_)));
             if (!pendingMaskUnchanged_) navigation_.markNative(applied);
-            if (applied) revision_ = std::max(revision_, pendingMaskRevision_);
+            if (applied) { revision_ = std::max(revision_, pendingMaskRevision_); assault_.navigationChanged(); }
             if (applied) appliedMaskHash_ = pendingMaskHash_;
             send("navigation.mask.applied", {{"hash",pendingMaskHash_},{"accepted",applied},
                 {"error",applied ? "" : !onTime ? "navigation_update_late" : occupied
@@ -747,7 +748,7 @@ private:
             navigation_.remove(it->id);
             const bool applied = game->setParkNavigation(navigation_.mask());
             navigation_.markNative(applied);
-            if (applied) revision_ = std::max(revision_, it->message.at("revision").get<uint64_t>());
+            if (applied) { revision_ = std::max(revision_, it->message.at("revision").get<uint64_t>()); assault_.navigationChanged(); }
             std::cerr << "[world] navigation-applied id=" << it->id << " frame=" << game->getFrameCount()
                       << " accepted=" << applied << std::endl;
             ack(it->message, applied, applied ? "" : "native_navigation_update_failed");
@@ -849,6 +850,7 @@ private:
             || payload.at("destination").size() != 2
             || !payload.contains("unit_types") || !payload.at("unit_types").is_array()
             || payload.at("unit_types").empty() || payload.at("unit_types").size() > 4) return result;
+        const auto started = std::chrono::steady_clock::now();
         const auto& destination = payload.at("destination");
         if (!destination[0].is_number_integer() || !destination[1].is_number_integer()) return result;
         const int goalX=destination[0].get<int>(), goalY=destination[1].get<int>();
@@ -885,11 +887,19 @@ private:
                         halfWidth,halfHeight,{})) { valid=false; break; }
                 for (int sy : {y-halfHeight,y,y+halfHeight}) for (int sx : {x-halfWidth,x,x+halfWidth})
                     if (!game->isWalkable(sx/8,sy/8)) valid=false;
+                if (valid && !game->hasUnitTypePath(type, BWAPI::Position(x,y),
+                        BWAPI::Position(goalX,goalY))) valid=false;
                 if (!valid) break;
             }
             if (valid) result["valid_indices"].push_back(index);
         }
         result["accepted"]=result["valid_indices"].size()>=4;
+        result["duration_us"] = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started).count();
+        std::cerr << "[world] perimeter-route query=" << result["query_id"].get<std::string>()
+                  << " accepted=" << result["accepted"].get<bool>()
+                  << " valid=" << result["valid_indices"].size()
+                  << " duration_us=" << result["duration_us"].get<long long>() << std::endl;
         return result;
     }
     bool executeNativeSpawn(BWAPI::Game* game, const json& payload, bool fixture) {
@@ -904,12 +914,17 @@ private:
         const std::string kind = payload.at("unit_type").get<std::string>();
         const int index = payload.at("index").get<int>();
         const int x = payload.at("x").get<int>(), y = payload.at("y").get<int>();
+        const int destinationX = payload.value("destination_x", 0);
+        const int destinationY = payload.value("destination_y", 0);
         if (requestID.empty() || requestID.size() > 128 || index < 0 || index > 4
-            || !worldUnitType(kind)) return false;
+            || !worldUnitType(kind) || (destinationX == 0) != (destinationY == 0)
+            || destinationX < 0 || destinationY < 0
+            || destinationX >= game->mapWidth()*32 || destinationY >= game->mapHeight()*32) return false;
         const std::string key = requestID + ":" + std::to_string(index);
         if (auto prior = nativeSpawns_.find(key); prior != nativeSpawns_.end()) {
             const auto& spawn = prior->second;
-            if (spawn.unitType != kind || spawn.x != x || spawn.y != y || spawn.fixture != fixture) {
+            if (spawn.unitType != kind || spawn.x != x || spawn.y != y || spawn.fixture != fixture
+                || spawn.destinationX != destinationX || spawn.destinationY != destinationY) {
                 spawnError_ = "conflicting_spawn_execution"; return false;
             }
             prior->second.reported = false;
@@ -979,6 +994,7 @@ private:
         NativeSpawn spawn;
         spawn.requestID = requestID; spawn.index = index; spawn.unitType = kind;
         spawn.x = x; spawn.y = y; spawn.ownerID = owner->getID();
+        spawn.destinationX = destinationX; spawn.destinationY = destinationY;
         spawn.issueFrame = game->getFrameCount(); spawn.state = "issued"; spawn.fixture = fixture;
         nativeSpawns_[key] = spawn;
         activeSpawn_ = key;
@@ -1041,6 +1057,9 @@ private:
                 if (spawn.state == "issued" && spawn.candidateID == creation.unit->getID()) {
                     spawn.state = "created"; spawn.actorID = "openbw:" + std::to_string(canonical);
                     spawn.actualX = creation.x; spawn.actualY = creation.y;
+                    if (spawn.destinationX > 0 && spawn.destinationY > 0)
+                        assault_.setWaveDestination(creation.unit->getID(),
+                            BWAPI::Position(spawn.destinationX, spawn.destinationY));
                     spawn.reported = false;
                     activeSpawn_.clear();
                 }

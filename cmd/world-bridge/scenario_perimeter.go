@@ -3,7 +3,9 @@ package main
 import (
 	"crypto/rand"
 	"fmt"
+	"log"
 	"math/big"
+	"time"
 
 	"starcoaster/internal/world"
 )
@@ -149,7 +151,11 @@ func (s *service) choosePerimeterIndex(count int) int {
 }
 
 func (s *service) startPerimeterQuery(replaceIndex int) {
+	started := time.Now()
 	candidates := s.perimeterCandidates()
+	log.Printf("automatic perimeter candidates=%d elapsed_us=%d size=%dx%d revision=%d",
+		len(candidates), time.Since(started).Microseconds(), s.scenario.ParkSize[0],
+		s.scenario.ParkSize[1], s.registry.Revision)
 	if len(candidates) == 0 {
 		s.perimeterRetryFrame = s.runtime.LastFrame + 240
 		if replaceIndex >= 0 {

@@ -62,7 +62,7 @@ def main():
     processes = []
     logs = []
     try:
-        for port in (40011, 40012):
+        for port in (0, 0):
             server = socket.socket()
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server.bind(("127.0.0.1", port))
@@ -74,6 +74,8 @@ def main():
             logs.append(log)
             env = os.environ.copy()
             env.update(BRIDGE_SCENARIO="world", BRIDGE_WORLD_ROLE=role,
+                       BRIDGE_OPENBW_PORT=str(servers[0].getsockname()[1]),
+                       BRIDGE_CONTROLLER_PORT=str(servers[1].getsockname()[1]),
                        BRIDGE_MAP_FILE=str(native_map), BRIDGE_BWAPI_MENU="MULTI_PLAYER",
                        BRIDGE_BWAPI_SLOT=str(slot), BRIDGE_BWAPI_RACE=race,
                        BRIDGE_BWAPI_RUNTIME_DIR=str(RUN / role),
@@ -152,28 +154,70 @@ def main():
                 for sy in range(4):
                     for sx in range(4):
                         set_open(tx * 4 + sx, ty * 4 + sy)
-            if ty != 132:
-                for sy in range(4):
+            for sy in range(4):
+                if ty != 132 or sy == 3:
                     for wx in range(127 * 4, 129 * 4):
                         set_blocked(wx, ty * 4 + sy)
-        fnv = 14695981039346656037
-        for byte in packed_route:
-            fnv = ((fnv ^ byte) * 1099511628211) & 0xffffffffffffffff
-        route_hash = f"{fnv:016x}"
-        for peer in (publisher, controller):
-            chunk_count = (len(packed_route) + 5999) // 6000
-            peer.send("navigation.mask.begin", "probe:route:begin",
-                      {"width": 256, "height": 256, "chunks": chunk_count,
-                       "hash": route_hash, "apply_frame": 0})
-            for index in range(chunk_count):
-                chunk = packed_route[index * 6000:(index + 1) * 6000]
-                peer.send("navigation.mask.chunk", f"probe:route:{index}",
-                          {"index": index, "hex": chunk.hex()})
-            peer.send("navigation.mask.end", "probe:route:end", {"hash": route_hash})
-        for peer in (publisher, controller):
-            applied = peer.until(lambda packet: packet["kind"] == "navigation.mask.applied", timeout=40)
-            if applied["payload"]["hash"] != route_hash or not applied["payload"]["accepted"]:
-                raise AssertionError(f"native route mask rejected: {applied}")
+        def apply_route_mask(mask, label):
+            fnv = 14695981039346656037
+            for byte in mask:
+                fnv = ((fnv ^ byte) * 1099511628211) & 0xffffffffffffffff
+            mask_hash = f"{fnv:016x}"
+            for peer in (publisher, controller):
+                chunk_count = (len(mask) + 5999) // 6000
+                peer.send("navigation.mask.begin", f"probe:{label}:begin",
+                          {"width": 256, "height": 256, "chunks": chunk_count,
+                           "hash": mask_hash, "apply_frame": 0})
+                for index in range(chunk_count):
+                    chunk = mask[index * 6000:(index + 1) * 6000]
+                    peer.send("navigation.mask.chunk", f"probe:{label}:{index}",
+                              {"index": index, "hex": chunk.hex()})
+                peer.send("navigation.mask.end", f"probe:{label}:end", {"hash": mask_hash})
+            for peer in (publisher, controller):
+                applied = peer.until(lambda packet: packet["kind"] == "navigation.mask.applied", timeout=40)
+                if applied["payload"]["hash"] != mask_hash or not applied["payload"]["accepted"]:
+                    raise AssertionError(f"native route mask rejected: {applied}")
+            return mask_hash
+        route_hash = apply_route_mask(packed_route, "route")
+        # The 24-pixel-high opening at y=132 connects BWAPI regions, while
+        # native Ultralisk movement must reject its narrower collision corridor.
+        route_tiles = [[x * 32 + 16, y * 32 + 16]
+                       for x, y in ((121, 125), (122, 125), (121, 126), (122, 126))]
+        route_goal = [130 * 32 + 16, 128 * 32 + 16]
+        native_routes = {}
+        for unit_type in ("zerg_zergling", "zerg_ultralisk"):
+            query_id = "probe:path:" + unit_type
+            publisher.send("scenario.perimeter.query", query_id,
+                           {"query_id": query_id, "tiles": route_tiles,
+                            "destination": route_goal, "unit_types": [unit_type]})
+            answer = publisher.until(lambda packet: packet["kind"] == "scenario.perimeter.result"
+                                     and packet["payload"].get("query_id") == query_id, timeout=40)
+            native_routes[unit_type] = answer["payload"]
+        if not native_routes["zerg_zergling"]["accepted"] or native_routes["zerg_ultralisk"]["accepted"]:
+            raise AssertionError(f"unit-width path query ignored narrow elevated corridor: {native_routes}")
+        closed_route = bytearray(packed_route)
+        for sy in range(3):
+            for wx in range(127 * 4, 129 * 4):
+                index = (132 * 4 + sy) * walk_width + wx
+                closed_route[index // 8] |= 1 << (index % 8)
+        apply_route_mask(closed_route, "closed")
+        publisher.send("scenario.perimeter.query", "probe:path:closed",
+                       {"query_id": "probe:path:closed", "tiles": route_tiles,
+                        "destination": route_goal, "unit_types": ["zerg_zergling"]})
+        closed = publisher.until(lambda packet: packet["kind"] == "scenario.perimeter.result"
+                                 and packet["payload"].get("query_id") == "probe:path:closed", timeout=40)
+        if closed["payload"]["accepted"]:
+            raise AssertionError("confirmed construction did not close native route")
+        apply_route_mask(packed_route, "restored")
+        publisher.send("scenario.perimeter.query", "probe:path:restored",
+                       {"query_id": "probe:path:restored", "tiles": route_tiles,
+                        "destination": route_goal, "unit_types": ["zerg_zergling"]})
+        restored = publisher.until(lambda packet: packet["kind"] == "scenario.perimeter.result"
+                                   and packet["payload"].get("query_id") == "probe:path:restored", timeout=40)
+        if not restored["payload"]["accepted"]:
+            raise AssertionError("route did not reopen after confirmed construction removal")
+        native_routes["closed"] = closed["payload"]
+        native_routes["restored"] = restored["payload"]
         publisher.send("world.start", "probe:assault", {"delay_frames": 0})
         zerg_route = []
         deadline = time.monotonic() + 35
@@ -230,6 +274,7 @@ def main():
                   "destination": target, "blocked_tiles": 256 * 256 - len(occupied_tiles),
                   "large_mask_seconds": elapsed, "navigation": "native",
                   "route_mask_hash": route_hash, "zergling_route": zerg_route}
+        report["unit_width_routes"] = native_routes
         (RUN / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({"result": "PASS", "run_dir": str(RUN), **report}))
     finally:

@@ -208,6 +208,10 @@ func TestAutomaticPerimeterStartsAtReadyFrameAndKeepsCommittedZone(t *testing.T)
 		len(r.Waves[0].FixedZone.Tiles) != 4 {
 		t.Fatalf("location not recorded: %+v", r.Waves)
 	}
+	request := r.Intent(0, 0, Point{X: 112, Y: 336})
+	if request.DestinationX != 20*32+16 || request.DestinationY != 20*32+16 {
+		t.Fatalf("committed destination missing from spawn intent: %+v", request)
+	}
 	if err := r.Validate(&s, "automatic-session"); err != nil {
 		t.Fatal(err)
 	}

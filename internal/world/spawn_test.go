@@ -11,6 +11,34 @@ func spawnRequest(id string, count int) SpawnRequest {
 		X: 960, Y: 1024, Formation: "compact", PlayerID: 2}
 }
 
+func TestSpawnQueuePreservesWaveDestinationAcrossRecovery(t *testing.T) {
+	request := spawnRequest("wave-destination", 1)
+	request.DestinationX, request.DestinationY = 640, 768
+	q := NewSpawnQueue("session-a", 64)
+	if _, err := q.Submit("session-a", request); err != nil {
+		t.Fatal(err)
+	}
+	execute, ok := q.Next()
+	if !ok || execute.DestinationX != 640 || execute.DestinationY != 768 {
+		t.Fatalf("wave destination missing from native execution: %+v", execute)
+	}
+	encoded, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recovered SpawnQueue
+	if err := json.Unmarshal(encoded, &recovered); err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.Recover("session-a", 64); err != nil {
+		t.Fatal(err)
+	}
+	execute, ok = recovered.Next()
+	if !ok || execute.DestinationX != 640 || execute.DestinationY != 768 {
+		t.Fatalf("recovered native execution lost destination: %+v", execute)
+	}
+}
+
 func TestSpawnQueueSerializesBatchAndPreservesPartialFailure(t *testing.T) {
 	q := NewSpawnQueue("session-a", 10)
 	req := spawnRequest("spawn-1", 5)

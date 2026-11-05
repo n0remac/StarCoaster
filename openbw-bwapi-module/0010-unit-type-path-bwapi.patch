@@ -1,0 +1,65 @@
+--- a/bwapi/include/BWAPI/Game.h
++++ b/bwapi/include/BWAPI/Game.h
+@@ -552,6 +552,8 @@
+     /// OpenBW extension: replace the native 8-pixel walkability mask and
+     /// rebuild regions after authoritative park geometry changes.
+     virtual bool setParkNavigation(const std::vector<uint8_t>& blocked) = 0;
++    /// OpenBW extension: query native movement for a hypothetical unit footprint.
++    virtual bool hasUnitTypePath(UnitType type, Position source, Position destination) = 0;
+     /// @overload
+     bool isWalkable(BWAPI::WalkPosition position) const;
+ 
+--- a/bwapi/BWAPI/Source/BWAPI/GameImpl.h
++++ b/bwapi/BWAPI/Source/BWAPI/GameImpl.h
+@@ -133,6 +133,7 @@
+ 
+       virtual bool  isWalkable(int x, int y) const override;
+       virtual bool  setParkNavigation(const std::vector<uint8_t>& blocked) override;
++      virtual bool  hasUnitTypePath(UnitType type, Position source, Position destination) override;
+       virtual int   getGroundHeight(int x, int y) const override;
+       virtual bool  isBuildable(int x, int y, bool includeBuildings = false) const override;
+       virtual bool  isVisible(int x, int y) const override;
+--- a/bwapi/BWAPI/Source/BWAPI/GameImpl.cpp
++++ b/bwapi/BWAPI/Source/BWAPI/GameImpl.cpp
+@@ -375,6 +375,11 @@
+   {
+     return bwgame.setParkNavigation(blocked);
+   }
++  bool GameImpl::hasUnitTypePath(UnitType type, Position source, Position destination)
++  {
++    if (!source.isValid() || !destination.isValid() || !type.isValid()) return false;
++    return bwgame.hasUnitTypePath(type.getID(), source.x, source.y, destination.x, destination.y);
++  }
+   //--------------------------------------------- GET GROUND HEIGHT ------------------------------------------
+   int GameImpl::getGroundHeight(int x, int y) const
+   {
+--- a/bwapi/OpenBWData/BW/BWData.h
++++ b/bwapi/OpenBWData/BW/BWData.h
+@@ -227,6 +227,7 @@
+   bool buildable(int tile_x, int tile_y) const;
+   bool walkable(int walk_x, int walk_y) const;
+   bool setParkNavigation(const std::vector<uint8_t>& blocked);
++  bool hasUnitTypePath(int type, int fromX, int fromY, int toX, int toY);
+   bool hasCreep(int tile_x, int tile_y) const;
+   bool isOccupied(int tile_x, int tile_y) const;
+   int groundHeight(int tile_x, int tile_y) const;
+--- a/bwapi/OpenBWData/BW/BWData.cpp
++++ b/bwapi/OpenBWData/BW/BWData.cpp
+@@ -1228,6 +1228,17 @@
+   return loader.set_park_navigation({blocked.begin(), blocked.end()});
+ }
+ 
++bool Game::hasUnitTypePath(int type, int fromX, int fromY, int toX, int toY)
++{
++  if (type < 0 || type >= 228 || fromX < 0 || fromY < 0 || toX < 0 || toY < 0
++      || fromX >= int(impl->funcs.game_st.map_tile_width * 32)
++      || toX >= int(impl->funcs.game_st.map_tile_width * 32)
++      || fromY >= int(impl->funcs.game_st.map_tile_height * 32)
++      || toY >= int(impl->funcs.game_st.map_tile_height * 32)) return false;
++  return impl->funcs.has_unit_type_path(static_cast<bwgame::UnitTypes>(type),
++      {fromX, fromY}, {toX, toY});
++}
++
+ bool Game::hasCreep(int tile_x, int tile_y) const
+ {
+   return impl->funcs.tile_has_creep({int(tile_x * 32u), int(tile_y * 32u)});

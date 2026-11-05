@@ -152,6 +152,11 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 						s.scenarioRuntimeError(fmt.Errorf("scenario_spawn_journal_mismatch: %s", attempt.RequestID))
 						return
 					}
+					if wave.Destination != nil && existing.DestinationX != 0 &&
+						(existing.DestinationX != wave.Destination[0]*32+16 || existing.DestinationY != wave.Destination[1]*32+16) {
+						s.scenarioRuntimeError(fmt.Errorf("scenario_spawn_destination_mismatch: %s", attempt.RequestID))
+						return
+					}
 					continue
 				}
 				unitType := unit.UnitType
@@ -160,6 +165,10 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 				} // validated legacy journal
 				request = world.SpawnRequest{RequestID: attempt.RequestID, UnitType: unitType, Count: 1,
 					X: attempt.X, Y: attempt.Y, Formation: "compact", PlayerID: 0}
+				if wave.Destination != nil {
+					request.DestinationX = wave.Destination[0]*32 + 16
+					request.DestinationY = wave.Destination[1]*32 + 16
+				}
 				found = true
 				break
 			}

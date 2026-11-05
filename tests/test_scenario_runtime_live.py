@@ -16,7 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCENARIO = ROOT / "scenarios/frontier-outpost/scenario.json"
 PARK = ROOT / "run-data/frontier-playable/save/frontier-outpost-playable.park"
 OPENRCT2_DATA = ROOT / "build/openrct2-stage/usr/local/share/openrct2"
-SESSION_PORTS = (40010, 40011, 40012, 11753)
+OPENRCT2_PORT = int(os.environ.get("OPENRCT2_PORT", "11753"))
+SESSION_PORTS = tuple(int(os.environ.get(name, default)) for name, default in (
+    ("STARCOASTER_BRIDGE_PORT", "40010"), ("BRIDGE_OPENBW_PORT", "40011"),
+    ("BRIDGE_CONTROLLER_PORT", "40012"), ("OPENRCT2_PORT", "11753")))
 
 
 def wait_for_ports(seconds: int = 180) -> None:
@@ -121,7 +124,7 @@ def main() -> None:
         executable = "openrct2" if args.graphical else "openrct2-cli"
         options = [] if args.graphical else ["--headless"]
         return start(name, [str(ROOT / "build/openrct2" / executable), "join", "127.0.0.1",
-                            *options, "--port=11753", f"--rct2-data-path={rct2}",
+                            *options, f"--port={OPENRCT2_PORT}", f"--rct2-data-path={rct2}",
                             f"--openrct2-data-path={OPENRCT2_DATA}", f"--user-data-path={directory}"],
                      {"DISPLAY": display} if args.graphical else None)
 
@@ -184,7 +187,11 @@ def main() -> None:
             if not Path(f"/proc/{original}").exists():
                 break
             time.sleep(0.1)
-        restart = start("bridge-restart", [str(ROOT / "build/world-bridge"), "--scenario", str(SCENARIO),
+        restart = start("bridge-restart", [str(ROOT / "build/world-bridge"),
+                                          "--park", "127.0.0.1:" + str(SESSION_PORTS[0]),
+                                          "--openbw", "127.0.0.1:" + str(SESSION_PORTS[1]),
+                                          "--controller", "127.0.0.1:" + str(SESSION_PORTS[2]),
+                                          "--scenario", str(SCENARIO),
                                           "--rules", str(mapping), "--spawn-journal", str(journal)])
         wait_for(run / "bridge-restart.log", r"OpenBW ready targets=", restart, 90)
         report["tests"]["bridge_restart"] = "passed"

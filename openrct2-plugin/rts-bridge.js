@@ -187,6 +187,7 @@
         let combatSyncID = "", recoveringRejectedBarracks = false, retryRejectedBarracks = null;
         const queuedCombatEvents = [];
         const pendingCommands = [];
+        const pendingDefenseRequests = [];
         let patchSerial = 0;
         let firstConstructionAt = 0;
         function envelope(kind, payload, rev) {
@@ -197,14 +198,21 @@
             if (!socket || inFlight || !queue.length) return;
             inFlight = queue.shift();
             inFlightTicks = 0;
+            if (inFlight.kind === "scenario.defense.request") inFlight.revision = revision;
             if (inFlight.kind === "combat.command")
                 console.log("WORLD_COMMAND_SENT id=" + inFlight.payload.command_id
                     + " request=" + inFlight.payload.request_id + " queue=" + queue.length);
             socket.write(JSON.stringify(inFlight) + "\n");
         }
         function send(kind, payload, rev) { queue.push(envelope(kind, payload, rev)); sendNext(); }
+        function flushDefenseRequests() {
+            if (!socket || patchInFlight || combatSyncID || snapshotWorld) return;
+            while (pendingDefenseRequests.length)
+                send("scenario.defense.request", pendingDefenseRequests.shift());
+        }
         function flushCommands() {
             if (!socket || patchInFlight || combatSyncID || snapshotWorld) return;
+            flushDefenseRequests();
             while (pendingCommands.length) send("combat.command", pendingCommands.shift());
         }
         onCommandSender(function (payload) {
@@ -226,7 +234,14 @@
             send("unit.spawn.request", payload);
         });
         onWaveSender(function (payload) { send("scenario.wave.request", payload); });
-        onDefenseSender(function (payload) { send("scenario.defense.request", payload); });
+        onDefenseSender(function (payload) {
+            if (pendingDefenseRequests.length >= 32) {
+                onDefenseResult({ accepted: false, reason: "defense_request_queue_full" });
+                return;
+            }
+            pendingDefenseRequests.push(payload);
+            flushCommands();
+        });
         onParkSender(function (payload) { send("park.load.request", payload); });
         function rotate(offset, direction) {
             if (direction === 1) return { x: offset.y, y: -offset.x };
@@ -788,7 +803,7 @@
                     snapshotWorld = null;
                     if (dirtySince >= 0) markConstruction();
                 }
-                inFlight = null; sendNext();
+                inFlight = null; sendNext(); flushCommands();
             } else if (message.kind === "world.resync") {
                 if (recoveringRejectedBarracks) return;
                 console.log("WORLD_RESYNC reason=" + ((message.payload && message.payload.reason) || "unspecified"));
@@ -800,6 +815,7 @@
                     console.log("WORLD_COMBAT_PATCH_SYNC revision=" + revision + " id=" + combatSyncID);
                     combatSyncID = "";
                     markConstruction();
+                    flushDefenseRequests();
                     while (queuedCombatEvents.length && !combatSyncID) combatEvent(queuedCombatEvents.shift());
                     flushCommands();
                 } else if (message.payload.state === "failed" || message.payload.state === "unsynchronized") {
@@ -1493,7 +1509,9 @@
                 if (missionStatus.outcome) outcomeState = missionStatus.outcome;
                 console.log("WORLD_SCENARIO_STATUS scenario=" + missionStatus.scenario_id
                     + " wave=" + missionStatus.wave_ordinal + "/" + missionStatus.wave_total
-                    + " state=" + missionStatus.wave_state + " outcome=" + missionStatus.outcome);
+                    + " state=" + missionStatus.wave_state + " outcome=" + missionStatus.outcome
+                    + " difficulty=" + (missionStatus.wave_difficulty || "")
+                    + " next_automatic_frame=" + (missionStatus.next_automatic_frame || 0));
                 return {};
             });
             context.registerAction(WAVE_ACTION, function (event) {

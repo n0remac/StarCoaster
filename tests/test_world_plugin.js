@@ -496,6 +496,11 @@ assert.equal(actions.filter(a => a.name === 'wallremove').length, 0,
     'second destruction waits for the first OpenRCT2 callback');
 completeRideDemolition();
 drain();
+const defenseBeforeCombatSync = sent.filter(message => message.kind === 'scenario.defense.request').length;
+registered.get('rtsbridge.configureDefense').execute({ player: 1,
+    args: { session: sid, difficulty: 'hard' } });
+assert.equal(sent.filter(message => message.kind === 'scenario.defense.request').length,
+    defenseBeforeCombatSync, 'defense setting waits for ordered combat demolition');
 assert.equal(actions.filter(a => a.name === 'ridedemolish').length, 1);
 assert.equal(sent.find(m => m.kind === 'combat.result').payload.state, 'removal_confirmed');
 assert.equal(sent.find(m => m.kind === 'combat.result').revision, 2);
@@ -505,6 +510,8 @@ assert.ok(at(5, 2).some(element => element.type === 'footpath'));
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.patch.status', session: sid,
     revision: 2, payload: { patch_id: 'combat:death:1', state: 'synchronized' } }) + '\n');
 drain();
+assert.equal(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).revision, 2,
+    'defense setting uses a confirmed revision between queued demolitions');
 assert.equal(actions.filter(a => a.name === 'wallremove').length, 1,
     'queued destruction runs after the first revision synchronizes');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.patch.status', session: sid,
@@ -757,6 +764,8 @@ assert.ok(constructionWindow.widgets.some(widget => widget.name === 'open-defens
 const defenseAction = registered.get('rtsbridge.configureDefense');
 assert.match(defenseAction.query({ player: 2, args: { session: sid, enabled: true } }).errorMessage,
     /commander/, 'other clients cannot configure defense');
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.resync', session: sid, payload: {} }) + '\n');
+drain();
 defenseWindow.widgets.find(widget => widget.name === 'defense-toggle').onClick();
 drain();
 assert.equal(sent.filter(message => message.kind === 'scenario.defense.request').at(-1).payload.enabled,

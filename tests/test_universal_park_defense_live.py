@@ -24,12 +24,14 @@ FACTORY = "--factory" in sys.argv
 NO_WAVE = "--no-wave-build" in sys.argv
 BUILD = "--build" in sys.argv or FACTORY or NO_WAVE
 UNAUTHORIZED = "--unauthorized" in sys.argv
-MANUAL = "--manual" in sys.argv or (BUILD and not NO_WAVE) or UNAUTHORIZED
+MANUAL = "--manual" in sys.argv or (BUILD and not NO_WAVE)
 MIXED = "--wasm" in sys.argv
+MENU_ONLY = "--menu-only" in sys.argv
 BROWSER_BUILD = "--browser-build" in sys.argv
 CAPTURE_ONLY = "--capture-only" in sys.argv
 OBSERVE_COMBAT = "--observe-combat" in sys.argv
 SETTINGS = "--settings" in sys.argv
+BRIDGE_RESTART = "--bridge-restart" in sys.argv
 NO_ROUTE = "--expect-no-route" in sys.argv
 if MANUAL and MIXED:
     raise SystemExit("choose --manual or --wasm")
@@ -37,6 +39,8 @@ if CAPTURE_ONLY and not MIXED:
     raise SystemExit("--capture-only requires --wasm")
 if BROWSER_BUILD and not MIXED:
     raise SystemExit("--browser-build requires --wasm")
+if MENU_ONLY and not MIXED:
+    raise SystemExit("--menu-only requires --wasm")
 RUN = ROOT / "run-data/universal-park-defense-live" / ("settings" if SETTINGS else "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed-build" if BROWSER_BUILD else "mixed-capture" if CAPTURE_ONLY else "mixed" if MIXED else "automatic") / (str(int(time.time())) + "-" + uuid.uuid4().hex[:8])
 TEST_SOURCE = RUN / f"source-{int(time.time())}-{os.getpid()}{SOURCE.suffix}"
 SCENARIO_ID = "park-defense-" + hashlib.sha256(str(TEST_SOURCE.resolve()).encode()).hexdigest()[:16]
@@ -80,7 +84,11 @@ def main():
         raise AssertionError("working source copy differs from original park")
     client = RUN / "client"
     (client / "plugin").mkdir(parents=True, exist_ok=True)
-    if not MIXED:
+    if MIXED:
+        (client / "plugin/universal-defense-probe.js").write_text(
+            "var UNIVERSAL_DEFENSE_VERIFY_AUTOMATIC = true;\n"
+            + (ROOT / "tests/universal-defense-probe.js").read_text())
+    else:
         (client / "plugin/universal-defense-probe.js").write_text(
             ("var UNIVERSAL_DEFENSE_VERIFY_MANUAL = true;\n" if MANUAL else "")
             + ("var UNIVERSAL_DEFENSE_VERIFY_AUTOMATIC = true;\n" if not MANUAL else "")
@@ -91,7 +99,7 @@ def main():
             + "var UNIVERSAL_DEFENSE_ANCHOR = " + json.dumps(ANCHOR) + ";\n"
             + (ROOT / "tests/universal-defense-probe.js").read_text())
     # The host distributes the production bridge plugin through multiplayer.
-    report = {"status": "failed", "mode": "no-route" if NO_ROUTE else "settings" if SETTINGS else "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
+    report = {"status": "failed", "mode": "menu" if MENU_ONLY else "bridge-restart" if BRIDGE_RESTART else "no-route" if NO_ROUTE else "settings" if SETTINGS else "no-wave-build" if NO_WAVE else "unauthorized" if UNAUTHORIZED else "factory" if FACTORY else "construction" if BUILD else "manual" if MANUAL else "mixed" if MIXED else "automatic",
               "source": str(SOURCE), "checks": {}, "artifacts": {
         "session_log": str(RUN / "session.log"), "client_log": str(RUN / "client.log"),
         "journal": str(JOURNAL)}}
@@ -102,7 +110,11 @@ def main():
         streams.append(stream)
         env = os.environ.copy() | {"BRIDGE_LAUNCH_CLIENT": "0"}
         if MIXED:
-            env.update({"BRIDGE_SERVE_WASM": "1", "WASM_LISTEN_ADDRESS": "127.0.0.1:49123",
+            with socket.socket() as listener:
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                listener.bind(("127.0.0.1", int(os.environ.get("UNIVERSAL_DEFENSE_BROWSER_PORT", "0"))))
+                browser_port = listener.getsockname()[1]
+            env.update({"BRIDGE_SERVE_WASM": "1", "WASM_LISTEN_ADDRESS": f"127.0.0.1:{browser_port}",
                         "WASM_DEPLOY_DIR": str(ROOT / "run-data/universal-defense-deploy")})
         session = subprocess.Popen([str(ROOT / "scripts/project.sh"), "play", "--park", str(TEST_SOURCE)],
             cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
@@ -132,21 +144,29 @@ def main():
         if MIXED:
             def browser_gateway_ready():
                 try:
-                    with socket.create_connection(("127.0.0.1", 49123), timeout=.25):
+                    with socket.create_connection(("127.0.0.1", browser_port), timeout=.25):
                         return True
                 except OSError:
                     return False
             wait_for(browser_gateway_ready, 90, "private browser gateway", processes)
-        browser_env = env | {"WASM_LIVE_URL": "http://127.0.0.1:49123/",
-                             "WASM_LIVE_PROFILE": str(ROOT / "run-data/wasm-defense-profile-fixed"),
+        browser_env = env | {"WASM_LIVE_URL": f"http://127.0.0.1:{browser_port}/" if MIXED else "",
+                             "WASM_LIVE_PROFILE": os.environ.get("UNIVERSAL_DEFENSE_BROWSER_PROFILE", str(RUN / "browser-profile")),
+                             "WASM_PERF_ARTIFACTS": str(RUN / "browser-first-artifacts"),
+                             "WASM_LIVE_BOOT_TIMEOUT_MS": "420000",
+                             "WASM_TEST_PORT": os.environ.get("OPENRCT2_PORT", "11753"),
                              "WASM_LIVE_CAMERA": "1", "WASM_DEFENSE_PROBE": "1",
                              "WASM_DEFENSE_CONFIGURE": "1", "WASM_DEFENSE_ANCHOR": ",".join(map(str, ANCHOR)),
                              "WASM_DEFENSE_MANUAL": "0",
                              "WASM_DEFENSE_AUTOMATIC": "1" if MIXED else "0",
+                             "WASM_DEFENSE_SETTINGS": "1" if MIXED and SETTINGS else "0",
                              "WASM_DEFENSE_BUILD": "1" if BROWSER_BUILD else "0",
-                             "WASM_LIVE_RECORD": "0", "WASM_LIVE_SCREENCAST": "1",
+                             "WASM_LIVE_RECORD": "0", "WASM_LIVE_SCREENCAST": "0" if SETTINGS or MENU_ONLY else "1",
                              "WASM_LIVE_DURATION_MS": "150000" if MIXED else "20000",
                              "WASM_CAPTURE_INTERVAL_MS": "10000"}
+        if MENU_ONLY:
+            browser_env.update({"WASM_DEFENSE_MENU": "1", "WASM_DEFENSE_PROBE": "0",
+                                "WASM_DEFENSE_CONFIGURE": "0", "WASM_LIVE_CAMERA": "0",
+                                "WASM_LIVE_DURATION_MS": "10000"})
         if MIXED:
             stream = (RUN / "browser-first.log").open("w")
             streams.append(stream)
@@ -167,6 +187,18 @@ def main():
                 stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
             processes.append(process)
             return process
+        if MENU_ONLY:
+            wait_for(lambda: browser.poll() is not None, 480, "browser Map settings menu", [session])
+            artifacts = RUN / "browser-first-artifacts"
+            browser_report = json.loads((artifacts / "runtime.json").read_text())
+            if browser.returncode != 0 or browser_report.get("outcome") != "passed" or \
+                    not (artifacts / "map-starcraft-menu.png").is_file() or \
+                    not (artifacts / "starcraft-settings.png").is_file():
+                raise AssertionError("Map > StarCraft Settings graphical access failed")
+            report["checks"]["browser_map_starcraft_settings_menu"] = "passed"
+            report["artifacts"]["browser_menu"] = str(artifacts)
+            report["status"] = "passed"
+            return
         if not MIXED:
             joined = join_native()
         if NO_WAVE:
@@ -192,10 +224,13 @@ def main():
             raise AssertionError("preparation deadline exceeds 120 seconds")
         if SETTINGS:
             configured = wait_for(lambda: runtime() if runtime().get("wave_difficulty") == "hard" else None,
-                                  60, "authoritative hard difficulty", processes)
-            if configured["next_automatic_frame"] != configured["start_frame"] + 2880:
+                                  600 if MIXED else 60, "authoritative hard difficulty", processes)
+            if (not MIXED or not configured.get("waves")) and \
+                    configured["next_automatic_frame"] != configured["start_frame"] + 2880:
                 raise AssertionError("difficulty edit reset the current preparation deadline")
-            report["checks"]["shared_hard_difficulty_without_countdown_reset"] = "passed"
+            report["checks"]["shared_hard_difficulty_without_countdown_reset" if
+                             not MIXED or not configured.get("waves") else
+                             "browser_hard_difficulty_after_first_wave"] = "passed"
         report["checks"]["automatic_preparation_countdown" if not MANUAL else "authorized_fixed_spawn_and_countdown"] = "passed"
         report["anchor"] = configured.get("spawn_anchor")
         if NO_ROUTE:
@@ -212,7 +247,15 @@ def main():
             return
         if MIXED:
             joined = join_native()
+            if SETTINGS:
+                wait_for(lambda: re.search(r"WORLD_SCENARIO_STATUS scenario=.* difficulty=hard next_automatic_frame=(\d+)",
+                                           (RUN / "client.log").read_text(errors="replace")),
+                         60, "native peer received browser Hard setting", processes)
+                report["checks"]["native_peer_receives_browser_hard_setting"] = "passed"
         if UNAUTHORIZED:
+            wait_for(lambda: "UNIVERSAL_DEFENSE_SESSION session=" in
+                     (RUN / "client.log").read_text(errors="replace"),
+                     120, "commander client joined before unauthorized peer", [session, joined])
             second_dir = RUN / "second-client"
             (second_dir / "plugin").mkdir(parents=True, exist_ok=True)
             (second_dir / "plugin/universal-defense-noncommander-probe.js").write_text(
@@ -238,9 +281,10 @@ def main():
             raise AssertionError("automatic wave did not persist its perimeter cluster and inward destination")
         if not MANUAL:
             report["anchor"] = wave["spawn_anchor"]
-        if origin == "periodic" and wave["triggered_frame"] < configured["next_automatic_frame"]:
+        if origin == "periodic" and wave["triggered_frame"] < configured["start_frame"] + 2880:
             raise AssertionError("automatic wave started before preparation deadline")
-        expected_count = 12 if SETTINGS else 8
+        first_wave_before_hard = bool(MIXED and SETTINGS and len(wave.get("units") or []) == 8)
+        expected_count = 8 if first_wave_before_hard else 12 if SETTINGS else 8
         if len(wave.get("units") or []) != expected_count or any(unit["unit_type"] != "zerg_zergling"
                                                    for unit in wave["units"]):
             raise AssertionError("first wave composition differs")
@@ -256,6 +300,63 @@ def main():
             raise AssertionError("wave attempted a spawn outside the selected zone")
         report["checks"][f"{expected_count}_native_zerglings_in_selected_cluster"] = "passed"
         report["wave_ids"] = [wave["id"]]
+        if first_wave_before_hard:
+            hard_wave = wait_for(lambda: next((item for item in runtime().get("waves") or []
+                                              if item["sequence"] > wave["sequence"]
+                                              and len(item.get("units") or []) == 12), None),
+                                 240, "first browser-configured Hard wave", [session, joined])
+            if hard_wave["triggered_frame"] <= wave["triggered_frame"] or \
+                    hard_wave.get("destination") is None:
+                raise AssertionError("browser Hard setting did not create a later perimeter wave")
+            report["checks"]["browser_hard_applies_to_next_wave"] = "passed"
+            report["wave_ids"].append(hard_wave["id"])
+        park_width, park_height = json.loads((ROOT / "run-data" / SCENARIO_ID / "scenario.json").read_text())["park_size"]
+        expected_rally = ((wave["destination"][0] + (256 - park_width) // 2) * 32 + 16,
+                          (wave["destination"][1] + (256 - park_height) // 2) * 32 + 16) if not MANUAL else None
+        if expected_rally:
+            rally = wait_for(lambda: re.search(r"\[world\] wave-rally native=(\d+) x=(\d+) y=(\d+) frame=(\d+)",
+                                               (RUN / "session.log").read_text(errors="replace")),
+                             60, "native attack-move to committed destination", processes)
+            if (int(rally.group(2)), int(rally.group(3))) != expected_rally:
+                raise AssertionError(f"native attack-move ignored committed destination: {rally.group(0)} vs {expected_rally}")
+            report["checks"]["native_attack_move_uses_committed_destination"] = "passed"
+            report["native_rally"] = {"x": int(rally.group(2)), "y": int(rally.group(3)),
+                                      "frame": int(rally.group(4))}
+        if BRIDGE_RESTART:
+            scenario_path = ROOT / "run-data" / SCENARIO_ID / "scenario.json"
+            rules_path = scenario_path.parent / "mapping.json"
+            queue_path = Path(str(JOURNAL).removesuffix(".scenario.json"))
+            matches = []
+            for row in subprocess.check_output(["ps", "-eo", "pid=,args="], text=True).splitlines():
+                parts = row.strip().split(maxsplit=1)
+                if len(parts) == 2 and "/build/world-bridge" in parts[1] and str(scenario_path) in parts[1]:
+                    matches.append(int(parts[0]))
+            if len(matches) != 1:
+                raise AssertionError(f"expected one scenario bridge, found {matches}")
+            os.kill(matches[0], signal.SIGTERM)
+            for _ in range(40):
+                if not Path(f"/proc/{matches[0]}").exists():
+                    break
+                time.sleep(.1)
+            restart_log = (RUN / "bridge-restart.log").open("w")
+            streams.append(restart_log)
+            restart = subprocess.Popen([str(ROOT / "build/world-bridge"),
+                "--park", "127.0.0.1:" + os.environ.get("STARCOASTER_BRIDGE_PORT", "40010"),
+                "--openbw", "127.0.0.1:" + os.environ.get("BRIDGE_OPENBW_PORT", "40011"),
+                "--controller", "127.0.0.1:" + os.environ.get("BRIDGE_CONTROLLER_PORT", "40012"),
+                "--scenario", str(scenario_path), "--rules", str(rules_path),
+                "--spawn-journal", str(queue_path)], cwd=ROOT, env=env,
+                stdout=restart_log, stderr=subprocess.STDOUT, start_new_session=True)
+            processes.append(restart)
+            wait_for(lambda: "OpenBW ready targets=" in (RUN / "bridge-restart.log").read_text(errors="replace"),
+                     120, "same-session bridge recovery", [session, joined, restart])
+            recovered = runtime()
+            ids = [item["id"] for item in recovered.get("waves") or []]
+            if recovered.get("session") != EXPECTED_SESSION or ids.count(wave["id"]) != 1 or \
+                    recovered["waves"][0].get("destination") != wave.get("destination"):
+                raise AssertionError("bridge restart changed the committed wave or session")
+            report["checks"]["bridge_restart_preserves_session_wave_and_destination"] = "passed"
+            report["artifacts"]["bridge_restart_log"] = str(RUN / "bridge-restart.log")
         if not MANUAL and not MIXED:
             destination = wave["destination"]
             goal = (destination[0] * 32 + 16, destination[1] * 32 + 16)
@@ -334,8 +435,23 @@ def main():
                    "WORLD_BUILDING_RECEIVED id=openrct2:large_scenery:" not in host_log:
                     raise AssertionError("browser Barracks construction and native Marine training did not synchronize")
                 report["checks"]["browser_barracks_and_native_marine_training"] = "passed"
-            browser_artifacts = ROOT / "build/wasm-live-test"
+            browser_artifacts = RUN / "browser-first-artifacts"
             first_report = json.loads((browser_artifacts / "runtime.json").read_text())
+            browser_log = (RUN / "browser-first.log").read_text(errors="replace")
+            native_log = (RUN / "client.log").read_text(errors="replace")
+            if SETTINGS:
+                if "UNIVERSAL_DEFENSE_DIFFICULTY local_accepted=true" not in browser_log or \
+                   "UNIVERSAL_DEFENSE_RESULT request=difficulty accepted=true" not in browser_log:
+                    raise AssertionError("browser Hard setting did not receive authoritative acceptance")
+                report["checks"]["browser_hard_setting_authoritative_acceptance"] = "passed"
+            if "UNIVERSAL_DEFENSE_ZERG id=" not in native_log:
+                raise AssertionError("native peer did not observe the automatic Zerg wave")
+            browser_actor = re.search(r"UNIVERSAL_DEFENSE_ZERG id=([^ ]+)", browser_log)
+            native_actor = re.search(r"UNIVERSAL_DEFENSE_ZERG id=([^ ]+)", native_log)
+            if not browser_actor or not native_actor or browser_actor.group(1) != native_actor.group(1):
+                raise AssertionError("browser and native peer observed different native Zerg actor IDs")
+            report["checks"]["native_peer_observes_browser_wave"] = "passed"
+            report["shared_actor_id"] = native_actor.group(1)
             if first_report.get("outcome") != "passed" or not any(
                 "WASM_CAMERA_READY" in item.get("text", "") and "zerg_zergling" in item.get("text", "")
                 for item in first_report.get("records", [])):
@@ -381,8 +497,9 @@ def main():
                     report["checks"]["short_browser_gameplay_recording"] = "failed"
                     report["recording_error"] = str(exc)
             else:
-                report["checks"]["short_browser_gameplay_recording"] = "failed"
-                report["recording_error"] = "fewer than three browser frames"
+                report["checks"]["short_browser_gameplay_recording"] = "not_requested" if SETTINGS else "failed"
+                if not SETTINGS:
+                    report["recording_error"] = "fewer than three browser frames"
             if CAPTURE_ONLY:
                 if report["checks"]["short_browser_gameplay_recording"] != "passed":
                     raise AssertionError(report["recording_error"])
@@ -392,12 +509,14 @@ def main():
             streams.append(stream)
             reconnect = subprocess.Popen(["node", "browser/live-test.mjs"], cwd=ROOT,
                 env=browser_env | {"WASM_LIVE_SCREENCAST": "0", "WASM_LIVE_DURATION_MS": "10000",
-                                   "WASM_DEFENSE_CONFIGURE": "0"},
+                                   "WASM_DEFENSE_CONFIGURE": "0",
+                                   "WASM_PERF_ARTIFACTS": str(RUN / "browser-reconnect-artifacts")},
                 stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
             processes.append(reconnect)
             wait_for(lambda: reconnect.poll() is not None, 480, "browser reconnect", [session, joined])
             if reconnect.returncode != 0:
                 raise RuntimeError("browser reconnect failed")
+            browser_artifacts = RUN / "browser-reconnect-artifacts"
             reconnect_report = json.loads((browser_artifacts / "runtime.json").read_text())
             if reconnect_report.get("outcome") != "passed":
                 raise AssertionError("browser reconnect did not recover gameplay")
@@ -411,7 +530,28 @@ def main():
             if reconnect_image.is_file():
                 shutil.copy2(reconnect_image, RUN / "browser-reconnect-connected.png")
                 report["artifacts"]["browser_reconnect_image"] = str(RUN / "browser-reconnect-connected.png")
-            if report["checks"]["short_browser_gameplay_recording"] != "passed":
+            if SETTINGS and os.environ.get("UNIVERSAL_DEFENSE_SKIP_MENU") == "1":
+                report["status"] = "passed"
+                return
+            stream = (RUN / "browser-menu.log").open("w")
+            streams.append(stream)
+            menu = subprocess.Popen(["node", "browser/live-test.mjs"], cwd=ROOT,
+                env=browser_env | {"WASM_LIVE_SCREENCAST": "0", "WASM_LIVE_DURATION_MS": "10000",
+                                   "WASM_LIVE_CAMERA": "0", "WASM_DEFENSE_PROBE": "0",
+                                   "WASM_DEFENSE_CONFIGURE": "0", "WASM_DEFENSE_MENU": "1",
+                                   "WASM_PERF_ARTIFACTS": str(RUN / "browser-menu-artifacts")},
+                stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+            processes.append(menu)
+            wait_for(lambda: menu.poll() is not None, 480, "browser Map settings menu", [session, joined])
+            menu_artifacts = RUN / "browser-menu-artifacts"
+            menu_report = json.loads((menu_artifacts / "runtime.json").read_text())
+            if menu.returncode != 0 or menu_report.get("outcome") != "passed" or \
+                    not (menu_artifacts / "map-starcraft-menu.png").is_file() or \
+                    not (menu_artifacts / "starcraft-settings.png").is_file():
+                raise RuntimeError("Map > StarCraft Settings graphical access failed")
+            report["checks"]["browser_map_starcraft_settings_menu"] = "passed"
+            report["artifacts"]["browser_menu"] = str(menu_artifacts)
+            if not SETTINGS and report["checks"]["short_browser_gameplay_recording"] != "passed":
                 raise AssertionError(report["recording_error"])
         report["status"] = "passed"
     except Exception as exc:

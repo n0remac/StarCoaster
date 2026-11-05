@@ -290,6 +290,10 @@ func (s *service) pumpSpawns() {
 	}
 	execute.X = s.transform.X(execute.X)
 	execute.Y = s.transform.Y(execute.Y)
+	if execute.DestinationX != 0 && execute.DestinationY != 0 {
+		execute.DestinationX = s.transform.X(execute.DestinationX)
+		execute.DestinationY = s.transform.Y(execute.DestinationY)
+	}
 	opID := "spawn:" + s.operation()
 	if s.spawnOps == nil {
 		s.spawnOps = map[string]world.SpawnExecute{}

@@ -117,6 +117,39 @@ func TestAutomaticPerimeterWaitsWithoutRouteOrBacklog(t *testing.T) {
 	}
 }
 
+func TestAutomaticPerimeterPauseAndReadinessLossDoNotBacklog(t *testing.T) {
+	s := automaticDefenseService(t)
+	s.ready = false
+	s.runtime.LastFrame = 2980
+	s.triggerAutomaticPerimeter()
+	if s.pendingPerimeter != nil || len(s.runtime.Waves) != 0 || s.runtime.NextAutomaticFrame != 2980 {
+		t.Fatal("unready native participants created a wave")
+	}
+	s.ready = true
+	s.triggerAutomaticPerimeter()
+	acceptCurrentPerimeter(t, s)
+	if len(s.runtime.Waves) != 1 || s.runtime.NextAutomaticFrame != 5860 {
+		t.Fatal("readiness recovery did not commit one wave")
+	}
+	s.triggerAutomaticPerimeter() // paused simulation: native frame did not advance
+	if len(s.runtime.Waves) != 1 {
+		t.Fatal("paused frame duplicated a wave")
+	}
+	s.runtime.Waves[0].State = "cleared"
+	s.ready = false
+	s.runtime.LastFrame = 9000
+	s.triggerAutomaticPerimeter()
+	if s.pendingPerimeter != nil || len(s.runtime.Waves) != 1 || s.runtime.NextAutomaticFrame != 5860 {
+		t.Fatal("readiness loss accumulated due waves")
+	}
+	s.ready = true
+	s.triggerAutomaticPerimeter()
+	acceptCurrentPerimeter(t, s)
+	if len(s.runtime.Waves) != 2 || s.runtime.NextAutomaticFrame != 11880 {
+		t.Fatal("readiness recovery caught up missed intervals")
+	}
+}
+
 func TestAutomaticPerimeterReselectsOnlyBeforeNativeSubmission(t *testing.T) {
 	s := automaticDefenseService(t)
 	s.defenseRandomIndex = func(int) int { return 0 }

@@ -73,6 +73,29 @@ func TestBridgeSpawnRequestIssuesOnceAndReportsNativeFailure(t *testing.T) {
 	}
 }
 
+func TestBridgeSpawnTransformsCommittedWaveDestination(t *testing.T) {
+	s, native := spawnService(t)
+	request := world.SpawnRequest{RequestID: "scenario:wave-destination", UnitType: "zerg_zergling",
+		Count: 1, X: 160, Y: 176, DestinationX: 656, DestinationY: 672,
+		Formation: "compact", PlayerID: 0}
+	if _, err := s.spawns.Submit(s.registry.Session, request); err != nil {
+		t.Fatal(err)
+	}
+	issued := make(chan world.Envelope, 1)
+	go func() {
+		var message world.Envelope
+		_ = json.Unmarshal([]byte(readLine(native)), &message)
+		issued <- message
+	}()
+	s.pumpSpawns()
+	message := <-issued
+	var execute world.SpawnExecute
+	if message.Kind != "unit.spawn.execute" || message.Decode(&execute) != nil ||
+		execute.DestinationX != s.transform.X(656) || execute.DestinationY != s.transform.Y(672) {
+		t.Fatalf("committed destination did not reach native coordinates: %+v", execute)
+	}
+}
+
 func TestBridgeSpawnRejectsInvalidInputAndRecoversUncertainJournal(t *testing.T) {
 	s, _ := spawnService(t)
 	request := world.SpawnRequest{RequestID: "one", UnitType: "terran_marine", Count: 1,

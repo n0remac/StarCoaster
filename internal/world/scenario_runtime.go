@@ -588,8 +588,13 @@ func (r *ScenarioRuntime) Intent(wi, ui int, position Point) SpawnRequest {
 	if unitType == "" {
 		unitType = "zerg_zergling"
 	} // validated legacy journal
-	return SpawnRequest{RequestID: id, UnitType: unitType, Count: 1,
+	request := SpawnRequest{RequestID: id, UnitType: unitType, Count: 1,
 		X: position.X, Y: position.Y, Formation: "compact", PlayerID: 0}
+	if wave.Destination != nil {
+		request.DestinationX = wave.Destination[0]*32 + 16
+		request.DestinationY = wave.Destination[1]*32 + 16
+	}
+	return request
 }
 
 func runtimeRequestID(wave string, group, unit, attempt int, session string) string {

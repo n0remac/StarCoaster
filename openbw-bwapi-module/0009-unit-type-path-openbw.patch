@@ -1,0 +1,34 @@
+--- a/bwgame.h
++++ b/bwgame.h
+@@ -10755,6 +10755,31 @@
+ 		}
+ 	}
+ 
++	// Query the same unit-width pathfinder used for movement, without issuing an
++	// order or creating a unit. The caller runs on the simulation thread.
++	bool has_unit_type_path(UnitTypes type_id, xy from, xy to) {
++		const auto* type = get_unit_type(type_id);
++		if (!unit_type_can_fit_at(type, from) || !unit_type_can_fit_at(type, to)
++		    || !is_reachable(from, to)) return false;
++		unit_t hypothetical{};
++		hypothetical.unit_type = type;
++		hypothetical.owner = 0;
++		hypothetical.status_flags = 0;
++		hypothetical.move_target.unit = nullptr;
++		pathfinder pf;
++		pf.u = &hypothetical;
++		pf.source = from;
++		pf.destination = to;
++		for (int segment = 0; segment != 1024; ++segment) {
++			if (!pathfinder_find(pf, segment != 0) || pf.short_path.empty() || pf.is_stuck) return false;
++			if (pf.destination_reached) return pf.destination == to;
++			const xy next = pf.short_path.back();
++			if (next == pf.source) return false;
++			pf.source = next;
++		}
++		return false;
++	}
++
+ 	path_t* new_path() {
+ 		// We need a (first-in-last-out) free list of paths since
+ 		// last_collision_unit is reused.

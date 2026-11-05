@@ -7,21 +7,25 @@ import (
 
 // A request identifies an intent. Native actor IDs are assigned only by OpenBW.
 type SpawnRequest struct {
-	RequestID string `json:"request_id"`
-	UnitType  string `json:"unit_type"`
-	Count     int    `json:"count"`
-	X         int    `json:"x"`
-	Y         int    `json:"y"`
-	Formation string `json:"formation"`
-	PlayerID  int    `json:"player_id"`
+	RequestID    string `json:"request_id"`
+	UnitType     string `json:"unit_type"`
+	Count        int    `json:"count"`
+	X            int    `json:"x"`
+	Y            int    `json:"y"`
+	DestinationX int    `json:"destination_x,omitempty"`
+	DestinationY int    `json:"destination_y,omitempty"`
+	Formation    string `json:"formation"`
+	PlayerID     int    `json:"player_id"`
 }
 
 type SpawnExecute struct {
-	RequestID string `json:"request_id"`
-	Index     int    `json:"index"`
-	UnitType  string `json:"unit_type"`
-	X         int    `json:"x"`
-	Y         int    `json:"y"`
+	RequestID    string `json:"request_id"`
+	Index        int    `json:"index"`
+	UnitType     string `json:"unit_type"`
+	X            int    `json:"x"`
+	Y            int    `json:"y"`
+	DestinationX int    `json:"destination_x,omitempty"`
+	DestinationY int    `json:"destination_y,omitempty"`
 }
 
 type SpawnUnitResult struct {
@@ -151,7 +155,8 @@ func (q *SpawnQueue) Unresolved() (SpawnExecute, bool) {
 	for _, unit := range entry.Status.Units {
 		if unit.State == "issued" || unit.State == "created" || unit.State == "uncertain" {
 			return SpawnExecute{RequestID: q.Active, Index: unit.Index,
-				UnitType: entry.Request.UnitType, X: entry.Request.X, Y: entry.Request.Y}, true
+				UnitType: entry.Request.UnitType, X: entry.Request.X, Y: entry.Request.Y,
+				DestinationX: entry.Request.DestinationX, DestinationY: entry.Request.DestinationY}, true
 		}
 	}
 	return SpawnExecute{}, false
@@ -189,6 +194,10 @@ func (q *SpawnQueue) Submit(session string, request SpawnRequest) (SpawnStatus, 
 		!supportedUnit || !unit.Spawnable ||
 		request.Formation != "compact" || request.PlayerID < 0 || request.PlayerID > 255 {
 		return SpawnStatus{}, errors.New("invalid_spawn_request")
+	}
+	if (request.DestinationX == 0) != (request.DestinationY == 0) ||
+		request.DestinationX < 0 || request.DestinationY < 0 {
+		return SpawnStatus{}, errors.New("invalid_spawn_destination")
 	}
 	if q.PendingCount()+request.Count > q.Limit {
 		return SpawnStatus{}, errors.New("spawn_queue_full")
@@ -231,7 +240,8 @@ func (q *SpawnQueue) Next() (SpawnExecute, bool) {
 		for _, unit := range entry.Status.Units {
 			if unit.State == "queued" {
 				return SpawnExecute{RequestID: id, Index: unit.Index,
-					UnitType: entry.Request.UnitType, X: entry.Request.X, Y: entry.Request.Y}, true
+					UnitType: entry.Request.UnitType, X: entry.Request.X, Y: entry.Request.Y,
+					DestinationX: entry.Request.DestinationX, DestinationY: entry.Request.DestinationY}, true
 			}
 		}
 	}

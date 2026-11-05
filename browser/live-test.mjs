@@ -142,6 +142,7 @@ try {
         (process.env.WASM_DEFENSE_ANCHOR || '4,4').split(',').map(Number)) + ';\n'
         + (process.env.WASM_DEFENSE_MANUAL === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_MANUAL = true;\n' : '')
         + (process.env.WASM_DEFENSE_AUTOMATIC === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_AUTOMATIC = true;\n' : '')
+        + (process.env.WASM_DEFENSE_SETTINGS === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_SETTINGS = true;\n' : '')
         + (process.env.WASM_DEFENSE_BUILD === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n' : '')
         + (process.env.WASM_DEFENSE_NO_WAVE === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_NO_WAVE = true;\n' : '')
         + await readFile(path.join(root, 'tests/universal-defense-probe.js'), 'utf8') : '';
@@ -428,19 +429,11 @@ try {
     if (!records.some((record) => record.kind === 'console'
       && record.text.includes('WORLD_SCENARIO_STATUS scenario=')))
       throw new Error('The browser did not receive authoritative defense status');
-    await page.mouse.click(1105, 12);
-    let construction;
-    for (let elapsed = 0; elapsed < 15000; elapsed += 1000) {
-      const line = records.find((record) => record.kind === 'console'
-        && record.text.includes('DEFENSE_CONSTRUCTION_WINDOW x='))?.text;
-      const match = /DEFENSE_CONSTRUCTION_WINDOW x=(\d+) y=(\d+) width=(\d+) height=(\d+)/.exec(line || '');
-      if (match) { construction = { x: Number(match[1]), y: Number(match[2]),
-        width: Number(match[3]), height: Number(match[4]) }; break; }
-      await page.waitForTimeout(1000);
-    }
-    if (!construction) throw new Error('The SC toolbar did not open Construction');
-    await capture(page, 'starcraft-construction.png');
-    await page.mouse.click(construction.x + 120, construction.y + construction.height - 30);
+    await page.mouse.move(205, 12); // OpenRCT2 Map dropdown selects on mouse release.
+    await page.mouse.down();
+    await capture(page, 'map-starcraft-menu.png');
+    await page.mouse.move(260, Number(process.env.WASM_DEFENSE_MAP_ITEM_Y || 96));
+    await page.mouse.up();
     for (let elapsed = 0; elapsed < 15000; elapsed += 1000) {
       if (records.some((record) => record.kind === 'console'
         && record.text.includes('DEFENSE_WINDOW x='))) break;
@@ -448,8 +441,8 @@ try {
     }
     if (!records.some((record) => record.kind === 'console'
       && record.text.includes('DEFENSE_WINDOW x=')))
-      throw new Error('Construction did not open StarCraft Defense');
-    await capture(page, 'starcraft-defense.png');
+      throw new Error('Map menu did not open StarCraft Settings');
+    await capture(page, 'starcraft-settings.png');
   }
   if (controlProbe) {
     if (!cameraProbe) throw new Error('WASM_CONTROL_PROBE requires WASM_LIVE_CAMERA=1');
@@ -889,6 +882,8 @@ try {
   metrics.crossOriginIsolated = await page.evaluate(() => crossOriginIsolated);
   if (!metrics.websocketFramesIn || !metrics.websocketFramesOut)
     throw new Error('The browser did not exchange native multiplayer frames over /ws');
+  if (!normalHandoff && records.some((record) => record.kind === 'websocketclose' && record.url?.endsWith('/ws')))
+    throw new Error('Multiplayer WebSocket closed during gameplay');
   if (records.some((record) => record.kind === 'pageerror'))
     throw new Error('Chromium reported a JavaScript exception');
   if (autoOrder && !records.some((record) => record.kind === 'console' &&
