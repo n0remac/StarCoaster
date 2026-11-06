@@ -11,6 +11,7 @@
 #include "WorldZergProductionProbe.h"
 #include "WorldEconomyE0Probe.h"
 #include "WorldEconomyObservations.h"
+#include "WorldConstructionWatches.h"
 #include "WorldBuildingState.h"
 #include "BridgePerformance.h"
 
@@ -84,6 +85,27 @@ public:
         std::set<int> candidateIDs;
         for (const auto& [id, candidate] : creationCandidates_) candidateIDs.insert(id);
         actorRegistry_.prepare(game, candidateIDs);
+        if (!e3SiteScanDone_ && std::getenv("BRIDGE_TEST_E3_SITE_SCAN")
+            && game->getFrameCount() >= 1800 && game->self()) {
+            e3SiteScanDone_ = true;
+            BWAPI::Unit builder = nullptr;
+            for (auto candidate : game->getAllUnits())
+                if (candidate && candidate->exists() && candidate->getPlayer() == game->self()
+                    && candidate->getType() == BWAPI::UnitTypes::Terran_SCV) {
+                    builder = candidate; break;
+                }
+            int found = 0;
+            for (int y = 103; y < 124 && found < 24; ++y)
+                for (int x = 116; x < 142 && found < 24; ++x)
+                    if (builder && game->canBuildHere({x, y}, BWAPI::UnitTypes::Terran_Supply_Depot,
+                        builder, true)) {
+                        std::cerr << "[e3-site-scan] native=" << x << "," << y
+                                  << " park=" << x - 96 << "," << y - 96
+                                  << " frame=" << game->getFrameCount() << std::endl;
+                        ++found;
+                    }
+            std::cerr << "[e3-site-scan] found=" << found << std::endl;
+        }
         lastObservedFrame_ = game->getFrameCount();
         for (auto it = creationCandidates_.begin(); it != creationCandidates_.end();) {
             if (!it->second.unit || !it->second.unit->exists()) it = creationCandidates_.erase(it);
@@ -136,7 +158,44 @@ public:
                           << " energy=" << medic->getEnergy() << std::endl;
             }
         }
+        if (!session_.empty() && game->getFrameCount() % 12 == 0)
+            for (const auto& state : constructionWatches_.observe(game))
+                send("construction.observation", session_, revision_ ? revision_ : 1,
+                    state, game->getFrameCount());
         if (!session_.empty() && game->getFrameCount() % 24 == 0) {
+            if (economyObservations_.enabled() && game->self()) {
+                BWAPI::Unit builder = nullptr;
+                for (auto candidate : game->getAllUnits())
+                    if (candidate && candidate->exists() && candidate->getPlayer() == game->self()
+                        && candidate->getType() == BWAPI::UnitTypes::Terran_SCV) {
+                        builder = candidate; break;
+                    }
+                json catalog = json::array();
+                for (const auto& building : worldBuildingTypes()) {
+                    if (std::string(building.id).compare(0, 7, "terran_") != 0) continue;
+                    std::string reason = "ready", requirement;
+                    for (const auto& [required, count] : building.native.requiredUnits()) {
+                        int complete = 0;
+                        for (auto candidate : game->getAllUnits())
+                            if (candidate && candidate->exists() && candidate->isCompleted()
+                                && candidate->getPlayer() == game->self()
+                                && candidate->getType() == required) ++complete;
+                        if (complete < count) { reason = "requires_building"; requirement = required.getName(); break; }
+                    }
+                    if (reason == "ready" && game->self()->minerals() < building.native.mineralPrice())
+                        reason = "insufficient_minerals";
+                    if (reason == "ready" && game->self()->gas() < building.native.gasPrice())
+                        reason = "insufficient_gas";
+                    if (reason == "ready" && !builder) reason = "no_worker";
+                    const bool available = reason == "ready" && game->canMake(building.native, builder);
+                    if (!available && reason == "ready") reason = "native_unavailable";
+                    catalog.push_back({{"building_type", building.id},
+                        {"minerals", building.native.mineralPrice()}, {"gas", building.native.gasPrice()},
+                        {"available", available}, {"reason", reason}, {"requirement", requirement}});
+                }
+                send("construction.catalog", session_, revision_ ? revision_ : 1,
+                    {{"buildings", catalog}}, game->getFrameCount());
+            }
             for (const auto& state : economyObservations_.observe(game))
                 send("resource.state", session_, revision_ ? revision_ : 1,
                     state, game->getFrameCount());
@@ -386,6 +445,16 @@ private:
             identities_.clear();
             publisherBindings_.clear();
             ambiguousActors_.clear();
+            constructionWatches_.resetPublication();
+            return;
+        }
+        if (kind == "construction.watch") {
+            const bool accepted = message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() >= revision_
+                && constructionWatches_.watch(message.at("payload"), game);
+            send("world.ack", session_, revision_ ? revision_ : 1,
+                {{"op_id", message.at("op_id")}, {"accepted", accepted},
+                 {"error", accepted ? "" : "invalid_construction_watch"}}, game->getFrameCount());
             return;
         }
         if (kind == "navigation.mask.cancel") {
@@ -624,16 +693,55 @@ private:
             || message.at("revision").get<uint64_t>() < revision_) {
             accepted = false; reason = "stale_session";
         } else if (commandID.empty() || !units.is_array() || units.size() > 32
-            || (verb != "unit.train" && units.empty())
-            || (verb == "unit.train" && !units.empty())
+            || (verb != "unit.train" && verb != "unit.cancel_construction" && units.empty())
+            || ((verb == "unit.train" || verb == "unit.cancel_construction") && !units.empty())
             || (verb != "unit.move" && verb != "unit.attack" && verb != "unit.attack_move"
                 && verb != "unit.hold" && verb != "unit.stop" && verb != "unit.heal"
-                && verb != "unit.train")) {
+                && verb != "unit.train" && verb != "unit.build"
+                && verb != "unit.resume_construction" && verb != "unit.cancel_construction")) {
             accepted = false; reason = "invalid_command";
         } else if (!validCommandSerial(commandID)) {
             accepted = false; reason = "duplicate_command";
         }
         BWAPI::Unit target = nullptr;
+        const bool construction = verb == "unit.build" || verb == "unit.resume_construction"
+            || verb == "unit.cancel_construction";
+        const auto* constructionType = construction
+            ? worldBuildingType(command.value("building_type", "")) : nullptr;
+        const int buildX = command.value("native_tile_x", -1);
+        const int buildY = command.value("native_tile_y", -1);
+        if (accepted && construction && (!economyObservations_.enabled() || !constructionType
+            || std::string(constructionType->id).compare(0, 7, "terran_") != 0
+            || buildX < 0 || buildY < 0 || buildX >= game->mapWidth()
+            || buildY >= game->mapHeight() || command.value("intent_id", "").empty())) {
+            accepted = false; reason = "invalid_construction_intent";
+        }
+        if (accepted && (verb == "unit.resume_construction" || verb == "unit.cancel_construction")) {
+            const std::string nativeID = command.value("target_native_id", "");
+            for (auto candidate : game->getAllUnits()) {
+                if (!candidate || !candidate->exists() || !candidate->getPlayer()
+                    || candidate->getPlayer() != game->self()
+                    || candidate->getType() != constructionType->native
+                    || std::to_string(candidate->getID()) != nativeID) continue;
+                const auto tile = candidate->getTilePosition();
+                if (tile.x == buildX && tile.y == buildY && !candidate->isCompleted())
+                    target = candidate;
+                break;
+            }
+            if (!target) { accepted = false; reason = "stale_construction_target"; }
+        }
+        if (accepted && verb == "unit.build" && constructionType->native == BWAPI::UnitTypes::Terran_Refinery) {
+            bool geyser = false;
+            for (auto candidate : game->getAllUnits()) {
+                if (!candidate || !candidate->exists()
+                    || candidate->getType() != BWAPI::UnitTypes::Resource_Vespene_Geyser
+                    || std::to_string(candidate->getID()) != command.value("target_native_id", "")) continue;
+                const auto tile = candidate->getTilePosition();
+                if (tile.x == buildX && tile.y == buildY) geyser = true;
+                break;
+            }
+            if (!geyser) { accepted = false; reason = "stale_geyser_target"; }
+        }
         if (accepted && verb == "unit.train") {
             const std::string requestedType = command.value("unit_type", "terran_marine");
             const auto* requested = worldUnitType(requestedType);
@@ -706,7 +814,9 @@ private:
             if (!unique.insert(id).second || !unit || !unit->exists()
                 || unit->getPlayer() != game->self()
                 || !worldUnitType(unit->getType())
-                || !worldUnitType(unit->getType())->controllable) {
+                || !worldUnitType(unit->getType())->controllable
+                || (construction && unit->getType() != BWAPI::UnitTypes::Terran_SCV)
+                || (construction && units.size() != 1)) {
                 accepted = false; reason = "invalid_owner_or_unit"; break;
             }
         }
@@ -728,6 +838,17 @@ private:
                           << " unit_type=" << command.value("unit_type", "terran_marine")
                           << " gas=" << game->self()->gas() << std::endl;
             }
+            if (verb == "unit.cancel_construction") {
+                const int cancelNativeID = target->getID();
+                accepted = target->canCancelConstruction() && target->cancelConstruction();
+                if (!accepted) reason = "native_cancel_rejected:" + game->getLastError().getName();
+                std::cerr << "[world-control] construction command=" << commandID
+                          << " intent=" << command.value("intent_id", "")
+                          << " verb=" << verb << " native=" << cancelNativeID
+                          << " accepted=" << accepted << " frame=" << game->getFrameCount()
+                          << " minerals=" << game->self()->minerals() << " gas=" << game->self()->gas()
+                          << " reason=" << reason << std::endl;
+            }
             for (const auto& idValue : units) {
                 auto unit = actorRegistry_.lookup(idValue.get<std::string>());
                 const auto previousOrder = unit->getOrder().getName();
@@ -740,7 +861,19 @@ private:
                     && unit->useTech(BWAPI::TechTypes::Healing, target);
                 else if (verb == "unit.hold") applied = unit->holdPosition();
                 else if (verb == "unit.stop") applied = unit->stop();
-                if (!applied) { accepted = false; reason = "bwapi_rejected"; }
+                else if (verb == "unit.build") {
+                    const BWAPI::TilePosition tile{buildX, buildY};
+                    applied = game->canBuildHere(tile, constructionType->native, unit, true)
+                        && game->canMake(constructionType->native, unit)
+                        && unit->canBuild(constructionType->native, tile)
+                        && unit->build(constructionType->native, tile);
+                    if (!applied) reason = "native_build_rejected:" + game->getLastError().getName();
+                }
+                else if (verb == "unit.resume_construction") {
+                    applied = unit->rightClick(target);
+                    if (!applied) reason = "native_resume_rejected:" + game->getLastError().getName();
+                }
+                if (!applied) { accepted = false; if (reason == "ok") reason = "bwapi_rejected"; }
                 std::cerr << "[world-control] command=" << commandID << " unit=" << unit->getID()
                           << " verb=" << verb << " accepted=" << applied
                           << " frame=" << game->getFrameCount()
@@ -826,6 +959,7 @@ private:
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
     WorldEconomyObservations economyObservations_;
+    WorldConstructionWatches constructionWatches_;
     WorldFirebatTechProbe firebatTechProbe_{true};
     WorldMedicVultureProbe medicVultureProbe_{true};
     WorldGoliathProbe goliathProbe_{true};
@@ -842,6 +976,7 @@ private:
     bool barracksProbeQueueSeen_ = false, barracksProbeMarineSeen_ = false;
     int barracksProbeInitialMarines_ = 0;
     bool startingResourcesApplied_ = false;
+    bool e3SiteScanDone_ = false;
     bool medicCaptureDamaged_ = false;
     starcoaster::NavigationAdapter navigation_;
     starcoaster::NavigationMaskReceiver maskReceiver_;

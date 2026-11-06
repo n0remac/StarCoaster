@@ -37,7 +37,8 @@ def stage(source: Path, destination: Path, scenario_path: Path) -> None:
     (data / "plugin").mkdir(parents=True, exist_ok=True)
     (data / "config.ini").write_text("[network]\nadvertise = false\n")
     script = (ROOT / "scripts/stage-scenario-structures.js").read_text().replace(
-        "__STARCOASTER_STRUCTURES__", json.dumps(specs, separators=(",", ":")))
+        "__STARCOASTER_STRUCTURES__", json.dumps(specs, separators=(",", ":"))).replace(
+        "__STARCOASTER_ECONOMY_MODE__", json.dumps((scenario.get("economy") or {}).get("mode", "")))
     (data / "plugin/stage-scenario-structures.js").write_text(script)
     staged = data / "save/scenario-structures.park"
     staged.unlink(missing_ok=True)

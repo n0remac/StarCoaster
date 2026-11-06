@@ -38,6 +38,13 @@ type ResourceLedger struct {
 	sites   map[string]*resourceSite
 }
 
+func (l *ResourceLedger) Latest(siteID string) (ResourceState, bool) {
+	if l == nil || l.sites[siteID] == nil || l.sites[siteID].last.Generation == 0 {
+		return ResourceState{}, false
+	}
+	return l.sites[siteID].last, true
+}
+
 func NewResourceLedger(s *Scenario, session string) *ResourceLedger {
 	l := &ResourceLedger{session: session, sites: map[string]*resourceSite{}}
 	if s == nil || s.Economy == nil || s.Economy.Mode != "finite" {

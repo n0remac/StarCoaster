@@ -53,6 +53,8 @@ type Removal struct {
 }
 type Entity struct {
 	ID           string    `json:"id"`
+	NativeOrigin bool      `json:"native_origin,omitempty"`
+	NativeID     string    `json:"native_id,omitempty"`
 	Name         string    `json:"name,omitempty"`
 	Source       string    `json:"source"`
 	SourceID     string    `json:"source_id"`
@@ -70,15 +72,16 @@ type Entity struct {
 	Revision     uint64    `json:"revision"`
 }
 type Terrain struct {
-	X           int                `json:"x"`
-	Y           int                `json:"y"`
-	Height      int                `json:"height"` // OpenRCT2 world Z units (8 per baseHeight step)
-	Slope       int                `json:"slope,omitempty"`
-	Water       int                `json:"water"`
-	Surface     int                `json:"surface"`
-	Walkable    bool               `json:"walkable"`
-	GroundPaths []TerrainPath      `json:"ground_paths,omitempty"`
-	PathLayers  []TerrainPathLayer `json:"path_layers,omitempty"`
+	X                  int                `json:"x"`
+	Y                  int                `json:"y"`
+	Height             int                `json:"height"` // OpenRCT2 world Z units (8 per baseHeight step)
+	Slope              int                `json:"slope,omitempty"`
+	Water              int                `json:"water"`
+	Surface            int                `json:"surface"`
+	Walkable           bool               `json:"walkable"`
+	ConstructionRights bool               `json:"construction_rights,omitempty"`
+	GroundPaths        []TerrainPath      `json:"ground_paths,omitempty"`
+	PathLayers         []TerrainPathLayer `json:"path_layers,omitempty"`
 }
 type TerrainPath struct {
 	BaseHeight     int  `json:"base_height"`     // OpenRCT2 world Z units

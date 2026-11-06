@@ -14,6 +14,7 @@
 #include "WorldZergProductionProbe.h"
 #include "WorldEconomyE0Probe.h"
 #include "WorldEconomyObservations.h"
+#include "WorldConstructionWatches.h"
 #include "WorldBuildingState.h"
 #include "BridgePerformance.h"
 
@@ -41,10 +42,11 @@ class WorldAdapter {
     using json = nlohmann::json;
     struct Target { std::string id; BWAPI::Unit unit = nullptr; int proxyID = -1; int lastHP = 0;
         bool reported = false; std::string lifecycle = "active"; int x = 0, y = 0;
-        int desiredHP = 0, healthFrame = 0; };
+        int desiredHP = 0, healthFrame = 0; bool nativeOrigin = false; };
     struct PendingTarget { std::string id; int x = 0; int y = 0; int health = 0;
         std::string buildingType; int ownerID = -1;
-        bool requested = false; int requestedFrame = 0; std::set<int> beforeIDs; };
+        bool requested = false; int requestedFrame = 0; std::set<int> beforeIDs;
+        bool nativeOrigin = false; int nativeID = -1, tileX = -1, tileY = -1; };
     struct ScheduledRemoval { json message; std::string id; int frame = 0; };
     struct NativeSpawn {
         std::string requestID, unitType, state, actorID, reason;
@@ -171,6 +173,9 @@ public:
         if (!ready_) return;
         publishRuntimeEvents(frame);
         publishSpawnOutcomes(frame);
+        if (!session_.empty() && frame % 12 == 0)
+            for (const auto& state : constructionWatches_.observe(game))
+                send("construction.observation", state, revision_, frame);
         if (!session_.empty() && frame % 24 == 0 && game->self()) {
             for (const auto& state : economyObservations_.observe(game))
                 send("resource.state", state, revision_, frame);
@@ -332,7 +337,7 @@ private:
             {"map_width",game->mapWidth()},{"map_height",game->mapHeight()}},1,0);
         std::cerr << "[world] connected to bridge service" << std::endl;
     }
-    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); publishedActorStates_.clear(); maskReceiver_.reset(); maskValid_=false; pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; for (auto& [id, target] : targets_) if (target.lifecycle=="destroyed_in_openbw") target.reported=false; ready_=false; }
+    void disconnect() { if (socket_>=0) ::close(socket_); socket_=-1; incoming_.clear(); outgoing_.clear(); pendingRemovals_.clear(); publishedActors_.clear(); publishedActorStates_.clear(); maskReceiver_.reset(); maskValid_=false; pendingMask_.clear(); pendingMaskHash_.clear(); stagedMask_.clear(); stagedMaskHash_.clear(); constructionWatches_.resetPublication(); for (auto& [key, spawn] : nativeSpawns_) spawn.reported=false; for (auto& [id, target] : targets_) if (target.lifecycle=="destroyed_in_openbw") target.reported=false; ready_=false; }
     void flush() {
         while (socket_>=0 && !outgoing_.empty()) {
             const ssize_t n=::send(socket_,outgoing_.data(),outgoing_.size(),MSG_NOSIGNAL);
@@ -367,6 +372,14 @@ private:
         const std::string kind=message.value("kind","");
         const auto& payload=message.at("payload");
         if (kind=="world.ack") return;
+        if (kind=="construction.watch") {
+            const bool accepted = message.value("source", "") == "bridge"
+                && message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() >= revision_
+                && constructionWatches_.watch(payload, game);
+            ack(message, accepted, accepted ? "" : "invalid_construction_watch");
+            return;
+        }
         if (kind=="combat.command") {
             const std::string commandID = payload.value("command_id", "");
             const std::string prefix = session_ + ":";
@@ -704,7 +717,8 @@ private:
             const auto state=payload.value("state","");
             if (state=="removal_confirmed") {
                 targets_[id].lifecycle="proxy_retired";
-                if (targets_[id].unit && targets_[id].unit->exists()) game->removeUnit(targets_[id].unit);
+                if (!targets_[id].nativeOrigin && targets_[id].unit && targets_[id].unit->exists())
+                    game->removeUnit(targets_[id].unit);
             } else if (state=="removal_failed") targets_[id].lifecycle="park_removal_failed";
             else { ack(message,false,"invalid_result_state"); return; }
             revision_=std::max(revision_,message.at("revision").get<uint64_t>());
@@ -796,7 +810,8 @@ private:
                 || it->second.lifecycle == "park_removal_failed"
                 || (it->second.unit && !it->second.unit->exists()
                     && it->second.lifecycle != "destroyed_in_openbw")) {
-                if (it->second.unit && it->second.unit->exists()) game->removeUnit(it->second.unit);
+                if (!it->second.nativeOrigin && it->second.unit && it->second.unit->exists())
+                    game->removeUnit(it->second.unit);
                 usedUnits_.erase(it->second.proxyID);
                 it = targets_.erase(it);
             } else ++it;
@@ -1139,6 +1154,7 @@ private:
         if (current == targets_.end()) return;
         auto unit = current->second.unit;
         const int proxyID = current->second.proxyID;
+        const bool nativeOrigin = current->second.nativeOrigin;
         current->second.lifecycle = reason;
         targets_.erase(current);
         usedUnits_.erase(proxyID);
@@ -1147,7 +1163,7 @@ private:
         if (reason == "controlled_replacement")
             send("entity.retire", {{"id",id},{"proxy_id","openbw:"+std::to_string(proxyID)},
                 {"reason",reason}}, revision_, game->getFrameCount());
-        if (unit && unit->exists()) game->removeUnit(unit);
+        if (!nativeOrigin && unit && unit->exists()) game->removeUnit(unit);
     }
     void requestTargets(BWAPI::Game* game, const std::set<std::string>* only = nullptr) {
         auto self = game->self();
@@ -1241,8 +1257,19 @@ private:
             }
             const int health = preservedHP_.count(id) ? preservedHP_.at(id)
                 : entity.at("combat").value("health", 40);
+            const bool nativeOrigin = entity.value("native_origin", false);
+            int nativeID = -1;
+            if (nativeOrigin) {
+                const std::string observed = entity.value("native_id", "");
+                if (observed.empty() || observed.find_first_not_of("0123456789") != std::string::npos) {
+                    reportUnsupported(id, "native_origin_unbound"); continue;
+                }
+                try { nativeID = std::stoi(observed); }
+                catch (...) { reportUnsupported(id, "native_origin_unbound"); continue; }
+            }
             pending_.push_back({id, x, y, health, building ? building->id : "",
-                building ? entity.value("owner", -1) : -1});
+                building ? entity.value("owner", -1) : -1, false, 0, {},
+                nativeOrigin, nativeID, minX / 32, minY / 32});
         }
         std::cerr << "[world] requested targets=" << pending_.size()
                   << " unsupported=" << unsupportedTotal_ << std::endl;
@@ -1284,6 +1311,27 @@ private:
             auto& pending = pending_[index];
             if (pending.requested) { ++index; continue; }
             if (pending.id.empty()) { pending_.erase(pending_.begin() + index); continue; }
+            if (pending.nativeOrigin) {
+                BWAPI::Unit exact = nullptr;
+                for (auto unit : game->getAllUnits()) {
+                    if (!unit || !unit->exists() || unit->getID() != pending.nativeID
+                        || !unit->getPlayer() || unit->getPlayer()->getID() != pending.ownerID
+                        || unit->getType() != worldBuildingType(pending.buildingType)->native) continue;
+                    const auto tile = unit->getTilePosition();
+                    if (tile.x == pending.tileX && tile.y == pending.tileY) exact = unit;
+                    break;
+                }
+                if (exact) {
+                    associateTarget(game, pending, exact);
+                    pending_.erase(pending_.begin() + index);
+                } else if (pending.requestedFrame == 0) {
+                    pending.requestedFrame = game->getFrameCount(); ++index;
+                } else if (game->getFrameCount() - pending.requestedFrame >= 24) {
+                    reportUnsupported(pending.id, "native_origin_missing");
+                    pending_.erase(pending_.begin() + index);
+                } else ++index;
+                continue;
+            }
             const bool nearbyRequest = std::any_of(pending_.begin(), pending_.end(),
                 [&](const PendingTarget& other) {
                     return &other != &pending && other.requested
@@ -1381,14 +1429,18 @@ private:
                   << " unsupported=" << unsupportedTotal_ << std::endl;
     }
     void associateTarget(BWAPI::Game* game, const PendingTarget& pending, BWAPI::Unit unit) {
-        if (pending.id.empty() || !entities_.count(pending.id)) game->removeUnit(unit);
+        if (pending.id.empty() || !entities_.count(pending.id)) {
+            if (!pending.nativeOrigin) game->removeUnit(unit);
+        }
         else {
-            const int desiredHP = std::clamp(pending.health, 1, unit->getType().maxHitPoints());
-            if (unit->getHitPoints() != desiredHP) unit->setHitPoints(desiredHP);
+            const int desiredHP = pending.nativeOrigin ? unit->getHitPoints()
+                : std::clamp(pending.health, 1, unit->getType().maxHitPoints());
+            if (!pending.nativeOrigin && unit->getHitPoints() != desiredHP) unit->setHitPoints(desiredHP);
             const bool healthReady = unit->getHitPoints() == desiredHP;
             usedUnits_.insert(unit->getID());
             targets_[pending.id] = {pending.id, unit, unit->getID(), unit->getHitPoints(), false, "active",
-                unit->getPosition().x, unit->getPosition().y, desiredHP, game->getFrameCount()};
+                unit->getPosition().x, unit->getPosition().y, desiredHP, game->getFrameCount(),
+                pending.nativeOrigin};
             if (!healthReady) targets_[pending.id].lifecycle = "pending_health";
             preservedHP_.erase(pending.id);
             if (healthReady) send("entity.state", {{"id", pending.id},
@@ -1585,6 +1637,7 @@ private:
     std::vector<ScheduledRemoval> pendingRemovals_;
     WorldActorRegistry actorRegistry_;
     WorldEconomyObservations economyObservations_;
+    WorldConstructionWatches constructionWatches_;
     WorldFirebatTechProbe firebatTechProbe_{false};
     WorldMedicVultureProbe medicVultureProbe_{false};
     WorldGoliathProbe goliathProbe_{false};

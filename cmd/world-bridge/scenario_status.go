@@ -26,6 +26,7 @@ type scenarioStatus struct {
 	WaveIntervalSeconds   int     `json:"wave_interval_seconds,omitempty"`
 	WaveDifficulty        string  `json:"wave_difficulty,omitempty"`
 	UnlimitedResources    bool    `json:"unlimited_resources,omitempty"`
+	FiniteEconomy         bool    `json:"finite_economy,omitempty"`
 	DefenseConfigurable   bool    `json:"defense_configurable,omitempty"`
 	AutomaticPerimeter    bool    `json:"automatic_perimeter,omitempty"`
 }
@@ -34,6 +35,7 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 	status := scenarioStatus{Session: s.registry.Session, ScenarioID: s.scenario.ID,
 		DisplayName: s.scenario.DisplayName, Mode: s.scenario.Mode,
 		Outcome: s.outcome, ActiveZerglings: s.lastZerglings, ActiveEnemies: s.lastEnemies}
+	status.FiniteEconomy = s.finiteEconomy()
 	if s.scenario.Mode == "park_defense" {
 		status.Objective = "Manage and defend the park"
 		status.WaveIntervalSeconds = (s.scenario.ParkDefense.IntervalFrames + 23) / 24

@@ -1,5 +1,6 @@
 /* Scenario-specific values are injected by stage-scenario-structures.py. */
 var starcoasterStructures = __STARCOASTER_STRUCTURES__;
+var starcoasterEconomyMode = __STARCOASTER_ECONOMY_MODE__;
 registerPlugin({ name: "Passthrough RTS Bridge", version: "0.3.0",
     authors: ["Passthrough RTS project"], type: "remote", licence: "MIT",
     targetApiVersion: 124, minApiVersion: 124, main: function () {
@@ -74,6 +75,7 @@ registerPlugin({ name: "Passthrough RTS Bridge", version: "0.3.0",
                         z: entry.height * 8, owner: spec.owner });
                 });
                 context.getParkStorage().set("scenarioStructures", ownership);
+                context.getParkStorage().set("economyMode", starcoasterEconomyMode);
                 context.saveGame({ filename: "scenario-structures" });
                 console.log("SCENARIO_STRUCTURES_STAGED " + JSON.stringify(ownership));
             } catch (error) { fail(String(error)); }

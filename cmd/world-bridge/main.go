@@ -74,6 +74,8 @@ type service struct {
 	registry                  *world.Registry
 	actors                    *world.ActorRegistry
 	resources                 *world.ResourceLedger
+	construction              *world.ConstructionLedger
+	constructionSeen          map[string]map[string]nativeConstructionObservation
 	economyBalance            map[int][4]int
 	mapping                   world.Mapping
 	stage                     *staging
@@ -153,16 +155,24 @@ type targetPatchStage struct {
 }
 
 type worldCommand struct {
-	CommandID     string   `json:"command_id"`
-	PlayerID      int      `json:"player_id"`
-	RequestID     int      `json:"request_id"`
-	UnitIDs       []string `json:"unit_ids"`
-	Verb          string   `json:"verb"`
-	UnitType      string   `json:"unit_type,omitempty"`
-	TargetID      string   `json:"target_id,omitempty"`
-	TargetProxyID string   `json:"target_proxy_id,omitempty"`
-	X             int      `json:"x,omitempty"`
-	Y             int      `json:"y,omitempty"`
+	CommandID        string   `json:"command_id"`
+	PlayerID         int      `json:"player_id"`
+	RequestID        int      `json:"request_id"`
+	UnitIDs          []string `json:"unit_ids"`
+	Verb             string   `json:"verb"`
+	UnitType         string   `json:"unit_type,omitempty"`
+	TargetID         string   `json:"target_id,omitempty"`
+	TargetProxyID    string   `json:"target_proxy_id,omitempty"`
+	X                int      `json:"x,omitempty"`
+	Y                int      `json:"y,omitempty"`
+	BuildingType     string   `json:"building_type,omitempty"`
+	TileX            int      `json:"tile_x,omitempty"`
+	TileY            int      `json:"tile_y,omitempty"`
+	IntentID         string   `json:"intent_id,omitempty"`
+	NativeTileX      int      `json:"native_tile_x,omitempty"`
+	NativeTileY      int      `json:"native_tile_y,omitempty"`
+	TargetNativeID   string   `json:"target_native_id,omitempty"`
+	NativeGeneration uint64   `json:"native_generation,omitempty"`
 }
 
 type perfMove struct {
@@ -423,6 +433,12 @@ func (s *service) nativePatchReport(participant string, m world.Envelope) bool {
 			patch.controllerApplied = true
 		}
 		if patch.publisherApplied && patch.controllerApplied {
+			if patch.combatResult != nil {
+				if err := s.markFiniteAuthoredDestroyed(patch.combatResult.EntityID); err != nil {
+					s.failNativePatch(err.Error())
+					return true
+				}
+			}
 			if err := s.registry.CommitPatch(patch.patch, patch.candidate); err != nil {
 				s.failNativePatch(err.Error())
 				return true
@@ -596,6 +612,7 @@ func (s *service) publishReady() {
 		s.outcome = s.runtime.Outcome
 	}
 	s.ready = true
+	s.restoreConstructionWatches()
 	if s.scenario != nil && s.startedSession != s.registry.Session && s.outcome == "" {
 		_ = s.emit(s.bw, "world.start", s.registry.Session, s.registry.Revision,
 			map[string]any{"scenario_id": s.scenario.ID, "delay_frames": s.scenario.InitialAI.DelayFrames})
@@ -824,6 +841,20 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		previousSession := s.registry.Session
 		pendingCombat, pendingCombatFrames := s.pending, s.pendingFrames
 		s.failCommands("world_resynchronized")
+		if err := s.initConstruction(m.Session); err != nil {
+			s.ack(p, m, false, err.Error())
+			return
+		}
+		s.constructionSeen = nil
+		if err := s.validateFiniteSnapshot(s.stage.entities); err != nil {
+			s.ack(p, m, false, err.Error())
+			return
+		}
+		for i := range s.stage.entities {
+			if s.construction != nil {
+				s.construction.NormalizeNativeProjection(&s.stage.entities[i])
+			}
+		}
 		if err := s.registry.Replace(m.Session, m.Revision, s.stage.begin.Width, s.stage.begin.Height, s.stage.entities, s.stage.terrain); err != nil {
 			s.ack(p, m, false, err.Error())
 			return
@@ -901,6 +932,10 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			s.ack(p, m, false, "invalid_patch")
 			return
 		}
+		if err := s.validateFinitePatch(patch); err != nil {
+			s.ack(p, m, false, err.Error())
+			return
+		}
 		if s.targetPatch != nil {
 			s.ack(p, m, false, "target_reconciliation_in_progress")
 			return
@@ -933,6 +968,14 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		validationStarted := time.Now()
 		candidate, mask, err := s.registry.StagePatch(m.Session, patch, s.mapping,
 			s.transform, s.bwWidth, s.bwHeight)
+		if err == nil && s.construction != nil {
+			for _, entity := range append(append([]world.Entity{}, patch.Additions...), patch.Modifications...) {
+				normalized := candidate.Entities[entity.ID]
+				s.construction.NormalizeNativeProjection(&normalized)
+				candidate.Entities[entity.ID] = normalized
+			}
+			mask, err = world.DeriveNavigation(candidate, s.transform, s.bwWidth, s.bwHeight)
+		}
 		log.Printf("park patch validated id=%s elapsed_ms=%d navigation_us=%d accepted=%t", patch.ID,
 			time.Since(validationStarted).Milliseconds(), mask.DerivationTime.Microseconds(), err == nil)
 		if err != nil {
@@ -1007,6 +1050,41 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			status["navigation_hash"] = hash
 		}
 		_ = s.emit(p, "world.patch.status", m.Session, m.Revision, status)
+	case "construction.projection":
+		var projection struct {
+			IntentID string `json:"intent_id"`
+			EntityID string `json:"entity_id"`
+		}
+		if !s.finiteEconomy() || s.construction == nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || m.Decode(&projection) != nil ||
+			!strings.HasPrefix(projection.EntityID, "openrct2:large_scenery:") {
+			s.ack(p, m, false, "invalid_construction_projection")
+			return
+		}
+		if err := s.construction.AllowProjection(projection.IntentID, projection.EntityID); err != nil {
+			s.ack(p, m, false, err.Error())
+			return
+		}
+		s.ack(p, m, true, "")
+		log.Printf("construction projection registered intent=%s entity=%s revision=%d",
+			projection.IntentID, projection.EntityID, m.Revision)
+	case "construction.projection.failure":
+		var failure struct {
+			IntentID string `json:"intent_id"`
+			Reason   string `json:"reason"`
+		}
+		if !s.finiteEconomy() || s.construction == nil || m.Session != s.registry.Session ||
+			m.Revision != s.registry.Revision || m.Decode(&failure) != nil ||
+			s.construction.RecordProjectionFailure(failure.IntentID, failure.Reason) != nil {
+			s.ack(p, m, false, "invalid_construction_projection_failure")
+			return
+		}
+		s.ack(p, m, true, "")
+		intent := s.construction.Intents[failure.IntentID]
+		_ = s.emit(p, "construction.state", m.Session, m.Revision,
+			map[string]any{"intent_id": intent.ID, "state": "projection_failed",
+				"building_type": intent.BuildingType, "tile_x": intent.Tile.X, "tile_y": intent.Tile.Y,
+				"reason": failure.Reason, "projection_failures": intent.ProjectionFailures})
 	case "combat.result":
 		if s.parkPatch != nil || s.targetPatch != nil {
 			s.ready = false
@@ -1075,6 +1153,10 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		// one side before OpenBW accepts its geometry would split authority.
 		s.ack(p, m, false, "live_update_unsupported")
 	case "unit.spawn.request", "unit.spawn.query", "unit.spawn.cancel":
+		if m.Kind == "unit.spawn.request" && s.rejectDirectEconomySpawn() {
+			s.ack(p, m, false, "finite_economy_requires_native_production")
+			return
+		}
 		if m.Kind == "unit.spawn.request" && s.scenario != nil && s.scenario.Mode == "park_defense" &&
 			s.scenario.ParkDefense.ManualActivation && os.Getenv("BRIDGE_ALLOW_DIRECT_SPAWN") != "1" {
 			s.ack(p, m, false, "direct_marine_spawn_disabled")
@@ -1202,6 +1284,28 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 		case "unit.hold", "unit.stop":
 			if len(command.UnitIDs) == 0 {
 				s.ack(p, m, false, "missing_units")
+				return
+			}
+		case "unit.build":
+			dispatch, err := s.prepareNativeBuild(&command)
+			if err != nil {
+				log.Printf("construction request rejected command=%s type=%s tile=%d,%d worker=%v reason=%v",
+					command.CommandID, command.BuildingType, command.TileX, command.TileY, command.UnitIDs, err)
+				s.ack(p, m, false, err.Error())
+				return
+			}
+			if !dispatch {
+				s.ack(p, m, true, "")
+				return
+			}
+		case "unit.resume_construction", "unit.cancel_construction":
+			dispatch, err := s.prepareNativeConstructionControl(&command)
+			if err != nil {
+				s.ack(p, m, false, err.Error())
+				return
+			}
+			if !dispatch {
+				s.ack(p, m, true, "")
 				return
 			}
 		default:
@@ -1368,6 +1472,8 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 	switch m.Kind {
 	case "resource.state":
 		s.recordResource(p, m, "publisher")
+	case "construction.observation":
+		s.recordConstructionObservation(p, m, "publisher")
 	case "building.state", "player.resources":
 		var report struct {
 			Owner int `json:"owner"`
@@ -1830,6 +1936,34 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 	switch m.Kind {
 	case "resource.state":
 		s.recordResource(p, m, "controller")
+	case "construction.observation":
+		s.recordConstructionObservation(p, m, "controller")
+	case "construction.catalog":
+		var catalog struct {
+			Buildings []struct {
+				BuildingType string `json:"building_type"`
+				Minerals     int    `json:"minerals"`
+				Gas          int    `json:"gas"`
+				Available    bool   `json:"available"`
+				Reason       string `json:"reason"`
+				Requirement  string `json:"requirement"`
+			} `json:"buildings"`
+		}
+		if !s.finiteEconomy() || m.Session != s.registry.Session || m.Revision != s.registry.Revision ||
+			m.Decode(&catalog) != nil || len(catalog.Buildings) != 7 {
+			return
+		}
+		seen := map[string]bool{}
+		for _, building := range catalog.Buildings {
+			if _, ok := world.SupportedBuilding(building.BuildingType); !ok || seen[building.BuildingType] ||
+				len(building.BuildingType) < 7 || building.BuildingType[:7] != "terran_" ||
+				building.Minerals < 0 || building.Minerals > 10000 || building.Gas < 0 || building.Gas > 10000 ||
+				len(building.Reason) > 64 || len(building.Requirement) > 64 {
+				return
+			}
+			seen[building.BuildingType] = true
+		}
+		_ = s.emit(s.park, "construction.catalog", m.Session, m.Revision, catalog)
 	case "world.hello":
 		s.ack(p, m, true, "")
 		if s.registry.Session != "" {
@@ -2053,6 +2187,30 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			}
 		}
 		delete(s.commands, result.CommandID)
+		if s.construction != nil && command.IntentID != "" {
+			if command.Verb == "unit.build" && !result.Accepted {
+				intent := s.construction.Intents[command.IntentID]
+				if intent.NativeID == "" {
+					_ = s.construction.Terminal(command.IntentID, "rejected")
+				}
+			}
+			if command.Verb == "unit.cancel_construction" && !result.Accepted {
+				_ = s.construction.ClearCancelRequested(command.IntentID)
+			}
+			state := "travelling"
+			if !result.Accepted {
+				state = "rejected"
+			}
+			if command.Verb != "unit.build" {
+				state = "control_accepted"
+				if !result.Accepted {
+					state = "control_rejected"
+				}
+			}
+			_ = s.emit(s.park, "construction.state", m.Session, m.Revision,
+				map[string]any{"intent_id": command.IntentID, "state": state,
+					"command_id": result.CommandID, "reason": result.Reason, "frame": m.BWTick})
+		}
 		if move, ok := s.perfMoves[result.CommandID]; ok {
 			if result.Accepted {
 				move.Accepted = true

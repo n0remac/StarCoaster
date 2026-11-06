@@ -15,6 +15,8 @@
     const BUILDING_ACTION = "rtsbridge.buildingState";
     const RESOURCE_ACTION = "rtsbridge.playerResources";
     const RESOURCE_SITE_ACTION = "rtsbridge.resourceSiteState";
+    const CONSTRUCTION_STATE_ACTION = "rtsbridge.constructionState";
+    const CONSTRUCTION_CATALOG_ACTION = "rtsbridge.constructionCatalog";
     const OUTCOME_ACTION = "rtsbridge.worldOutcome";
     const SCENARIO_STATUS_ACTION = "rtsbridge.scenarioStatus";
     const TARGET_ACTION = "rtsbridge.targetCatalog";
@@ -95,6 +97,10 @@
         let inFlightTicks = 0;
         const queue = [], generations = {}, activeKeys = {}, activeItems = {}, entities = {}, completed = {};
         const parkStorage = typeof context.getParkStorage === "function" ? context.getParkStorage() : null;
+        let finiteEconomy = !!(parkStorage && parkStorage.get("economyMode", "") === "finite");
+        const constructionReservations = {};
+        let projectionPlacement = "";
+        const projectionAttempts = {};
         const savedBarracksGenerations = parkStorage ? (parkStorage.get("barracksGenerations", {}) || {}) : {};
         const savedBarracksHealth = parkStorage ? (parkStorage.get("barracksHealth", {}) || {}) : {};
         const scenarioStructures = parkStorage ? (parkStorage.get("scenarioStructures", []) || []) : [];
@@ -133,6 +139,53 @@
             surfacesetstyle: true, tilemodify: true, clearscenery: true
         };
         context.subscribe("action.query", function (event) {
+            if (event && event.result && !event.result.error && network.mode === "server"
+                && finiteEconomy && constructionActions[event.action]) {
+                const args = event.args || {};
+                const terranType = event.action === "largesceneryplace" ? Object.keys(BUILDING_TYPES).find(function (id) {
+                    if (!id.startsWith("terran_")) return false;
+                    return objectManager.getAllObjects("large_scenery").some(function (object) {
+                        return object.index === args.object && object.identifier === BUILDING_TYPES[id].objectID;
+                    });
+                }) : "";
+                const projected = projectionPlacement && projectionPlacement.action === event.action
+                    && projectionPlacement.x === args.x && projectionPlacement.y === args.y
+                    && (event.action !== "largesceneryplace" || projectionPlacement.object === args.object);
+                if (terranType && !projected) {
+                    event.result.error = 1;
+                    event.result.errorTitle = "Native construction required";
+                    event.result.errorMessage = "Select an SCV and use Build";
+                    return;
+                }
+                const x1 = Number.isInteger(args.x1) ? args.x1 : args.x;
+                const y1 = Number.isInteger(args.y1) ? args.y1 : args.y;
+                const x2 = Number.isInteger(args.x2) ? args.x2 : x1;
+                const y2 = Number.isInteger(args.y2) ? args.y2 : y1;
+                if ([x1, y1, x2, y2].every(Number.isInteger)) {
+                    const left = Math.floor(Math.min(x1, x2) / 32);
+                    const right = Math.floor(Math.max(x1, x2) / 32);
+                    const top = Math.floor(Math.min(y1, y2) / 32);
+                    const bottom = Math.floor(Math.max(y1, y2) / 32);
+                    const overlap = Object.keys(constructionReservations).some(function (id) {
+                        const site = constructionReservations[id], building = BUILDING_TYPES[site.building_type];
+                        if (!building || ["rejected", "canceled", "destroyed"].includes(site.state)) return false;
+                        return left < site.tile_x + building.width && right >= site.tile_x
+                            && top < site.tile_y + building.height && bottom >= site.tile_y;
+                    });
+                    const baseOverlap = scenarioStructures.some(function (site) {
+                        const building = BUILDING_TYPES[site.type];
+                        return site.owner === terranOwner && building &&
+                            left < site.x + building.width && right >= site.x
+                            && top < site.y + building.height && bottom >= site.y;
+                    });
+                    if ((overlap || baseOverlap) && !projected) {
+                        event.result.error = 1;
+                        event.result.errorTitle = "Native structure site";
+                        event.result.errorMessage = "Use the worker controls to cancel construction";
+                        return;
+                    }
+                }
+            }
             if (!event || !event.result || event.result.error || !constructionActions[event.action]
                 || (network.mode === "server" && event.player === network.currentPlayer.id)
                 || !scenarioStructures.length) return;
@@ -342,7 +395,8 @@
                                 ? surface.baseHeight * 8 : surface.baseZ,
                             slope: Number.isInteger(surface.slope) ? surface.slope : 0,
                             water: surface.waterHeight || 0, surface: surface.surfaceObject || 0,
-                            walkable: !surface.waterHeight };
+                            walkable: !surface.waterHeight,
+                            construction_rights: !!surface.hasConstructionRights };
                         break;
                     }
                 }
@@ -704,6 +758,62 @@
             console.log("WORLD_SNAPSHOT session=" + session + " entities=" + current.entities.length
                 + " terrain=" + current.terrain.length + " chunks=" + chunks.length);
         }
+        function projectNativeBuilding(state) {
+            if (!finiteEconomy || !state || !state.native_id || state.projection_id
+                || !BUILDING_TYPES[state.building_type] || !state.building_type.startsWith("terran_")
+                || !Number.isInteger(state.tile_x) || !Number.isInteger(state.tile_y)) return;
+            const id = state.intent_id;
+            if (projectionAttempts[id] && (projectionAttempts[id].busy || projectionAttempts[id].linked
+                || projectionAttempts[id].count >= 3)) return;
+            const attempt = projectionAttempts[id] || { count: 0, busy: false, linked: false };
+            projectionAttempts[id] = attempt;
+            attempt.count++;
+            attempt.busy = true;
+            const existing = discover().entities.find(function (entity) {
+                return entity.kind === "structure" && entity.type === state.building_type
+                    && entity.position.x === state.tile_x * 32 && entity.position.y === state.tile_y * 32;
+            });
+            function linked(entity) {
+                attempt.busy = false;
+                if (!entity) { failure("projection_entity_missing"); return; }
+                attempt.linked = true;
+                send("construction.projection", { intent_id: id, entity_id: entity.id });
+                console.log("WORLD_CONSTRUCTION_PROJECTION intent=" + id + " entity=" + entity.id);
+            }
+            function failure(reason) {
+                attempt.busy = false;
+                send("construction.projection.failure", { intent_id: id, reason: String(reason).slice(0, 128) });
+                console.log("WORLD_CONSTRUCTION_PROJECTION_FAILED intent=" + id + " reason=" + reason);
+            }
+            if (existing) { linked(existing); return; }
+            let object = objectManager.getAllObjects("large_scenery").find(function (entry) {
+                return entry.identifier === BUILDING_TYPES[state.building_type].objectID;
+            });
+            if (!object && typeof objectManager.load === "function")
+                object = objectManager.load(BUILDING_TYPES[state.building_type].objectID);
+            if (!object) { failure("construction_object_unavailable"); return; }
+            const tile = map.getTile(state.tile_x, state.tile_y);
+            let surface = null;
+            for (let i = 0; i < tile.numElements; i++) {
+                const element = tile.getElement(i);
+                if (element.type === "surface") { surface = element; break; }
+            }
+            if (!surface) { failure("construction_surface_missing"); return; }
+            const args = { x: state.tile_x * 32, y: state.tile_y * 32,
+                z: Number.isInteger(surface.baseZ) ? surface.baseZ : surface.baseHeight * 8,
+                direction: 0, object: object.index,
+                primaryColour: 0, secondaryColour: 0, tertiaryColour: 0 };
+            projectionPlacement = { action: "largesceneryplace", x: args.x, y: args.y, object: args.object };
+            context.executeAction("largesceneryplace", args, function (result) {
+                projectionPlacement = "";
+                if (result.error) { failure(result.errorMessage || "park_projection_rejected"); return; }
+                const created = discover().entities.find(function (entity) {
+                    return entity.kind === "structure" && entity.type === state.building_type
+                        && entity.position.x === state.tile_x * 32 && entity.position.y === state.tile_y * 32;
+                });
+                linked(created);
+            });
+        }
         function combatEvent(message) {
             const event = message.payload, tracked = entities[event.entity_id];
             if (message.session !== session || !tracked || completed[event.id] || event.health !== 0 || event.type !== "destruction") return;
@@ -721,7 +831,12 @@
             }
             completed[event.id] = true;
             combatRemovalKey = tracked.id;
+            if (Object.keys(constructionReservations).some(function (id) {
+                return constructionReservations[id].projection_id === tracked.id;
+            }))
+                projectionPlacement = Object.assign({ action: tracked.removal.action }, tracked.removal.args);
             context.executeAction(tracked.removal.action, tracked.removal.args, function (result) {
+                projectionPlacement = "";
                 const remaining = discover().entities.some(function (e) { return e.id === tracked.id; });
                 const confirmed = !result.error && !remaining;
                 if (confirmed) {
@@ -873,6 +988,26 @@
                     function (result) {
                         if (result.error) console.log("WORLD_RESOURCE_SITE_ERROR " + result.errorMessage);
                     });
+            else if (message.kind === "construction.catalog" && message.payload)
+                context.executeAction(CONSTRUCTION_CATALOG_ACTION, Object.assign({ session: session }, message.payload),
+                    function (result) {
+                        if (result.error) console.log("WORLD_CONSTRUCTION_CATALOG_ERROR " + result.errorMessage);
+                    });
+            else if (message.kind === "construction.state" && message.payload) {
+                const state = message.payload;
+                if (state.building_type && Number.isInteger(state.tile_x) && Number.isInteger(state.tile_y))
+                    constructionReservations[state.intent_id] = Object.assign(
+                        {}, constructionReservations[state.intent_id] || {}, state);
+                else if (constructionReservations[state.intent_id])
+                    constructionReservations[state.intent_id] = Object.assign(
+                        {}, constructionReservations[state.intent_id], state);
+                context.executeAction(CONSTRUCTION_STATE_ACTION, Object.assign({ session: session }, state),
+                    function (result) {
+                        if (result.error) console.log("WORLD_CONSTRUCTION_STATE_ERROR " + result.errorMessage);
+                    });
+                if (["bound", "constructing", "paused", "completed"].includes(state.state))
+                    projectNativeBuilding(constructionReservations[state.intent_id]);
+            }
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
             else if (message.kind === "scenario.defense.result" && message.payload) onDefenseResult(message.payload);
@@ -941,10 +1076,12 @@
                     objective_id: message.payload.objective_id }, function (result) {
                     if (result.error) console.log("WORLD_OUTCOME_ERROR " + result.errorMessage);
                 });
-            else if (message.kind === "scenario.status" && message.payload)
+            else if (message.kind === "scenario.status" && message.payload) {
+                finiteEconomy = !!message.payload.finite_economy;
                 context.executeAction(SCENARIO_STATUS_ACTION, Object.assign({ commander_player: electCommander() }, message.payload), function (result) {
                     if (result.error) console.log("WORLD_SCENARIO_STATUS_ERROR " + result.errorMessage);
                 });
+            }
             else if (message.kind === "entity.remove") {
                 const removed = message.payload && message.payload.id;
                 if (entities[removed]) entities[removed].activeTarget = false;
@@ -1121,6 +1258,8 @@
             activeActorGenerations = {};
             removedActorGenerations = {};
             buildingStates = {};
+            constructionStates = {};
+            constructionCatalog = {};
             playerResources = {};
             resourceSiteStates = {};
             worldTargetIds = {};
@@ -1244,6 +1383,8 @@
         const productionFeedback = {};
         const pendingTrainTypes = {};
         let buildingStates = {};
+        let constructionStates = {};
+        let constructionCatalog = {};
         let playerResources = {};
         let resourceSiteStates = {};
         function refreshBuildingAnimations() {
@@ -1329,6 +1470,8 @@
             if (sessionChanged) {
                 outcomeState = null; shownOutcome = "";
                 buildingStates = {};
+                constructionStates = {};
+                constructionCatalog = {};
                 if (missionStatus && missionStatus.session !== event.args.session) missionStatus = null;
             }
             controlSession = event.args.session;
@@ -1521,6 +1664,7 @@
                         || (args.commander_player !== undefined && !Number.isInteger(args.commander_player))))
                     || (args.defense_configurable !== undefined && typeof args.defense_configurable !== "boolean")
                     || (args.automatic_perimeter !== undefined && typeof args.automatic_perimeter !== "boolean")
+                    || (args.finite_economy !== undefined && typeof args.finite_economy !== "boolean")
                     || !["", "pending", "triggered", "spawning", "active", "cleared", "failed"].includes(args.wave_state)
                     || !["", "victory", "defeat"].includes(args.outcome)
                     || typeof args.error !== "string" || args.error.length > 256)
@@ -1734,8 +1878,12 @@
                 if (!args || args.session !== controlSession || !Number.isSafeInteger(args.request)
                     || args.request < 1 || !Array.isArray(args.unit_ids)
                     || args.unit_ids.length > 32
-                    || !(["move", "attack", "attack_move", "hold", "stop", "heal", "train"].includes(args.verb))
-                    || (args.verb === "train" ? args.unit_ids.length !== 0 : args.unit_ids.length < 1))
+                    || !(["move", "attack", "attack_move", "hold", "stop", "heal", "train",
+                        "build", "resume_construction", "cancel_construction"].includes(args.verb))
+                    || (["train", "cancel_construction"].includes(args.verb)
+                        ? args.unit_ids.length !== 0 : args.unit_ids.length < 1)
+                    || (["build", "resume_construction"].includes(args.verb)
+                        && args.unit_ids.length !== 1))
                     return { error: 1, errorMessage: "Invalid unit command" };
                 if (seenCommandRequests[args.session + ":" + event.player + ":" + args.request])
                     return { error: 1, errorMessage: "Duplicate command request" };
@@ -1754,6 +1902,27 @@
                         })
                         || buildingStates[id].health < 1)
                         return { error: 1, errorMessage: "Production building is unavailable" };
+                }
+                if (args.verb === "build") {
+                    const building = BUILDING_TYPES[args.building_type];
+                    const native = constructionCatalog[args.building_type];
+                    if (!missionStatus || !missionStatus.finite_economy || !building
+                        || !args.building_type.startsWith("terran_") || !native || !native.available
+                        || !Number.isInteger(args.tile_x) || !Number.isInteger(args.tile_y)
+                        || args.tile_x < 1 || args.tile_y < 1
+                        || args.tile_x + building.width >= map.size.x
+                        || args.tile_y + building.height >= map.size.y
+                        || (args.building_type === "terran_refinery"
+                            ? !resourceSiteStates[args.geyser_site_id]
+                                || resourceSiteStates[args.geyser_site_id].lifecycle !== "deposit"
+                            : args.geyser_site_id !== undefined))
+                        return { error: 1, errorMessage: "Native construction unavailable" };
+                }
+                if (args.verb === "resume_construction" || args.verb === "cancel_construction") {
+                    const intent = constructionStates[args.target_entity_id];
+                    if (!missionStatus || !missionStatus.finite_economy || !intent || !intent.native_id
+                        || ["completed", "canceled", "destroyed", "rejected"].includes(intent.state))
+                        return { error: 1, errorMessage: "Construction target unavailable" };
                 }
                 const unique = {};
                 if (!args.unit_ids.every(function (id) {
@@ -1797,10 +1966,18 @@
 
                     const commandId = args.session + ":" + (++commandSerial);
                     pendingCommands[commandId] = { player: event.player, request: args.request,
-                        unit: args.verb === "train" ? args.target_entity_id : args.unit_ids[0] };
+                        unit: ["train", "cancel_construction"].includes(args.verb)
+                            ? args.target_entity_id : args.unit_ids[0] };
                     const payload = { command_id: commandId, player_id: event.player,
                         request_id: args.request, unit_ids: args.unit_ids.slice(), verb: "unit." + args.verb };
                     if (args.verb === "train") payload.unit_type = args.unit_type || "terran_marine";
+                    if (args.verb === "build") {
+                        payload.building_type = args.building_type;
+                        payload.tile_x = args.tile_x; payload.tile_y = args.tile_y;
+                        if (args.geyser_site_id) payload.target_id = args.geyser_site_id;
+                    }
+                    if (args.verb === "resume_construction" || args.verb === "cancel_construction")
+                        payload.target_id = args.target_entity_id;
                     if (args.verb === "move" || args.verb === "attack_move") {
                         payload.x = args.x; payload.y = args.y;
                     } else if (args.verb === "attack" || args.verb === "heal" || args.verb === "train")
@@ -1968,6 +2145,41 @@
                     resourceSiteStates[event.args.site_id] = event.args;
                 return {};
             });
+            context.registerAction(CONSTRUCTION_STATE_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may publish native construction" };
+                return /^[0-9a-f]{32}$/.test(args.session || "")
+                    && (!controlSession || args.session === controlSession)
+                    && /^build:[0-9]+:[0-9]+$/.test(args.intent_id || "")
+                    && typeof args.state === "string" && args.state.length <= 48
+                    && (args.building_type === undefined || !!BUILDING_TYPES[args.building_type])
+                    && (args.native_id === undefined || typeof args.native_id === "string")
+                    ? {} : { error: 1, errorMessage: "Invalid native construction state" };
+            }, function (event) {
+                constructionStates[event.args.intent_id] = Object.assign(
+                    {}, constructionStates[event.args.intent_id] || {}, event.args);
+                return {};
+            });
+            context.registerAction(CONSTRUCTION_CATALOG_ACTION, function (event) {
+                const args = event.args || {};
+                if (network.mode === "server" && event.player !== network.currentPlayer.id)
+                    return { error: 1, errorMessage: "Only the server may publish native costs" };
+                return /^[0-9a-f]{32}$/.test(args.session || "") && Array.isArray(args.buildings)
+                    && args.buildings.length === 7 && args.buildings.every(function (item) {
+                        return item && BUILDING_TYPES[item.building_type]
+                            && item.building_type.startsWith("terran_")
+                            && Number.isInteger(item.minerals) && item.minerals >= 0
+                            && Number.isInteger(item.gas) && item.gas >= 0
+                            && typeof item.available === "boolean"
+                            && typeof item.reason === "string" && item.reason.length <= 64
+                            && typeof item.requirement === "string" && item.requirement.length <= 64;
+                    }) ? {} : { error: 1, errorMessage: "Invalid native construction catalog" };
+            }, function (event) {
+                constructionCatalog = {};
+                event.args.buildings.forEach(function (item) { constructionCatalog[item.building_type] = item; });
+                return {};
+            });
 
 
         let animationTicks = 0;
@@ -2017,6 +2229,16 @@
                             if (result.error) console.log("WORLD_CLIENT_RESOURCE_SITE_ERROR " + result.errorMessage);
                         });
                 });
+                Object.keys(constructionStates).forEach(function (id) {
+                    const state = constructionStates[id];
+                    if (state.session === controlSession)
+                        context.executeAction(CONSTRUCTION_STATE_ACTION, state, function () {});
+                });
+                if (Object.keys(constructionCatalog).length === 7)
+                    context.executeAction(CONSTRUCTION_CATALOG_ACTION,
+                        { session: controlSession, buildings: Object.keys(constructionCatalog).map(function (id) {
+                            return constructionCatalog[id];
+                        }) }, function () {});
                 Object.keys(spawnStatuses).forEach(function (id) {
                     const status = spawnStatuses[id];
                     if (status.session === controlSession)
@@ -2066,6 +2288,7 @@
             let buildingInfoID = "";
             let barracksPreview = null;
             let barracksPreviewStatus = "Select Barracks to place";
+            let lastConstructionIntent = "";
             let barracksQuery = 0;
             let selectedBuildingID = "terran_barracks";
             function selectedBuilding() { return BUILDING_TYPES[selectedBuildingID]; }
@@ -2074,6 +2297,13 @@
                 ? "starcoaster.place-barracks" : "starcoaster.place-" + selectedBuildingID.replace(/_/g, "-"); }
             function usingBuildingTool() { return !!ui.tool && ui.tool.id.startsWith("starcoaster.place-"); }
             const controlGroups = {};
+            function selectedWorker() {
+                refreshSelection();
+                return selected.filter(function (id) {
+                    return controlUnits[id] && controlUnits[id].kind === "terran_scv"
+                        && controllable(controlUnits[id], terranOwner);
+                }).sort()[0] || "";
+            }
             function footprintAt(point) {
                 if (!point) return null;
                 const x = Math.floor(point.x / 32), y = Math.floor(point.y / 32);
@@ -2087,6 +2317,21 @@
             function footprintReason(footprint) {
                 if (!footprint) return "Outside the park";
                 if (!controlSession) return "Waiting for native units";
+                if (missionStatus && missionStatus.finite_economy) {
+                    if (!selectedWorker()) return "Select an SCV first";
+                    const native = constructionCatalog[selectedBuildingID];
+                    if (!native) return "Waiting for native costs";
+                    if (!native.available) return native.reason === "requires_building"
+                        ? "Requires " + native.requirement : native.reason.replace(/_/g, " ");
+                    if (Object.keys(constructionStates).some(function (id) {
+                        const site = constructionStates[id], building = BUILDING_TYPES[site.building_type];
+                        return building && !["rejected", "canceled", "destroyed"].includes(site.state)
+                            && footprint.x < site.tile_x + building.width
+                            && footprint.x + selectedBuilding().width > site.tile_x
+                            && footprint.y < site.tile_y + building.height
+                            && footprint.y + selectedBuilding().height > site.tile_y;
+                    })) return "Site already reserved";
+                }
                 let height = null;
                 for (const tile of footprint.tiles) {
                     const elements = map.getTile(tile.x, tile.y);
@@ -2098,6 +2343,8 @@
                         else return "Ground is obstructed";
                     }
                     if (!surface || surface.waterHeight || surface.slope) return "Requires dry, flat ground";
+                    if (missionStatus && missionStatus.finite_economy && !surface.hasConstructionRights)
+                        return "Park construction rights required";
                     const z = Number.isInteger(surface.baseZ) ? surface.baseZ : surface.baseHeight * 8;
                     if (height !== null && height !== z) return "Requires level ground";
                     height = z;
@@ -2105,7 +2352,7 @@
                 if (Object.keys(occupancyUnits).some(function (id) {
                     const unit = occupancyUnits[id];
                     const margin = 16;
-                    return unit.hp > 0 && unit.x + margin > footprint.x * 32
+                    return id !== selectedWorker() && unit.hp > 0 && unit.x + margin > footprint.x * 32
                         && unit.y + margin > footprint.y * 32
                         && unit.x - margin < (footprint.x + selectedBuilding().width) * 32
                         && unit.y - margin < (footprint.y + selectedBuilding().height) * 32;
@@ -2131,7 +2378,8 @@
             function previewBarracks(event) {
                 const footprint = footprintAt(pointFrom(event));
                 barracksPreview = footprint;
-                barracksPreviewStatus = footprintReason(footprint) || "Checking park clearance...";
+                barracksPreviewStatus = footprintReason(footprint) || (missionStatus && missionStatus.finite_economy
+                    ? "Native site ready - click to order" : "Checking park clearance...");
                 const query = ++barracksQuery;
                 updateConstructionStatus();
                 refreshSelection();
@@ -2154,6 +2402,37 @@
                         const footprint = footprintAt(pointFrom(event));
                         const reason = footprintReason(footprint);
                         if (reason) { barracksPreviewStatus = reason; updateConstructionStatus(); return; }
+                        if (missionStatus && missionStatus.finite_economy) {
+                            const worker = selectedWorker();
+                            const request = ++nextRequest;
+                            lastConstructionIntent = "build:" + network.currentPlayer.id + ":" + request;
+                            let geyser = "";
+                            if (selectedBuildingID === "terran_refinery") {
+                                geyser = Object.keys(resourceSiteStates).filter(function (id) {
+                                    const site = resourceSiteStates[id];
+                                    const offsetX = Math.floor((256 - map.size.x) / 2);
+                                    const offsetY = Math.floor((256 - map.size.y) / 2);
+                                    return site.type === "vespene_geyser" && site.lifecycle === "deposit"
+                                        && site.x - 64 === (footprint.x + offsetX) * 32
+                                        && site.y - 32 === (footprint.y + offsetY) * 32;
+                                })[0] || "";
+                                if (!geyser) { barracksPreviewStatus = "Select the visible geyser";
+                                    updateConstructionStatus(); return; }
+                            }
+                            const command = { session: controlSession, request: request, unit_ids: [worker],
+                                verb: "build", building_type: selectedBuildingID,
+                                tile_x: footprint.x, tile_y: footprint.y };
+                            if (geyser) command.geyser_site_id = geyser;
+                            barracksPreviewStatus = "Build order requested: " + worker;
+                            updateConstructionStatus();
+                            context.executeAction(COMMAND_ACTION, command, function (result) {
+                                if (result.error) {
+                                    barracksPreviewStatus = result.errorMessage || "Build order rejected";
+                                    updateConstructionStatus();
+                                } else if (usingBuildingTool()) ui.tool.cancel();
+                            });
+                            return;
+                        }
                         const args = barracksArgs(footprint);
                         context.queryAction("largesceneryplace", args, function (query) {
                             if (query.error) {
@@ -2181,12 +2460,28 @@
             }
             function openConstructionWindow() {
                 if (constructionWindow) { constructionWindow.bringToFront(); return; }
-                const catalog = missionStatus && missionStatus.defense_configurable
+                const catalog = missionStatus && (missionStatus.defense_configurable || missionStatus.finite_economy)
                     ? Object.keys(BUILDING_TYPES).filter(function (id) { return id.startsWith("terran_"); })
                     : Object.keys(BUILDING_TYPES);
                 const extraHeight = Math.max(0, catalog.length - 1) * 29;
                 constructionWindow = ui.openWindow({ classification: "starcoaster-construction",
                     width: 238, height: 164 + extraHeight, title: "StarCraft Construction",
+                    onUpdate: function () {
+                        if (!constructionWindow || !missionStatus || !missionStatus.finite_economy) return;
+                        catalog.forEach(function (id) {
+                            const widget = constructionWindow.findWidget("construction-" + id);
+                            const native = constructionCatalog[id];
+                            if (widget && native) widget.text = BUILDING_TYPES[id].name.replace(/^Terran /, "")
+                                + "  |  " + native.minerals + "M " + native.gas + "G";
+                        });
+                        if (lastConstructionIntent && constructionStates[lastConstructionIntent]) {
+                            const state = constructionStates[lastConstructionIntent];
+                            const widget = constructionWindow.findWidget("barracks-status");
+                            if (widget) widget.text = state.state + (state.remaining_frames
+                                ? "  " + state.remaining_frames + " frames" : "")
+                                + (state.reason ? "  " + state.reason : "");
+                        }
+                    },
                     onClose: function () {
                         constructionWindow = null;
                         if (usingBuildingTool()) ui.tool.cancel();
@@ -2194,9 +2489,12 @@
                         { type: "label", x: 8, y: 19, width: 220, height: 14, text: "Terran" },
                     ].concat(catalog.map(function (id, index) {
                         const building = BUILDING_TYPES[id];
-                        return { type: "button", x: 8, y: 35 + index * 29, width: 220, height: 26,
+                        return { type: "button", name: "construction-" + id,
+                            x: 8, y: 35 + index * 29, width: 220, height: 26,
                             text: building.name.replace(/^(Terran|Zerg|Protoss) /, "") + "  |  "
-                                + building.width + " x " + building.height + " tiles",
+                                + (missionStatus && missionStatus.finite_economy && constructionCatalog[id]
+                                    ? constructionCatalog[id].minerals + "M " + constructionCatalog[id].gas + "G"
+                                    : building.width + " x " + building.height + " tiles"),
                             onClick: function () { selectedBuildingID = id; activateBarracksTool(); } };
                     }), [
                         { type: "label", name: "barracks-status", x: 8,
@@ -2578,6 +2876,23 @@
                         return "Requires " + command.requirement.replace(/_/g, " ");
                     return reasonLabels[command.reason] || command.reason.replace(/_/g, " ");
                 }
+                function constructionIntent() {
+                    return Object.keys(constructionStates).map(function (id) { return constructionStates[id]; })
+                        .find(function (state) { return state.projection_id === buildingInfoID; }) || null;
+                }
+                function controlConstruction(verb) {
+                    const intent = constructionIntent();
+                    if (!intent || !intent.native_id || !missionStatus || !missionStatus.finite_economy) return;
+                    const worker = verb === "resume_construction" ? selectedWorker() : "";
+                    if (verb === "resume_construction" && !worker) {
+                        ui.showError("Construction", "Select an SCV to resume"); return;
+                    }
+                    context.executeAction(COMMAND_ACTION, { session: controlSession,
+                        request: ++nextRequest, unit_ids: worker ? [worker] : [], verb: verb,
+                        target_entity_id: intent.intent_id }, function (result) {
+                            if (result.error) ui.showError("Construction", result.errorMessage);
+                        });
+                }
                 if (buildingInfoWindow) buildingInfoWindow.close();
                 const card = Array.from({ length: 9 }, function (_, slot) {
                     return { type: "button", name: "building-command-" + slot,
@@ -2619,6 +2934,7 @@
                         const target = worldTargetIds[buildingInfoID];
                         if (!target && initial) { buildingInfoWindow.close(); return; }
                         const native = buildingStates[buildingInfoID];
+                        const construction = constructionIntent();
                         const resources = native ? (playerResources[native.owner] || native) : null;
                         const camera = buildingInfoWindow.findWidget("building-camera");
                         if (camera && camera.viewport) {
@@ -2633,7 +2949,7 @@
                                 : "Owner: awaiting native state",
                             "building-health": native ? "HP: " + native.health + "/" + native.max_health
                                 : "HP: awaiting native state",
-                            "building-status": native ? (native.completed ? "Complete" : "Constructing")
+                            "building-status": native ? (construction ? construction.state : native.completed ? "Complete" : "Constructing")
                                 + "  Queue: " + native.queue
                                 + (native.remaining_frames ? "  Remaining: " + native.remaining_frames + " frames" : "")
                                 + (Number.isInteger(native.larva_count) ? "  Larvae: " + native.larva_count : "")
@@ -2643,7 +2959,8 @@
                                 : "Native status: synchronizing",
                             "building-resources": resources ? "Minerals: " + resources.minerals + "  Gas: " + resources.gas
                                 + "  Supply: " + (resources.supply_used / 2) + "/" + (resources.supply_total / 2) : "",
-                            "building-feedback": productionFeedback[buildingInfoID] || ""
+                            "building-feedback": construction && construction.reason
+                                ? construction.reason : productionFeedback[buildingInfoID] || ""
                         };
                         Object.keys(fields).forEach(function (name) {
                             const widget = buildingInfoWindow.findWidget(name);
@@ -2663,21 +2980,33 @@
                                 : command.ready ? "Train " + command.label
                                 : nativeReason(command)) : "";
                         }
+                        const resume = buildingInfoWindow.findWidget("construction-resume");
+                        const cancel = buildingInfoWindow.findWidget("construction-cancel");
+                        const canControl = construction && construction.native_id
+                            && !["completed", "canceled", "destroyed", "rejected"].includes(construction.state);
+                        if (resume) resume.isDisabled = !canControl || !selectedWorker();
+                        if (cancel) cancel.isDisabled = !canControl;
                     }, widgets: [
                         { type: "viewport", name: "building-camera", x: 8, y: 20,
                             width: 268, height: 194 },
                         { type: "groupbox", name: "building-card-frame", x: 281, y: 20,
                             width: 155, height: 164, text: "Commands" },
-                        { type: "label", name: "building-owner", x: 8, y: 222, width: 430,
+                        { type: "label", name: "building-owner", x: 8, y: 222, width: 268,
                             height: 14, text: "Owner: awaiting native state" },
-                        { type: "label", name: "building-health", x: 8, y: 239, width: 430,
+                        { type: "label", name: "building-health", x: 8, y: 239, width: 268,
                             height: 14, text: "HP: awaiting native state" },
-                        { type: "label", name: "building-status", x: 8, y: 256, width: 430,
+                        { type: "label", name: "building-status", x: 8, y: 256, width: 268,
                             height: 14, text: "Native status: synchronizing" },
-                        { type: "label", name: "building-resources", x: 8, y: 273, width: 430,
+                        { type: "label", name: "building-resources", x: 8, y: 273, width: 268,
                             height: 14, text: "" },
                         { type: "label", name: "building-feedback", x: 283, y: 190, width: 155,
-                            height: 27, text: "" }
+                            height: 27, text: "" },
+                        { type: "button", name: "construction-resume", x: 283, y: 224,
+                            width: 154, height: 24, text: "Resume with selected SCV",
+                            isDisabled: true, onClick: function () { controlConstruction("resume_construction"); } },
+                        { type: "button", name: "construction-cancel", x: 283, y: 253,
+                            width: 154, height: 24, text: "Cancel construction",
+                            isDisabled: true, onClick: function () { controlConstruction("cancel_construction"); } }
                     ].concat(card, cardLabels) });
             }
             if (typeof ui.registerViewportInteraction !== "function")

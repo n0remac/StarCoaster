@@ -1,0 +1,210 @@
+{
+  "version": 2,
+  "scenario_id": "economy-e3",
+  "mode": "park_defense",
+  "display_name": "Finite Economy E3 Construction Fixture",
+  "park_file": "run-data/economy-e3/save/economy-e3.park",
+  "park_size": [
+    64,
+    64
+  ],
+  "starting_units": {
+    "marines": [],
+    "zerglings": []
+  },
+  "economy": {
+    "version": 1,
+    "mode": "finite",
+    "initial_balances": {
+      "minerals": 5000,
+      "gas": 5000
+    },
+    "layout_policy": "authored",
+    "starting_entities": [
+      {
+        "id": "base",
+        "type": "terran_command_center",
+        "tile": [
+          20,
+          8
+        ]
+      },
+      {
+        "id": "worker-a",
+        "type": "terran_scv",
+        "tile": [
+          25,
+          10
+        ]
+      },
+      {
+        "id": "worker-b",
+        "type": "terran_scv",
+        "tile": [
+          26,
+          10
+        ]
+      },
+      {
+        "id": "worker-c",
+        "type": "terran_scv",
+        "tile": [
+          25,
+          11
+        ]
+      },
+      {
+        "id": "worker-d",
+        "type": "terran_scv",
+        "tile": [
+          26,
+          11
+        ]
+      },
+      {
+        "id": "mineral-a",
+        "type": "mineral_field",
+        "tile": [
+          28,
+          9
+        ],
+        "amount": 1500
+      },
+      {
+        "id": "mineral-b",
+        "type": "mineral_field",
+        "tile": [
+          30,
+          9
+        ],
+        "amount": 1500
+      },
+      {
+        "id": "mineral-c",
+        "type": "mineral_field",
+        "tile": [
+          32,
+          9
+        ],
+        "amount": 1500
+      },
+      {
+        "id": "mineral-d",
+        "type": "mineral_field",
+        "tile": [
+          28,
+          12
+        ],
+        "amount": 1500
+      },
+      {
+        "id": "mineral-e",
+        "type": "mineral_field",
+        "tile": [
+          30,
+          12
+        ],
+        "amount": 1500
+      },
+      {
+        "id": "mineral-f",
+        "type": "mineral_field",
+        "tile": [
+          32,
+          12
+        ],
+        "amount": 1500
+      },
+      {
+        "id": "geyser",
+        "type": "vespene_geyser",
+        "tile": [
+          34,
+          8
+        ],
+        "amount": 5000
+      }
+    ]
+  },
+  "initial_structures": [
+    {
+      "id": "base",
+      "type": "terran_command_center",
+      "faction": "terran",
+      "tile": [
+        20,
+        8
+      ]
+    }
+  ],
+  "objectives": [],
+  "initial_ai": {
+    "strategy": "park_defense",
+    "delay_frames": 0
+  },
+  "spawn_zones": {
+    "eastern-approach": {
+      "tiles": [
+        [
+          42,
+          53
+        ],
+        [
+          43,
+          53
+        ],
+        [
+          44,
+          53
+        ],
+        [
+          45,
+          53
+        ]
+      ]
+    },
+    "western-approach": {
+      "tiles": [
+        [
+          11,
+          42
+        ],
+        [
+          12,
+          42
+        ],
+        [
+          13,
+          42
+        ],
+        [
+          14,
+          42
+        ]
+      ]
+    }
+  },
+  "park_defense": {
+    "initial_delay_frames": 10000000,
+    "interval_frames": 10000000,
+    "wave_tiers": [
+      {
+        "from_wave": 1,
+        "groups": [
+          {
+            "unit_type": "zerg_zergling",
+            "count": 1
+          }
+        ]
+      }
+    ],
+    "manual_cooldown_frames": 360,
+    "spawn_zones": [
+      "eastern-approach",
+      "western-approach"
+    ]
+  },
+  "waves": [],
+  "victory": {},
+  "defeat": {}
+}
