@@ -4,6 +4,7 @@ registerPlugin({ name: "Economy E3 lifecycle probe", version: "1.0.0",
     targetApiVersion: 124, minApiVersion: 124, main: function () {
     if (network.mode !== "client" || typeof ui === "undefined") return;
     let ticks = 0, moved = false, requested = false, stopped = false, resumed = false;
+    let trained = false, egressLogged = false, resumedAt = 0;
     let stoppedAt = 0;
     context.subscribe("interval.tick", function () {
         const state = rtsBridge.getActors();
@@ -52,8 +53,18 @@ registerPlugin({ name: "Economy E3 lifecycle probe", version: "1.0.0",
         }
         if (stopped && !resumed && ticks > stoppedAt + 120) {
             resumed = true;
+            resumedAt = Date.now();
             order(93205, workers[1], "resume_construction",
                 { target_entity_id: "build:1:93203" });
+        }
+        if (resumed && !trained && Date.now() - resumedAt > 20000) {
+            trained = true;
+            order(93206, null, "train", { unit_type: "terran_scv",
+                target_entity_id: "scenario:base" });
+        }
+        if (trained && !egressLogged && workers.length >= 5) {
+            egressLogged = true;
+            console.log("ECONOMY_E3_EGRESS workers=" + workers.length);
         }
     });
 }});

@@ -12,7 +12,7 @@
 class WorldConstructionWatches {
     using json = nlohmann::json;
     struct Watch { std::string type; int x = -1, y = -1; std::string last;
-        int lastRemaining = -1, lastProgressFrame = 0; };
+        int lastRemaining = -1, lastProgressFrame = 0, lastPublishedFrame = 0; };
 public:
     bool watch(const json& payload, BWAPI::Game* game) {
         const std::string id = payload.value("intent_id", "");
@@ -23,7 +23,7 @@ public:
         auto found = watches_.find(id);
         if (found != watches_.end() && (found->second.type != type || found->second.x != x
             || found->second.y != y)) return false;
-        watches_[id] = {type, x, y, "", -1, 0};
+        watches_[id] = {type, x, y, "", -1, 0, 0};
         return true;
     }
     void resetPublication() { for (auto& [id, watch] : watches_) watch.last.clear(); }
@@ -57,7 +57,12 @@ public:
                 {"remaining_frames", remaining},
                 {"health", matches == 1 ? match->getHitPoints() : 0}};
             const std::string encoded = state.dump();
-            if (watch.last != encoded) { watch.last = encoded; states.push_back(std::move(state)); }
+            if (watch.last != encoded || (matches == 0
+                && game->getFrameCount() - watch.lastPublishedFrame >= 120)) {
+                watch.last = encoded;
+                watch.lastPublishedFrame = game->getFrameCount();
+                states.push_back(std::move(state));
+            }
         }
         return states;
     }

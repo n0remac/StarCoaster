@@ -94,17 +94,48 @@ public:
                     && candidate->getType() == BWAPI::UnitTypes::Terran_SCV) {
                     builder = candidate; break;
                 }
-            int found = 0;
-            for (int y = 103; y < 124 && found < 24; ++y)
-                for (int x = 116; x < 142 && found < 24; ++x)
-                    if (builder && game->canBuildHere({x, y}, BWAPI::UnitTypes::Terran_Supply_Depot,
-                        builder, true)) {
-                        std::cerr << "[e3-site-scan] native=" << x << "," << y
-                                  << " park=" << x - 96 << "," << y - 96
-                                  << " frame=" << game->getFrameCount() << std::endl;
-                        ++found;
-                    }
-            std::cerr << "[e3-site-scan] found=" << found << std::endl;
+            for (const auto& building : worldBuildingTypes()) {
+                if (std::string(building.id).compare(0, 7, "terran_") != 0) continue;
+                int found = 0;
+                for (int y = 101; y < 124 && found < 24; ++y)
+                    for (int x = 116; x < 142 && found < 24; ++x)
+                        if (builder && game->canBuildHere({x, y}, building.native, builder, true)) {
+                            std::cerr << "[e3-site-scan] type=" << building.id
+                                      << " native=" << x << "," << y
+                                      << " park=" << x - 96 << "," << y - 96
+                                      << " frame=" << game->getFrameCount() << std::endl;
+                            ++found;
+                        }
+                std::cerr << "[e3-site-scan] type=" << building.id << " found=" << found << std::endl;
+            }
+            const std::array<std::pair<const char*, BWAPI::TilePosition>, 11> sites = {{
+                {"barracks-24-6", {120, 102}}, {"academy-29-6", {125, 102}},
+                {"academy-34-10", {130, 106}}, {"factory-34-10", {130, 106}},
+                {"factory-29-15", {125, 111}}, {"armory-24-10", {120, 106}},
+                {"depot-38-6", {134, 102}}, {"cc-20-5", {116, 101}},
+                {"cc-34-10", {130, 106}}, {"refinery-34-8", {130, 104}},
+                {"depot-34-10", {130, 106}}
+            }};
+            for (const auto& [label, tile] : sites) {
+                const std::string name(label);
+                const auto delimiter = name.find('-');
+                const std::string typeID = delimiter == std::string::npos ? name : name.substr(0, delimiter);
+                BWAPI::UnitType type = BWAPI::UnitTypes::None;
+                if (typeID == "barracks") type = BWAPI::UnitTypes::Terran_Barracks;
+                else if (typeID == "academy") type = BWAPI::UnitTypes::Terran_Academy;
+                else if (typeID == "factory") type = BWAPI::UnitTypes::Terran_Factory;
+                else if (typeID == "armory") type = BWAPI::UnitTypes::Terran_Armory;
+                else if (typeID == "depot") type = BWAPI::UnitTypes::Terran_Supply_Depot;
+                else if (typeID == "cc") type = BWAPI::UnitTypes::Terran_Command_Center;
+                else if (typeID == "refinery") type = BWAPI::UnitTypes::Terran_Refinery;
+                const BWAPI::Position centre{tile.x * 32 + type.tileWidth() * 16,
+                    tile.y * 32 + type.tileHeight() * 16};
+                std::cerr << "[e3-site-target] " << label
+                          << " can_build=" << (builder && game->canBuildHere(tile, type, builder, true))
+                          << " has_path=" << (builder && builder->hasPath(centre))
+                          << " explored=" << game->isExplored(tile)
+                          << " frame=" << game->getFrameCount() << std::endl;
+            }
         }
         lastObservedFrame_ = game->getFrameCount();
         for (auto it = creationCandidates_.begin(); it != creationCandidates_.end();) {
@@ -698,6 +729,7 @@ private:
             || (verb != "unit.move" && verb != "unit.attack" && verb != "unit.attack_move"
                 && verb != "unit.hold" && verb != "unit.stop" && verb != "unit.heal"
                 && verb != "unit.train" && verb != "unit.build"
+                && verb != "unit.gather" && verb != "unit.return_cargo"
                 && verb != "unit.resume_construction" && verb != "unit.cancel_construction")) {
             accepted = false; reason = "invalid_command";
         } else if (!validCommandSerial(commandID)) {
@@ -801,6 +833,23 @@ private:
                 accepted = false; reason = "invalid_heal_target";
             }
         }
+        if (accepted && verb == "unit.gather") {
+            const std::string siteID = command.value("target_id", "");
+            const std::string nativeID = command.value("target_native_id", "");
+            const uint64_t generation = command.value("native_generation", uint64_t{0});
+            for (auto candidate : game->getAllUnits()) {
+                if (!candidate || !candidate->exists() || std::to_string(candidate->getID()) != nativeID) continue;
+                const auto binding = economyObservations_.bindingFor(candidate);
+                if (binding.is_object() && binding.value("site_id", "") == siteID
+                    && binding.value("generation", 0) == generation
+                    && (candidate->getType() == BWAPI::UnitTypes::Resource_Mineral_Field
+                        || (candidate->getType() == BWAPI::UnitTypes::Terran_Refinery
+                            && candidate->getPlayer() == game->self() && candidate->isCompleted()))
+                    && candidate->getResources() > 0) target = candidate;
+                break;
+            }
+            if (!target) { accepted = false; reason = "stale_resource_target"; }
+        }
         const int x = command.value("x", -1), y = command.value("y", -1);
         if (accepted && (verb == "unit.move" || verb == "unit.attack_move")
             && (x < 0 || y < 0 || x >= game->mapWidth() * 32 || y >= game->mapHeight() * 32)) {
@@ -815,8 +864,10 @@ private:
                 || unit->getPlayer() != game->self()
                 || !worldUnitType(unit->getType())
                 || !worldUnitType(unit->getType())->controllable
-                || (construction && unit->getType() != BWAPI::UnitTypes::Terran_SCV)
-                || (construction && units.size() != 1)) {
+                || ((construction || verb == "unit.gather" || verb == "unit.return_cargo")
+                    && unit->getType() != BWAPI::UnitTypes::Terran_SCV)
+                || ((construction || verb == "unit.gather" || verb == "unit.return_cargo")
+                    && units.size() != 1)) {
                 accepted = false; reason = "invalid_owner_or_unit"; break;
             }
         }
@@ -861,6 +912,14 @@ private:
                     && unit->useTech(BWAPI::TechTypes::Healing, target);
                 else if (verb == "unit.hold") applied = unit->holdPosition();
                 else if (verb == "unit.stop") applied = unit->stop();
+                else if (verb == "unit.gather") {
+                    applied = unit->canGather(target) && unit->gather(target);
+                    if (!applied) reason = "native_gather_rejected:" + game->getLastError().getName();
+                }
+                else if (verb == "unit.return_cargo") {
+                    applied = unit->canReturnCargo() && unit->returnCargo();
+                    if (!applied) reason = "native_return_rejected:" + game->getLastError().getName();
+                }
                 else if (verb == "unit.build") {
                     const BWAPI::TilePosition tile{buildX, buildY};
                     applied = game->canBuildHere(tile, constructionType->native, unit, true)

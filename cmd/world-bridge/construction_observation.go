@@ -38,9 +38,10 @@ func (s *service) restoreConstructionWatches() {
 	}
 	for _, intent := range s.construction.Intents {
 		_ = s.emit(s.park, "construction.state", s.registry.Session, s.registry.Revision,
-			map[string]any{"intent_id": intent.ID, "state": intent.State,
+			map[string]any{"intent_id": intent.ID, "state": intent.PublishedState(),
 				"building_type": intent.BuildingType, "tile_x": intent.Tile.X, "tile_y": intent.Tile.Y,
-				"native_id": intent.NativeID, "projection_id": intent.ProjectionID})
+				"native_id": intent.NativeID, "projection_id": intent.ProjectionID,
+				"reason": intent.StatusError})
 		if intent.State == "rejected" || intent.State == "canceled" || intent.State == "destroyed" {
 			continue
 		}
@@ -105,6 +106,21 @@ func (s *service) recordConstructionObservation(p *peer, m world.Envelope, role 
 			_ = s.emit(s.park, "construction.state", m.Session, m.Revision,
 				map[string]any{"intent_id": intent.ID, "state": terminal,
 					"publisher_frame": publisher.Frame, "controller_frame": controller.Frame})
+		} else if intent.NativeID == "" && intent.State == "dispatched" &&
+			publisher.Frame-controller.Frame <= 120 && controller.Frame-publisher.Frame <= 120 {
+			frame := publisher.Frame
+			if controller.Frame < frame {
+				frame = controller.Frame
+			}
+			if changed, err := s.construction.NoteAbsent(intent.ID, frame, 2400); err != nil {
+				log.Printf("construction absent observation intent=%s: %v", intent.ID, err)
+			} else if changed {
+				log.Printf("construction unresolved intent=%s reason=native_creation_unconfirmed frame=%d/%d", intent.ID, publisher.Frame, controller.Frame)
+				_ = s.emit(s.park, "construction.state", m.Session, m.Revision,
+					map[string]any{"intent_id": intent.ID, "state": "unresolved",
+						"reason": "native_creation_unconfirmed", "publisher_frame": publisher.Frame,
+						"controller_frame": controller.Frame})
+			}
 		}
 		return
 	}

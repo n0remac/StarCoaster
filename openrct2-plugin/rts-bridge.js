@@ -1879,10 +1879,11 @@
                     || args.request < 1 || !Array.isArray(args.unit_ids)
                     || args.unit_ids.length > 32
                     || !(["move", "attack", "attack_move", "hold", "stop", "heal", "train",
+                        "gather", "return_cargo",
                         "build", "resume_construction", "cancel_construction"].includes(args.verb))
                     || (["train", "cancel_construction"].includes(args.verb)
                         ? args.unit_ids.length !== 0 : args.unit_ids.length < 1)
-                    || (["build", "resume_construction"].includes(args.verb)
+                    || (["build", "resume_construction", "gather", "return_cargo"].includes(args.verb)
                         && args.unit_ids.length !== 1))
                     return { error: 1, errorMessage: "Invalid unit command" };
                 if (seenCommandRequests[args.session + ":" + event.player + ":" + args.request])
@@ -1918,6 +1919,17 @@
                             : args.geyser_site_id !== undefined))
                         return { error: 1, errorMessage: "Native construction unavailable" };
                 }
+                if (args.verb === "gather") {
+                    const site = resourceSiteStates[args.resource_site_id];
+                    if (!missionStatus || !missionStatus.finite_economy || !site
+                        || site.generation !== args.resource_generation
+                        || !((site.type === "mineral_field" && site.lifecycle === "deposit")
+                            || (site.type === "terran_refinery" && site.lifecycle === "refinery"))
+                        || site.amount <= 0)
+                        return { error: 1, errorMessage: "Resource target has changed" };
+                }
+                if (args.verb === "return_cargo" && (!missionStatus || !missionStatus.finite_economy))
+                    return { error: 1, errorMessage: "Worker economy unavailable" };
                 if (args.verb === "resume_construction" || args.verb === "cancel_construction") {
                     const intent = constructionStates[args.target_entity_id];
                     if (!missionStatus || !missionStatus.finite_economy || !intent || !intent.native_id
@@ -1975,6 +1987,10 @@
                         payload.building_type = args.building_type;
                         payload.tile_x = args.tile_x; payload.tile_y = args.tile_y;
                         if (args.geyser_site_id) payload.target_id = args.geyser_site_id;
+                    }
+                    if (args.verb === "gather") {
+                        payload.target_id = args.resource_site_id;
+                        payload.target_generation = args.resource_generation;
                     }
                     if (args.verb === "resume_construction" || args.verb === "cancel_construction")
                         payload.target_id = args.target_entity_id;
@@ -2035,7 +2051,7 @@
                         || /^openrct2:[a-z_]+:[a-zA-Z0-9:_-]+#[0-9]+$/.test(args.unit)
                         || /^scenario:[a-z0-9-]{1,64}$/.test(args.unit))
                     && typeof args.accepted === "boolean"
-                    && /^[a-z_]{2,64}$/.test(args.reason)
+                    && /^[A-Za-z0-9_: -]{2,128}$/.test(args.reason)
                     ? {} : { error: 1, errorMessage: "Invalid Marine command result" };
             }, function (event) {
                 const args = event.args;
@@ -2284,6 +2300,7 @@
             let attackMove = false;
             let nextWaveRequest = requestEpoch;
             let constructionWindow = null;
+            let economyWindow = null;
             let buildingInfoWindow = null;
             let buildingInfoID = "";
             let barracksPreview = null;
@@ -2592,13 +2609,66 @@
                 ui.tileSelection.tiles = [];
                 ui.tileSelection.range = null;
                 if (constructionWindow) constructionWindow.close();
+                if (economyWindow) economyWindow.close();
                 if (buildingInfoWindow) buildingInfoWindow.close();
                 if (defenseWindow) defenseWindow.close();
             };
             if (typeof ui.registerMenuItem === "function") {
                 ui.registerMenuItem("StarCraft Construction", openConstructionWindow);
+                ui.registerMenuItem("StarCraft Economy", openEconomyWindow);
                 ui.registerMenuItem("StarCraft Defense", openDefenseWindow);
                 ui.registerMenuItem("StarCraft Settings", openDefenseWindow);
+            }
+            function openEconomyWindow() {
+                if (economyWindow) { economyWindow.bringToFront(); return; }
+                economyWindow = ui.openWindow({ classification: "starcoaster-economy",
+                    width: 350, height: 180, title: "StarCraft Economy",
+                    onClose: function () { economyWindow = null; },
+                    onUpdate: function () {
+                        if (!economyWindow) return;
+                        const balance = playerResources[terranOwner];
+                        const workerID = selectedWorker();
+                        const worker = controlUnits[workerID];
+                        const sites = Object.keys(resourceSiteStates).sort().map(function (id) {
+                            return resourceSiteStates[id];
+                        });
+                        const minerals = sites.filter(function (site) { return site.type === "mineral_field"; });
+                        const gas = sites.filter(function (site) {
+                            return site.type === "terran_refinery" || site.type === "vespene_geyser";
+                        });
+                        const fields = {
+                            "economy-balance": balance ? "Minerals " + balance.minerals + "  Gas " + balance.gas
+                                + "  Supply " + (balance.supply_used / 2) + "/" + (balance.supply_total / 2)
+                                : "Native balance synchronizing",
+                            "economy-worker": worker ? "SCV " + workerID + "  " + (worker.worker_order || worker.motion)
+                                + "  Cargo: " + (worker.cargo || "none") : "Select an SCV to gather or return cargo",
+                            "economy-minerals": "Mineral fields: " + minerals.map(function (site) {
+                                return site.site_id + " " + site.amount;
+                            }).join("  "),
+                            "economy-gas": "Gas site: " + gas.map(function (site) {
+                                return site.site_id + " " + site.amount + " (" + site.type + ")";
+                            }).join("  "),
+                            "economy-feedback": commandFeedback || "Right-click a mineral or completed Refinery to gather"
+                        };
+                        Object.keys(fields).forEach(function (name) {
+                            const widget = economyWindow.findWidget(name);
+                            if (widget) widget.text = fields[name];
+                        });
+                        const button = economyWindow.findWidget("economy-return");
+                        if (button) button.isDisabled = !worker || worker.cargo === "none";
+                    }, widgets: [
+                        { type: "label", name: "economy-balance", x: 8, y: 22, width: 334, height: 14, text: "Native balance synchronizing" },
+                        { type: "label", name: "economy-worker", x: 8, y: 43, width: 334, height: 14, text: "Select an SCV" },
+                        { type: "label", name: "economy-minerals", x: 8, y: 64, width: 334, height: 27, text: "" },
+                        { type: "label", name: "economy-gas", x: 8, y: 95, width: 334, height: 14, text: "" },
+                        { type: "label", name: "economy-feedback", x: 8, y: 116, width: 334, height: 24, text: "" },
+                        { type: "button", name: "economy-return", x: 8, y: 145, width: 160, height: 23,
+                            text: "Return selected SCV cargo", isDisabled: true,
+                            onClick: function () {
+                                const worker = selectedWorker();
+                                if (worker) commandSquad("return_cargo", {}, [worker]);
+                            } }
+                    ] });
             }
             context.subscribe("interval.tick", function () {
                 if (!defenseWindow) return;
@@ -2618,8 +2688,12 @@
                         : "Next wave: " + status.next_wave_seconds + "s") : "Next wave: disabled");
                 setText("defense-current", "Current wave: " + status.wave_ordinal + " | "
                     + status.active_enemies + " enemies (" + status.wave_state + ")");
+                const balance = playerResources[terranOwner];
                 setText("defense-resources", status.unlimited_resources
-                    ? "Minerals: Unlimited | Gas: Unlimited" : "Resources: native balance");
+                    ? "Minerals: Unlimited | Gas: Unlimited"
+                    : balance ? "Minerals: " + balance.minerals + " | Gas: " + balance.gas
+                        + " | Supply: " + (balance.supply_used / 2) + "/" + (balance.supply_total / 2)
+                        : "Resources: native balance synchronizing");
                 if (waveFeedback && Date.now() >= waveFeedbackUntil) waveFeedback = "";
                 setText("defense-feedback", status.error ? "Wave placement: " + status.error
                     : waveFeedback || defenseFeedback);
@@ -2766,6 +2840,11 @@
                 callback: function () {
                     commandSquad("stop");
                 } });
+            ui.registerShortcut({ id: "starcoaster.return-cargo", text: "Return selected SCV cargo",
+                bindings: ["CTRL+SHIFT+R"], callback: function () {
+                    const worker = selectedWorker();
+                    if (worker) commandSquad("return_cargo", {}, [worker]);
+                } });
             ui.registerShortcut({ id: "starcoaster.attack-move", text: "Squad attack move", bindings: ["A"],
                 callback: function () { attackMove = true; } });
             ui.registerShortcut({ id: "starcoaster.save-group-1", text: "Save squad group 1", bindings: ["CTRL+1"],
@@ -2774,9 +2853,48 @@
                 callback: function () { refreshSelection(); selected = (controlGroups[1] || []).filter(function (id) {
                     return controlUnits[id] && controlUnits[id].hp > 0;
                 }); } });
+            function resourceSiteAt(point) {
+                if (!missionStatus || !missionStatus.finite_economy) return null;
+                const offsetX = Math.floor((256 - map.size.x) / 2);
+                const offsetY = Math.floor((256 - map.size.y) / 2);
+                return Object.keys(resourceSiteStates).map(function (id) { return resourceSiteStates[id]; })
+                    .find(function (site) {
+                        if (!site || site.lifecycle === "absent") return false;
+                        const width = site.type === "mineral_field" ? 2 : 4;
+                        const height = site.type === "mineral_field" ? 1 : 2;
+                        const left = site.x - width * 16 - offsetX * 32;
+                        const top = site.y - height * 16 - offsetY * 32;
+                        return point.x >= left && point.x < left + width * 32
+                            && point.y >= top && point.y < top + height * 32;
+                    }) || null;
+            }
             function orderAt(point, screen) {
                 refreshSelection();
                 if (!selected.length || !point) return false;
+                const workers = selected.filter(function (id) {
+                    return controlUnits[id] && controlUnits[id].kind === "terran_scv";
+                });
+                const site = resourceSiteAt(point);
+                if (site && workers.length) {
+                    if ((site.type === "mineral_field" && site.lifecycle === "deposit")
+                        || (site.type === "terran_refinery" && site.lifecycle === "refinery")) {
+                        workers.forEach(function (id) {
+                            commandSquad("gather", { resource_site_id: site.site_id,
+                                resource_generation: site.generation }, [id]);
+                        });
+                    } else commandSquad("move", { x: point.x, y: point.y });
+                    return true;
+                }
+                const incomplete = Object.keys(constructionStates).map(function (id) {
+                    return constructionStates[id];
+                }).find(function (item) {
+                    return item && item.projection_id && item.projection_id === buildingTargetAt(point)
+                        && item.native_id && !["completed", "canceled", "destroyed", "rejected"].includes(item.state);
+                });
+                if (incomplete && workers.length) {
+                    commandSquad("resume_construction", { target_entity_id: incomplete.intent_id }, [workers.sort()[0]]);
+                    return true;
+                }
                 const hit = screen ? unitAtScreen(screen, false) : rtsBridge.hitTest(point.x, point.y, 48);
                 const target = hit && controlUnits[hit];
                 const structure = Object.keys(worldTargetIds).filter(function (id) {
@@ -2796,7 +2914,8 @@
                     attackMove = false;
                     return true;
                 }
-                let verb = target && UNIT_TYPES[target.kind] && target.owner !== terranOwner ? "attack" : "move";
+                let verb = target && UNIT_TYPES[target.kind] && target.owner !== terranOwner
+                    && target.kind !== "mineral_field" && target.kind !== "vespene_geyser" ? "attack" : "move";
                 const extras = {};
                 if (verb === "attack") extras.target_id = hit;
                 else if (structure) { verb = "attack"; extras.target_entity_id = structure; }

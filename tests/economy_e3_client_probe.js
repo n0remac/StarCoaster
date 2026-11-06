@@ -16,7 +16,7 @@ registerPlugin({ name: "Economy E3 client probe", version: "1.0.0",
         if (ticks % 100 === 1) {
             if (ui.mainViewport) {
                 ui.mainViewport.rotation = 0; ui.mainViewport.zoom = 0;
-                ui.mainViewport.moveTo({ x: 38 * 32, y: 9 * 32, z: 112 });
+                ui.mainViewport.moveTo({ x: 34 * 32, y: 10 * 32, z: 112 });
             }
             console.log("ECONOMY_E3_WORKERS tick=" + ticks + " " + JSON.stringify(workers));
         }

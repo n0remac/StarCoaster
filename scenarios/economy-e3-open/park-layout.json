@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "Economy Construction Test Park",
+  "size": [64, 64],
+  "rides": [
+    {"id": "fixture-wheel", "name": "Fixture Wheel", "object": "rct2.ride.fwh1", "x": 50, "y": 50}
+  ],
+  "paths": [],
+  "walls": [],
+  "scenery": [],
+  "large_scenery": []
+}

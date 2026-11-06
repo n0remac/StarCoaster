@@ -30,6 +30,8 @@ const cameraSweep = process.env.WASM_CAMERA_SWEEP === '1';
 const controlProbe = process.env.WASM_CONTROL_PROBE === '1';
 const productionProbe = process.env.WASM_PRODUCTION_PROBE === '1';
 const economyProbe = process.env.WASM_ECONOMY_E1_PROBE === '1';
+const economyE2Probe = process.env.WASM_ECONOMY_E2_PROBE === '1';
+const economyE3Probe = process.env.WASM_ECONOMY_E3_PROBE === '1';
 const constructionProbe = process.env.WASM_CONSTRUCTION_PROBE === '1';
 const demolitionProbe = process.env.WASM_DEMOLITION_PROBE === '1';
 const defenseProbe = process.env.WASM_DEFENSE_PROBE === '1';
@@ -115,10 +117,12 @@ try {
     } catch (_) {}
   }, 5000);
   {
-    if ([cameraProbe, productionProbe, economyProbe, demolitionProbe, defenseMenu].filter(Boolean).length > 1)
+    if ([cameraProbe, productionProbe, economyProbe, economyE2Probe, economyE3Probe, demolitionProbe, defenseMenu].filter(Boolean).length > 1)
       throw new Error('Choose one live camera, production, or demolition probe');
-    const source = cameraProbe || productionProbe || economyProbe || demolitionProbe || defenseMenu
+    const source = cameraProbe || productionProbe || economyProbe || economyE2Probe || economyE3Probe || demolitionProbe || defenseMenu
       ? await readFile(path.join(root, economyProbe ? 'tests/economy_e1_client_probe.js'
+      : economyE2Probe ? 'tests/economy_e2_gather_probe.js'
+      : economyE3Probe ? 'tests/economy_e3_client_probe.js'
       : defenseMenu ? 'browser/defense-menu-probe.js'
       : productionProbe || demolitionProbe ? 'scripts/native-production-hud-capture.js'
       : 'browser/live-camera.js'), 'utf8') : '';
@@ -148,7 +152,7 @@ try {
         + (process.env.WASM_DEFENSE_BUILD === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_BUILD = true;\n' : '')
         + (process.env.WASM_DEFENSE_NO_WAVE === '1' ? 'var UNIVERSAL_DEFENSE_VERIFY_NO_WAVE = true;\n' : '')
         + await readFile(path.join(root, 'tests/universal-defense-probe.js'), 'utf8') : '';
-    await page.addInitScript(({ cameraSource, defenseSource, perfRun, perfBaseline, suppressPaint, economyProbe }) => {
+    await page.addInitScript(({ cameraSource, defenseSource, perfRun, perfBaseline, suppressPaint, economyProbe, economyE2Probe, economyE3Probe }) => {
       if (perfRun) {
         window.__starPerf = { longTasks: 0, longTaskMs: 0, maxLongTaskMs: 0 };
         new PerformanceObserver((list) => {
@@ -173,7 +177,11 @@ try {
             if (cameraSource) module.FS.writeFile('/persistent/plugin/wasm-live-camera.js',
               economyProbe && window.sessionStorage.getItem('starcoaster-e1-observe-only') === '1'
                 ? 'var STARCOASTER_ECONOMY_E1_OBSERVE_ONLY = true;\n' + cameraSource
-                : cameraSource);
+                : economyE2Probe && window.sessionStorage.getItem('starcoaster-e2-observe-only') === '1'
+                  ? 'var STARCOASTER_ECONOMY_E2_OBSERVE_ONLY = true;\n' + cameraSource
+                : economyE3Probe && window.sessionStorage.getItem('starcoaster-e3-observe-only') === '1'
+                  ? 'var STARCOASTER_ECONOMY_E3_OBSERVE_ONLY = true;\n' + cameraSource
+                  : cameraSource);
             else {
               try { module.FS.unlink('/persistent/plugin/wasm-live-camera.js'); } catch (_) {}
             }
@@ -185,7 +193,7 @@ try {
           };
         },
       });
-    }, { cameraSource: perfCameraSource, defenseSource, perfRun, economyProbe,
+    }, { cameraSource: perfCameraSource, defenseSource, perfRun, economyProbe, economyE2Probe, economyE3Probe,
       perfBaseline: process.env.WASM_PERF_BASELINE === '1',
       suppressPaint: process.env.WASM_PERF_SUPPRESS_PAINT === '1' });
   }
@@ -207,7 +215,8 @@ try {
       records.push({ kind: 'console', text: line, at: Date.now() });
     }
     if (line.includes('WASM_CAMERA_READY') || line.includes('NATIVE_HUD_CAPTURE_READY')
-        || line.includes('ECONOMY_E1_CLIENT')) {
+        || line.includes('ECONOMY_E1_CLIENT') || line.includes('ECONOMY_E2_WORKERS')
+        || line.includes('ECONOMY_E3_WORKERS')) {
       snapshotReady = true;
       resolveCamera();
     }
@@ -219,7 +228,7 @@ try {
       metrics.secondActorMoveLatencyMs === undefined)
       metrics.secondActorMoveLatencyMs = Date.now() - metrics.secondOrderSentAt;
     if ((!perfRun || !line.includes('STARCOASTER_PERF ')) && !line.includes('Paint.Entity.cpp')
-      && /index|network|plugin|WORLD_|RTS Bridge|UNIVERSAL_DEFENSE|WASM_CAMERA|WASM_ACTOR|NATIVE_HUD|ECONOMY_E1|Failed to connect/i.test(line))
+      && /index|network|plugin|WORLD_|RTS Bridge|UNIVERSAL_DEFENSE|WASM_CAMERA|WASM_ACTOR|NATIVE_HUD|ECONOMY_E1|ECONOMY_E2|ECONOMY_E3|Failed to connect/i.test(line))
       console.log(`CLIENT: ${line}`);
   });
   page.on('pageerror', (error) => records.push({ kind: 'pageerror', text: error.message }));
@@ -380,7 +389,7 @@ try {
   // Keep the camera fixed through actor selection and mixed-client delays.
   await page.mouse.move(640, 400);
   metrics.canvasMs = Date.now() - start;
-  if (cameraProbe || productionProbe || economyProbe || demolitionProbe) {
+  if (cameraProbe || productionProbe || economyProbe || economyE2Probe || economyE3Probe || demolitionProbe) {
     let timeout;
     try {
       await Promise.race([cameraReady,
@@ -939,6 +948,61 @@ try {
       && record.text.includes('ECONOMY_E1_TRAIN_ORDER ')))
       throw new Error('Browser reconnect reissued the bootstrap train order');
     await capture(page, 'economy-reconnect.png');
+  }
+  if (economyE3Probe) {
+    for (const marker of ['ECONOMY_E3_BUILD request=93100 accepted=true',
+      'ECONOMY_E3_DEPOT_VISIBLE tile=34,10']) {
+      if (!records.some((record) => record.kind === 'console' && record.text.includes(marker)))
+        throw new Error(`Browser E3 probe did not report ${marker}`);
+    }
+    await capture(page, 'economy-e3-depot.png');
+    await page.evaluate(() => window.sessionStorage.setItem('starcoaster-e3-observe-only', '1'));
+    await page.reload({ waitUntil: 'commit', timeout: 180000 });
+    await page.waitForFunction(() => document.getElementById('canvas')?.style.display === 'block',
+      null, { timeout: 180000 });
+    const reconnectStart = records.length;
+    let visibleAfterReconnect = false;
+    for (let attempt = 0; attempt < 300; attempt++) {
+      if (records.slice(reconnectStart).some((record) => record.kind === 'console'
+        && record.text.includes('ECONOMY_E3_DEPOT_VISIBLE tile=34,10'))) {
+        visibleAfterReconnect = true;
+        break;
+      }
+      await page.waitForTimeout(1000);
+    }
+    if (!visibleAfterReconnect) throw new Error('Browser reconnect did not render the native Depot');
+    if (records.slice(reconnectStart).some((record) => record.kind === 'console'
+      && record.text.includes('ECONOMY_E3_BUILD ')))
+      throw new Error('Browser reconnect reissued the Depot order');
+    await capture(page, 'economy-e3-reconnect.png');
+  }
+  if (economyE2Probe) {
+    for (const marker of ['ECONOMY_E2_ORDER request=93501 verb=gather accepted=true',
+      'ECONOMY_E2_ORDER request=93505 verb=gather accepted=true',
+      'ECONOMY_E2_TRAINED workers=5']) {
+      if (!records.some((record) => record.kind === 'console' && record.text.includes(marker)))
+        throw new Error(`Browser E2 probe did not report ${marker}`);
+    }
+    await capture(page, 'economy-e2-gather.png');
+    await page.evaluate(() => window.sessionStorage.setItem('starcoaster-e2-observe-only', '1'));
+    await page.reload({ waitUntil: 'commit', timeout: 180000 });
+    await page.waitForFunction(() => document.getElementById('canvas')?.style.display === 'block',
+      null, { timeout: 180000 });
+    const reconnectStart = records.length;
+    let resumed = false;
+    for (let attempt = 0; attempt < 300; attempt++) {
+      if (records.slice(reconnectStart).some((record) => record.kind === 'console'
+        && record.text.includes('ECONOMY_E2_RECONNECTED workers=5'))) {
+        resumed = true;
+        break;
+      }
+      await page.waitForTimeout(1000);
+    }
+    if (!resumed) throw new Error('Browser E2 reconnect did not recover the trained SCV');
+    if (records.slice(reconnectStart).some((record) => record.kind === 'console'
+      && record.text.includes('ECONOMY_E2_ORDER ')))
+      throw new Error('Browser E2 reconnect reissued a worker order');
+    await capture(page, 'economy-e2-reconnect.png');
   }
   outcome = 'passed';
   console.log(`PASS: browser multiplayer frames in=${metrics.websocketFramesIn} out=${metrics.websocketFramesOut}`);

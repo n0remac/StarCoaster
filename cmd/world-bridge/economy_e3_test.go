@@ -37,11 +37,25 @@ func TestFiniteBridgeRejectsUnboundStructureAndDirectSpawn(t *testing.T) {
 	if err := s.validateFinitePatch(world.Patch{Terrain: []world.Terrain{{X: 20, Y: 8}}}); err == nil {
 		t.Fatal("ordinary park edit entered the native base footprint")
 	}
+	base := world.Entity{ID: "scenario:base", Kind: "structure", Type: "terran_command_center",
+		Owner: 1, Position: world.Point{X: 20 * 32, Y: 8 * 32},
+		Geometry: world.Geometry{Rects: []world.Rect{{X: 20 * 32, Y: 8 * 32, Width: 4 * 32, Height: 3 * 32}}}}
+	if err := s.validateFiniteSnapshot([]world.Entity{base}); err != nil {
+		t.Fatalf("valid authored native base rejected: %v", err)
+	}
+	spoofed := base
+	spoofed.Owner = 2
+	if err := s.validateFiniteSnapshot([]world.Entity{spoofed}); err == nil {
+		t.Fatal("authored native base owner spoof accepted")
+	}
+	spoofed = base
+	spoofed.Geometry.Rects = []world.Rect{{X: 0, Y: 0, Width: 32, Height: 32}}
+	if err := s.validateFiniteSnapshot([]world.Entity{spoofed}); err == nil {
+		t.Fatal("authored native base footprint spoof accepted")
+	}
 	if err := ledger.MarkAuthoredDestroyed("scenario:base"); err != nil {
 		t.Fatal(err)
 	}
-	base := world.Entity{ID: "scenario:base", Kind: "structure", Type: "terran_command_center",
-		Owner: 1, Position: world.Point{X: 20 * 32, Y: 8 * 32}}
 	if err := s.validateFiniteSnapshot([]world.Entity{base}); err == nil {
 		t.Fatal("destroyed native base was restored through a snapshot")
 	}

@@ -126,6 +126,10 @@ func (s *service) validateFiniteSnapshot(entities []world.Entity) error {
 		for _, structure := range s.scenario.InitialStructures {
 			if entity.ID == "scenario:"+structure.ID && entity.Type == structure.Type &&
 				entity.Position.X == structure.Tile[0]*32 && entity.Position.Y == structure.Tile[1]*32 {
+				building, ok := world.SupportedBuilding(structure.Type)
+				if !ok || entity.Owner != 1 || !finiteAuthoredFootprint(entity, structure.Tile, building) {
+					return errors.New("native_base_snapshot_mismatch")
+				}
 				authored = true
 				break
 			}
@@ -141,6 +145,35 @@ func (s *service) validateFiniteSnapshot(entities []world.Entity) error {
 		}
 	}
 	return nil
+}
+
+func finiteAuthoredFootprint(entity world.Entity, tile [2]int, building world.BuildingDefinition) bool {
+	if len(entity.Geometry.Rects) == 0 {
+		return false
+	}
+	left, top := tile[0]*32, tile[1]*32
+	right, bottom := left+building.Width*32, top+building.Height*32
+	for _, rect := range entity.Geometry.Rects {
+		if rect.Width <= 0 || rect.Height <= 0 || rect.X < left || rect.Y < top ||
+			rect.X+rect.Width > right || rect.Y+rect.Height > bottom {
+			return false
+		}
+	}
+	for y := top; y < bottom; y += 32 {
+		for x := left; x < right; x += 32 {
+			covered := false
+			for _, rect := range entity.Geometry.Rects {
+				if rect.X <= x && rect.Y <= y && rect.X+rect.Width >= x+32 && rect.Y+rect.Height >= y+32 {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s *service) markFiniteAuthoredDestroyed(id string) error {
@@ -175,7 +208,7 @@ func (s *service) prepareNativeBuild(command *worldCommand) (bool, error) {
 			return false, errors.New("conflicting_construction_request")
 		}
 		_ = s.emit(s.park, "construction.state", s.registry.Session, s.registry.Revision,
-			map[string]any{"intent_id": prior.ID, "state": prior.State, "building_type": prior.BuildingType,
+			map[string]any{"intent_id": prior.ID, "state": prior.PublishedState(), "building_type": prior.BuildingType,
 				"tile_x": prior.Tile.X, "tile_y": prior.Tile.Y,
 				"native_id": prior.NativeID, "projection_id": prior.ProjectionID})
 		return false, nil
@@ -206,7 +239,7 @@ func (s *service) prepareNativeBuild(command *worldCommand) (bool, error) {
 	if !s.construction.MayDispatch(intent.ID) {
 		prior := s.construction.Intents[intent.ID]
 		_ = s.emit(s.park, "construction.state", s.registry.Session, s.registry.Revision,
-			map[string]any{"intent_id": intent.ID, "state": prior.State,
+			map[string]any{"intent_id": intent.ID, "state": prior.PublishedState(),
 				"building_type": prior.BuildingType, "tile_x": prior.Tile.X, "tile_y": prior.Tile.Y,
 				"native_id": prior.NativeID, "projection_id": prior.ProjectionID})
 		return false, nil

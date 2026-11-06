@@ -28,6 +28,15 @@ type ConstructionIntent struct {
 	CancelRequested    bool   `json:"cancel_requested,omitempty"`
 	ProjectionFailures int    `json:"projection_failures,omitempty"`
 	ProjectionError    string `json:"projection_error,omitempty"`
+	FirstAbsentFrame   int    `json:"first_absent_frame,omitempty"`
+	StatusError        string `json:"status_error,omitempty"`
+}
+
+func (intent ConstructionIntent) PublishedState() string {
+	if intent.State == "dispatched" && intent.StatusError != "" {
+		return "unresolved"
+	}
+	return intent.State
 }
 
 type ConstructionObservation struct {
@@ -41,10 +50,10 @@ type ConstructionObservation struct {
 }
 
 type ConstructionLedger struct {
-	Session string                        `json:"session"`
-	Intents map[string]ConstructionIntent `json:"intents"`
-	DestroyedAuthored map[string]bool     `json:"destroyed_authored,omitempty"`
-	path    string
+	Session           string                        `json:"session"`
+	Intents           map[string]ConstructionIntent `json:"intents"`
+	DestroyedAuthored map[string]bool               `json:"destroyed_authored,omitempty"`
+	path              string
 }
 
 func LoadConstructionLedger(path, session string) (*ConstructionLedger, error) {
@@ -152,8 +161,8 @@ func rectanglesOverlap(a, b Rect) bool {
 
 func (l *ConstructionLedger) Reserve(intent ConstructionIntent, width, height int) error {
 	if old, ok := l.Intents[intent.ID]; ok {
-		intent.State, intent.NativeID, intent.ControllerNativeID, intent.NativeGeneration, intent.ProjectionID, intent.CancelRequested, intent.ProjectionFailures, intent.ProjectionError =
-			old.State, old.NativeID, old.ControllerNativeID, old.NativeGeneration, old.ProjectionID, old.CancelRequested, old.ProjectionFailures, old.ProjectionError
+		intent.State, intent.NativeID, intent.ControllerNativeID, intent.NativeGeneration, intent.ProjectionID, intent.CancelRequested, intent.ProjectionFailures, intent.ProjectionError, intent.FirstAbsentFrame, intent.StatusError =
+			old.State, old.NativeID, old.ControllerNativeID, old.NativeGeneration, old.ProjectionID, old.CancelRequested, old.ProjectionFailures, old.ProjectionError, old.FirstAbsentFrame, old.StatusError
 		if reflect.DeepEqual(old, intent) {
 			return nil
 		}
@@ -201,6 +210,25 @@ func (l *ConstructionLedger) MarkDispatched(id string) error {
 	return l.update(intent)
 }
 
+// An accepted native order can remain ambiguous if its worker never reaches
+// the site. Preserve the reservation and never replay it. A late exact native
+// observation may still bind and clear this warning.
+func (l *ConstructionLedger) NoteAbsent(id string, frame, limit int) (bool, error) {
+	intent := l.Intents[id]
+	if intent.State != "dispatched" || frame <= 0 || limit <= 0 {
+		return false, nil
+	}
+	if intent.FirstAbsentFrame == 0 {
+		intent.FirstAbsentFrame = frame
+		return false, l.update(intent)
+	}
+	if intent.StatusError != "" || frame-intent.FirstAbsentFrame < limit {
+		return false, nil
+	}
+	intent.StatusError = "native_creation_unconfirmed"
+	return true, l.update(intent)
+}
+
 func (l *ConstructionLedger) Bind(observation ConstructionObservation) error {
 	intent := l.Intents[observation.IntentID]
 	if intent.ID == "" || (intent.State != "dispatched" && intent.State != "bound") ||
@@ -220,6 +248,8 @@ func (l *ConstructionLedger) Bind(observation ConstructionObservation) error {
 	}
 	intent.NativeID, intent.ControllerNativeID, intent.NativeGeneration, intent.State =
 		observation.NativeID, observation.ControllerNativeID, observation.Generation, "bound"
+	intent.StatusError = ""
+	intent.FirstAbsentFrame = 0
 	return l.update(intent)
 }
 

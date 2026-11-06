@@ -719,6 +719,9 @@ const scenarioTrainResult = { player: 1, request: actions.at(-1).args.request,
     unit: hudTargets[5].id, accepted: true, reason: 'ok' };
 assert.equal(registered.get('rtsbridge.commandResult').query({
     player: 1, args: scenarioTrainResult }).error, undefined);
+assert.equal(registered.get('rtsbridge.commandResult').query({ player: 1, args: {
+    ...scenarioTrainResult, accepted: false, reason: 'native_gather_rejected:Unit_Busy'
+} }).error, undefined, 'native worker rejection reaches the player');
 registered.get('rtsbridge.commandResult').execute({ player: 1, args: {
     player: 1, request: actions.at(-1).args.request,
     unit: hudTargets[5].id, accepted: true, reason: 'ok' } });
@@ -739,6 +742,33 @@ assert.equal(command.query({ player: 1, args: zergOrder }).error, undefined,
     'authorized scenario server can order native Hatchery production');
 assert.match(command.query({ player: 2, args: zergOrder }).errorMessage, /commander/,
     'Terran client cannot order enemy Hatchery production');
+missionAction.execute({ player: 1, args: { ...mission, finite_economy: true } });
+const scv = { ...validActor, id: 'openbw:2506', kind: 'terran_scv', owner: 1,
+    hp: 60, max_hp: 60, x: 128, y: 128, motion: 'idle' };
+socket.handlers.data(JSON.stringify({ v: 1, kind: 'combat.snapshot', session: sid,
+    payload: { seq: 100, bw_tick: 100, units: [scv] } }) + '\n');
+const resourceSiteAction = registered.get('rtsbridge.resourceSiteState');
+const mineralSite = { session: sid, site_id: 'mineral-a', generation: 1,
+    type: 'mineral_field', lifecycle: 'deposit', amount: 1500, owner: 11,
+    x: 128, y: 128, publisher_native_id: '4', controller_native_id: '4' };
+assert.equal(resourceSiteAction.query({ player: 1, args: mineralSite }).error, undefined);
+resourceSiteAction.execute({ player: 1, args: mineralSite });
+const gather = { session: sid, request: 9991, unit_ids: [scv.id], verb: 'gather',
+    resource_site_id: 'mineral-a', resource_generation: 1 };
+assert.equal(command.query({ player: 1, args: gather }).error, undefined,
+    'current mineral generation is gatherable');
+assert.match(command.query({ player: 1, args: { ...gather, resource_generation: 2 } }).errorMessage,
+    /changed/, 'stale resource generation is rejected');
+resourceSiteAction.execute({ player: 1, args: { ...mineralSite, site_id: 'geyser',
+    type: 'vespene_geyser' } });
+assert.match(command.query({ player: 1, args: { ...gather, resource_site_id: 'geyser' } }).errorMessage,
+    /changed/, 'bare geyser is not gatherable');
+command.execute({ player: 1, args: gather });
+drain();
+assert.ok(logs.some(line => line.includes('request=9991 units=1 verb=gather')),
+    'current-generation gather action was queued in park order');
+assert.equal(command.query({ player: 1, args: { session: sid, request: 9992,
+    unit_ids: [scv.id], verb: 'return_cargo' } }).error, undefined);
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
     payload: { scenario_id: 'frontier-outpost', state: 'victory', objective_id: 'openrct2:ride:17#1' } }) + '\n');
 assert.equal(actions.filter(a => a.name === 'rtsbridge.worldOutcome').length, 1,

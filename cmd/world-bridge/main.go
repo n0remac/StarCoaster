@@ -173,6 +173,7 @@ type worldCommand struct {
 	NativeTileY      int      `json:"native_tile_y,omitempty"`
 	TargetNativeID   string   `json:"target_native_id,omitempty"`
 	NativeGeneration uint64   `json:"native_generation,omitempty"`
+	TargetGeneration uint64   `json:"target_generation,omitempty"`
 }
 
 type perfMove struct {
@@ -1286,6 +1287,16 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 				s.ack(p, m, false, "missing_units")
 				return
 			}
+		case "unit.gather":
+			if err := s.prepareGatherCommand(&command); err != nil {
+				s.ack(p, m, false, err.Error())
+				return
+			}
+		case "unit.return_cargo":
+			if !s.finiteEconomy() || len(command.UnitIDs) != 1 || !s.constructionWorker(command.UnitIDs[0]) {
+				s.ack(p, m, false, "worker_unavailable")
+				return
+			}
 		case "unit.build":
 			dispatch, err := s.prepareNativeBuild(&command)
 			if err != nil {
@@ -2187,6 +2198,10 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 			}
 		}
 		delete(s.commands, result.CommandID)
+		if command.IntentID != "" && !result.Accepted {
+			log.Printf("construction command rejected intent=%s verb=%s reason=%s frame=%d",
+				command.IntentID, command.Verb, result.Reason, m.BWTick)
+		}
 		if s.construction != nil && command.IntentID != "" {
 			if command.Verb == "unit.build" && !result.Accepted {
 				intent := s.construction.Intents[command.IntentID]

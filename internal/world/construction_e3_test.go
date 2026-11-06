@@ -42,6 +42,46 @@ func TestConstructionJournalNeverReplaysAmbiguousOrder(t *testing.T) {
 	}
 }
 
+func TestUnconfirmedNativeCreationStaysReservedAndCanBindLater(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "construction.json")
+	ledger, err := LoadConstructionLedger(path, "session-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := ConstructionIntent{ID: "build-2", WorkerID: "openbw:2506", BuildingType: "terran_academy", Tile: Point{X: 29, Y: 6}}
+	if err := ledger.Reserve(intent, 64, 64); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.MarkDispatched(intent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := ledger.NoteAbsent(intent.ID, 5000, 2400); err != nil || changed {
+		t.Fatalf("first absence: changed=%v err=%v", changed, err)
+	}
+	if changed, err := ledger.NoteAbsent(intent.ID, 7399, 2400); err != nil || changed {
+		t.Fatalf("premature unresolved: changed=%v err=%v", changed, err)
+	}
+	if changed, err := ledger.NoteAbsent(intent.ID, 7400, 2400); err != nil || !changed {
+		t.Fatalf("missing unresolved: changed=%v err=%v", changed, err)
+	}
+	recovered, err := LoadConstructionLedger(path, "session-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.MayDispatch(intent.ID) || recovered.Intents[intent.ID].StatusError != "native_creation_unconfirmed" {
+		t.Fatalf("unsafe recovery: %+v", recovered.Intents[intent.ID])
+	}
+	if recovered.Intents[intent.ID].PublishedState() != "unresolved" {
+		t.Fatal("restart hid the native creation warning")
+	}
+	if err := recovered.Bind(ConstructionObservation{IntentID: intent.ID, NativeID: "225", ControllerNativeID: "225", Type: intent.BuildingType, Owner: 1, Tile: intent.Tile, Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Intents[intent.ID].StatusError != "" {
+		t.Fatal("late native creation did not clear uncertainty")
+	}
+}
+
 func TestConstructionReservationAndFinitePatchGate(t *testing.T) {
 	ledger, err := LoadConstructionLedger(filepath.Join(t.TempDir(), "construction.json"), "session-a")
 	if err != nil {
