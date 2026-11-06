@@ -441,7 +441,10 @@
                 if (retrying || mapLoadPending) return;
                 const connection = module.ccall("StarCoasterConnectionState", "number", [], []);
                 if (connection === 2) { reconnectDelay = 10000; return; }
-                if (connection === 1 || Date.now() < nextReconnectAt) return;
+                // A busy first boot can leave a client in 'connecting' after
+                // the host times out its socket. Retry that stale join, too.
+                if (connection === 1 && Date.now() < nextReconnectAt + 120000) return;
+                if (Date.now() < nextReconnectAt) return;
                 retrying = true;
                 try {
                     if (directJoin) {

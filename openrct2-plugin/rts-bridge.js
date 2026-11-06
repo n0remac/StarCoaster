@@ -1469,9 +1469,11 @@
             const sessionChanged = controlSession !== event.args.session;
             if (sessionChanged) {
                 outcomeState = null; shownOutcome = "";
-                buildingStates = {};
-                constructionStates = {};
-                constructionCatalog = {};
+                if (previousSession) {
+                    buildingStates = {};
+                    constructionStates = {};
+                    constructionCatalog = {};
+                }
                 if (missionStatus && missionStatus.session !== event.args.session) missionStatus = null;
             }
             controlSession = event.args.session;
@@ -1908,7 +1910,7 @@
                     const building = BUILDING_TYPES[args.building_type];
                     const native = constructionCatalog[args.building_type];
                     if (!missionStatus || !missionStatus.finite_economy || !building
-                        || !args.building_type.startsWith("terran_") || !native || !native.available
+                        || !args.building_type.startsWith("terran_") || !native
                         || !Number.isInteger(args.tile_x) || !Number.isInteger(args.tile_y)
                         || args.tile_x < 1 || args.tile_y < 1
                         || args.tile_x + building.width >= map.size.x
@@ -1918,6 +1920,9 @@
                                 || resourceSiteStates[args.geyser_site_id].lifecycle !== "deposit"
                             : args.geyser_site_id !== undefined))
                         return { error: 1, errorMessage: "Native construction unavailable" };
+                    if (!native.available) return { error: 1, errorMessage:
+                        native.reason === "requires_building" ? "Requires " + native.requirement.replace(/_/g, " ")
+                            : native.reason.replace(/_/g, " ") || "Native construction unavailable" };
                 }
                 if (args.verb === "gather") {
                     const site = resourceSiteStates[args.resource_site_id];
@@ -2339,7 +2344,7 @@
                     const native = constructionCatalog[selectedBuildingID];
                     if (!native) return "Waiting for native costs";
                     if (!native.available) return native.reason === "requires_building"
-                        ? "Requires " + native.requirement : native.reason.replace(/_/g, " ");
+                        ? "Requires " + native.requirement.replace(/_/g, " ") : native.reason.replace(/_/g, " ");
                     if (Object.keys(constructionStates).some(function (id) {
                         const site = constructionStates[id], building = BUILDING_TYPES[site.building_type];
                         return building && !["rejected", "canceled", "destroyed"].includes(site.state)

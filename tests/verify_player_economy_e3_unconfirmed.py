@@ -13,7 +13,8 @@ assert "ECONOMY_E3_UNCONFIRMED request=93602 type=terran_academy accepted=true" 
 assert re.search(r"verb=unit\.build accepted=1.*frame=\d+", host)
 assert "construction unresolved intent=build:1:93602 reason=native_creation_unconfirmed" in host
 assert "construction bound intent=build:1:93602" not in host
-journals = list(root.glob("spawn-queue.json.construction-*.json"))
+journals = ([Path(sys.argv[2])] if len(sys.argv) > 2 else
+            list(root.glob("spawn-queue.json.construction-*.json")))
 assert len(journals) == 1
 intent = json.loads(journals[0].read_text())["intents"]["build:1:93602"]
 assert intent["state"] == "dispatched" and not intent.get("native_id")

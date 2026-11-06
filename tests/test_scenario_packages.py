@@ -2,6 +2,7 @@ import importlib.util
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import unittest
@@ -278,6 +279,18 @@ class ScenarioPackageTest(unittest.TestCase):
         self.assertEqual(environment["BRIDGE_RULES_CONFIG"], plan["mapping"])
         self.assertEqual(environment["BRIDGE_MAP_FILE"], plan["native_map"])
         self.assertEqual(environment["BRIDGE_SPAWN_JOURNAL"], plan["spawn_journal"])
+
+    def test_play_preserves_isolated_spawn_journal_override(self):
+        plan = play.resolve("example-defense")
+        with tempfile.TemporaryDirectory() as directory:
+            isolated = str(Path(directory) / "spawn-queue.json")
+            with mock.patch.dict(os.environ, {"BRIDGE_SPAWN_JOURNAL": isolated}), \
+                 mock.patch.object(sys, "argv", ["play-scenario.py", "example-defense"]), \
+                 mock.patch.object(play, "ensure_park"), \
+                 mock.patch.object(play, "build_native_map"), \
+                 mock.patch.object(play.os, "execvpe") as launch:
+                play.main()
+            self.assertEqual(launch.call_args.args[2]["BRIDGE_SPAWN_JOURNAL"], isolated)
 
     def test_park_command_only_generates_selected_package(self):
         plan = play.resolve("example-defense")

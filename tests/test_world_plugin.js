@@ -769,6 +769,21 @@ assert.ok(logs.some(line => line.includes('request=9991 units=1 verb=gather')),
     'current-generation gather action was queued in park order');
 assert.equal(command.query({ player: 1, args: { session: sid, request: 9992,
     unit_ids: [scv.id], verb: 'return_cargo' } }).error, undefined);
+const costCatalog = registered.get('rtsbridge.constructionCatalog');
+const finiteTypes = ['terran_command_center', 'terran_refinery', 'terran_supply_depot',
+    'terran_barracks', 'terran_academy', 'terran_factory', 'terran_armory'];
+costCatalog.execute({ player: 1, args: { session: sid, buildings: finiteTypes.map(type => ({
+    building_type: type, minerals: 100, gas: 0, available: false,
+    reason: type === 'terran_academy' ? 'requires_building' : 'insufficient_minerals',
+    requirement: type === 'terran_academy' ? 'Terran_Barracks' : '' })) } });
+assert.match(command.query({ player: 1, args: { session: sid, request: 9993,
+    unit_ids: [scv.id], verb: 'build', building_type: 'terran_supply_depot',
+    tile_x: 2, tile_y: 2 } }).errorMessage, /insufficient minerals/i,
+    'finite build rejection gives the native resource reason');
+assert.match(command.query({ player: 1, args: { session: sid, request: 9994,
+    unit_ids: [scv.id], verb: 'build', building_type: 'terran_academy',
+    tile_x: 2, tile_y: 2 } }).errorMessage, /requires Terran Barracks/i,
+    'finite build rejection names the native prerequisite');
 socket.handlers.data(JSON.stringify({ v: 1, kind: 'world.outcome', session: sid,
     payload: { scenario_id: 'frontier-outpost', state: 'victory', objective_id: 'openrct2:ride:17#1' } }) + '\n');
 assert.equal(actions.filter(a => a.name === 'rtsbridge.worldOutcome').length, 1,
@@ -840,4 +855,18 @@ assert.ok(clearedSnapshots >= 2, 'map unload clears native StarCraft rendering')
 assert.ok(command.query({ player: 1, args: squadArgs }).error,
     'old session orders cannot run after map unload');
 assert.ok(!openedWindows.some(window => window.classification === 'starcoaster-squad'));
+const lateSession = 'c'.repeat(32);
+const lateCatalog = { session: lateSession, buildings: finiteTypes.map(type => ({
+    building_type: type, minerals: 100, gas: 0, available: true,
+    reason: 'ready', requirement: '' })) };
+costCatalog.execute({ player: 1, args: lateCatalog });
+resourceSiteAction.execute({ player: 1, args: { ...mineralSite, session: lateSession } });
+snapshotAction.execute({ player: 1, args: { session: lateSession, seq: 21, units: [scv] } });
+const lateReplayStart = actions.length;
+clientReady.execute({ player: 2, args: { session: lateSession } });
+subscriptions.get('interval.tick')();
+assert.ok(actions.slice(lateReplayStart).some(action => action.name === 'rtsbridge.constructionCatalog'),
+    'first native snapshot preserves the cost catalog for a late client');
+assert.ok(actions.slice(lateReplayStart).some(action => action.name === 'rtsbridge.resourceSiteState'),
+    'first native snapshot preserves paired resource sites for a late client');
 console.log('world plugin discovery and lifecycle validation passed');

@@ -2,6 +2,7 @@ package world
 
 import (
 	"regexp"
+	"sort"
 )
 
 var observedNativeID = regexp.MustCompile(`^[0-9]+$`)
@@ -43,6 +44,25 @@ func (l *ResourceLedger) Latest(siteID string) (ResourceState, bool) {
 		return ResourceState{}, false
 	}
 	return l.sites[siteID].last, true
+}
+
+// States returns only paired observations for replay after park readiness.
+func (l *ResourceLedger) States() []ResourceState {
+	if l == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(l.sites))
+	for id, site := range l.sites {
+		if site.last.Generation != 0 {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	states := make([]ResourceState, 0, len(ids))
+	for _, id := range ids {
+		states = append(states, l.sites[id].last)
+	}
+	return states
 }
 
 func NewResourceLedger(s *Scenario, session string) *ResourceLedger {

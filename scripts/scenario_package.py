@@ -227,7 +227,7 @@ def session_environment(plan: dict, overrides=None) -> dict:
     env["BRIDGE_MAP_FILE"] = plan["native_map"]
     env["BRIDGE_SCENARIO_CONFIG"] = plan["scenario"]
     env["BRIDGE_RULES_CONFIG"] = plan["mapping"]
-    env["BRIDGE_SPAWN_JOURNAL"] = plan["spawn_journal"]
+    env.setdefault("BRIDGE_SPAWN_JOURNAL", plan["spawn_journal"])
     env.setdefault("BRIDGE_SERVER_DATA_DIR", plan["server_data"])
     env.setdefault("BRIDGE_CLIENT_DATA_DIR", plan["client_data"])
     env.setdefault("BRIDGE_LAUNCH_CLIENT", "1" if env.get("DISPLAY") else "0")

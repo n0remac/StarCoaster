@@ -42,6 +42,9 @@ func TestResourceBindingsRequireBothNativeObservationsAndGeneration(t *testing.T
 	if state, ok := ledger.Observe("controller", other); !ok || state.PublisherNativeID != "4" || state.ControllerNativeID != "41" {
 		t.Fatalf("native pair was not confirmed: %+v %v", state, ok)
 	}
+	if states := ledger.States(); len(states) != 1 || states[0].SiteID != "geyser" || states[0].PublisherNativeID != "4" {
+		t.Fatalf("paired resource state was not available for park-ready replay: %+v", states)
+	}
 	refinery := base
 	refinery.Generation = 2
 	refinery.Type, refinery.Owner, refinery.Lifecycle = "terran_refinery", 1, "refinery"

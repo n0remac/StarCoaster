@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
+	"net"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"starcoaster/internal/world"
 )
@@ -44,4 +47,58 @@ func TestGatherRequiresCurrentNativeResourceGeneration(t *testing.T) {
 	if err := s.prepareGatherCommand(&command); err == nil {
 		t.Fatal("non-native worker accepted")
 	}
+}
+
+func TestPairedResourceHeartbeatRepublishesAfterParkStateLoss(t *testing.T) {
+	scenario, err := world.LoadScenario(filepath.Join("..", "..", "scenarios", "economy-e1", "scenario.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, sink := net.Pipe()
+	defer host.Close()
+	defer sink.Close()
+	events := make(chan world.Envelope, 4)
+	go func() {
+		decoder := json.NewDecoder(sink)
+		for {
+			var event world.Envelope
+			if decoder.Decode(&event) != nil {
+				return
+			}
+			events <- event
+		}
+	}()
+	registry := world.NewRegistry()
+	registry.Session, registry.Revision = "session-a", 1
+	s := &service{registry: registry, resources: world.NewResourceLedger(scenario, "session-a"),
+		park: &peer{Conn: host}, bw: &peer{}, controller: &peer{}}
+	observation := world.ResourceObservation{SiteID: "geyser", Generation: 1, NativeID: "10",
+		Type: "vespene_geyser", Owner: 11, X: (34+96)*32 + 64, Y: (8+96)*32 + 32,
+		Amount: 5000, Lifecycle: "deposit"}
+	send := func(role string, frame int) {
+		message := world.Message("resource.state", "session-a", "native", "openbw", 1, observation)
+		message.BWTick = frame
+		participant := s.bw
+		if role == "controller" {
+			participant = s.controller
+		}
+		s.recordResource(participant, message, role)
+	}
+	read := func() {
+		t.Helper()
+		select {
+		case event := <-events:
+			if event.Kind != "resource.state" {
+				t.Fatalf("unexpected park message: %s", event.Kind)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("paired resource was not replayed to the park")
+		}
+	}
+	send("publisher", 648)
+	send("controller", 648)
+	read()
+	send("publisher", 720)
+	send("controller", 720)
+	read()
 }

@@ -620,6 +620,13 @@ func (s *service) publishReady() {
 		s.startedSession = s.registry.Session
 	}
 	_ = s.emit(s.park, "world.ready", s.registry.Session, s.registry.Revision, ready)
+	if s.finiteEconomy() && s.resources != nil {
+		states := s.resources.States()
+		for _, state := range states {
+			_ = s.emit(s.park, "resource.state", s.registry.Session, s.registry.Revision, state)
+		}
+		log.Printf("resource replay after readiness sites=%d", len(states))
+	}
 	if len(s.pending) != 0 {
 		ids := make([]string, 0, len(s.pending))
 		for id := range s.pending {
@@ -1469,6 +1476,18 @@ func (s *service) recordResource(p *peer, m world.Envelope, role string) {
 			state.SiteID, state.Generation, state.Type, state.Amount,
 			state.PublisherNativeID, state.ControllerNativeID, m.BWTick, m.Revision)
 		_ = s.emit(s.park, "resource.state", m.Session, m.Revision, state)
+		return
+	}
+	// Reassert an unchanged paired binding at a bounded cadence. Park map-load
+	// callbacks can clear early action state before the first browser joins.
+	if role == "controller" && m.BWTick > 0 && m.BWTick%240 == 0 {
+		latest, ok := s.resources.Latest(observation.SiteID)
+		if ok && latest.Generation == observation.Generation && latest.ControllerNativeID == observation.NativeID &&
+			latest.Type == observation.Type && latest.Owner == observation.Owner &&
+			latest.X == observation.X && latest.Y == observation.Y && latest.Amount == observation.Amount &&
+			latest.Lifecycle == observation.Lifecycle {
+			_ = s.emit(s.park, "resource.state", m.Session, m.Revision, latest)
+		}
 	}
 }
 
