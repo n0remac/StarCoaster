@@ -5,8 +5,9 @@ registerPlugin({ name: "Economy E2 gather probe", version: "1.0.0",
     if (network.mode !== "client") return;
     const observeOnly = typeof STARCOASTER_ECONOMY_E2_OBSERVE_ONLY !== "undefined"
         && STARCOASTER_ECONOMY_E2_OBSERVE_ONLY;
-    let ticks = 0, sent = false, returned = false, refinery = false, gas = false, scouted = false;
+    let ticks = 0, returned = false, scouted = false;
     let trained = false, egress = false;
+    const accepted = {}, pending = {};
     context.subscribe("interval.tick", function () {
         const state = rtsBridge.getActors();
         if (!state || !state.session || !state.units) return;
@@ -20,9 +21,12 @@ registerPlugin({ name: "Economy E2 gather probe", version: "1.0.0",
             ui.mainViewport.moveTo({ x: 28 * 32, y: 10 * 32, z: 112 });
         }
         function order(request, worker, verb, extra) {
+            pending[request] = true;
             context.executeAction("rtsbridge.marineCommand", Object.assign({ session: state.session,
                 request: request, unit_ids: worker ? [worker.id] : [], verb: verb }, extra || {}),
             function (result) {
+                pending[request] = false;
+                if (!result.error) accepted[request] = true;
                 console.log("ECONOMY_E2_ORDER request=" + request + " verb=" + verb
                     + " accepted=" + !result.error + " reason=" + (result.errorMessage || "ok"));
             });
@@ -31,25 +35,25 @@ registerPlugin({ name: "Economy E2 gather probe", version: "1.0.0",
             scouted = true;
             order(93500, workers[2], "move", { x: 33 * 32, y: 9 * 32 });
         }
-        if (!observeOnly && !sent && ticks >= 900) {
-            sent = true;
-            order(93501, workers[0], "gather", { resource_site_id: "mineral-a", resource_generation: 1 });
-            order(93502, workers[1], "gather", { resource_site_id: "mineral-b", resource_generation: 1 });
+        if (!observeOnly && ticks >= 900 && ticks % 100 === 0) {
+            if (!accepted[93501] && !pending[93501])
+                order(93501, workers[0], "gather", { resource_site_id: "mineral-a", resource_generation: 1 });
+            if (!accepted[93502] && !pending[93502])
+                order(93502, workers[1], "gather", { resource_site_id: "mineral-b", resource_generation: 1 });
         }
-        if (!observeOnly && sent && !returned && workers[0].motion === "carry") {
+        if (!observeOnly && accepted[93501] && !returned && workers[0].motion === "carry") {
             returned = true;
             order(93503, workers[0], "return_cargo");
         }
-        if (!observeOnly && !refinery && ticks >= 1400) {
-            refinery = true;
+        if (!observeOnly && !accepted[93504] && !pending[93504] && ticks >= 1400 && ticks % 100 === 0) {
             order(93504, workers[2], "build", { building_type: "terran_refinery",
                 geyser_site_id: "geyser", tile_x: 34, tile_y: 8 });
         }
-        if (!observeOnly && refinery && !gas && ticks >= 2500) {
-            gas = true;
+        if (!observeOnly && accepted[93504] && !accepted[93505] && !pending[93505]
+            && ticks >= 2500 && ticks % 100 === 0) {
             order(93505, workers[2], "gather", { resource_site_id: "geyser", resource_generation: 2 });
         }
-        if (!observeOnly && gas && !trained && ticks >= 3400) {
+        if (!observeOnly && accepted[93505] && !trained && ticks >= 3400) {
             trained = true;
             order(93506, null, "train", { unit_type: "terran_scv", target_entity_id: "scenario:base" });
         }

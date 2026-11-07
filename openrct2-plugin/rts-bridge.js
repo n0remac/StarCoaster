@@ -1270,6 +1270,8 @@
             parkLoadStatus = null;
             latestSnapshot = null;
             clientReadySession = "";
+            clientReadyPending = false;
+            clientReadyPendingAt = 0;
             pendingClientRefresh = false;
             pendingClientSnapshot = false;
             commandSerial = 0;
@@ -1294,6 +1296,7 @@
         const retiredActorSessions = {};
         let clientReadySession = "";
         let clientReadyPending = false;
+        let clientReadyPendingAt = 0;
         let pendingClientRefresh = false;
         let pendingClientSnapshot = false;
         let latestSnapshot = null;
@@ -2270,10 +2273,13 @@
                 if (parkCatalog)
                     context.executeAction(PARK_CATALOG_ACTION, parkCatalog, function () {});
             }
+            if (network.mode === "client" && clientReadyPending
+                && animationTicks - clientReadyPendingAt >= 200) clientReadyPending = false;
             if (network.mode === "client"
                 && (!controlSession || clientReadySession !== controlSession) && !clientReadyPending
                 && animationTicks % 40 === 0) {
                 clientReadyPending = true;
+                clientReadyPendingAt = animationTicks;
                 const readySession = controlSession;
                 context.executeAction(CLIENT_READY_ACTION, { session: readySession }, function (result) {
                     clientReadyPending = false;

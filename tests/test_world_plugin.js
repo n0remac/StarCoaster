@@ -11,6 +11,7 @@ let ride = { id: 17, name: 'Café 🎢 Carousel', type: 33, classification: 'rid
     object: { identifier: 'rct2.ride.mgr1' }, status: 'closed', isEmpty: true };
 let rejectNextRideDemolition = false;
 let deferNextRideDemolition = false, completeRideDemolition = null;
+let dropNextClientReadyAck = false;
 at(1, 1).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
     clearanceZ: 160, occupiedQuadrants: 15, trackType: 0, sequence: 0, direction: 0 });
 at(1, 2).push({ type: 'track', ride: 17, baseHeight: 14, baseZ: 112,
@@ -85,6 +86,10 @@ const sandbox = {
         subscribe(name, callback) { const previous = subscriptions.get(name);
             subscriptions.set(name, previous ? function (event) { previous(event); callback(event); } : callback);
         }, executeAction(name, args, callback) { actions.push({ name, args });
+            if (name === 'rtsbridge.clientReady' && dropNextClientReadyAck) {
+                dropNextClientReadyAck = false;
+                return; // Simulate a reply lost while the graphical client reconnects.
+            }
             if (name === 'ridedemolish') {
                 if (rejectNextRideDemolition) {
                     rejectNextRideDemolition = false;
@@ -869,4 +874,10 @@ assert.ok(actions.slice(lateReplayStart).some(action => action.name === 'rtsbrid
     'first native snapshot preserves the cost catalog for a late client');
 assert.ok(actions.slice(lateReplayStart).some(action => action.name === 'rtsbridge.resourceSiteState'),
     'first native snapshot preserves paired resource sites for a late client');
+sandbox.network.mode = 'client';
+dropNextClientReadyAck = true;
+const readyRetryStart = actions.filter(action => action.name === 'rtsbridge.clientReady').length;
+for (let i = 0; i < 300; i++) subscriptions.get('interval.tick')();
+assert.ok(actions.filter(action => action.name === 'rtsbridge.clientReady').length - readyRetryStart >= 2,
+    'lost late-client readiness acknowledgement is retried on a bounded cadence');
 console.log('world plugin discovery and lifecycle validation passed');

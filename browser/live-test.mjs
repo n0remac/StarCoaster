@@ -984,6 +984,7 @@ try {
         throw new Error(`Browser E2 probe did not report ${marker}`);
     }
     await capture(page, 'economy-e2-gather.png');
+    const reconnectMarkerStart = records.length;
     await page.evaluate(() => window.sessionStorage.setItem('starcoaster-e2-observe-only', '1'));
     await page.reload({ waitUntil: 'commit', timeout: 180000 });
     await page.waitForFunction(() => document.getElementById('canvas')?.style.display === 'block',
@@ -991,7 +992,7 @@ try {
     const reconnectStart = records.length;
     let resumed = false;
     for (let attempt = 0; attempt < 300; attempt++) {
-      if (records.slice(reconnectStart).some((record) => record.kind === 'console'
+      if (records.slice(reconnectMarkerStart).some((record) => record.kind === 'console'
         && record.text.includes('ECONOMY_E2_RECONNECTED workers=5'))) {
         resumed = true;
         break;
