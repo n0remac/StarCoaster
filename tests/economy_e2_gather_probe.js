@@ -6,7 +6,7 @@ registerPlugin({ name: "Economy E2 gather probe", version: "1.0.0",
     const observeOnly = typeof STARCOASTER_ECONOMY_E2_OBSERVE_ONLY !== "undefined"
         && STARCOASTER_ECONOMY_E2_OBSERVE_ONLY;
     let ticks = 0, returned = false, scouted = false;
-    let trained = false, egress = false;
+    let trained = false, egress = false, reconnected = false;
     const accepted = {}, pending = {};
     context.subscribe("interval.tick", function () {
         const state = rtsBridge.getActors();
@@ -61,7 +61,10 @@ registerPlugin({ name: "Economy E2 gather probe", version: "1.0.0",
             egress = true;
             console.log("ECONOMY_E2_TRAINED workers=" + workers.length);
         }
-        if (observeOnly && ticks === 100) console.log("ECONOMY_E2_RECONNECTED workers=" + workers.length);
+        if (observeOnly && !reconnected && workers.length >= 5) {
+            reconnected = true;
+            console.log("ECONOMY_E2_RECONNECTED workers=" + workers.length);
+        }
         if (ticks % 100 === 0) console.log("ECONOMY_E2_WORKERS tick=" + ticks + " "
             + JSON.stringify(workers.map(function (worker) {
                 return { id: worker.id, motion: worker.motion, cargo: worker.cargo };
