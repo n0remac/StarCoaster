@@ -977,6 +977,9 @@ try {
     await capture(page, 'economy-e3-reconnect.png');
   }
   if (economyE2Probe) {
+    for (let elapsed = 0; elapsed < 180000 && !records.some((record) =>
+      record.kind === 'console' && record.text.includes('ECONOMY_E2_TRAINED workers=5')); elapsed += 1000)
+      await page.waitForTimeout(1000);
     for (const marker of ['ECONOMY_E2_ORDER request=93501 verb=gather accepted=true',
       'ECONOMY_E2_ORDER request=93505 verb=gather accepted=true',
       'ECONOMY_E2_TRAINED workers=5']) {
