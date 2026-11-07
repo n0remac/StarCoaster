@@ -1,6 +1,6 @@
 # StarCoaster milestone: Native player economy
 
-Status: E0 native proof and E1 finite authored bootstrap complete; E2-E5 remain unimplemented. See `docs/player-economy-e0-verification.md` and `docs/player-economy-e1-verification.md` for measured evidence and limits.
+Status: E0 and E1 are complete on authored fixtures. E2 gathering and E3 native worker construction pass their focused native and graphical browser gates on `economy-e3`. The E3 ambiguous-creation policy retains an unresolved reservation; worker-death and concurrent-edit fault probes remain for the E5 integration gate. E4 ordinary-park placement and E5 release remain outstanding. See the stage verification reports for measured coverage and limits.
 Date: 2026-11-05
 Reviewed baseline: f38e732ab756d47780777a9ea3baa18844a194d3
 Repository: /home/pi/Projects/rts-bridge
@@ -173,6 +173,14 @@ No player gathering or construction transaction is claimed here.
 
 Exit: a human can earn minerals and gas through the browser and spend them on native unit production in the controlled fixture. Preplaced test Refinery is allowed here; ordinary gameplay still awaits E3.
 
+E2 status (2026-11-06): focused authored-fixture gate passed. Native and
+graphical browser runs proved two mineral workers, Return Cargo, a worker-built
+Refinery, gas delivery, SCV training and same-session browser reload without
+another order. Generation-qualified resource selection and live worker/cargo/
+resource displays use OpenBW observations. The browser probe uses normal player
+actions, but did not certify a literal human mouse sequence. See
+`docs/player-economy-e2-verification.md`; ordinary parks remain E4.
+
 ### E3 — Native worker construction and bypass closure
 
 - Implement durable reservations, native build intents, incomplete projection, binding, completion, resume and cancellation.
@@ -183,6 +191,16 @@ Exit: a human can earn minerals and gas through the browser and spend them on na
 - Cover actual progress, cancellation refunds, native death, stale target IDs, construction overlap and production egress.
 
 Exit: finite funds govern both buildings and units; no ordinary player action creates free military assets; restart/retry does not duplicate construction or charge twice.
+
+E3 status (2026-11-06): focused authored-fixture exit checks passed for native
+funds, server-side finite-mode free-asset gates and no duplicate build/debit
+on retry or bridge restart. Durable intents, paired binding, park projection,
+incomplete lifecycle, resume/cancel and native refunds were exercised. A flat
+authored fixture completed all seven supported Terran building types; a
+graphical browser built and recovered a Depot. Ambiguous accepted orders
+publish `native_creation_unconfirmed` after 2,400 frames and retain their site
+reservation for safety. The remaining fault and release limits are in
+`docs/player-economy-e3-verification.md`. This does not complete E4/E5.
 
 ### E4 — Ordinary-park generation, waves and cache integration
 

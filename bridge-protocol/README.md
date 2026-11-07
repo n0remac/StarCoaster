@@ -28,8 +28,72 @@ when a native resource target is known. Worker animation states include
 `construction_progress` (0–100), both observed from BWAPI. These are
 observations only. `player.resources` remains the authoritative balance and
 native half-supply message. Command Center production reuses the existing
-`unit.train` route for `terran_scv`. Worker gather/build command routing and
-native construction transactions remain E2/E3 work.
+`unit.train` route for `terran_scv`.
+
+## Finite worker gathering (E2)
+
+The authenticated `combat.command` route accepts `unit.gather` and
+`unit.return_cargo` only for one owned SCV in a finite-economy session.
+Gathering names an authored logical resource `target_id` and its observed
+`target_generation`. Go requires a current paired mineral deposit or completed
+Refinery site with a positive native amount and forwards the controller's
+exact `target_native_id` and `native_generation`. The native controller
+rechecks the worker, current resource binding and generation, native type,
+ownership, amount and Refinery completion before calling BWAPI `gather`.
+A bare geyser and a stale replacement generation reject. Return Cargo calls
+BWAPI `returnCargo` after the exact native worker check. The park shows worker
+order/cargo and live resource amounts; OpenBW alone changes deposits and
+`player.resources` balances. The OpenRCT2 action result is transport
+acceptance; `combat.result` carries native acceptance or rejection.
+After paired native binding, unchanged resource sites are reasserted every
+240 native frames so a park map load or late client can recover an early
+state action; changed amounts and generations still publish immediately.
+
+## Finite worker construction (E3)
+
+In `economy.mode: finite`, the authenticated `combat.command` route accepts
+`unit.build` with one SCV ID, a supported Terran `building_type`, and the
+park upper-left `tile_x`/`tile_y`. A Refinery additionally names its current
+`geyser_site_id`; Go binds that site generation and both observed geyser
+native IDs before dispatch. `unit.resume_construction` takes one SCV and an
+intent ID. `unit.cancel_construction` takes no SCV and an intent ID. The native
+controller rechecks the exact worker owner/type, tile, current building or
+geyser ID, funds, prerequisites, and BWAPI build/cancel ability. `combat.result`
+reports order acceptance separately from creation or completion. Native
+balances and refunds flow only through `player.resources`.
+
+Go durably reserves the park footprint under `build:<player>:<request>` and
+records the dispatch before emitting an uncertain native order. A repeated
+request returns the journaled status and does not replay the build. Both
+OpenBW participants receive `construction.watch` with the intent, type, and
+native upper-left tile; `construction.observation` reports exact native
+`native_id`, owner, tile, incomplete/paused/completed state, remaining frames,
+HP, and native frame. Go binds a new structure only after both observations
+match the reserved type, owner, and tile. A Refinery must retain each
+participant's observed geyser ID. The park receives `construction.state` and
+the seven-option native `construction.catalog` with BWAPI prices and
+prerequisite feedback.
+
+The host places a scenery projection only after native creation, then sends
+`construction.projection` with its park entity ID. Go links that ID before the
+ordinary `world.patch` discovery can reach OpenBW. The linked entity carries
+`native_origin`/`native_id` internally; the bridge clears its duplicate
+collision mask, and the publisher adopts the exact existing native unit
+without `createUnit`. The ordered park revision is confirmed only when both
+native navigation participants apply the same hash at the scheduled frame.
+`construction.projection.failure` is bounded and exposed as a status; it does
+not issue another native build. The journal and watch subscriptions survive a
+same-session bridge restart. Finite-mode park patches reject unbound Terran
+scenery, edits inside reserved sites, and manual removal of active native
+construction. The combat demolition path still uses its own confirmed
+revision transaction.
+
+If both native participants repeatedly report no building for 2,400 frames
+after dispatch, the journal retains the reservation and publishes
+`construction.state: unresolved` with `native_creation_unconfirmed`. The
+bridge never replays the ambiguous order or issues a refund. A later exact
+native observation can still bind and clear the warning. Reconnect republishes
+the same unresolved status from the journal.
 
 ## Optional park defense control
 
