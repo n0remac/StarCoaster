@@ -22,7 +22,8 @@ def stage(source: Path, destination: Path, scenario_path: Path) -> None:
         specs.append({**item, "object_id": building["object_id"],
                       "width": building["width"], "height": building["height"],
                       "owner": {"zerg": 0, "terran": 1}[item["faction"]]})
-    if not specs:
+    economy = scenario.get("economy") or {}
+    if not specs and economy.get("mode") != "finite":
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         return
@@ -36,9 +37,17 @@ def stage(source: Path, destination: Path, scenario_path: Path) -> None:
                        cwd=ROOT, check=True)
     (data / "plugin").mkdir(parents=True, exist_ok=True)
     (data / "config.ini").write_text("[network]\nadvertise = false\n")
+    dimensions = {"terran_command_center": (4, 3), "terran_scv": (1, 1),
+                  "mineral_field": (2, 1), "vespene_geyser": (4, 2)}
+    economy_entities = [{**item, "width": dimensions[item["type"]][0],
+                         "height": dimensions[item["type"]][1]}
+                        for item in economy.get("starting_entities", [])]
     script = (ROOT / "scripts/stage-scenario-structures.js").read_text().replace(
         "__STARCOASTER_STRUCTURES__", json.dumps(specs, separators=(",", ":"))).replace(
-        "__STARCOASTER_ECONOMY_MODE__", json.dumps((scenario.get("economy") or {}).get("mode", "")))
+        "__STARCOASTER_ECONOMY_MODE__", json.dumps(economy.get("mode", ""))).replace(
+        "__STARCOASTER_ECONOMY_LAYOUT__", json.dumps(economy.get("layout_policy", ""))).replace(
+        "__STARCOASTER_ECONOMY_STATE__", json.dumps(economy.get("layout_state", ""))).replace(
+        "__STARCOASTER_ECONOMY_ENTITIES__", json.dumps(economy_entities, separators=(",", ":")))
     (data / "plugin/stage-scenario-structures.js").write_text(script)
     staged = data / "save/scenario-structures.park"
     staged.unlink(missing_ok=True)

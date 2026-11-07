@@ -67,3 +67,51 @@ func TestFiniteBridgeRejectsUnboundStructureAndDirectSpawn(t *testing.T) {
 		t.Fatal("legacy scenario lost direct spawn behavior")
 	}
 }
+
+func TestInitialNativeCommandCenterDoesNotDuplicateParkCollision(t *testing.T) {
+	scenario, err := world.LoadScenario(filepath.Join("..", "..", "scenarios", "economy-e1", "scenario.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &service{scenario: scenario}
+	base := world.Entity{ID: "scenario:base", Source: "openrct2", Kind: "structure",
+		Type: "terran_command_center", Owner: 1,
+		Position:  world.Point{X: 20 * 32, Y: 8 * 32},
+		Geometry:  world.Geometry{Rects: []world.Rect{{X: 20 * 32, Y: 8 * 32, Width: 128, Height: 96}}},
+		Collision: world.Collision{Blocks: true}}
+	s.normalizeAuthoredNativeProjection(&base)
+	if base.NativeOrigin || base.Collision.Blocks {
+		t.Fatalf("initial native base retained a duplicate park obstacle: %+v", base)
+	}
+	registry := world.NewRegistry()
+	registry.Width, registry.Height = 64, 64
+	registry.Entities[base.ID] = base
+	transform, err := world.Fit(64, 64, 256, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mask, err := world.DeriveNavigation(registry, transform, 256, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mask.BlockedPixel(transform.X(20*32+16), transform.Y(8*32+16)) {
+		t.Fatal("native base remains blocked in the park navigation mask")
+	}
+	ordinary := base
+	ordinary.ID = "openrct2:large_scenery:forged#1"
+	ordinary.NativeOrigin = false
+	ordinary.Collision.Blocks = true
+	s.normalizeAuthoredNativeProjection(&ordinary)
+	if ordinary.NativeOrigin || !ordinary.Collision.Blocks {
+		t.Fatalf("ordinary scenery lost its collision: %+v", ordinary)
+	}
+	registry.Entities[ordinary.ID] = ordinary
+	delete(registry.Entities, base.ID)
+	mask, err = world.DeriveNavigation(registry, transform, 256, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mask.BlockedPixel(transform.X(20*32+16), transform.Y(8*32+16)) {
+		t.Fatal("ordinary scenery did not retain its park collision")
+	}
+}

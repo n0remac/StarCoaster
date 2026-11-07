@@ -26,21 +26,38 @@ def prepare(source: str, workspace: Path | None = None, timing=None) -> dict:
         if not source_copy.is_file() or source_copy.stat().st_size != original.stat().st_size or source_copy.stat().st_mtime_ns != original.stat().st_mtime_ns:
             shutil.copy2(original, source_copy)
     with timing.stage("source_inspection") if timing else nullcontext():
-        width, height = inspect_existing_park(source_copy)
+        inspected = inspect_existing_park(source_copy)
+        width, height = inspected
         if width > 256 or height > 256:
             raise ValueError(f"existing park exceeds 256x256 native map: {width}x{height}")
         validated_source_sha256 = hashlib.sha256(source_copy.read_bytes()).hexdigest()
+        layout = getattr(inspected, "economy_layout", None) or {
+            "policy_version": 1, "state": "blocked", "reason": "economy_geometry_unavailable",
+            "starting_entities": [], "defense_sites": []}
+        if layout.get("policy_version") != 1 or layout.get("state") not in ("ready", "blocked"):
+            raise ValueError("invalid generated economy layout")
+        ready = layout["state"] == "ready"
+        entities = layout.get("starting_entities", []) if ready else []
+        bases = [entity for entity in entities if entity.get("type") == "terran_command_center"]
+        if ready and len(bases) != 1:
+            raise ValueError("generated economy layout missing Command Center")
     scenario = {
         "version": 2, "scenario_id": scenario_id, "mode": "park_defense",
         "display_name": f"StarCraft Defense: {original.stem}"[:128],
         "park_file": str((directory / "save" / f"{scenario_id}{original.suffix.lower()}").relative_to(ROOT)),
         "park_size": [width, height], "starting_units": {"marines": [], "zerglings": []},
-        "production_fixture": {"terran_minerals": 50000, "terran_gas": 50000,
-                               "native_supply_depot": [1, 1]},
-        "unlimited_resources": True, "objectives": [],
+        "economy": {"version": 1, "mode": "finite", "layout_policy": "generated",
+                    "layout_state": layout["state"], "policy_version": layout["policy_version"],
+                    "layout_seed": validated_source_sha256[:16],
+                    "blocked_reason": layout.get("reason", "") if not ready else "",
+                    "initial_balances": {"minerals": 50 if ready else 0, "gas": 0},
+                    "starting_entities": entities},
+        "initial_structures": ([{"id": bases[0]["id"], "type": "terran_command_center",
+                                 "faction": "terran", "tile": bases[0]["tile"]}] if ready else []),
+        "objectives": [],
         "initial_ai": {"strategy": "park_defense", "delay_frames": 0},
         "spawn_zones": {},
-        "park_defense": {"initial_delay_frames": 2880, "interval_frames": 2880,
+        "park_defense": {"initial_delay_frames": 7200, "interval_frames": 2880,
                          "manual_cooldown_frames": 360,
                          "spawn_policy": "automatic_perimeter", "spawn_zones": [],
                          "wave_tiers": [
@@ -59,7 +76,12 @@ def prepare(source: str, workspace: Path | None = None, timing=None) -> dict:
         scenario_path.write_text(json.dumps(scenario, indent=2) + "\n")
         mapping_path.write_text('{"rules": []}\n')
         metadata_path.write_text(json.dumps({"generator": "existing-park",
-                                             "source": str(source_copy.relative_to(ROOT))}, indent=2) + "\n")
+                                             "source": str(source_copy.relative_to(ROOT)),
+                                             "economy_layout": {"policy_version": layout["policy_version"],
+                                                 "state": layout["state"], "seed": validated_source_sha256[:16],
+                                                 "defense_sites": layout.get("defense_sites", []),
+                                                 "candidates_checked": layout.get("candidates_checked", 0),
+                                                 "route_checks": layout.get("route_checks", 0)}}, indent=2) + "\n")
     output = (ROOT / "run-data/scenarios" / scenario_id) if workspace is None else directory
     return {"scenario_id": scenario_id, "scenario": str(scenario_path),
             "mapping": str(mapping_path),

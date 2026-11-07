@@ -1670,6 +1670,8 @@
                     || (args.defense_configurable !== undefined && typeof args.defense_configurable !== "boolean")
                     || (args.automatic_perimeter !== undefined && typeof args.automatic_perimeter !== "boolean")
                     || (args.finite_economy !== undefined && typeof args.finite_economy !== "boolean")
+                    || (args.economy_bootstrap !== undefined && !["", "preparing", "ready", "blocked"].includes(args.economy_bootstrap))
+                    || (args.economy_blocked_reason !== undefined && !["", "no_native_valid_economy_site", "economy_geometry_unavailable", "economy_search_limit"].includes(args.economy_blocked_reason))
                     || !["", "pending", "triggered", "spawning", "active", "cleared", "failed"].includes(args.wave_state)
                     || !["", "victory", "defeat"].includes(args.outcome)
                     || typeof args.error !== "string" || args.error.length > 256)
@@ -2694,9 +2696,12 @@
                     : "Spawn: " + (status.spawn_anchor ? status.spawn_anchor.join(", ") : "select a park edge"));
                 setText("defense-interval", "Wave interval: " + status.wave_interval_seconds + "s");
                 setText("defense-difficulty", "Wave difficulty: " + (status.wave_difficulty || "standard"));
-                setText("defense-next", status.defense_enabled
-                    ? (status.error && status.error.indexOf("Waves waiting:") === 0 ? status.error
-                        : "Next wave: " + status.next_wave_seconds + "s") : "Next wave: disabled");
+                setText("defense-next", status.economy_bootstrap === "blocked"
+                    ? "Economy placement blocked; waves paused"
+                    : status.economy_bootstrap === "preparing" ? "Economy starting; waves paused"
+                    : status.defense_enabled
+                        ? (status.error && status.error.indexOf("Waves waiting:") === 0 ? status.error
+                            : "Next wave: " + status.next_wave_seconds + "s") : "Next wave: disabled");
                 setText("defense-current", "Current wave: " + status.wave_ordinal + " | "
                     + status.active_enemies + " enemies (" + status.wave_state + ")");
                 const balance = playerResources[terranOwner];
@@ -2706,8 +2711,11 @@
                         + " | Supply: " + (balance.supply_used / 2) + "/" + (balance.supply_total / 2)
                         : "Resources: native balance synchronizing");
                 if (waveFeedback && Date.now() >= waveFeedbackUntil) waveFeedback = "";
-                setText("defense-feedback", status.error ? "Wave placement: " + status.error
-                    : waveFeedback || defenseFeedback);
+                setText("defense-feedback", status.economy_bootstrap === "blocked"
+                    ? status.economy_blocked_reason === "economy_search_limit"
+                        ? "Economy search limit reached. Edit, save, and reload this park to retry."
+                        : "No level, dry, owned base site with resource routes. Edit, save, and reload this park to retry."
+                    : status.error ? "Wave placement: " + status.error : waveFeedback || defenseFeedback);
             });
             function requestWave() {
                 if (!controlSession || !missionStatus || missionStatus.mode !== "park_defense"

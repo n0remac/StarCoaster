@@ -27,6 +27,8 @@ type scenarioStatus struct {
 	WaveDifficulty        string  `json:"wave_difficulty,omitempty"`
 	UnlimitedResources    bool    `json:"unlimited_resources,omitempty"`
 	FiniteEconomy         bool    `json:"finite_economy,omitempty"`
+	EconomyBootstrap      string  `json:"economy_bootstrap,omitempty"`
+	EconomyBlockedReason  string  `json:"economy_blocked_reason,omitempty"`
 	DefenseConfigurable   bool    `json:"defense_configurable,omitempty"`
 	AutomaticPerimeter    bool    `json:"automatic_perimeter,omitempty"`
 }
@@ -36,6 +38,15 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 		DisplayName: s.scenario.DisplayName, Mode: s.scenario.Mode,
 		Outcome: s.outcome, ActiveZerglings: s.lastZerglings, ActiveEnemies: s.lastEnemies}
 	status.FiniteEconomy = s.finiteEconomy()
+	if status.FiniteEconomy {
+		status.EconomyBootstrap = "preparing"
+		if s.scenario.Economy.LayoutState == "blocked" {
+			status.EconomyBootstrap = "blocked"
+			status.EconomyBlockedReason = s.scenario.Economy.BlockedReason
+		} else if s.runtime != nil && s.runtime.EconomyReadyFrame > 0 {
+			status.EconomyBootstrap = "ready"
+		}
+	}
 	if s.scenario.Mode == "park_defense" {
 		status.Objective = "Manage and defend the park"
 		status.WaveIntervalSeconds = (s.scenario.ParkDefense.IntervalFrames + 23) / 24
@@ -64,6 +75,9 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 				status.NextWaveSeconds = 0
 			}
 			if !status.DefenseEnabled {
+				status.NextWaveSeconds = 0
+			}
+			if status.FiniteEconomy && status.EconomyBootstrap != "ready" {
 				status.NextWaveSeconds = 0
 			}
 			cooldown := s.scenario.ParkDefense.ManualCooldownFrames - (s.runtime.LastFrame - s.runtime.LastManualFrame)

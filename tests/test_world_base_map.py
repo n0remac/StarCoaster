@@ -99,6 +99,21 @@ class WorldBaseMapTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "overlaps mapped park"):
                 module.scenario_units(path)
 
+    def test_generated_finite_map_has_only_authored_native_bootstrap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scenario.json"
+            scenario = json.loads((ROOT / "scenarios/economy-e1/scenario.json").read_text())
+            scenario["economy"].update(layout_policy="generated", layout_state="ready",
+                                       policy_version=1, layout_seed="0123456789abcdef")
+            path.write_text(json.dumps(scenario))
+            units = [UNIT.unpack(row) for row in module.scenario_units(path)]
+            self.assertEqual(len(units), 12)
+            self.assertEqual({row[7] for row in units}, {1, 11})
+            self.assertFalse(any(row[0] == 2000 for row in units), "hidden supply fixture returned")
+            scenario["economy"].update(layout_state="blocked", starting_entities=[])
+            path.write_text(json.dumps(scenario))
+            self.assertEqual(module.scenario_units(path), [], "blocked park spawned a free economy")
+
 
 if __name__ == "__main__":
     unittest.main()

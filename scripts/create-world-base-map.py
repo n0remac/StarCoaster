@@ -76,7 +76,11 @@ def scenario_units(path: Path) -> list[bytes]:
     if economy is not None:
         if (economy.get("version") != 1 or economy.get("mode") != "finite"
                 or scenario.get("unlimited_resources") or scenario.get("production_fixture")
-                or economy.get("layout_policy") != "authored"):
+                or economy.get("layout_policy") not in ("authored", "generated")
+                or (economy.get("layout_policy") == "generated"
+                    and economy.get("layout_state") not in ("ready", "blocked"))
+                or (economy.get("layout_state") == "blocked"
+                    and economy.get("starting_entities"))):
             raise ValueError("invalid finite economy map bootstrap")
         for index, entity in enumerate(economy.get("starting_entities", [])):
             kind, width, height, owner = ECONOMY_NATIVE_TYPES[entity["type"]]

@@ -122,7 +122,7 @@ def ensure_park(plan: dict, force: bool = False) -> None:
         scenario_path = Path(plan["scenario"])
         scenario = json.loads(scenario_path.read_text())
         inputs = [source, scenario_path]
-        if scenario.get("initial_structures"):
+        if scenario.get("initial_structures") or scenario.get("economy"):
             inputs += [ROOT / "scripts/stage-scenario-structures.py",
                        ROOT / "scripts/stage-scenario-structures.js",
                        ROOT / "bridge-protocol/starcraft-types.json"]
@@ -142,7 +142,7 @@ def ensure_park(plan: dict, force: bool = False) -> None:
                 raise RuntimeError(f"existing park size {actual[0]}x{actual[1]} differs from scenario {expected}")
             park.parent.mkdir(parents=True, exist_ok=True)
             temporary = park.with_suffix(".park.tmp")
-            if scenario.get("initial_structures"):
+            if scenario.get("initial_structures") or scenario.get("economy"):
                 subprocess.run(["python3", "scripts/stage-scenario-structures.py",
                                 str(source), str(temporary), str(scenario_path)], cwd=ROOT, check=True)
             else:
@@ -160,22 +160,40 @@ def ensure_park(plan: dict, force: bool = False) -> None:
         raise RuntimeError(f"park generator did not produce the complete {plan['scenario_id']} package")
 
 
-def inspect_existing_park(source: Path) -> tuple[int, int]:
-    """Ask OpenRCT2 for the real map size; never infer it from park bytes."""
+class ParkInspection:
+    def __init__(self, width: int, height: int, economy_layout: dict):
+        self.width, self.height, self.economy_layout = width, height, economy_layout
+
+    def __iter__(self):
+        return iter((self.width, self.height))
+
+    def __getitem__(self, index):
+        return (self.width, self.height)[index]
+
+
+def inspect_existing_park(source: Path):
+    """Ask OpenRCT2 for source size and deterministic economy geometry."""
     executable = ROOT / "build/openrct2/openrct2-cli"
     data = ROOT / "build/openrct2-stage/usr/local/share/openrct2"
     rct2 = Path(os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2")))
     if not executable.is_file() or not (data / "g2.dat").is_file() or not rct2.is_dir():
         raise RuntimeError("OpenRCT2 build and licensed RCT2 data are required to inspect an existing park")
-    with tempfile.TemporaryDirectory(prefix="starcoaster-park-inspect-") as directory:
+    temporary_root = ROOT / "build" / "tmp-economy-inspect"
+    temporary_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="starcoaster-park-inspect-", dir=temporary_root) as directory:
         user = Path(directory)
         (user / "plugin").mkdir()
         (user / "config.ini").write_text("[network]\nadvertise = false\n")
-        (user / "plugin/inspect.js").write_text(
-            'registerPlugin({name:"Park Size Inspector",version:"1.0",authors:["StarCoaster"],'
+        seed = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+        scanner = (ROOT / "scripts/economy-layout.js").read_text()
+        (user / "plugin/inspect.js").write_text(scanner + '\n' +
+            'registerPlugin({name:"Park Economy Inspector",version:"1.0",authors:["StarCoaster"],'
             'type:"local",licence:"MIT",targetApiVersion:124,minApiVersion:124,main:function(){'
-            'var done=false;context.subscribe("interval.tick",function(){if(done)return;done=true;'
-            'console.log("STARCOASTER_PARK_SIZE "+JSON.stringify([map.size.x,map.size.y]));});}});')
+            'var done=false;context.subscribe("interval.tick",function(){if(done)return;done=true;try{'
+            'var layout=starcoasterFindEconomyLayout(map,' + json.dumps(seed) + ');'
+            'console.log("STARCOASTER_PARK_INSPECTION "+JSON.stringify({size:[map.size.x,map.size.y],'
+            'economy_layout:layout}));}catch(error){console.log("STARCOASTER_PARK_INSPECTION_FAILED "+String(error));}'
+            '});}});')
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
@@ -192,13 +210,19 @@ def inspect_existing_park(source: Path) -> tuple[int, int]:
                 deadline = time.monotonic() + 120
                 while time.monotonic() < deadline:
                     output = log.read_text(errors="replace")
-                    marker = "STARCOASTER_PARK_SIZE "
+                    failure = "STARCOASTER_PARK_INSPECTION_FAILED "
+                    if failure in output:
+                        raise RuntimeError("OpenRCT2 economy inspection failed: "
+                                           + output.split(failure)[-1].splitlines()[0])
+                    marker = "STARCOASTER_PARK_INSPECTION "
                     if marker in output:
                         result, _ = json.JSONDecoder().raw_decode(output.split(marker)[-1])
-                        if (not isinstance(result, list) or len(result) != 2 or
-                                any(type(value) is not int or value < 1 for value in result)):
+                        size, layout = result.get("size"), result.get("economy_layout")
+                        if (not isinstance(size, list) or len(size) != 2 or
+                                any(type(value) is not int or value < 1 for value in size) or
+                                not isinstance(layout, dict)):
                             raise RuntimeError("OpenRCT2 reported an invalid park size")
-                        return result[0], result[1]
+                        return ParkInspection(size[0], size[1], layout)
                     if process.poll() is not None:
                         raise RuntimeError(f"OpenRCT2 could not load existing park: {output[-1000:]}")
                     time.sleep(.1)

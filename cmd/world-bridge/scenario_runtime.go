@@ -83,7 +83,7 @@ func (s *service) scenarioRuntimeError(err error) {
 		map[string]string{"reason": err.Error()})
 }
 
-func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[string]bool) {
+func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[string]bool, nativeUnits ...[]map[string]any) {
 	r := s.runtime
 	if r == nil || r.Outcome != "" || r.Error != "" {
 		return
@@ -94,6 +94,14 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 	if err := r.AcceptFrame(frame, seq, true); err != nil {
 		s.scenarioRuntimeError(err)
 		return
+	}
+	var observedUnits []map[string]any
+	if len(nativeUnits) > 0 {
+		observedUnits = nativeUnits[0]
+	}
+	if s.finiteEconomy() && r.EconomyReadyFrame == 0 && s.economyBootstrapReady(observedUnits) {
+		r.MarkEconomyReady(frame)
+		log.Printf("finite economy bootstrap ready frame=%d session=%s", frame, s.registry.Session)
 	}
 	removed := map[string]bool{}
 	for _, wave := range r.Waves {
@@ -307,6 +315,50 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 		return
 	}
 	s.pumpSpawns()
+}
+
+func (s *service) economyBootstrapReady(nativeUnits []map[string]any) bool {
+	if !s.finiteEconomy() || s.scenario.Economy.LayoutState == "blocked" ||
+		s.resources == nil || !s.ready {
+		return false
+	}
+	workers, resources := 0, 0
+	for _, entity := range s.scenario.Economy.StartingEntities {
+		switch entity.Type {
+		case "terran_scv":
+			workers++
+		case "mineral_field", "vespene_geyser":
+			state, ok := s.resources.Latest(entity.ID)
+			if !ok || state.Generation != 1 || state.Lifecycle != "deposit" ||
+				state.PublisherNativeID == "" || state.ControllerNativeID == "" || state.Amount <= 0 {
+				return false
+			}
+			resources++
+		}
+	}
+	if resources == 0 || workers == 0 {
+		return false
+	}
+	// Starting CHK workers are authoritative native units, but they predate
+	// the runtime actor journal. Count distinct live IDs in a complete native
+	// combat snapshot rather than requiring actor.spawn for those workers.
+	observed := map[string]bool{}
+	for _, unit := range nativeUnits {
+		id, _ := unit["id"].(string)
+		if unit["kind"] == "terran_scv" && unit["owner"] == float64(1) &&
+			unit["alive"] == true && unitIDPattern.MatchString(id) {
+			observed[id] = true
+		}
+	}
+	if len(observed) < workers {
+		return false
+	}
+	for _, structure := range s.scenario.InitialStructures {
+		if structure.Type == "terran_command_center" {
+			return s.proxies["scenario:"+structure.ID] != ""
+		}
+	}
+	return false
 }
 
 func (s *service) actorLimit() int {

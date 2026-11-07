@@ -66,6 +66,10 @@ type ScenarioEconomy struct {
 		Gas      int `json:"gas"`
 	} `json:"initial_balances"`
 	LayoutPolicy     string                  `json:"layout_policy"`
+	LayoutState      string                  `json:"layout_state,omitempty"`
+	PolicyVersion    int                     `json:"policy_version,omitempty"`
+	LayoutSeed       string                  `json:"layout_seed,omitempty"`
+	BlockedReason    string                  `json:"blocked_reason,omitempty"`
 	StartingEntities []ScenarioEconomyEntity `json:"starting_entities"`
 }
 
@@ -274,12 +278,37 @@ func LoadScenario(path string) (*Scenario, error) {
 
 func (s *Scenario) validateEconomy() error {
 	e := s.Economy
-	if s.Version != 2 || e.Version != 1 || e.Mode != "finite" || e.LayoutPolicy != "authored" ||
+	if s.Version != 2 || e.Version != 1 || e.Mode != "finite" ||
 		s.UnlimitedResources || s.ProductionFixture.TerranMinerals != 0 || s.ProductionFixture.TerranGas != 0 ||
 		s.ProductionFixture.NativeSupplyDepot != [2]int{} ||
 		e.InitialBalances.Minerals < 0 || e.InitialBalances.Minerals > 100000 ||
-		e.InitialBalances.Gas < 0 || e.InitialBalances.Gas > 100000 || len(e.StartingEntities) == 0 {
+		e.InitialBalances.Gas < 0 || e.InitialBalances.Gas > 100000 {
 		return fmt.Errorf("invalid finite economy configuration")
+	}
+	if e.LayoutPolicy == "generated" {
+		if e.PolicyVersion != 1 || len(e.LayoutSeed) != 16 ||
+			strings.Trim(e.LayoutSeed, "0123456789abcdef") != "" ||
+			(e.LayoutState != "ready" && e.LayoutState != "blocked") {
+			return fmt.Errorf("invalid generated economy policy")
+		}
+		if e.LayoutState == "blocked" {
+			if len(e.StartingEntities) != 0 || len(s.InitialStructures) != 0 ||
+				e.InitialBalances.Minerals != 0 || e.InitialBalances.Gas != 0 ||
+				e.BlockedReason != "no_native_valid_economy_site" && e.BlockedReason != "economy_geometry_unavailable" &&
+					e.BlockedReason != "economy_search_limit" {
+				return fmt.Errorf("invalid blocked economy bootstrap")
+			}
+			return nil
+		}
+		if e.BlockedReason != "" {
+			return fmt.Errorf("invalid generated economy status")
+		}
+	} else if e.LayoutPolicy != "authored" || e.LayoutState != "" || e.PolicyVersion != 0 ||
+		e.LayoutSeed != "" || e.BlockedReason != "" {
+		return fmt.Errorf("invalid finite economy layout policy")
+	}
+	if len(e.StartingEntities) == 0 {
+		return fmt.Errorf("finite economy requires starting entities")
 	}
 	ids := map[string]bool{}
 	tiles := map[[2]int]bool{}

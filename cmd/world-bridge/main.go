@@ -862,6 +862,7 @@ func (s *service) parkMessage(p *peer, m world.Envelope) {
 			if s.construction != nil {
 				s.construction.NormalizeNativeProjection(&s.stage.entities[i])
 			}
+			s.normalizeAuthoredNativeProjection(&s.stage.entities[i])
 		}
 		if err := s.registry.Replace(m.Session, m.Revision, s.stage.begin.Width, s.stage.begin.Height, s.stage.entities, s.stage.terrain); err != nil {
 			s.ack(p, m, false, err.Error())
@@ -1912,7 +1913,7 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 					s.lastNativeActors = len(living)
 					s.nativeOccupants, s.nativeOccupancyComplete = occupants, true
 					if s.runtime != nil {
-						s.advanceScenarioRuntime(snapshot.BWTick, snapshot.Seq, living)
+						s.advanceScenarioRuntime(snapshot.BWTick, snapshot.Seq, living, snapshot.Units)
 					}
 					s.announceOutcome(marines, enemies)
 					s.publishScenarioStatus(false)

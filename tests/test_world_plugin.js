@@ -816,6 +816,13 @@ assert.ok(menuItems.has('StarCraft Settings'), 'settings page is reachable from 
 menuItems.get('StarCraft Settings')();
 const defenseWindow = openedWindows.filter(window => window.classification === 'starcoaster-defense').at(-1);
 assert.equal(defenseWindow.title, 'StarCraft Settings');
+missionAction.execute({ player: 1, args: { ...defenseStatus, finite_economy: true,
+    unlimited_resources: false, defense_enabled: true, economy_bootstrap: 'blocked',
+    economy_blocked_reason: 'no_native_valid_economy_site', next_wave_seconds: 0 } });
+subscriptions.get('interval.tick')();
+assert.match(defenseWindow.widgets.find(widget => widget.name === 'defense-next').text,
+    /economy placement blocked/i, 'blocked ordinary park gives explicit no-attack status');
+missionAction.execute({ player: 1, args: defenseStatus });
 menuItems.get('StarCraft Construction')();
 const constructionWindow = openedWindows.at(-1);
 assert.ok(constructionWindow.widgets.some(widget => widget.name === 'open-defense'),

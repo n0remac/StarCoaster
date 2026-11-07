@@ -1,6 +1,9 @@
 /* Scenario-specific values are injected by stage-scenario-structures.py. */
 var starcoasterStructures = __STARCOASTER_STRUCTURES__;
 var starcoasterEconomyMode = __STARCOASTER_ECONOMY_MODE__;
+var starcoasterEconomyLayout = __STARCOASTER_ECONOMY_LAYOUT__;
+var starcoasterEconomyState = __STARCOASTER_ECONOMY_STATE__;
+var starcoasterEconomyEntities = __STARCOASTER_ECONOMY_ENTITIES__;
 registerPlugin({ name: "Passthrough RTS Bridge", version: "0.3.0",
     authors: ["Passthrough RTS project"], type: "remote", licence: "MIT",
     targetApiVersion: 124, minApiVersion: 124, main: function () {
@@ -11,6 +14,27 @@ registerPlugin({ name: "Passthrough RTS Bridge", version: "0.3.0",
             if (done) return;
             done = true;
             try {
+                if (starcoasterEconomyLayout === "generated" && starcoasterEconomyState === "ready") {
+                    var economyOccupied = {};
+                    starcoasterEconomyEntities.forEach(function (entity) {
+                        var level = null;
+                        for (var ey = entity.tile[1]; ey < entity.tile[1] + entity.height; ey++)
+                            for (var ex = entity.tile[0]; ex < entity.tile[0] + entity.width; ex++) {
+                                var economyTile = map.getTile(ex, ey);
+                                var cell = ex + ":" + ey;
+                                if (ex < 8 || ey < 8 || ex >= map.size.x - 8 || ey >= map.size.y - 8
+                                    || economyOccupied[cell] || !economyTile || economyTile.numElements !== 1)
+                                    throw new Error(entity.id + ": generated site obstructed at " + cell);
+                                economyOccupied[cell] = true;
+                                var ground = economyTile.getElement(0);
+                                if (ground.type !== "surface" || !(ground.ownership & 2)
+                                    || ground.slope || ground.waterHeight
+                                    || (level !== null && level !== ground.baseHeight))
+                                    throw new Error(entity.id + ": generated site unsuitable at " + cell);
+                                level = ground.baseHeight;
+                            }
+                    });
+                }
                 var occupied = {}, placements = [];
                 starcoasterStructures.forEach(function (spec) {
                     var object = objectManager.getAllObjects("large_scenery").find(function (item) {
@@ -37,7 +61,8 @@ registerPlugin({ name: "Passthrough RTS Bridge", version: "0.3.0",
                                 if (element.type === "surface") surface = element;
                                 else throw new Error(spec.id + ": obstructed by " + element.type + " at " + key);
                             }
-                            if (!surface || surface.slope || surface.waterHeight)
+                            if (!surface || surface.slope || surface.waterHeight
+                                || (starcoasterEconomyLayout === "generated" && !(surface.ownership & 2)))
                                 throw new Error(spec.id + ": unsuitable terrain at " + key);
                             if (height === null) height = surface.baseHeight;
                             if (height !== surface.baseHeight)
@@ -54,10 +79,11 @@ registerPlugin({ name: "Passthrough RTS Bridge", version: "0.3.0",
                             var tile = map.getTile(x, y);
                             // Native combat removal uses the ordinary scenery action.
                             // Give only the occupied cells park ownership in the derived save.
-                            for (var i = 0; i < tile.numElements; i++) {
-                                var surface = tile.getElement(i);
-                                if (surface.type === "surface") surface.ownership = 2;
-                            }
+                            if (starcoasterEconomyLayout !== "generated")
+                                for (var i = 0; i < tile.numElements; i++) {
+                                    var surface = tile.getElement(i);
+                                    if (surface.type === "surface") surface.ownership = 2;
+                                }
                             tile.insertElement(tile.numElements);
                             var element = tile.getElement(tile.numElements - 1);
                             element.type = "large_scenery";
@@ -76,6 +102,7 @@ registerPlugin({ name: "Passthrough RTS Bridge", version: "0.3.0",
                 });
                 context.getParkStorage().set("scenarioStructures", ownership);
                 context.getParkStorage().set("economyMode", starcoasterEconomyMode);
+                context.getParkStorage().set("economyBootstrapState", starcoasterEconomyState);
                 context.saveGame({ filename: "scenario-structures" });
                 console.log("SCENARIO_STRUCTURES_STAGED " + JSON.stringify(ownership));
             } catch (error) { fail(String(error)); }

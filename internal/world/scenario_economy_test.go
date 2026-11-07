@@ -53,3 +53,55 @@ func TestFiniteEconomyFixtureAndLegacyIsolation(t *testing.T) {
 		})
 	}
 }
+
+func TestGeneratedEconomyPolicyAndBlockedBootstrap(t *testing.T) {
+	path := filepath.Join("..", "..", "scenarios", "economy-e1", "scenario.json")
+	data, err := os.ReadFile(path)
+	if err != nil { t.Fatal(err) }
+	for _, blocked := range []bool{false, true} {
+		var scenario map[string]any
+		if err := json.Unmarshal(data, &scenario); err != nil { t.Fatal(err) }
+		economy := scenario["economy"].(map[string]any)
+		economy["layout_policy"] = "generated"
+		economy["policy_version"] = 1
+		economy["layout_seed"] = "0123456789abcdef"
+		if blocked {
+			economy["layout_state"] = "blocked"
+			economy["blocked_reason"] = "no_native_valid_economy_site"
+			economy["starting_entities"] = []any{}
+			economy["initial_balances"] = map[string]any{"minerals": 0, "gas": 0}
+			scenario["initial_structures"] = []any{}
+		} else { economy["layout_state"] = "ready" }
+		encoded, _ := json.Marshal(scenario)
+		candidate := filepath.Join(t.TempDir(), "scenario.json")
+		if err := os.WriteFile(candidate, encoded, 0600); err != nil { t.Fatal(err) }
+		loaded, err := LoadScenario(candidate)
+		if err != nil { t.Fatalf("generated blocked=%v: %v", blocked, err) }
+		if loaded.Economy.LayoutState != economy["layout_state"] {
+			t.Fatalf("lost generated layout state: %+v", loaded.Economy)
+		}
+	}
+}
+
+func TestFiniteEconomyWaveClockStartsOnlyAfterBootstrap(t *testing.T) {
+	for _, state := range []string{"ready", "blocked"} {
+		s := &Scenario{Version: 2, ID: "ordinary", Mode: "park_defense",
+			Economy: &ScenarioEconomy{Mode: "finite", LayoutState: state},
+			ParkDefense: &ParkDefenseWaves{InitialDelayFrames: 2880,
+				IntervalFrames: 2880, SpawnPolicy: "automatic_perimeter"}}
+		r := NewScenarioRuntime(s, "session")
+		if err := r.AcceptFrame(100, 1, true); err != nil { t.Fatal(err) }
+		if r.Trigger(s) || r.NextAutomaticFrame != 0 {
+			t.Fatalf("wave clock advanced before bootstrap state=%s: %+v", state, r)
+		}
+		if err := r.AcceptFrame(200, 2, true); err != nil { t.Fatal(err) }
+		r.MarkEconomyReady(200)
+		if state == "blocked" {
+			if r.Trigger(s) || r.NextAutomaticFrame != 0 {
+				t.Fatalf("blocked layout started waves: %+v", r)
+			}
+		} else if !r.Trigger(s) || r.NextAutomaticFrame != 3080 {
+			t.Fatalf("ready layout missed fresh wave clock: %+v", r)
+		}
+	}
+}

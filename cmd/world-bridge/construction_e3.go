@@ -14,6 +14,27 @@ func (s *service) finiteEconomy() bool {
 	return s.scenario != nil && s.scenario.Economy != nil && s.scenario.Economy.Mode == "finite"
 }
 
+// Authored finite-economy structures also exist as native CHK units. The park
+// scenery must not add a second navigation obstacle over native occupancy.
+// Keep native_origin unset until a native ID is observed and bound; an
+// unqualified native_origin would suppress the initial target binding.
+// Snapshot validation checks the declared ID, owner, type and footprint first.
+func (s *service) normalizeAuthoredNativeProjection(entity *world.Entity) {
+	if !s.finiteEconomy() || entity == nil || entity.Kind != "structure" {
+		return
+	}
+	for _, structure := range s.scenario.InitialStructures {
+		if entity.ID != "scenario:"+structure.ID || entity.Type != structure.Type ||
+			entity.Owner != 1 || entity.Position.X != structure.Tile[0]*32 ||
+			entity.Position.Y != structure.Tile[1]*32 {
+			continue
+		}
+		entity.Collision.Blocks = false
+		entity.Collision.Volumes = nil
+		return
+	}
+}
+
 func (s *service) initConstruction(session string) error {
 	if !s.finiteEconomy() {
 		s.construction = nil

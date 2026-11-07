@@ -19,6 +19,7 @@ type ScenarioRuntime struct {
 	ObjectiveDestroyed bool              `json:"objective_destroyed,omitempty"`
 	ObjectiveRemoved   bool              `json:"objective_removed,omitempty"`
 	StartFrame         int               `json:"start_frame"`
+	EconomyReadyFrame  int               `json:"economy_ready_frame,omitempty"`
 	Started            bool              `json:"started"`
 	LastFrame          int               `json:"last_frame"`
 	LastSeq            uint64            `json:"last_seq"`
@@ -285,10 +286,26 @@ func (r *ScenarioRuntime) AcceptFrame(frame int, seq uint64, complete bool) erro
 	return nil
 }
 
+// The finite economy's first wave interval begins when both native
+// participants have supplied the base, workers and resource bindings. This
+// latch is persisted and never resets on a bridge or client reconnect.
+func (r *ScenarioRuntime) MarkEconomyReady(frame int) bool {
+	if !r.Started || frame <= 0 || r.EconomyReadyFrame != 0 {
+		return false
+	}
+	r.EconomyReadyFrame = frame
+	r.StartFrame = frame
+	return true
+}
+
 // Trigger fires eligible waves in authored order; every transition is durable
 // when the caller saves the runtime before dispatching any request.
 func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 	if !r.Started || r.Outcome != "" || r.Error != "" {
+		return false
+	}
+	if s.Economy != nil && s.Economy.Mode == "finite" &&
+		(s.Economy.LayoutState == "blocked" || r.EconomyReadyFrame == 0) {
 		return false
 	}
 	if s.Mode == "park_defense" {
@@ -378,6 +395,8 @@ func (r *ScenarioRuntime) newParkDefenseWave(s *Scenario, origin string) string 
 // the service can submit any native spawn request.
 func (r *ScenarioRuntime) CommitAutomaticWave(s *Scenario, anchor [2]int, zone SpawnZone, destination [2]int, revision uint64) bool {
 	if s.Mode != "park_defense" || s.ParkDefense.SpawnPolicy != "automatic_perimeter" ||
+		(s.Economy != nil && s.Economy.Mode == "finite" &&
+			(s.Economy.LayoutState == "blocked" || r.EconomyReadyFrame == 0)) ||
 		!r.Started || !r.DefenseEnabled || r.NextAutomaticFrame == 0 || r.LastFrame < r.NextAutomaticFrame ||
 		len(zone.Tiles) < 4 {
 		return false

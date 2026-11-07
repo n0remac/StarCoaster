@@ -17,6 +17,54 @@ func parkDefenseTestScenario() *world.Scenario {
 			UnitsPerWave: 8, ManualCooldownFrames: 0, SpawnZones: []string{"north", "south"}}}
 }
 
+func TestFiniteBootstrapUsesObservedNativeStartingWorkers(t *testing.T) {
+	scenario, err := world.LoadScenario("../../scenarios/economy-e1/scenario.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger := world.NewResourceLedger(scenario, "session")
+	for _, entity := range scenario.Economy.StartingEntities {
+		definition, ok := world.SupportedResource(entity.Type)
+		if !ok {
+			continue
+		}
+		observation := world.ResourceObservation{SiteID: entity.ID, Generation: 1,
+			NativeID: "4", Type: entity.Type, Owner: 11,
+			X:      (entity.Tile[0]+(256-scenario.ParkSize[0])/2)*32 + definition.Width*16,
+			Y:      (entity.Tile[1]+(256-scenario.ParkSize[1])/2)*32 + definition.Height*16,
+			Amount: entity.Amount, Lifecycle: "deposit"}
+		ledger.Observe("publisher", observation)
+		ledger.Observe("controller", observation)
+	}
+	s := &service{scenario: scenario, resources: ledger, ready: true,
+		actors: world.NewActorRegistry("session"), proxies: map[string]string{"scenario:base": "openbw:11"}}
+	workers := []map[string]any{}
+	for i := 0; i < 4; i++ {
+		workers = append(workers, map[string]any{"id": fmt.Sprintf("openbw:%d", 2506+i),
+			"kind": "terran_scv", "owner": float64(1), "alive": true})
+	}
+	if s.economyBootstrapReady(workers[:3]) {
+		t.Fatal("three workers released waves")
+	}
+	workers[3]["owner"] = float64(0)
+	if s.economyBootstrapReady(workers) {
+		t.Fatal("enemy worker released waves")
+	}
+	workers[3]["owner"] = float64(1)
+	workers[3]["id"] = workers[0]["id"]
+	if s.economyBootstrapReady(workers) {
+		t.Fatal("duplicate native identity released waves")
+	}
+	workers[3]["id"] = "openbw:2509"
+	if !s.economyBootstrapReady(workers) {
+		t.Fatal("complete native snapshot did not release waves")
+	}
+	delete(s.proxies, "scenario:base")
+	if s.economyBootstrapReady(workers) {
+		t.Fatal("unbound base released waves")
+	}
+}
+
 func TestParkDefenseFallbackAndTwentyFourReusableWaves(t *testing.T) {
 	s, _ := spawnService(t)
 	s.scenario = parkDefenseTestScenario()
