@@ -1,7 +1,7 @@
 diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 --- a/src/openrct2/Game.cpp
 +++ b/src/openrct2/Game.cpp
-@@ -327,6 +327,13 @@
+@@ -327,6 +327,14 @@
  {
      StarCoasterJoinPort(OpenRCT2::Network::kDefaultPort);
  }
@@ -10,7 +10,8 @@ diff --git a/src/openrct2/Game.cpp b/src/openrct2/Game.cpp
 +{
 +    if (OpenRCT2::Network::GetMode() != OpenRCT2::Network::Mode::client)
 +        return 0;
-+    return OpenRCT2::Network::GetStatus() == OpenRCT2::Network::Status::connected ? 2 : 1;
++    return OpenRCT2::Network::GetStatus() == OpenRCT2::Network::Status::connected
++        && OpenRCT2::Network::GetAuthstatus() == OpenRCT2::Network::Auth::ok ? 2 : 1;
 +}
  #endif
  
