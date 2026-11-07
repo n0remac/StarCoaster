@@ -28,15 +28,23 @@ class ReaderRebuildRaceTest(unittest.TestCase):
         self.inspect.start()
         self.native = mock.patch.object(single_map_cache, "build_native_map", side_effect=self.build_native_map)
         self.native.start()
+        self.park_stage = mock.patch.object(single_map_cache, "ensure_park", side_effect=self.stage_park)
+        self.park_stage.start()
         self.cache = SingleMapCache(self.root / "cache", dependencies=lambda: {"fixture": "v1"},
-                                    preflight=lambda generation, plan, runtime: None)
+                                    preflight=self.preflight)
         self.manifest, _ = self.cache.build(self.source)
         self.package = self.cache.package_path(self.manifest["key"])
 
     def tearDown(self):
+        self.park_stage.stop()
         self.native.stop()
         self.inspect.stop()
         self.temporary.cleanup()
+
+    def stage_park(self, plan):
+        output = Path(plan["park"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(Path(plan["source"]).read_bytes())
 
     def build_native_map(self, plan):
         self.map_builds += 1
@@ -44,6 +52,11 @@ class ReaderRebuildRaceTest(unittest.TestCase):
         output.parent.mkdir(parents=True, exist_ok=True)
         # A same-key rebuild with different bytes makes mixed reads observable.
         output.write_bytes(f"native-map-{self.map_builds}".encode())
+
+    def preflight(self, generation, plan, runtime):
+        index = Path(runtime) / "sessions" / generation / "preflight/server/scenarios.idx"
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_bytes(b"SIDX preflight")
 
     def test_reader_during_replacement_gap_gets_complete_package(self):
         retired = threading.Event()

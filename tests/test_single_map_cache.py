@@ -31,13 +31,21 @@ class SingleMapCacheTest(unittest.TestCase):
         self.inspect.start()
         self.native = mock.patch.object(single_map_cache, "build_native_map", side_effect=self.build_native_map)
         self.native.start()
+        self.park_stage = mock.patch.object(single_map_cache, "ensure_park", side_effect=self.stage_park)
+        self.park_stage.start()
         self.cache = SingleMapCache(self.base / "cache", dependencies=lambda: dict(self.dependencies),
                                     preflight=self.preflight)
 
     def tearDown(self):
+        self.park_stage.stop()
         self.native.stop()
         self.inspect.stop()
         self.temporary.cleanup()
+
+    def stage_park(self, plan):
+        output = Path(plan["park"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(Path(plan["source"]).read_bytes())
 
     def build_native_map(self, plan):
         self.calls["map"] += 1
@@ -49,6 +57,21 @@ class SingleMapCacheTest(unittest.TestCase):
         self.calls["preflight"] += 1
         self.assertTrue(Path(plan["park"]).is_file())
         self.assertTrue(Path(plan["native_map"]).is_file())
+        index = Path(runtime) / "sessions" / generation / "preflight/server/scenarios.idx"
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_bytes(b"SIDX verified native preflight index")
+
+    def test_native_preflight_scenario_index_is_validated_and_materialized(self):
+        manifest, reused = self.cache.build(self.source)
+        self.assertFalse(reused)
+        package_index = self.cache.package_path(manifest["key"]) / "server/scenarios.idx"
+        self.assertEqual(package_index.read_bytes(), b"SIDX verified native preflight index")
+        plan = self.cache.materialize(self.source, self.base / "indexed-session")
+        self.assertEqual((Path(plan["server_data"]) / "scenarios.idx").read_bytes(),
+                         package_index.read_bytes())
+        package_index.chmod(0o644)
+        package_index.write_bytes(b"SIDX tampered")
+        self.assertEqual(self.cache.status(self.source)["status"], "invalid")
 
     def test_build_reuse_and_two_independent_writable_sessions(self):
         timing = LoadTiming("Example.park", self.base / "timings.jsonl", "cache_build")
@@ -84,6 +107,22 @@ class SingleMapCacheTest(unittest.TestCase):
         self.assertEqual(record["cache_key"], manifest["key"])
         self.assertEqual(record["stages"]["isolated_preflight"]["status"], "ok")
         self.assertEqual(record["stages"]["cache_build"]["status"], "ok")
+
+    def test_private_park_staging_evidence_is_outside_immutable_package(self):
+        def stage_with_evidence(plan):
+            self.stage_park(plan)
+            evidence = Path(plan["park"]).parent.parent / "structure-stage"
+            evidence.mkdir()
+            (evidence / "stage.log").write_text("staged native economy\n")
+        single_map_cache.ensure_park.side_effect = stage_with_evidence
+        manifest, reused = self.cache.build(self.source)
+        self.assertFalse(reused)
+        package = self.cache.package_path(manifest["key"])
+        self.assertFalse((package / "structure-stage").exists())
+        self.assertEqual(self.cache.status(self.source)["status"], "ready")
+        logs = list((self.cache.root / "logs").rglob("structure-stage/stage.log"))
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].read_text(), "staged native economy\n")
 
     def test_source_bytes_settings_and_dependency_change_invalidate(self):
         first = self.cache.status(self.source)["key"]
@@ -195,6 +234,9 @@ class SingleMapCacheTest(unittest.TestCase):
         results, errors = [], []
         def slow(generation, plan, runtime):
             self.calls["preflight"] += 1
+            index = Path(runtime) / "sessions" / generation / "preflight/server/scenarios.idx"
+            index.parent.mkdir(parents=True, exist_ok=True)
+            index.write_bytes(b"SIDX slow preflight")
             entered.set()
             if not release.wait(3):
                 raise RuntimeError("test preflight wait timed out")
@@ -231,6 +273,27 @@ class SingleMapCacheTest(unittest.TestCase):
         self.assertFalse(reused)
         self.assertEqual(manifest["key"], key)
         self.assertEqual(self.cache.status(self.source)["status"], "ready")
+
+    def test_dependency_digest_reuses_unchanged_bytes_and_detects_rewrites(self):
+        licensed = self.base / "licensed"
+        licensed.mkdir()
+        asset = licensed / "Data.dat"
+        asset.write_bytes(b"first")
+        digest_root = self.base / "digest-cache"
+        roots = {"licensed": licensed}
+        with mock.patch.object(single_map_cache, "sha256_file", wraps=single_map_cache.sha256_file) as digest:
+            first = single_map_cache.dependency_identity(digest_root, roots=roots)
+            self.assertEqual(digest.call_count, 1)
+            digest.reset_mock()
+            self.assertEqual(single_map_cache.dependency_identity(digest_root, roots=roots), first)
+            self.assertEqual(digest.call_count, 0, "cache hit reread licensed asset bytes")
+            old_mtime = asset.stat().st_mtime_ns
+            time.sleep(.05)  # make the ctime change observable on the test filesystem
+            asset.write_bytes(b"other")  # same size, so size alone cannot validate identity
+            os.utime(asset, ns=(old_mtime, old_mtime))
+            digest.reset_mock()
+            self.assertNotEqual(single_map_cache.dependency_identity(digest_root, roots=roots), first)
+            self.assertEqual(digest.call_count, 1, "ctime change did not invalidate digest")
 
 
 if __name__ == "__main__":

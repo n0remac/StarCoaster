@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -17,6 +18,9 @@ import (
 func TestHeadersAndFixedGateway(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "client.wasm"), []byte("wasm"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "openrct2.js"), []byte("engine"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("app"), 0600); err != nil {
@@ -44,9 +48,18 @@ func TestHeadersAndFixedGateway(t *testing.T) {
 	}
 	response.Body.Close()
 	if response.Header.Get("Content-Type") != "application/wasm" ||
+		response.Header.Get("Cache-Control") != "no-store" ||
 		response.Header.Get("Cross-Origin-Opener-Policy") != "same-origin" ||
 		response.Header.Get("Cross-Origin-Embedder-Policy") != "require-corp" {
 		t.Fatalf("browser response headers: %v", response.Header)
+	}
+	script, err := http.Get(server.URL + "/openrct2.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script.Body.Close()
+	if script.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("engine script may be cached across bundle revisions: %v", script.Header)
 	}
 	app, err := http.Get(server.URL + "/")
 	if err != nil {
@@ -251,6 +264,51 @@ func TestPrivateLicensedProvisioning(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusNotFound {
 		t.Fatalf("unconfigured RCT2 manifest status=%d", response.StatusCode)
+	}
+}
+
+func TestLicensedInventoryCacheReusesUnchangedBytesAndDetectsRewrite(t *testing.T) {
+	root := t.TempDir()
+	cache := filepath.Join(t.TempDir(), "rct2-inventory.json")
+	t.Setenv("WASM_RCT2_INVENTORY_CACHE", cache)
+	path := filepath.Join(root, "Data", "ch.dat")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("alpha"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := loadLicensedAssets(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.hashedFiles != 1 || first.cacheHits != 0 {
+		t.Fatalf("first inventory counts: %+v", first)
+	}
+	second, err := loadLicensedAssets(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.hashedFiles != 0 || second.cacheHits != 1 || string(first.manifest) != string(second.manifest) {
+		t.Fatalf("unchanged inventory was rehashed or changed: %+v", second)
+	}
+	stamp, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := os.WriteFile(path, []byte("omega"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, stamp.ModTime(), stamp.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	third, err := loadLicensedAssets(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.hashedFiles != 1 || third.cacheHits != 0 || string(third.manifest) == string(first.manifest) {
+		t.Fatalf("same-size, preserved-mtime rewrite not detected: %+v", third)
 	}
 }
 

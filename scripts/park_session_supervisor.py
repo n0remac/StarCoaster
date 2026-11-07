@@ -193,7 +193,9 @@ class ParkSessionSupervisor:
                    "--rct2-data-path", str(Path(os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2"))).resolve()),
                    "--supervisor-socket", str(self.socket_path)]
         log = (self.runtime / "wasm-server.log").open("ab", buffering=0)
-        self.browser = subprocess.Popen(command, cwd=ROOT, env=os.environ.copy(), stdout=log, stderr=subprocess.STDOUT,
+        environment = os.environ.copy()
+        environment.setdefault("WASM_RCT2_INVENTORY_CACHE", str(ROOT / "run-data/wasm-rct2-inventory.json"))
+        self.browser = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                         start_new_session=True)
         log.close()
 

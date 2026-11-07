@@ -81,9 +81,90 @@ type licensedManifest struct {
 }
 
 type licensedAssets struct {
-	root     string
-	manifest []byte
-	files    map[string]struct{}
+	root        string
+	manifest    []byte
+	files       map[string]struct{}
+	cacheHits   int
+	hashedFiles int
+}
+
+type licensedCacheEntry struct {
+	Size    int64  `json:"size"`
+	MtimeNS int64  `json:"mtime_ns"`
+	CtimeNS int64  `json:"ctime_ns"`
+	Device  uint64 `json:"device"`
+	Inode   uint64 `json:"inode"`
+	SHA256  string `json:"sha256"`
+}
+
+type licensedInventoryCache struct {
+	Schema int                           `json:"schema"`
+	Root   string                        `json:"root"`
+	Files  map[string]licensedCacheEntry `json:"files"`
+}
+
+func licensedSignature(info os.FileInfo) (licensedCacheEntry, error) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return licensedCacheEntry{}, fmt.Errorf("RCT2 file metadata unavailable: %s", info.Name())
+	}
+	return licensedCacheEntry{Size: info.Size(), MtimeNS: info.ModTime().UnixNano(),
+		CtimeNS: stat.Ctim.Nano(), Device: uint64(stat.Dev), Inode: stat.Ino}, nil
+}
+
+func readLicensedInventoryCache(path, root string) licensedInventoryCache {
+	cache := licensedInventoryCache{Schema: 1, Root: root, Files: map[string]licensedCacheEntry{}}
+	if path == "" {
+		return cache
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return cache
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return cache
+	}
+	var saved licensedInventoryCache
+	if json.Unmarshal(contents, &saved) == nil && saved.Schema == 1 && saved.Root == root && saved.Files != nil {
+		return saved
+	}
+	return cache
+}
+
+func writeLicensedInventoryCache(path string, cache licensedInventoryCache) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("unsafe RCT2 inventory cache: %s", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	contents, err := json.Marshal(cache)
+	if err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".rct2-inventory-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temporary.Name())
+	if err := temporary.Chmod(0600); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(contents); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporary.Name(), path)
 }
 
 func loadLicensedAssets(root string) (*licensedAssets, error) {
@@ -99,6 +180,9 @@ func loadLicensedAssets(root string) (*licensedAssets, error) {
 	}
 	assets := &licensedAssets{root: resolved, files: make(map[string]struct{})}
 	entryList := make([]licensedFile, 0, 2500)
+	cachePath := os.Getenv("WASM_RCT2_INVENTORY_CACHE")
+	cached := readLicensedInventoryCache(cachePath, resolved)
+	updated := licensedInventoryCache{Schema: 1, Root: resolved, Files: make(map[string]licensedCacheEntry)}
 	err = filepath.WalkDir(resolved, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -114,26 +198,64 @@ func loadLicensedAssets(root string) (*licensedAssets, error) {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
-		file, err := os.Open(path)
+		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		digest := sha256.New()
-		size, copyErr := io.Copy(digest, file)
-		closeErr := file.Close()
-		if copyErr != nil {
-			return copyErr
+		signature, err := licensedSignature(info)
+		if err != nil {
+			return err
 		}
-		if closeErr != nil {
-			return closeErr
+		previous, found := cached.Files[relative]
+		if found && previous.Size == signature.Size && previous.MtimeNS == signature.MtimeNS &&
+			previous.CtimeNS == signature.CtimeNS && previous.Device == signature.Device &&
+			previous.Inode == signature.Inode && len(previous.SHA256) == 64 {
+			if digest, err := hex.DecodeString(previous.SHA256); err == nil && len(digest) == sha256.Size {
+				signature.SHA256 = previous.SHA256
+				assets.cacheHits++
+			}
 		}
-		entryList = append(entryList, licensedFile{Path: relative, Size: size,
-			SHA256: hex.EncodeToString(digest.Sum(nil))})
+		if signature.SHA256 == "" {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			digest := sha256.New()
+			size, copyErr := io.Copy(digest, file)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+			after, err := os.Stat(path)
+			if err != nil {
+				return err
+			}
+			current, err := licensedSignature(after)
+			if err != nil {
+				return err
+			}
+			if current.Size != signature.Size || current.MtimeNS != signature.MtimeNS ||
+				current.CtimeNS != signature.CtimeNS || current.Device != signature.Device ||
+				current.Inode != signature.Inode || size != signature.Size {
+				return fmt.Errorf("RCT2 file changed during inventory: %s", path)
+			}
+			signature.SHA256 = hex.EncodeToString(digest.Sum(nil))
+			assets.hashedFiles++
+		}
+		entryList = append(entryList, licensedFile{Path: relative, Size: signature.Size,
+			SHA256: signature.SHA256})
+		updated.Files[relative] = signature
 		assets.files[relative] = struct{}{}
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("inventory RCT2 data: %w", err)
+	}
+	if err := writeLicensedInventoryCache(cachePath, updated); err != nil {
+		log.Printf("RCT2 inventory cache unavailable: %v", err)
 	}
 	sort.Slice(entryList, func(i, j int) bool { return entryList[i].Path < entryList[j].Path })
 	version := sha256.New()
@@ -408,6 +530,12 @@ func handler(bundle, native string, assets *licensedAssets, supervisorSocket ...
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		switch r.URL.Path {
 		case "/", "/index.html", "/index.js", "/manifest.json":
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		// The manifest changes with each local bundle, while OpenRCT2's
+		// generated script and WASM keep stable filenames. A cached script
+		// paired with a new WASM can lose exported bridge functions.
+		if extension := filepath.Ext(r.URL.Path); extension == ".js" || extension == ".wasm" {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		if filepath.Ext(r.URL.Path) == ".wasm" {

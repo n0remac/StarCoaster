@@ -94,6 +94,10 @@ class ParkSessionSupervisorTest(unittest.TestCase):
 
     @contextmanager
     def fake_cache_engines(self, inspect=None):
+        def park(plan):
+            output = Path(plan["park"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(Path(plan["source"]).read_bytes())
         def native(plan):
             self.native_maps.append(plan["native_map"])
             output = Path(plan["native_map"])
@@ -101,6 +105,7 @@ class ParkSessionSupervisorTest(unittest.TestCase):
             output.write_bytes(b"native-map")
         with mock.patch.object(prepare_existing_defense, "inspect_existing_park",
                                side_effect=inspect or (lambda source: (64, 64))), \
+             mock.patch.object(single_map_cache, "ensure_park", side_effect=park), \
              mock.patch.object(single_map_cache, "build_native_map", side_effect=native):
             yield
 

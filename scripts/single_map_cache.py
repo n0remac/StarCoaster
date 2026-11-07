@@ -15,10 +15,13 @@ from prepare_existing_defense import prepare
 from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, build_native_map, ensure_park
 
 
-SCHEMA_VERSION = 1
-EFFECTIVE_SETTINGS = {"preset": "existing-park-defense-v2-automatic-perimeter", "mapping": {"rules": []}}
+SCHEMA_VERSION = 2
+EFFECTIVE_SETTINGS = {"preset": "existing-park-finite-economy-v1", "layout_policy_version": 1,
+                      "initial_balances": {"minerals": 50, "gas": 0}, "mapping": {"rules": []}}
 REPO_INPUTS = (
     "scripts/prepare_existing_defense.py", "scripts/scenario_package.py",
+    "scripts/economy-layout.js", "scripts/stage-scenario-structures.py",
+    "scripts/stage-scenario-structures.js",
     "scripts/park_preparation.py", "scripts/single_map_cache.py",
     "scripts/create-world-base-map.py", "scripts/starcraft_map_pack.py",
     "scripts/run-isolated-world-preflight.sh", "scripts/run-world-session.sh",
@@ -66,13 +69,83 @@ def canonical_hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def dependency_identity():
-    rct2 = Path(os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2"))).resolve()
-    starcraft = Path(os.environ.get("STARCRAFT_DATA_DIR", str(Path.home() / "games/starcraft"))).resolve()
-    roots = {name: ROOT / name for name in REPO_INPUTS}
-    roots.update({str(rct2 / name): rct2 / name for name in ("Data", "ObjData", "Landscapes")})
-    roots[str(starcraft)] = starcraft
-    return {name: sha256_tree(path) for name, path in sorted(roots.items())}
+def dependency_identity(cache_root=None, roots=None):
+    """Hash dependencies once per changed file, including licensed asset trees.
+
+    A browser New Game can run while Chromium holds several GiB of memory.
+    Re-reading every RCT2 and StarCraft byte then made a verified cache hit
+    take 400 seconds on the Pi. Size, inode, mtime and ctime qualify a saved
+    content digest; a changed file is still hashed before it enters the key.
+    """
+    cache_root = Path(cache_root or ROOT / "run-data/map-cache")
+    if roots is None:
+        rct2 = Path(os.environ.get("RCT2_DATA_DIR", str(Path.home() / "games/rct2"))).resolve()
+        starcraft = Path(os.environ.get("STARCRAFT_DATA_DIR", str(Path.home() / "games/starcraft"))).resolve()
+        roots = {name: ROOT / name for name in REPO_INPUTS}
+        roots.update({str(rct2 / name): rct2 / name for name in ("Data", "ObjData", "Landscapes")})
+        roots[str(starcraft)] = starcraft
+    locks = cache_root / "locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    index_path = cache_root / "dependency-hashes.json"
+    with (locks / "dependency-hashes.lock").open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if index_path.is_symlink():
+            raise RuntimeError("unsafe dependency digest index")
+        try:
+            stored = json.loads(index_path.read_text()) if index_path.is_file() else {}
+            old = stored["files"] if stored.get("schema_version") == 1 else {}
+            if not isinstance(old, dict):
+                old = {}
+        except (OSError, ValueError, KeyError, TypeError):
+            old = {}
+        updated = {}
+
+        def file_digest(path):
+            key = str(path.resolve())
+            stat = path.stat()
+            signature = [stat.st_dev, stat.st_ino, stat.st_size,
+                         stat.st_mtime_ns, stat.st_ctime_ns]
+            entry = old.get(key)
+            if (isinstance(entry, dict) and entry.get("stat") == signature
+                    and isinstance(entry.get("sha256"), str)
+                    and re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])):
+                digest = entry["sha256"]
+            else:
+                digest = sha256_file(path)
+                after = path.stat()
+                if [after.st_dev, after.st_ino, after.st_size,
+                    after.st_mtime_ns, after.st_ctime_ns] != signature:
+                    raise RuntimeError(f"cache dependency changed during hashing: {path}")
+            updated[key] = {"stat": signature, "sha256": digest}
+            return digest
+
+        def tree_digest(path):
+            path = Path(path)
+            if not path.exists() or path.is_symlink():
+                raise RuntimeError(f"missing or unsafe cache dependency: {path}")
+            if path.is_file():
+                return file_digest(path)
+            if not path.is_dir():
+                raise RuntimeError(f"unsupported cache dependency: {path}")
+            digest = hashlib.sha256()
+            for child in sorted(path.rglob("*")):
+                if child.is_symlink():
+                    raise RuntimeError(f"symlink in cache dependency: {child}")
+                if child.is_file():
+                    digest.update(str(child.relative_to(path)).encode() + b"\0")
+                    digest.update(bytes.fromhex(file_digest(child)))
+            return digest.hexdigest()
+
+        result = {name: tree_digest(path) for name, path in sorted(roots.items())}
+        if updated != old:
+            temporary = cache_root / f".dependency-hashes-{uuid.uuid4().hex}.tmp"
+            try:
+                temporary.write_text(json.dumps({"schema_version": 1, "files": updated},
+                                                sort_keys=True, separators=(",", ":")))
+                os.replace(temporary, index_path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        return result
 
 
 def key_inputs(source, dependencies):
@@ -89,16 +162,16 @@ def package_files(source_name, scenario_id):
     suffix = Path(source_name).suffix.lower()
     return (f"source/{source_name}", f"save/{scenario_id}{suffix}",
             "scenario.json", "mapping.json", "package.json",
-            f"map/{scenario_id}.scm", "preflight.json")
+            f"map/{scenario_id}.scm", "preflight.json", "server/scenarios.idx")
 
 
 class SingleMapCache:
-    def __init__(self, root=ROOT / "run-data/map-cache", dependencies=dependency_identity,
+    def __init__(self, root=ROOT / "run-data/map-cache", dependencies=None,
                  preflight=isolated_preflight):
         self.root = Path(root).resolve()
         if not self.root.is_relative_to((ROOT / "run-data").resolve()):
             raise ValueError("cache must be inside run-data")
-        self.dependencies = dependencies
+        self.dependencies = dependencies if dependencies is not None else lambda: dependency_identity(self.root)
         self.preflight = preflight
         for name in ("packages", "building", "failed", "retired", "locks", "logs"):
             (self.root / name).mkdir(parents=True, exist_ok=True)
@@ -241,10 +314,32 @@ class SingleMapCache:
                                      {k: v for k, v in scenario.items() if k != "park_file"}),
                                  "mapping_sha256": sha256_file(temporary / "mapping.json")}
                     (temporary / "preflight.json").write_text(json.dumps(preflight, indent=2) + "\n")
-                    # Keep native logs as private evidence, outside the immutable package.
+                    for directory in (temporary / "server", temporary / "client"):
+                        if directory.exists():
+                            shutil.rmtree(directory)
+                    # The preflight uses the same licensed RCT2 installation and
+                    # has already built OpenRCT2's scenario index. Carry it into
+                    # the fresh host profile so graphical New Game startup does
+                    # not parse the full stock catalog while Chromium is active.
+                    # OpenRCT2 still validates the index against the directory
+                    # scan and rebuilds it when source files or language change.
+                    native_index = temporary / "sessions" / generation / "preflight/server/scenarios.idx"
+                    if not native_index.is_file() or native_index.is_symlink():
+                        raise RuntimeError("native preflight did not produce a scenario index")
+                    cached_index = temporary / "server/scenarios.idx"
+                    cached_index.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(native_index, cached_index)
+                    # Keep both native and park-staging evidence outside the
+                    # immutable package. The staging directory also contains
+                    # licensed local objects and must never be published there.
+                    evidence = self.root / "logs" / f"{key}.{generation}"
                     logs = temporary / "sessions"
                     if logs.exists():
-                        os.replace(logs, self.root / "logs" / f"{key}.{generation}")
+                        os.replace(logs, evidence)
+                    stage = temporary / "structure-stage"
+                    if stage.exists():
+                        evidence.mkdir(parents=True, exist_ok=True)
+                        os.replace(stage, evidence / "structure-stage")
                     files = {relative: {"size": (temporary / relative).stat().st_size,
                                         "sha256": sha256_file(temporary / relative)}
                              for relative in package_files(inputs["source_name"], scenario_id)}
@@ -252,9 +347,6 @@ class SingleMapCache:
                                 "key_inputs": inputs, "scenario_id": scenario_id, "files": files}
                     (temporary / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
                     self.validate(temporary, key, inputs)
-                    for directory in (temporary / "server", temporary / "client"):
-                        if directory.exists():
-                            shutil.rmtree(directory)
                     for file in temporary.rglob("*"):
                         if file.is_file():
                             file.chmod(0o444)
@@ -320,7 +412,7 @@ class SingleMapCache:
                 (temporary / "cache-materialization.json").write_text(json.dumps(
                     {"schema_version": SCHEMA_VERSION, "key": state["key"],
                      "source_sha256": state["inputs"]["source_sha256"]}, indent=2) + "\n")
-                (temporary / "server").mkdir()
+                (temporary / "server").mkdir(exist_ok=True)
                 (temporary / "client").mkdir()
                 os.replace(temporary, destination)
         except BaseException:

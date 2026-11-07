@@ -32,6 +32,7 @@ const productionProbe = process.env.WASM_PRODUCTION_PROBE === '1';
 const economyProbe = process.env.WASM_ECONOMY_E1_PROBE === '1';
 const economyE2Probe = process.env.WASM_ECONOMY_E2_PROBE === '1';
 const economyE3Probe = process.env.WASM_ECONOMY_E3_PROBE === '1';
+const economyE4Probe = process.env.WASM_ECONOMY_E4_PROBE === '1';
 const constructionProbe = process.env.WASM_CONSTRUCTION_PROBE === '1';
 const demolitionProbe = process.env.WASM_DEMOLITION_PROBE === '1';
 const defenseProbe = process.env.WASM_DEFENSE_PROBE === '1';
@@ -117,12 +118,13 @@ try {
     } catch (_) {}
   }, 5000);
   {
-    if ([cameraProbe, productionProbe, economyProbe, economyE2Probe, economyE3Probe, demolitionProbe, defenseMenu].filter(Boolean).length > 1)
+    if ([cameraProbe, productionProbe, economyProbe, economyE2Probe, economyE3Probe, economyE4Probe, demolitionProbe, defenseMenu].filter(Boolean).length > 1)
       throw new Error('Choose one live camera, production, or demolition probe');
-    const source = cameraProbe || productionProbe || economyProbe || economyE2Probe || economyE3Probe || demolitionProbe || defenseMenu
+    const source = cameraProbe || productionProbe || economyProbe || economyE2Probe || economyE3Probe || economyE4Probe || demolitionProbe || defenseMenu
       ? await readFile(path.join(root, economyProbe ? 'tests/economy_e1_client_probe.js'
       : economyE2Probe ? 'tests/economy_e2_gather_probe.js'
       : economyE3Probe ? 'tests/economy_e3_client_probe.js'
+      : economyE4Probe ? 'tests/economy_e4_ordinary_browser_probe.js'
       : defenseMenu ? 'browser/defense-menu-probe.js'
       : productionProbe || demolitionProbe ? 'scripts/native-production-hud-capture.js'
       : 'browser/live-camera.js'), 'utf8') : '';
@@ -216,7 +218,7 @@ try {
     }
     if (line.includes('WASM_CAMERA_READY') || line.includes('NATIVE_HUD_CAPTURE_READY')
         || line.includes('ECONOMY_E1_CLIENT') || line.includes('ECONOMY_E2_WORKERS')
-        || line.includes('ECONOMY_E3_WORKERS')) {
+        || line.includes('ECONOMY_E3_WORKERS') || line.includes('ECONOMY_E4_CLIENT')) {
       snapshotReady = true;
       resolveCamera();
     }
@@ -228,7 +230,7 @@ try {
       metrics.secondActorMoveLatencyMs === undefined)
       metrics.secondActorMoveLatencyMs = Date.now() - metrics.secondOrderSentAt;
     if ((!perfRun || !line.includes('STARCOASTER_PERF ')) && !line.includes('Paint.Entity.cpp')
-      && /index|network|plugin|WORLD_|RTS Bridge|UNIVERSAL_DEFENSE|WASM_CAMERA|WASM_ACTOR|NATIVE_HUD|ECONOMY_E1|ECONOMY_E2|ECONOMY_E3|Failed to connect/i.test(line))
+      && /index|network|plugin|WORLD_|RTS Bridge|UNIVERSAL_DEFENSE|WASM_CAMERA|WASM_ACTOR|NATIVE_HUD|ECONOMY_E1|ECONOMY_E2|ECONOMY_E3|ECONOMY_E4|Failed to connect/i.test(line))
       console.log(`CLIENT: ${line}`);
   });
   page.on('pageerror', (error) => records.push({ kind: 'pageerror', text: error.message }));
@@ -389,7 +391,7 @@ try {
   // Keep the camera fixed through actor selection and mixed-client delays.
   await page.mouse.move(640, 400);
   metrics.canvasMs = Date.now() - start;
-  if (cameraProbe || productionProbe || economyProbe || economyE2Probe || economyE3Probe || demolitionProbe) {
+  if (cameraProbe || productionProbe || economyProbe || economyE2Probe || economyE3Probe || economyE4Probe || demolitionProbe) {
     let timeout;
     try {
       await Promise.race([cameraReady,
@@ -948,6 +950,22 @@ try {
       && record.text.includes('ECONOMY_E1_TRAIN_ORDER ')))
       throw new Error('Browser reconnect reissued the bootstrap train order');
     await capture(page, 'economy-reconnect.png');
+  }
+  if (economyE4Probe) {
+    const markers = ['ECONOMY_E4_CLIENT workers=4 minerals=6 geysers=1',
+      'ECONOMY_E4_ORDER request=94601 accepted=true',
+      'ECONOMY_E4_ORDER request=94602 accepted=true',
+      'ECONOMY_E4_TRAINED workers=5', 'ECONOMY_E4_GATHERING worker='];
+    for (let elapsed = 0; elapsed < 180000; elapsed += 1000) {
+      if (markers.every((marker) => records.some((record) => record.kind === 'console'
+        && record.text.includes(marker)))) break;
+      await page.waitForTimeout(1000);
+    }
+    for (const marker of markers) {
+      if (!records.some((record) => record.kind === 'console' && record.text.includes(marker)))
+        throw new Error(`Browser ordinary economy probe did not report ${marker}`);
+    }
+    await capture(page, 'economy-e4-ordinary.png');
   }
   if (economyE3Probe) {
     for (const marker of ['ECONOMY_E3_BUILD request=93100 accepted=true',
