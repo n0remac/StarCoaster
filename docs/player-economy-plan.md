@@ -1,6 +1,6 @@
 # StarCoaster milestone: Native player economy
 
-Status: E0 and E1 are complete on authored fixtures. E2 gathering and E3 native worker construction pass their focused native and graphical browser gates on `economy-e3`. The E3 ambiguous-creation policy retains an unresolved reservation; worker-death and concurrent-edit fault probes remain for the E5 integration gate. E4 ordinary-park placement and E5 release remain outstanding. See the stage verification reports for measured coverage and limits.
+Status: E0 and E1 are complete on authored fixtures. E2 gathering and E3 native worker construction passed their focused native and graphical browser gates on `economy-e3`. E4 ordinary-park generation is implemented and has native mining, blocked-placement, and graphical New Game startup evidence; its full browser train/gather and 256-map exit checks are still open. The E3 ambiguous-creation reservation and worker-death/concurrent-edit fault probes remain for E5. See the stage verification reports for measured coverage and limits.
 Date: 2026-11-05
 Reviewed baseline: f38e732ab756d47780777a9ea3baa18844a194d3
 Repository: /home/pi/Projects/rts-bridge
@@ -203,6 +203,14 @@ reservation for safety. The remaining fault and release limits are in
 `docs/player-economy-e3-verification.md`. This does not complete E4/E5.
 
 ### E4 — Ordinary-park generation, waves and cache integration
+
+E4 status (2026-11-07): implementation and focused offline/native checks are
+committed for manual DEV evaluation. A normal browser New Game reached a ready
+Bumbly Bazaar generation and rendered the starting economy, but the scripted
+browser train/gather probe rejected orders and timed out on a screenshot. The
+256 × 256 live check and first-defender timing measurement are unrun after the
+user stopped further automated app testing. E4 exit is therefore unverified;
+see `docs/player-economy-e4-verification.md`.
 
 - Add bounded deterministic base/resource placement and blocked-bootstrap UX.
 - Migrate ordinary parks to the economy policy; preserve authored missions.
