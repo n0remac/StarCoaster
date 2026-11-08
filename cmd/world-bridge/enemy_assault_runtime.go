@@ -101,7 +101,8 @@ func (s *service) advanceEnemyAssault(frame int, living map[string]bool) {
 		if wave.State != "route_blocked" {
 			continue
 		}
-		if !r.DefenseEnabled || s.registry.Destroyed["scenario:enemy-hatchery"] {
+		if !r.DefenseEnabled || r.Error != "" || r.Outcome != "" ||
+			!s.actorReconcileComplete || s.registry.Destroyed["scenario:enemy-hatchery"] {
 			return
 		}
 		if len(wave.Attempts) >= 3 {

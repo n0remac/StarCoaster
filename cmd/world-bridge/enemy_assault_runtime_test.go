@@ -151,3 +151,26 @@ func TestEnemyAssaultJournalReconnectAndB2Migration(t *testing.T) {
 		t.Fatal("B2 journal migration failed")
 	}
 }
+
+func TestEnemyAssaultLateProductionResultCannotTrainDestroyedBase(t *testing.T) {
+	for _, target := range []string{"scenario:enemy-spawning-pool", "scenario:enemy-hatchery"} {
+		t.Run(target, func(t *testing.T) {
+			s := enemyAssaultService(t)
+			s.enemyProductionQueryID = "query"
+			s.enemyBasePublisherNativeID = 5
+			s.proxies["scenario:enemy-hatchery"] = "openbw:5"
+			s.registry.Destroyed[target] = true
+			result := map[string]any{"query_id": "query", "hatchery_native_id": 5,
+				"present": true, "minerals": 300, "supply_used": 0,
+				"supply_total": 18, "can_train": true, "pool_complete": true,
+				"larvae": 3}
+			message := world.Message("scenario.enemy_production.result", s.registry.Session,
+				"native:query", "openbw", s.registry.Revision, result)
+			message.BWTick = 7201
+			s.handleEnemyProductionResult(s.bw, message)
+			if len(s.runtime.EnemyProduction.Orders) != 0 {
+				t.Fatal("stale native query scheduled training after combat destruction")
+			}
+		})
+	}
+}

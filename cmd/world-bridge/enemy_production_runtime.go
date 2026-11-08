@@ -128,6 +128,16 @@ func (s *service) handleEnemyProductionResult(p *peer, m world.Envelope) {
 			return
 		}
 	}
+	if s.registry.Destroyed["scenario:enemy-hatchery"] ||
+		s.registry.Destroyed["scenario:enemy-spawning-pool"] {
+		if s.registry.Destroyed["scenario:enemy-hatchery"] {
+			s.enemyProductionState = "colony_defeated"
+		} else {
+			s.enemyProductionState = "spawning_pool_destroyed"
+		}
+		s.publishScenarioStatus(false)
+		return
+	}
 	if !s.runtime.DefenseEnabled {
 		s.enemyProductionState = "paused"
 		s.publishScenarioStatus(false)
