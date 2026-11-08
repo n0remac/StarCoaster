@@ -1407,7 +1407,7 @@
                     if (!id.startsWith(prefix) || !target || !state || state.session !== controlSession
                         || targetCatalogSession !== controlSession || state.health < 1) return;
                     const constructing = !state.completed && Number.isInteger(state.construction_progress)
-                        && state.construction_progress >= 0 && state.construction_progress < 100;
+                        && state.construction_progress >= 0 && state.construction_progress <= 100;
                     if (!constructing && (!building.animation || state.queue < 1)) return;
                     const stage = constructing ? Math.min(building.constructionFrames - 1,
                         Math.floor(state.construction_progress * building.constructionFrames / 100)) : -1;

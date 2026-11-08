@@ -163,6 +163,10 @@ assert.equal(buildingAnimations.at(-1).tiles[0].frame, 9);
 buildingAction.execute({ player: 1, args: { ...nativeState, completed: false,
     queue: 0, construction_progress: 90, construction_remaining_frames: 120 } });
 assert.equal(buildingAnimations.at(-1).tiles[0].frame, 10);
+buildingAction.execute({ player: 1, args: { ...nativeState, completed: false,
+    queue: 0, construction_progress: 100, construction_remaining_frames: 0 } });
+assert.equal(buildingAnimations.at(-1).tiles[0].frame, 10,
+    'native completion, rather than a rounded progress value, restores idle art');
 buildingAction.execute({ player: 1, args: { ...nativeState, queue: 0, remaining_frames: 0 } });
 assert.equal(buildingAnimations.at(-1).tiles.length, 0, 'completed training restores the idle frame');
 buildingAction.execute({ player: 1, args: nativeState });
