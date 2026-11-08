@@ -4,22 +4,22 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "upstream/openrct2/src/openrct2/paint/Paint.Entity.cpp"
+PAINT = ROOT / "upstream/openrct2/src/openrct2/paint/Paint.cpp"
+SCENERY = ROOT / "upstream/openrct2/src/openrct2/paint/tile_element/Paint.LargeScenery.cpp"
 
 
 class ConstructionPaintOrderTest(unittest.TestCase):
-    def test_only_active_builder_uses_construction_sort_bounds(self):
-        source = SOURCE.read_text()
-        for required in (
-            'actor.kind == "terran_scv" && actor.motion == "construct"',
-            'BridgeConstructionBuilderSortZ(actorPos, z) : z + 5',
-            'frame->second <= state.frames',
-            'std::abs(tileZ - actorZ) <= 8',
-            'sortZ = std::max(sortZ, tileZ + 48)',
-            '{ -visualType->bounds[0] / 2, -visualType->bounds[1] / 2, sortZ }',
-            '{ 0, 0, z }, actorBounds',
-        ):
-            with self.subTest(required=required):
-                self.assertTrue(required in source, required)
+    def test_native_paint_entries_use_authoritative_construction_bank(self):
+        actor = SOURCE.read_text()
+        painter = PAINT.read_text()
+        self.assertIn("BridgeBuildingPaintLayer", actor)
+        self.assertIn("BridgeOrderConstructionLayers", painter)
+        self.assertIn("BridgeBuildingPaintLayer", SCENERY.read_text())
+        self.assertIn("scv->ScreenPos.x", painter)
+        self.assertIn("building->ScreenPos.x", painter)
+        self.assertIn("scv->Bounds.z - 5 - building->Bounds.z", painter)
+        self.assertIn("{ 0, 0, z }, actorBounds", actor,
+                      "sprite coordinates must stay at native elevation")
 
 
 if __name__ == "__main__":

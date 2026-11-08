@@ -25,6 +25,9 @@ const execute = (name, args) => {
     action.execute(event);
 };
 execute('rtsbridge.applySnapshot', { session, seq: 1, units: [] });
+assert.equal(animations.at(-1).object, depot.index,
+    'the building object is registered for completed-art layering on first snapshot');
+assert.equal(animations.at(-1).tiles.length, 0);
 const intent = { session, intent_id: 'build:1:1', building_type: 'terran_supply_depot',
     tile_x: 10, tile_y: 12, native_id: 'openbw:40', state: 'bound' };
 execute('rtsbridge.constructionState', intent);

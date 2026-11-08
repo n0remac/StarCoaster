@@ -1286,6 +1286,9 @@
             removedActorGenerations = {};
             buildingStates = {};
             constructionStates = {};
+            Object.keys(registeredBuildingObjects).forEach(function (type) {
+                delete registeredBuildingObjects[type];
+            });
             constructionCatalog = {};
             playerResources = {};
             resourceSiteStates = {};
@@ -1418,6 +1421,7 @@
         let playerResources = {};
         let resourceSiteStates = {};
         const animatedBuildingObjects = {};
+        const registeredBuildingObjects = {};
         function refreshBuildingAnimations() {
             if (!controlSession) return;
             Object.keys(BUILDING_TYPES).forEach(function (type) {
@@ -1494,8 +1498,10 @@
                     });
                 });
                 const tiles = Object.keys(tilesByPosition).map(function (key) { return tilesByPosition[key]; });
-                if (!tiles.length && !animatedBuildingObjects[type]) return;
+                if (!tiles.length && !animatedBuildingObjects[type]
+                    && registeredBuildingObjects[type] === controlSession) return;
                 animatedBuildingObjects[type] = tiles.length > 0;
+                registeredBuildingObjects[type] = controlSession;
                 rtsBridge.setBuildingAnimations({ session: controlSession,
                     object: object.index, tiles: tiles, frames: building.animation ? building.animation.frames : 0,
                     ticks_per_frame: building.animation ? building.animation.ticks_per_frame : 1,

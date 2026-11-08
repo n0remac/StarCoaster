@@ -1,0 +1,269 @@
+diff --git a/src/openrct2/paint/Paint.h b/src/openrct2/paint/Paint.h
+--- a/src/openrct2/paint/Paint.h
++++ b/src/openrct2/paint/Paint.h
+@@ -53,6 +53,14 @@
+     int32_t x_end;
+     int32_t y_end;
+     int32_t z_end;
++};
++
++enum class BridgePaintLayer : uint8_t
++{
++    ordinary,
++    scv,
++    unfinishedBuilding,
++    completeBuilding,
+ };
+ 
+ struct PaintStruct
+@@ -69,6 +77,7 @@
+     uint16_t QuadrantIndex;
+     uint8_t SortFlags;
+     ViewportInteractionItem InteractionItem;
++    BridgePaintLayer BridgeLayer = BridgePaintLayer::ordinary;
+ };
+ 
+ struct PaintStringStruct
+diff --git a/src/openrct2/paint/Paint.cpp b/src/openrct2/paint/Paint.cpp
+--- a/src/openrct2/paint/Paint.cpp
++++ b/src/openrct2/paint/Paint.cpp
+@@ -25,11 +25,13 @@
+ #include "../paint/Painter.h"
+ #include "../profiling/Profiling.h"
+ #include "Boundbox.h"
++#include "BridgeConstructionLayers.h"
+ #include "Paint.Entity.h"
+ #include "tile_element/Paint.TileElement.h"
+ 
+ #include <algorithm>
+ #include <array>
++#include <cstdlib>
+ 
+ using namespace OpenRCT2;
+ using namespace OpenRCT2::Drawing;
+@@ -670,14 +672,41 @@
+  *
+  *  rct2: 0x00688217
+  */
++static bool BridgePaintImagesOverlap(const PaintStruct* scv, const PaintStruct* building)
++{
++    // Keep the exception local to a nearby building on the same ground level.
++    // The screen rectangles then account for all four camera rotations and
++    // for artwork extending beyond the building's map tiles.
++    if (std::abs(scv->MapPos.x - building->MapPos.x) > 160
++        || std::abs(scv->MapPos.y - building->MapPos.y) > 160
++        || std::abs(scv->Bounds.z - 5 - building->Bounds.z) > 16)
++        return false;
++    const auto* scvImage = GfxGetG1Element(scv->image_id);
++    const auto* buildingImage = GfxGetG1Element(building->image_id);
++    if (!scvImage || !buildingImage)
++        return false;
++    const int32_t scvLeft = scv->ScreenPos.x + scvImage->xOffset;
++    const int32_t scvTop = scv->ScreenPos.y + scvImage->yOffset;
++    const int32_t buildingLeft = building->ScreenPos.x + buildingImage->xOffset;
++    const int32_t buildingTop = building->ScreenPos.y + buildingImage->yOffset;
++    return scvLeft < buildingLeft + buildingImage->width
++        && buildingLeft < scvLeft + scvImage->width
++        && scvTop < buildingTop + buildingImage->height
++        && buildingTop < scvTop + scvImage->height;
++}
++
+ void PaintSessionArrange(PaintSessionCore& session)
+ {
+     PROFILED_FUNCTION();
+     if (gPaintStableSort)
+-    {
+-        return _paintArrangeFuncsStable[session.CurrentRotation](session);
+-    }
+-    return _paintArrangeFuncsLegacy[session.CurrentRotation](session);
++        _paintArrangeFuncsStable[session.CurrentRotation](session);
++    else
++        _paintArrangeFuncsLegacy[session.CurrentRotation](session);
++    BridgeOrderConstructionLayers(session.PaintHead,
++        [](const PaintStruct* paint) { return paint->BridgeLayer == BridgePaintLayer::scv; },
++        [](const PaintStruct* paint) { return paint->BridgeLayer == BridgePaintLayer::unfinishedBuilding; },
++        [](const PaintStruct* paint) { return paint->BridgeLayer == BridgePaintLayer::completeBuilding; },
++        BridgePaintImagesOverlap);
+ }
+ 
+ static inline void PaintAttachedPS(RenderTarget& rt, PaintStruct* ps, ViewportFlags viewFlags)
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -19,6 +19,7 @@
+ 
+ struct PaintSession;
+ struct CoordsXY;
++enum class BridgePaintLayer : uint8_t;
+ 
+ struct BridgeActor
+ {
+@@ -46,6 +47,7 @@
+ void BridgeSetBuildingAnimations(std::string session, int32_t objectIndex, std::map<std::pair<int32_t, int32_t>, uint32_t> tiles,
+     uint32_t frames = 7, uint32_t ticksPerFrame = 3, uint32_t bankStride = 48);
+ uint32_t BridgeBuildingAnimationImageOffset(int32_t objectIndex, const CoordsXY& position);
++BridgePaintLayer BridgeBuildingPaintLayer(int32_t objectIndex, const CoordsXY& position);
+ std::string BridgeHitTest(int32_t x, int32_t y, int32_t radius);
+ std::pair<std::string, std::vector<BridgeActor>> BridgeGetActors();
+ std::optional<std::pair<int32_t, int32_t>> BridgeActorScreenPosition(const std::string& id);
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -312,10 +312,9 @@
+             InvalidateBuildingTiles(state.tiles);
+     }
+     next->session = std::move(session);
+-    if (tiles.empty())
+-        next->objects.erase(objectIndex);
+-    else
+-        next->objects[objectIndex] = { std::move(tiles), frames, ticksPerFrame, bankStride };
++    // Keep the object registered even without active animation tiles. Its
++    // ordinary scenery tiles are completed buildings for paint ordering.
++    next->objects[objectIndex] = { std::move(tiles), frames, ticksPerFrame, bankStride };
+     std::atomic_store(&gBridgeBuildingAnimations, std::shared_ptr<const BridgeBuildingAnimations>(next));
+     const auto added = next->objects.find(objectIndex);
+     if (added != next->objects.end())
+@@ -341,34 +340,17 @@
+         * state->second.bankStride;
+ }
+ 
+-// Construction plates use the large-scenery paint bounds (45 units above the
+-// ground). A native builder standing at the site otherwise sorts behind those
+-// tiles. Only the sorting box is lifted; the image, map position, and hit test
+-// keep the actor's actual world coordinates.
+-static int32_t BridgeConstructionBuilderSortZ(const CoordsXY& actorPos, int32_t actorZ)
++BridgePaintLayer BridgeBuildingPaintLayer(int32_t objectIndex, const CoordsXY& position)
+ {
+     const auto animations = std::atomic_load(&gBridgeBuildingAnimations);
+     if (animations->session != std::atomic_load(&gBridgeSnapshot)->session)
+-        return actorZ + 5;
+-    const auto origin = actorPos.toTileStart();
+-    int32_t sortZ = actorZ + 5;
+-    for (const auto& [objectIndex, state] : animations->objects)
+-    {
+-        // Search the builder's tile and immediate neighbours. A native SCV
+-        // can work from the edge just outside its building's footprint.
+-        for (int32_t dy = -32; dy <= 32; dy += 32)
+-            for (int32_t dx = -32; dx <= 32; dx += 32)
+-            {
+-                const CoordsXY tile{ origin.x + dx, origin.y + dy };
+-                const auto frame = state.tiles.find({ tile.x, tile.y });
+-                if (frame == state.tiles.end() || frame->second <= state.frames || !MapIsLocationValid(tile))
+-                    continue; // Training lights and completed buildings are unrelated.
+-                const int32_t tileZ = TileElementHeight(tile);
+-                if (std::abs(tileZ - actorZ) <= 8)
+-                    sortZ = std::max(sortZ, tileZ + 48);
+-            }
+-    }
+-    return sortZ;
++        return BridgePaintLayer::ordinary;
++    const auto object = animations->objects.find(objectIndex);
++    if (object == animations->objects.end())
++        return BridgePaintLayer::ordinary;
++    const auto tile = object->second.tiles.find({ position.x, position.y });
++    return tile != object->second.tiles.end() && tile->second > object->second.frames
++        ? BridgePaintLayer::unfinishedBuilding : BridgePaintLayer::completeBuilding;
+ }
+ 
+ std::string BridgeHitTest(int32_t x, int32_t y, int32_t radius)
+@@ -646,10 +628,8 @@
+             else if (actor.kind == "vespene_geyser")
+                 resourceMotion = actor.resourceAmount == 0 ? "depleted" : "idle";
+         }
+-        const int32_t sortZ = actor.kind == "terran_scv" && actor.motion == "construct"
+-            ? BridgeConstructionBuilderSortZ(actorPos, z) : z + 5;
+         const BoundBoxXYZ actorBounds{
+-            { -visualType->bounds[0] / 2, -visualType->bounds[1] / 2, sortZ },
++            { -visualType->bounds[0] / 2, -visualType->bounds[1] / 2, z + 5 },
+             { visualType->bounds[0], visualType->bounds[1], visualType->bounds[2] } };
+         for (size_t layerIndex = 0; layerIndex < visualType->layerCount; ++layerIndex)
+         {
+@@ -688,7 +668,10 @@
+                 ++pose;
+             }
+             const auto spriteStart = BridgePerf::enabled() ? BridgePerf::nowNS() : 0;
+-            PaintAddImageAsParent(session, ImageId(animation->images[pose][layer.targetFacing ? targetDirection : direction]), { 0, 0, z }, actorBounds);
++            auto* paint = PaintAddImageAsParent(session,
++                ImageId(animation->images[pose][layer.targetFacing ? targetDirection : direction]), { 0, 0, z }, actorBounds);
++            if (paint && actor.kind == "terran_scv" && actor.motion != "death")
++                paint->BridgeLayer = BridgePaintLayer::scv;
+             if (spriteStart) BridgePerf::spriteUS.fetch_add((BridgePerf::nowNS() - spriteStart) / 1000, std::memory_order_relaxed);
+         }
+         if (actor.hp > 0 && actor.maxHp > 0 && actor.motion != "death")
+diff --git a/src/openrct2/paint/tile_element/Paint.LargeScenery.cpp b/src/openrct2/paint/tile_element/Paint.LargeScenery.cpp
+--- a/src/openrct2/paint/tile_element/Paint.LargeScenery.cpp
++++ b/src/openrct2/paint/tile_element/Paint.LargeScenery.cpp
+@@ -389,7 +389,10 @@
+     auto imageIndex = sceneryEntry->image + 4 + (sequenceNum << 2) + direction;
+     if (!isGhost)
+         imageIndex += BridgeBuildingAnimationImageOffset(tileElement.getEntryIndex(), session.MapPosition);
+-    PaintAddImageAsParent(session, imageTemplate.WithIndex(imageIndex), { 0, 0, height }, { bbOffset, bbLength });
++    auto* paint = PaintAddImageAsParent(session, imageTemplate.WithIndex(imageIndex),
++        { 0, 0, height }, { bbOffset, bbLength });
++    if (paint && !isGhost)
++        paint->BridgeLayer = BridgeBuildingPaintLayer(tileElement.getEntryIndex(), session.MapPosition);
+ 
+     if (sceneryEntry->scrolling_mode != kScrollingModeNone && direction != 1 && direction != 2)
+     {
+diff --git a/src/openrct2/paint/BridgeConstructionLayers.h b/src/openrct2/paint/BridgeConstructionLayers.h
+new file mode 100644
+--- /dev/null
++++ b/src/openrct2/paint/BridgeConstructionLayers.h
+@@ -0,0 +1,57 @@
++#pragma once
++
++#include <vector>
++
++// Reorder only paint entries whose caller confirms the same visible construction
++// site. An SCV paints after unfinished art and before completed art; all other
++// entries retain their existing painter order.
++template<typename Node, typename IsSCV, typename IsUnfinished, typename IsComplete, typename Overlaps>
++void BridgeOrderConstructionLayers(
++    Node*& head, IsSCV isSCV, IsUnfinished isUnfinished, IsComplete isComplete, Overlaps overlaps)
++{
++    std::vector<Node*> scvs;
++    for (Node* node = head; node; node = node->NextQuadrantEntry)
++        if (isSCV(node))
++            scvs.push_back(node);
++
++    for (Node* scv : scvs)
++    {
++        // Completed scenery already behind this SCV must move just ahead of it
++        // in draw order. Preserve the relative order of its scenery tiles.
++        Node* completeTail = scv;
++        Node** link = &head;
++        while (*link && *link != scv)
++        {
++            Node* node = *link;
++            if (isComplete(node) && overlaps(scv, node))
++            {
++                *link = node->NextQuadrantEntry;
++                node->NextQuadrantEntry = completeTail->NextQuadrantEntry;
++                completeTail->NextQuadrantEntry = node;
++                completeTail = node;
++            }
++            else
++                link = &node->NextQuadrantEntry;
++        }
++
++        Node** beforeSCV = &head;
++        while (*beforeSCV && *beforeSCV != scv)
++            beforeSCV = &(*beforeSCV)->NextQuadrantEntry;
++        if (!*beforeSCV)
++            continue;
++        Node** after = &completeTail->NextQuadrantEntry;
++        while (*after)
++        {
++            Node* node = *after;
++            if (isUnfinished(node) && overlaps(scv, node))
++            {
++                *after = node->NextQuadrantEntry;
++                node->NextQuadrantEntry = scv;
++                *beforeSCV = node;
++                beforeSCV = &node->NextQuadrantEntry;
++            }
++            else
++                after = &node->NextQuadrantEntry;
++        }
++    }
++}
