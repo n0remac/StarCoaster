@@ -31,6 +31,13 @@ FLAME_NAMES = [f"burst{pose}_{direction}.png" for pose in range(7)
                for direction in MARINE_DIRECTIONS]
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_ASSETS = {"marine", "firebat", "medic", "vulture", "zergling"}
+# These historical G2 paths are no longer active visual states. Preserve their
+# image slots so clean builds keep later sprite IDs, including command icons.
+RETIRED_RESOURCE_ALIASES = {
+    "mineral_field": {"idle1": "idle0", "idle2": "idle0", "idle3": "idle0",
+                      "depleted0": "very_low0"},
+    "vespene_geyser": {"idle1": "idle0", "idle2": "idle0", "idle3": "idle0"},
+}
 
 
 def stable_sprite_entries(entries: list[dict]) -> list[dict]:
@@ -44,6 +51,28 @@ def stable_sprite_entries(entries: list[dict]) -> list[dict]:
     if len(ranks) != len(order) or len({entry["path"] for entry in entries}) != len(entries):
         raise ValueError("Duplicate G2 sprite path")
     return sorted(entries, key=lambda entry: (ranks.get(entry["path"], len(order)), entry["path"]))
+
+
+def preserve_retired_resource_ids(contents: str, prepared: list) -> str:
+    """Stage harmless aliases for resource sprites retired from current profiles."""
+    entries = json.loads(contents)
+    by_path = {entry["path"]: entry for entry in entries}
+    sources = {name: path for path, name in prepared}
+    ledger = set(json.loads((ROOT / "bridge-protocol/starcraft-sprite-order.json").read_text()))
+    for asset, aliases in RETIRED_RESOURCE_ALIASES.items():
+        for old, current in aliases.items():
+            old_name, current_name = f"{asset}/{old}.png", f"{asset}/{current}.png"
+            old_key, current_key = "bridge/" + old_name, "bridge/" + current_name
+            if old_key not in ledger:
+                raise ValueError(f"Missing historical resource sprite in compatibility ledger: {old_key}")
+            if current_name not in sources or current_key not in by_path:
+                raise ValueError(f"Missing replacement resource sprite: {current_key}")
+            prepared.append((sources[current_name], old_name))
+            if old_key not in by_path:
+                entry = {**by_path[current_key], "path": old_key}
+                entries.append(entry)
+                by_path[old_key] = entry
+    return json.dumps(entries, indent=4) + "\n"
 
 
 def registered_units() -> list[tuple[str, dict]]:
@@ -523,6 +552,8 @@ def main() -> None:
     if only_unit is None or only_unit not in {"zerg_zergling", "terran_marine", "terran_firebat",
                                                 "terran_medic", "terran_vulture", "firebat_flame"}:
         contents = stage_registered_banks(source, pack, upstream, contents, colours, prepared)
+    if only_unit is None:
+        contents = preserve_retired_resource_ids(contents, prepared)
     # Small native overlays; each image is an exact-palette health fraction.
     health_source = Path(__file__).resolve().parent.parent / "run-data/generated-assets/bridge-health"
     health_source.mkdir(parents=True, exist_ok=True)
@@ -598,6 +629,11 @@ def main() -> None:
     # A first build must reproduce the historical append-only indices,
     # including animation frames introduced after the command icons.
     ordered = stable_sprite_entries(entries)
+    if only_unit is None:
+        ledger = json.loads((ROOT / "bridge-protocol/starcraft-sprite-order.json").read_text())
+        missing = set(ledger) - {entry["path"] for entry in ordered}
+        if missing:
+            raise ValueError("Missing historical G2 sprite slots: " + ", ".join(sorted(missing)))
     if ordered != entries:
         contents = "[\n" + ",\n".join("    " + json.dumps(entry) for entry in ordered) + "\n]\n"
     if icon_frames:

@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import random
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,3 +37,24 @@ class SpriteOrderTests(unittest.TestCase):
     def test_duplicate_path_is_rejected(self):
         with self.assertRaises(ValueError):
             installer.stable_sprite_entries([{"path": ORDER[0]}, {"path": ORDER[0]}])
+
+    def test_retired_resource_slots_remain_in_a_clean_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            roots = {"mineral_field/idle0.png", "mineral_field/very_low0.png",
+                     "vespene_geyser/idle0.png"}
+            prepared = []
+            for name in sorted(roots):
+                path = Path(directory) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"sprite")
+                prepared.append((path, name))
+            contents = json.dumps([{"path": "bridge/" + name, "x": -12, "y": -8}
+                                   for name in sorted(roots)])
+            result = json.loads(installer.preserve_retired_resource_ids(contents, prepared))
+            paths = {entry["path"] for entry in result}
+            expected = {"bridge/" + asset + "/" + old + ".png"
+                        for asset, aliases in installer.RETIRED_RESOURCE_ALIASES.items()
+                        for old in aliases}
+            self.assertTrue(expected <= paths)
+            self.assertEqual(len(result), len(roots) + len(expected))
+            self.assertEqual(len(prepared), len(roots) + len(expected))
