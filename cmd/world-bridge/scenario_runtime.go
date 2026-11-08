@@ -95,6 +95,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 		s.scenarioRuntimeError(err)
 		return
 	}
+	s.queryEnemyBase(frame)
 	var observedUnits []map[string]any
 	if len(nativeUnits) > 0 {
 		observedUnits = nativeUnits[0]

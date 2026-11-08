@@ -30,6 +30,7 @@ type Scenario struct {
 		NativeOverlord    [2]int `json:"native_overlord,omitempty"`
 	} `json:"production_fixture,omitempty"`
 	Economy           *ScenarioEconomy    `json:"economy,omitempty"`
+	EnemyBase         *ScenarioEnemyBase  `json:"enemy_base,omitempty"`
 	InitialStructures []ScenarioStructure `json:"initial_structures,omitempty"`
 	// Native owners whose production the scenario commander may order. An
 	// absent list retains ordinary Terran-only player control.
@@ -78,6 +79,22 @@ type ScenarioEconomyEntity struct {
 	Type   string `json:"type"`
 	Tile   [2]int `json:"tile"`
 	Amount int    `json:"amount,omitempty"`
+}
+
+// ScenarioEnemyBase records one generated colony before native initialization.
+// A blocked layout has no structures and cannot produce free fallback waves.
+type ScenarioEnemyBase struct {
+	Version            int                 `json:"version"`
+	LayoutPolicy       string              `json:"layout_policy"`
+	LayoutState        string              `json:"layout_state"`
+	PolicyVersion      int                 `json:"policy_version"`
+	LayoutSeed         string              `json:"layout_seed"`
+	BlockedReason      string              `json:"blocked_reason,omitempty"`
+	Structures         []ScenarioStructure `json:"structures"`
+	SupplyTile         []int               `json:"supply_tile"`
+	AssemblyTile       []int               `json:"assembly_tile"`
+	ApproachTile       []int               `json:"approach_tile"`
+	TerranApproachTile []int               `json:"terran_approach_tile"`
 }
 
 // ScenarioStructure uses OpenRCT2 tile coordinates, before native map padding.
@@ -226,6 +243,11 @@ func LoadScenario(path string) (*Scenario, error) {
 			return nil, err
 		}
 	}
+	if scenario.EnemyBase != nil {
+		if err := scenario.validateEnemyBase(); err != nil {
+			return nil, err
+		}
+	}
 	controlOwners := map[int]bool{}
 	for _, owner := range scenario.ProductionControlOwners {
 		if owner < 0 || owner > 15 || controlOwners[owner] {
@@ -286,7 +308,7 @@ func (s *Scenario) validateEconomy() error {
 		return fmt.Errorf("invalid finite economy configuration")
 	}
 	if e.LayoutPolicy == "generated" {
-		if e.PolicyVersion != 1 || len(e.LayoutSeed) != 16 ||
+		if (e.PolicyVersion != 1 && e.PolicyVersion != 2) || len(e.LayoutSeed) != 16 ||
 			strings.Trim(e.LayoutSeed, "0123456789abcdef") != "" ||
 			(e.LayoutState != "ready" && e.LayoutState != "blocked") {
 			return fmt.Errorf("invalid generated economy policy")
@@ -367,11 +389,98 @@ func (s *Scenario) validateEconomy() error {
 	return nil
 }
 
+func (s *Scenario) validateEnemyBase() error {
+	b := s.EnemyBase
+	if s.Version != 2 || s.Mode != "park_defense" || s.Economy == nil ||
+		s.Economy.LayoutPolicy != "generated" || s.Economy.PolicyVersion != 2 ||
+		s.ParkDefense == nil || s.ParkDefense.SpawnPolicy != "base_production" ||
+		b.Version != 1 || b.LayoutPolicy != "generated" || b.PolicyVersion != 1 ||
+		b.LayoutSeed != s.Economy.LayoutSeed ||
+		(b.LayoutState != "ready" && b.LayoutState != "blocked") {
+		return fmt.Errorf("invalid generated enemy base policy")
+	}
+	if b.LayoutState == "blocked" {
+		if len(b.Structures) != 0 || len(b.SupplyTile) != 0 ||
+			len(b.AssemblyTile) != 0 || len(b.ApproachTile) != 0 || len(b.TerranApproachTile) != 0 ||
+			b.BlockedReason == "" ||
+			(b.BlockedReason != "no_valid_perimeter_site" &&
+				b.BlockedReason != "terran_economy_blocked" &&
+				b.BlockedReason != "enemy_geometry_unavailable") {
+			return fmt.Errorf("invalid blocked enemy base")
+		}
+		return nil
+	}
+	if s.Economy.LayoutState != "ready" || b.BlockedReason != "" ||
+		len(b.Structures) != 2 || len(b.SupplyTile) != 2 ||
+		len(b.AssemblyTile) != 2 || len(b.ApproachTile) != 2 || len(b.TerranApproachTile) != 2 {
+		return fmt.Errorf("invalid ready enemy base")
+	}
+	for index, kind := range []string{"zerg_hatchery", "zerg_spawning_pool"} {
+		building := b.Structures[index]
+		if building.Type != kind || building.Faction != "zerg" ||
+			building.ID != []string{"enemy-hatchery", "enemy-spawning-pool"}[index] {
+			return fmt.Errorf("invalid enemy base structure")
+		}
+		found := 0
+		for _, projection := range s.InitialStructures {
+			if projection.ID == building.ID {
+				found++
+				if projection != building {
+					return fmt.Errorf("enemy base projection mismatch")
+				}
+			}
+		}
+		if found != 1 {
+			return fmt.Errorf("enemy base projection missing")
+		}
+	}
+	occupied := map[[2]int]bool{}
+	for _, entity := range s.Economy.StartingEntities {
+		width, height := 1, 1
+		switch entity.Type {
+		case "terran_command_center", "vespene_geyser":
+			width, height = 4, 3
+			if entity.Type == "vespene_geyser" {
+				height = 2
+			}
+		case "mineral_field":
+			width, height = 2, 1
+		}
+		for y := entity.Tile[1]; y < entity.Tile[1]+height; y++ {
+			for x := entity.Tile[0]; x < entity.Tile[0]+width; x++ {
+				occupied[[2]int{x, y}] = true
+			}
+		}
+	}
+	for _, structure := range b.Structures {
+		building, _ := SupportedBuilding(structure.Type)
+		for y := structure.Tile[1]; y < structure.Tile[1]+building.Height; y++ {
+			for x := structure.Tile[0]; x < structure.Tile[0]+building.Width; x++ {
+				tile := [2]int{x, y}
+				if occupied[tile] {
+					return fmt.Errorf("enemy base overlaps economy or structure")
+				}
+				occupied[tile] = true
+			}
+		}
+	}
+	for _, point := range [][]int{b.SupplyTile, b.AssemblyTile, b.ApproachTile, b.TerranApproachTile} {
+		if point[0] < 8 || point[1] < 8 || point[0] >= s.ParkSize[0]-8 || point[1] >= s.ParkSize[1]-8 {
+			return fmt.Errorf("invalid enemy base yard tile")
+		}
+		if occupied[[2]int{point[0], point[1]}] {
+			return fmt.Errorf("enemy base yard obstructed")
+		}
+	}
+	return nil
+}
+
 func (s *Scenario) validateV2() error {
 	if strings.TrimSpace(s.DisplayName) == "" || strings.TrimSpace(s.ParkFile) == "" ||
 		len(s.SpawnWaves) != 0 || (len(s.SpawnZones) == 0 &&
 		(s.Mode != "park_defense" || s.ParkDefense == nil ||
-			(!s.ParkDefense.FixedSpawn && s.ParkDefense.SpawnPolicy != "automatic_perimeter"))) ||
+			(!s.ParkDefense.FixedSpawn && s.ParkDefense.SpawnPolicy != "automatic_perimeter" &&
+				s.ParkDefense.SpawnPolicy != "base_production"))) ||
 		(s.Mode != "park_defense" && (!s.Victory.AllWavesCleared || len(s.Waves) == 0 || s.ParkDefense != nil)) ||
 		(s.Mode == "park_defense" && (len(s.Waves) != 0 || s.ParkDefense == nil)) {
 		return fmt.Errorf("invalid v2 scenario configuration")
@@ -435,8 +544,10 @@ func (s *Scenario) validateV2() error {
 			(len(p.WaveTiers) == 0 && (p.UnitsPerWave < 1 || p.UnitsPerWave > 64)) ||
 			(len(p.WaveTiers) > 0 && p.UnitsPerWave != 0) ||
 			p.ManualCooldownFrames < 0 ||
-			(p.SpawnPolicy != "" && p.SpawnPolicy != "automatic_perimeter") ||
-			(p.SpawnPolicy == "automatic_perimeter" && (p.FixedSpawn || p.ManualActivation || len(p.SpawnZones) != 0)) ||
+			(p.SpawnPolicy != "" && p.SpawnPolicy != "automatic_perimeter" && p.SpawnPolicy != "base_production") ||
+			((p.SpawnPolicy == "automatic_perimeter" || p.SpawnPolicy == "base_production") &&
+				(p.FixedSpawn || p.ManualActivation || len(p.SpawnZones) != 0)) ||
+			(p.SpawnPolicy == "base_production" && s.EnemyBase == nil) ||
 			(p.SpawnPolicy == "" && p.FixedSpawn && (!p.ManualActivation || len(p.SpawnZones) != 0)) ||
 			(p.SpawnPolicy == "" && !p.FixedSpawn && len(p.SpawnZones) < 2) {
 			return fmt.Errorf("invalid park defense wave template")
@@ -456,6 +567,10 @@ func (s *Scenario) validateV2() error {
 			}
 			if total > 64 {
 				return fmt.Errorf("park defense wave exceeds queue capacity")
+			}
+			if p.SpawnPolicy == "base_production" &&
+				(len(tier.Groups) != 1 || tier.Groups[0].UnitType != "zerg_zergling") {
+				return fmt.Errorf("base production supports Zerglings only")
 			}
 		}
 		seen := map[string]bool{}

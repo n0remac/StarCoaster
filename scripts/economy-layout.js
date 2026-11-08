@@ -2,7 +2,7 @@
  * the source geometry; OpenBW remains the authority for native gameplay. */
 (function (root) {
     'use strict';
-    const POLICY_VERSION = 1;
+    const POLICY_VERSION = 2;
     const SPAN_X = 22, SPAN_Y = 9, MAX_ROUTE_CHECKS = 4096;
     const TEMPLATE = [
         { id: 'base', type: 'terran_command_center', x: 0, y: 0, w: 4, h: 3 },
@@ -120,6 +120,80 @@
             || a.variant - b.variant;
     }
 
+    // Reserve a whole colony yard, including larva emergence and assembly.
+    // The native participants make the final path/placement decision at boot.
+    function findEnemyBase(cells, width, height, seedHash, economyEntries, defenseSites) {
+        const occupied = new Set(), walkOccupied = new Set();
+        for (const entry of [...economyEntries, ...defenseSites]) {
+            for (let y = entry.y - 2; y < entry.y + entry.h + 2; y++)
+                for (let x = entry.x - 2; x < entry.x + entry.w + 2; x++)
+                    occupied.add(y * width + x);
+            if (entry.type !== 'terran_scv')
+                for (let y = entry.y; y < entry.y + entry.h; y++)
+                    for (let x = entry.x; x < entry.x + entry.w; x++)
+                        walkOccupied.add(y * width + x);
+        }
+        const workers = economyEntries.filter(e => e.type === 'terran_scv');
+        const connected = new Set(), queue = [];
+        for (const worker of workers) {
+            const index = worker.y * width + worker.x;
+            if (!connected.has(index)) { connected.add(index); queue.push(index); }
+        }
+        for (let head = 0; head < queue.length; head++) {
+            const current = queue[head], x = current % width, y = Math.floor(current / width);
+            for (const [dx, dy] of DIRECTIONS) {
+                const nx = x + dx, ny = y + dy, next = ny * width + nx;
+                if (nx < 8 || ny < 8 || nx >= width - 8 || ny >= height - 8 ||
+                    connected.has(next) || walkOccupied.has(next) || !cells[next].walk ||
+                    cells[next].z !== cells[current].z) continue;
+                connected.add(next); queue.push(next);
+            }
+        }
+        const terranApproaches = [...connected].filter(index => !occupied.has(index))
+            .map(index => ({ x: index % width, y: Math.floor(index / width),
+                score: Math.min(...workers.map(worker =>
+                    (worker.x - index % width) ** 2 + (worker.y - Math.floor(index / width)) ** 2)) }))
+            .sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x);
+        if (!terranApproaches.length) return { policy_version: 1, state: 'blocked',
+            reason: 'no_valid_perimeter_site', candidates_checked: 0, structures: [] };
+        const terranApproach = terranApproaches[0];
+        const candidates = [];
+        for (let y = 8; y + 9 <= height - 8; y++)
+            for (let x = 8; x + 9 <= width - 8; x++) {
+                if (Math.min(x - 8, y - 8, width - 8 - (x + 9), height - 8 - (y + 9)) > 4)
+                    continue;
+                let valid = true, z = null;
+                for (let cy = y; cy < y + 9 && valid; cy++)
+                    for (let cx = x; cx < x + 9; cx++) {
+                        const index = cy * width + cx, cell = cells[index];
+                        if (!cell.build || occupied.has(index) || (z !== null && cell.z !== z)) {
+                            valid = false; break;
+                        }
+                        z = cell.z;
+                    }
+                if (!valid) continue;
+                // The assembly yard and the Terran approach share a confirmed
+                // source-height walk component. Native path checks follow boot.
+                const approach = (y + 5) * width + x + 4;
+                if (!connected.has(approach)) continue;
+                const score = (Math.imul(x + 1, 73856093) ^ Math.imul(y + 1, 19349663)
+                    ^ seedHash) >>> 0;
+                candidates.push({ x, y, score });
+            }
+        candidates.sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x);
+        if (!candidates.length) return { policy_version: 1, state: 'blocked',
+            reason: 'no_valid_perimeter_site', candidates_checked: 0, structures: [] };
+        const { x, y } = candidates[0];
+        return { policy_version: 1, state: 'ready', seed: String(seedHash),
+            candidates_checked: candidates.length,
+            structures: [
+                { id: 'enemy-hatchery', type: 'zerg_hatchery', tile: [x + 1, y + 1] },
+                { id: 'enemy-spawning-pool', type: 'zerg_spawning_pool', tile: [x + 5, y + 2] },
+            ], supply_tile: [x + 8, y + 4], assembly_tile: [x + 4, y + 5],
+            approach_tile: [x + 4, y + 8],
+            terran_approach_tile: [terranApproach.x, terranApproach.y] };
+    }
+
     // Keep only the best bounded set while scanning a 256x256 park. The root
     // is the worst candidate; replacing it preserves the same center-first
     // order as a full sort without retaining hundreds of thousands of layouts.
@@ -176,9 +250,12 @@
             if (routeChecks >= MAX_ROUTE_CHECKS) break;
             routeChecks++;
             if (!reachable(candidate.entries, cells, width, height)) continue;
+            const enemyBase = findEnemyBase(cells, width, height, seedHash,
+                candidate.entries.filter(entry => entry.type), candidate.entries.filter(entry => !entry.type));
             return { policy_version: POLICY_VERSION, state: 'ready', seed: String(seed),
                 candidates_checked: checked, candidates_retained: candidates.length,
                 route_checks: routeChecks,
+                enemy_base: enemyBase,
                 starting_entities: candidate.entries.filter(entry => entry.type).map(entry => ({
                     id: entry.id, type: entry.type, tile: [entry.x, entry.y],
                     ...(entry.amount ? { amount: entry.amount } : {}) })),
@@ -189,7 +266,9 @@
             reason: footprintCandidates > MAX_ROUTE_CHECKS
                 ? 'economy_search_limit' : 'no_native_valid_economy_site',
             candidates_checked: checked, candidates_retained: candidates.length,
-            route_checks: routeChecks, starting_entities: [], defense_sites: [] };
+            route_checks: routeChecks, starting_entities: [], defense_sites: [],
+            enemy_base: { policy_version: 1, state: 'blocked',
+                reason: 'terran_economy_blocked', structures: [] } };
     }
 
     root.starcoasterFindEconomyLayout = findEconomyLayout;

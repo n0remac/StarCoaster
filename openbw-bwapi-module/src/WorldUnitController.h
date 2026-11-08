@@ -13,6 +13,7 @@
 #include "WorldEconomyObservations.h"
 #include "WorldConstructionWatches.h"
 #include "WorldBuildingState.h"
+#include "WorldAdapter.h"
 #include "BridgePerformance.h"
 
 #include <arpa/inet.h>
@@ -463,6 +464,16 @@ private:
         if (message.value("v", 0) != 1 || message.value("source", "") != "bridge"
             || !message.contains("payload") || !message.contains("op_id")) return;
         const std::string kind = message.value("kind", "");
+        if (kind == "scenario.enemy_base.query") {
+            const bool valid = message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() == revision_;
+            send("world.ack", session_, revision_,
+                {{"op_id", message.at("op_id")}, {"accepted", valid},
+                 {"error", valid ? "" : "stale_enemy_base_query"}}, game->getFrameCount());
+            if (valid) send("scenario.enemy_base.result", session_, revision_,
+                WorldAdapter::inspectEnemyBase(game, message.at("payload")), game->getFrameCount());
+            return;
+        }
         if (kind == "world.hello") {
             const auto announced = message.at("session").get<std::string>();
             if (announced != session_) lastCommandSerial_ = 0;

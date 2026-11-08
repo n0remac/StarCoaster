@@ -97,10 +97,14 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 		return errors.New("scenario_session_or_hash_mismatch")
 	}
 	if r.JournalVersion != 0 && r.JournalVersion != 2 ||
-		(r.JournalVersion == 0 && s.Mode == "park_defense" && s.ParkDefense.SpawnPolicy == "automatic_perimeter") {
+		(r.JournalVersion == 0 && s.Mode == "park_defense" &&
+			(s.ParkDefense.SpawnPolicy == "automatic_perimeter" || s.ParkDefense.SpawnPolicy == "base_production")) {
 		return errors.New("scenario_journal_version_invalid")
 	}
 	if s.Mode == "park_defense" {
+		if s.ParkDefense.SpawnPolicy == "base_production" && len(r.Waves) != 0 {
+			return errors.New("base_production_legacy_wave_invalid")
+		}
 		if r.WaveIntervalFrames != 0 && (r.WaveIntervalFrames < 24*30 || r.WaveIntervalFrames > 24*600) {
 			return errors.New("scenario_journal_interval_invalid")
 		}
@@ -309,6 +313,9 @@ func (r *ScenarioRuntime) Trigger(s *Scenario) bool {
 		return false
 	}
 	if s.Mode == "park_defense" {
+		if s.ParkDefense.SpawnPolicy == "base_production" {
+			return false // B1 stages a colony; B2/B3 will dispatch observed native units.
+		}
 		if !r.DefenseEnabled && (s.ParkDefense.ManualActivation || s.ParkDefense.SpawnPolicy == "automatic_perimeter") {
 			return false
 		}
@@ -454,7 +461,8 @@ func equalWaveGroups(a, b []WaveTierGroup) bool {
 // RequestManual records one durable extra wave without changing the automatic
 // deadline. Replays return the original wave; older evicted IDs are rejected.
 func (r *ScenarioRuntime) RequestManual(s *Scenario, requestID string, playerID, requestSequence int) (string, error) {
-	if s.Mode != "park_defense" || s.ParkDefense.SpawnPolicy == "automatic_perimeter" || !r.Started || r.Outcome != "" || r.Error != "" {
+	if s.Mode != "park_defense" || s.ParkDefense.SpawnPolicy == "automatic_perimeter" ||
+		s.ParkDefense.SpawnPolicy == "base_production" || !r.Started || r.Outcome != "" || r.Error != "" {
 		return "", errors.New("scenario_not_ready")
 	}
 	if wave, ok := r.ManualRequests[requestID]; ok {

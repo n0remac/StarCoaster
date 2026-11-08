@@ -661,6 +661,16 @@ private:
             send("scenario.perimeter.result",result,revision_,game->getFrameCount());
             return;
         }
+        if (kind=="scenario.enemy_base.query") {
+            if (!ready_ || message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != revision_) {
+                ack(message,false,"stale_or_unready_enemy_base_query"); return;
+            }
+            const auto result = inspectEnemyBase(game,payload);
+            ack(message,true);
+            send("scenario.enemy_base.result",result,revision_,game->getFrameCount());
+            return;
+        }
         if (kind=="unit.spawn.reconcile") {
             if (message.value("session", "") != session_ || !payload.is_object()
                 || !payload.contains("pending") || !payload.at("pending").is_array()
@@ -862,6 +872,73 @@ private:
             {"creation_frame", actor.creationFrame}};
     }
     struct PendingCreation { BWAPI::Unit unit = nullptr; int frame = 0, x = 0, y = 0; };
+public:
+    static json inspectEnemyBase(BWAPI::Game* game, const json& payload) {
+        json result = {{"query_id",payload.is_object() ? payload.value("query_id","") : ""},
+            {"accepted",false},{"reason","invalid_query"}};
+        if (!game || !payload.is_object()) return result;
+        auto tile = [&](const char* key, int& x, int& y) {
+            if (!payload.contains(key) || !payload.at(key).is_array() || payload.at(key).size()!=2
+                || !payload.at(key)[0].is_number_integer() || !payload.at(key)[1].is_number_integer()) return false;
+            x=payload.at(key)[0].get<int>(); y=payload.at(key)[1].get<int>();
+            return x>=2 && y>=2 && x<game->mapWidth()-5 && y<game->mapHeight()-5;
+        };
+        int hx,hy,px,py,sx,sy,ax,ay,tx,ty;
+        if (!tile("hatchery",hx,hy) || !tile("pool",px,py) || !tile("supply",sx,sy)
+            || !tile("assembly",ax,ay) || !tile("terran_approach",tx,ty)) return result;
+        BWAPI::Unit hatchery=nullptr, pool=nullptr, overlord=nullptr;
+        int hatcheryCount=0, poolCount=0, overlordCount=0;
+        for (auto unit:game->getAllUnits()) {
+            if (!unit || !unit->exists() || !unit->getPlayer() || unit->getPlayer()->getID()!=0) continue;
+            const auto position=unit->getTilePosition();
+            const auto type=unit->getType();
+            if (type==BWAPI::UnitTypes::Zerg_Hatchery && position.x==hx && position.y==hy)
+                hatchery=unit, hatcheryCount++;
+            if (type==BWAPI::UnitTypes::Zerg_Spawning_Pool && position.x==px && position.y==py)
+                pool=unit, poolCount++;
+            // The initial CHK supply tile is validated by the scenario map;
+            // an Overlord may fly away before a bridge reconnect.
+            if (type==BWAPI::UnitTypes::Zerg_Overlord)
+                overlord=unit, overlordCount++;
+        }
+        if (hatcheryCount!=1 || poolCount!=1 || overlordCount!=1 ||
+            !hatchery->isCompleted() || !pool->isCompleted() || !overlord->isCompleted()) {
+            result["reason"]="native_entities_missing_or_incomplete"; return result;
+        }
+        if (game->getPlayer(0)->supplyTotal() < 16) {
+            result["reason"]="native_supply_missing"; return result;
+        }
+        for (int y=py; y<py+2; ++y) for (int x=px; x<px+3; ++x)
+            if (!game->hasCreep(x,y)) {
+                result["reason"]="native_creep_missing"; return result;
+            }
+        const BWAPI::Position assembly(ax*32+16,ay*32+16), terran(tx*32+16,ty*32+16);
+        if (!game->isWalkable(ax*4+2,ay*4+2)) {
+            result["reason"]="native_assembly_obstructed"; return result;
+        }
+        bool exitFound=false;
+        for (int y=hy-1; y<=hy+3 && !exitFound; ++y) for (int x=hx-1; x<=hx+4; ++x) {
+            if (x>=hx && x<hx+4 && y>=hy && y<hy+3) continue;
+            if (x<2 || y<2 || x>=game->mapWidth()-2 || y>=game->mapHeight()-2) continue;
+            if (game->isWalkable(x*4+2,y*4+2) &&
+                game->hasUnitTypePath(BWAPI::UnitTypes::Zerg_Zergling,
+                    BWAPI::Position(x*32+16,y*32+16),assembly)) { exitFound=true; break; }
+        }
+        if (!exitFound) { result["reason"]="native_production_exit_missing"; return result; }
+        if (!game->hasUnitTypePath(BWAPI::UnitTypes::Zerg_Zergling,assembly,terran)) {
+            result["reason"]="native_attack_route_missing"; return result;
+        }
+        if (!game->hasUnitTypePath(BWAPI::UnitTypes::Terran_Marine,terran,assembly)) {
+            result["reason"]="native_counterattack_route_missing"; return result;
+        }
+        result["accepted"]=true;
+        result["reason"]="";
+        result["hatchery_native_id"]=hatchery->getID();
+        result["pool_native_id"]=pool->getID();
+        result["overlord_native_id"]=overlord->getID();
+        return result;
+    }
+private:
     json inspectPerimeterRoute(BWAPI::Game* game, const json& payload) {
         json result = {{"query_id",payload.is_object() ? payload.value("query_id","") : ""},
             {"accepted",false},{"valid_indices",json::array()}};

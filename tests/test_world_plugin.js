@@ -474,6 +474,17 @@ missionAction.execute({ player: 1, args: { ...parkStatus, error: 'spawn_zones_te
 subscriptions.get('interval.tick')();
 assert.match(defenseWidgets.find(widget => widget.name === 'defense-feedback').text,
     /spawn_zones_temporarily_blocked/, 'wave placement errors are visible in Defense');
+const baseStatus = { ...parkStatus, base_production: true, automatic_perimeter: false,
+    enemy_base_bootstrap: 'blocked', enemy_base_blocked_reason: 'no_valid_perimeter_site',
+    wave_state: 'base_bootstrap', manual_eligible: false, next_wave_seconds: 0 };
+assert.equal(missionAction.query({ player: 1, args: baseStatus }).error, undefined);
+missionAction.execute({ player: 1, args: baseStatus });
+subscriptions.get('interval.tick')();
+assert.match(defenseWidgets.find(widget => widget.name === 'defense-next').text,
+    /Colony waiting: no_valid_perimeter_site/);
+assert.ok(waveAction.query({ player: 1, args: { session: sid, request: 1,
+    request_id: `${sid}:wave:1:1` } }).error,
+    'a staged base does not expose free wave spawning');
 missionAction.execute({ player: 1, args: parkStatus });
 const waveArgs = { session: sid, request: 1, request_id: `${sid}:wave:1:1` };
 assert.equal(waveAction.query({ player: 1, args: waveArgs }).error, undefined);

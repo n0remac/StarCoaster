@@ -1764,10 +1764,13 @@
                         || (args.commander_player !== undefined && !Number.isInteger(args.commander_player))))
                     || (args.defense_configurable !== undefined && typeof args.defense_configurable !== "boolean")
                     || (args.automatic_perimeter !== undefined && typeof args.automatic_perimeter !== "boolean")
+                    || (args.base_production !== undefined && typeof args.base_production !== "boolean")
                     || (args.finite_economy !== undefined && typeof args.finite_economy !== "boolean")
                     || (args.economy_bootstrap !== undefined && !["", "preparing", "ready", "blocked"].includes(args.economy_bootstrap))
                     || (args.economy_blocked_reason !== undefined && !["", "no_native_valid_economy_site", "economy_geometry_unavailable", "economy_search_limit"].includes(args.economy_blocked_reason))
-                    || !["", "pending", "triggered", "spawning", "active", "cleared", "failed"].includes(args.wave_state)
+                    || (args.enemy_base_bootstrap !== undefined && !["", "preparing", "native_validated", "blocked"].includes(args.enemy_base_bootstrap))
+                    || (args.enemy_base_blocked_reason !== undefined && (typeof args.enemy_base_blocked_reason !== "string" || args.enemy_base_blocked_reason.length > 128))
+                    || !["", "pending", "triggered", "spawning", "active", "cleared", "failed", "base_bootstrap"].includes(args.wave_state)
                     || !["", "victory", "defeat"].includes(args.outcome)
                     || typeof args.error !== "string" || args.error.length > 256)
                     return { error: 1, errorMessage: "Invalid scenario status" };
@@ -1779,6 +1782,8 @@
                     + " wave=" + missionStatus.wave_ordinal + "/" + missionStatus.wave_total
                     + " state=" + missionStatus.wave_state + " outcome=" + missionStatus.outcome
                     + " difficulty=" + (missionStatus.wave_difficulty || "")
+                    + " enemy_base=" + (missionStatus.enemy_base_bootstrap || "")
+                    + " enemy_reason=" + (missionStatus.enemy_base_blocked_reason || "")
                     + " next_automatic_frame=" + (missionStatus.next_automatic_frame || 0));
                 return {};
             });
@@ -1804,6 +1809,7 @@
                 }
                 if (args.session !== controlSession || !missionStatus
                     || missionStatus.session !== controlSession || missionStatus.mode !== "park_defense"
+                    || missionStatus.base_production
                     || !Number.isSafeInteger(args.request) || args.request < 1
                     || typeof args.request_id !== "string"
                     || args.request_id !== args.session + ":wave:" + event.player + ":" + args.request)
@@ -2711,14 +2717,15 @@
                     return;
                 }
                 if (defenseWindow) { defenseWindow.bringToFront(); return; }
-                const automatic = !!missionStatus.automatic_perimeter;
+                const automatic = !!missionStatus.automatic_perimeter || !!missionStatus.base_production;
                 const widgets = [
                         { type: "button", name: "defense-toggle", x: 8, y: 19, width: 118, height: 24,
                             text: "Enable Zerg Waves", onClick: function () {
                                 if (missionStatus) configureDefense({ enabled: !missionStatus.defense_enabled });
                             } },
                         { type: "label", name: "defense-spawn", x: 8, y: 50, width: 242, height: 14,
-                            text: automatic ? "Wave origins: random park edge" : "Spawn: none" },
+                            text: missionStatus.base_production ? "Enemy colony: preparing" :
+                                automatic ? "Wave origins: random park edge" : "Spawn: none" },
                         { type: "button", name: "defense-interval", x: 8, y: 69, width: 242, height: 22,
                             text: "Wave interval: 120s", onClick: function () {
                                 if (!missionStatus) return;
@@ -2832,11 +2839,19 @@
                     if (widget) widget.text = value;
                 };
                 setText("defense-toggle", "Zerg Waves: " + (status.defense_enabled ? "On" : "Off"));
-                setText("defense-spawn", status.automatic_perimeter ? "Wave origins: random park edge"
+                setText("defense-spawn", status.base_production
+                    ? "Enemy colony: " + (status.enemy_base_bootstrap || "preparing")
+                    : status.automatic_perimeter ? "Wave origins: random park edge"
                     : "Spawn: " + (status.spawn_anchor ? status.spawn_anchor.join(", ") : "select a park edge"));
                 setText("defense-interval", "Wave interval: " + status.wave_interval_seconds + "s");
                 setText("defense-difficulty", "Wave difficulty: " + (status.wave_difficulty || "standard"));
-                setText("defense-next", status.economy_bootstrap === "blocked"
+                setText("defense-next", status.base_production
+                    ? (status.enemy_base_bootstrap === "blocked"
+                        ? "Colony waiting: " + status.enemy_base_blocked_reason
+                        : status.enemy_base_bootstrap === "native_validated"
+                            ? "Colony ready; production pending"
+                            : "Colony validating native routes")
+                    : status.economy_bootstrap === "blocked"
                     ? "Economy placement blocked; waves paused"
                     : status.economy_bootstrap === "preparing" ? "Economy starting; waves paused"
                     : status.defense_enabled

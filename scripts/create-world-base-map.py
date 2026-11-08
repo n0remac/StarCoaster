@@ -98,6 +98,40 @@ def scenario_units(path: Path) -> list[bytes]:
             units.append(UNIT.pack(3000 + index, x, y, kind, 0, 0,
                                    0x10 if owner == 11 else 0, owner,
                                    100, 100, 100, amount, 0, 0, 0, 0))
+    enemy = scenario.get("enemy_base") or {}
+    if enemy:
+        if enemy.get("version") != 1 or enemy.get("layout_policy") != "generated" or \
+                enemy.get("layout_state") not in ("ready", "blocked"):
+            raise ValueError("invalid enemy base map bootstrap")
+        if enemy["layout_state"] == "ready":
+            structures = enemy.get("structures", [])
+            if ([item.get("type") for item in structures] !=
+                    ["zerg_hatchery", "zerg_spawning_pool"] or
+                    [item.get("id") for item in structures] !=
+                    ["enemy-hatchery", "enemy-spawning-pool"] or
+                    any(item.get("faction") != "zerg" for item in structures)):
+                raise ValueError("invalid enemy base native structures")
+            for index, (item, kind, width, height) in enumerate(zip(
+                    structures, (131, 142), (4, 3), (3, 2))):
+                tile = item["tile"]
+                if (not isinstance(tile, list) or len(tile) != 2 or
+                        any(type(v) is not int for v in tile) or
+                        tile[0] < 8 or tile[1] < 8 or
+                        tile[0] + width > size[0] - 8 or tile[1] + height > size[1] - 8):
+                    raise ValueError("invalid enemy base native footprint")
+                x = (tile[0] + (MAP_SIZE - size[0]) // 2) * 32 + width * 16
+                y = (tile[1] + (MAP_SIZE - size[1]) // 2) * 32 + height * 16
+                units.append(unit(4000 + index, x, y, kind, 0))
+            tile = enemy["supply_tile"]
+            if (not isinstance(tile, list) or len(tile) != 2 or
+                    any(type(v) is not int or v < 8 or v >= size[axis] - 8
+                        for axis, v in enumerate(tile))):
+                raise ValueError("invalid enemy base supply tile")
+            x = (tile[0] + (MAP_SIZE - size[0]) // 2) * 32 + 16
+            y = (tile[1] + (MAP_SIZE - size[1]) // 2) * 32 + 16
+            units.append(unit(4002, x, y, 42, 0))
+        elif enemy.get("structures"):
+            raise ValueError("blocked enemy base cannot initialize units")
     fixture = scenario.get("production_fixture") or {}
     if fixture.get("terran_minerals", 0):
         tile = fixture.get("native_supply_depot")

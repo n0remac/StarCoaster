@@ -32,15 +32,29 @@ def prepare(source: str, workspace: Path | None = None, timing=None) -> dict:
             raise ValueError(f"existing park exceeds 256x256 native map: {width}x{height}")
         validated_source_sha256 = hashlib.sha256(source_copy.read_bytes()).hexdigest()
         layout = getattr(inspected, "economy_layout", None) or {
-            "policy_version": 1, "state": "blocked", "reason": "economy_geometry_unavailable",
-            "starting_entities": [], "defense_sites": []}
-        if layout.get("policy_version") != 1 or layout.get("state") not in ("ready", "blocked"):
+            "policy_version": 2, "state": "blocked", "reason": "economy_geometry_unavailable",
+            "starting_entities": [], "defense_sites": [],
+            "enemy_base": {"policy_version": 1, "state": "blocked",
+                           "reason": "terran_economy_blocked", "structures": []}}
+        if layout.get("policy_version") != 2 or layout.get("state") not in ("ready", "blocked"):
             raise ValueError("invalid generated economy layout")
         ready = layout["state"] == "ready"
         entities = layout.get("starting_entities", []) if ready else []
         bases = [entity for entity in entities if entity.get("type") == "terran_command_center"]
         if ready and len(bases) != 1:
             raise ValueError("generated economy layout missing Command Center")
+        enemy = layout.get("enemy_base") or {"policy_version": 1, "state": "blocked",
+                                              "reason": "enemy_geometry_unavailable", "structures": []}
+        if enemy.get("policy_version") != 1 or enemy.get("state") not in ("ready", "blocked"):
+            raise ValueError("invalid generated enemy base layout")
+        if enemy["state"] == "ready" and (not ready or
+                [item.get("type") for item in enemy.get("structures", [])] !=
+                ["zerg_hatchery", "zerg_spawning_pool"]):
+            raise ValueError("invalid generated enemy base structures")
+        initial_structures = ([{"id": bases[0]["id"], "type": "terran_command_center",
+                                "faction": "terran", "tile": bases[0]["tile"]}] if ready else [])
+        if enemy["state"] == "ready":
+            initial_structures += [{**item, "faction": "zerg"} for item in enemy["structures"]]
     scenario = {
         "version": 2, "scenario_id": scenario_id, "mode": "park_defense",
         "display_name": f"StarCraft Defense: {original.stem}"[:128],
@@ -52,21 +66,26 @@ def prepare(source: str, workspace: Path | None = None, timing=None) -> dict:
                     "blocked_reason": layout.get("reason", "") if not ready else "",
                     "initial_balances": {"minerals": 50 if ready else 0, "gas": 0},
                     "starting_entities": entities},
-        "initial_structures": ([{"id": bases[0]["id"], "type": "terran_command_center",
-                                 "faction": "terran", "tile": bases[0]["tile"]}] if ready else []),
+        "enemy_base": {"version": 1, "layout_policy": "generated",
+                       "layout_state": enemy["state"], "policy_version": enemy["policy_version"],
+                       "layout_seed": validated_source_sha256[:16],
+                       "blocked_reason": enemy.get("reason", "") if enemy["state"] == "blocked" else "",
+                       "structures": [{**item, "faction": "zerg"} for item in enemy.get("structures", [])]
+                           if enemy["state"] == "ready" else [],
+                       "supply_tile": enemy.get("supply_tile", []) if enemy["state"] == "ready" else [],
+                       "assembly_tile": enemy.get("assembly_tile", []) if enemy["state"] == "ready" else [],
+                       "approach_tile": enemy.get("approach_tile", []) if enemy["state"] == "ready" else [],
+                       "terran_approach_tile": enemy.get("terran_approach_tile", [])
+                           if enemy["state"] == "ready" else []},
+        "initial_structures": initial_structures,
         "objectives": [],
         "initial_ai": {"strategy": "park_defense", "delay_frames": 0},
         "spawn_zones": {},
         "park_defense": {"initial_delay_frames": 7200, "interval_frames": 2880,
                          "manual_cooldown_frames": 360,
-                         "spawn_policy": "automatic_perimeter", "spawn_zones": [],
+                         "spawn_policy": "base_production", "spawn_zones": [],
                          "wave_tiers": [
-                             {"from_wave": 1, "groups": [{"unit_type": "zerg_zergling", "count": 8}]},
-                             {"from_wave": 3, "groups": [{"unit_type": "zerg_zergling", "count": 7},
-                                                         {"unit_type": "zerg_hydralisk", "count": 2}]},
-                             {"from_wave": 6, "groups": [{"unit_type": "zerg_zergling", "count": 7},
-                                                         {"unit_type": "zerg_hydralisk", "count": 2},
-                                                         {"unit_type": "zerg_ultralisk", "count": 1}]}]},
+                             {"from_wave": 1, "groups": [{"unit_type": "zerg_zergling", "count": 8}]}]},
         "waves": [], "victory": {}, "defeat": {}
     }
     scenario_path = directory / "scenario.json"
@@ -81,7 +100,8 @@ def prepare(source: str, workspace: Path | None = None, timing=None) -> dict:
                                                  "state": layout["state"], "seed": validated_source_sha256[:16],
                                                  "defense_sites": layout.get("defense_sites", []),
                                                  "candidates_checked": layout.get("candidates_checked", 0),
-                                                 "route_checks": layout.get("route_checks", 0)}}, indent=2) + "\n")
+                                                 "route_checks": layout.get("route_checks", 0)},
+                                             "enemy_base_layout": enemy}, indent=2) + "\n")
     output = (ROOT / "run-data/scenarios" / scenario_id) if workspace is None else directory
     return {"scenario_id": scenario_id, "scenario": str(scenario_path),
             "mapping": str(mapping_path),

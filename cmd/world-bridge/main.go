@@ -128,6 +128,12 @@ type service struct {
 	defenseRandomIndex        func(int) int
 	perimeterRetryFrame       int
 	pendingPerimeter          *perimeterQueryState
+	enemyBaseSession          string
+	enemyBaseRevision         uint64
+	enemyBasePublisher        bool
+	enemyBaseController       bool
+	enemyBaseReason           string
+	enemyBaseRetryFrame       int
 }
 
 type parkPatchStage struct {
@@ -613,6 +619,7 @@ func (s *service) publishReady() {
 		s.outcome = s.runtime.Outcome
 	}
 	s.ready = true
+	s.queryEnemyBase(0)
 	s.restoreConstructionWatches()
 	if s.scenario != nil && s.startedSession != s.registry.Session && s.outcome == "" {
 		_ = s.emit(s.bw, "world.start", s.registry.Session, s.registry.Revision,
@@ -1612,6 +1619,8 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		}
 		s.ack(p, m, true, "")
 		s.acceptPerimeterRoute(result.QueryID, result.Accepted, result.ValidIndices)
+	case "scenario.enemy_base.result":
+		s.handleEnemyBaseResult(p, m)
 	case "actor.despawn":
 		var event world.ActorDespawn
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -1965,6 +1974,8 @@ func (s *service) controllerMessage(p *peer, m world.Envelope) {
 		return
 	}
 	switch m.Kind {
+	case "scenario.enemy_base.result":
+		s.handleEnemyBaseResult(p, m)
 	case "resource.state":
 		s.recordResource(p, m, "controller")
 	case "construction.observation":

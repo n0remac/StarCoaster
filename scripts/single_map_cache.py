@@ -15,8 +15,8 @@ from prepare_existing_defense import prepare
 from scenario_package import ROOT, SUPPORTED_PARK_FORMATS, build_native_map, ensure_park
 
 
-SCHEMA_VERSION = 2
-EFFECTIVE_SETTINGS = {"preset": "existing-park-finite-economy-v1", "layout_policy_version": 1,
+SCHEMA_VERSION = 3
+EFFECTIVE_SETTINGS = {"preset": "existing-park-enemy-base-b1", "layout_policy_version": 2,
                       "initial_balances": {"minerals": 50, "gas": 0}, "mapping": {"rules": []}}
 REPO_INPUTS = (
     "scripts/prepare_existing_defense.py", "scripts/scenario_package.py",

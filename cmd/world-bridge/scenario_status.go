@@ -5,32 +5,35 @@ import (
 )
 
 type scenarioStatus struct {
-	Session               string  `json:"session"`
-	ScenarioID            string  `json:"scenario_id"`
-	DisplayName           string  `json:"display_name"`
-	Mode                  string  `json:"mode"`
-	Objective             string  `json:"objective"`
-	WaveOrdinal           int     `json:"wave_ordinal"`
-	WaveTotal             int     `json:"wave_total"`
-	WaveState             string  `json:"wave_state"`
-	Outcome               string  `json:"outcome"`
-	Error                 string  `json:"error"`
-	TotalTriggered        int     `json:"total_triggered"`
-	NextWaveSeconds       int     `json:"next_wave_seconds"`
-	ActiveZerglings       int     `json:"active_zerglings"`
-	ActiveEnemies         int     `json:"active_enemies"`
-	ManualCooldownSeconds int     `json:"manual_cooldown_seconds"`
-	ManualEligible        bool    `json:"manual_eligible"`
-	DefenseEnabled        bool    `json:"defense_enabled,omitempty"`
-	SpawnAnchor           *[2]int `json:"spawn_anchor,omitempty"`
-	WaveIntervalSeconds   int     `json:"wave_interval_seconds,omitempty"`
-	WaveDifficulty        string  `json:"wave_difficulty,omitempty"`
-	UnlimitedResources    bool    `json:"unlimited_resources,omitempty"`
-	FiniteEconomy         bool    `json:"finite_economy,omitempty"`
-	EconomyBootstrap      string  `json:"economy_bootstrap,omitempty"`
-	EconomyBlockedReason  string  `json:"economy_blocked_reason,omitempty"`
-	DefenseConfigurable   bool    `json:"defense_configurable,omitempty"`
-	AutomaticPerimeter    bool    `json:"automatic_perimeter,omitempty"`
+	Session                string  `json:"session"`
+	ScenarioID             string  `json:"scenario_id"`
+	DisplayName            string  `json:"display_name"`
+	Mode                   string  `json:"mode"`
+	Objective              string  `json:"objective"`
+	WaveOrdinal            int     `json:"wave_ordinal"`
+	WaveTotal              int     `json:"wave_total"`
+	WaveState              string  `json:"wave_state"`
+	Outcome                string  `json:"outcome"`
+	Error                  string  `json:"error"`
+	TotalTriggered         int     `json:"total_triggered"`
+	NextWaveSeconds        int     `json:"next_wave_seconds"`
+	ActiveZerglings        int     `json:"active_zerglings"`
+	ActiveEnemies          int     `json:"active_enemies"`
+	ManualCooldownSeconds  int     `json:"manual_cooldown_seconds"`
+	ManualEligible         bool    `json:"manual_eligible"`
+	DefenseEnabled         bool    `json:"defense_enabled,omitempty"`
+	SpawnAnchor            *[2]int `json:"spawn_anchor,omitempty"`
+	WaveIntervalSeconds    int     `json:"wave_interval_seconds,omitempty"`
+	WaveDifficulty         string  `json:"wave_difficulty,omitempty"`
+	UnlimitedResources     bool    `json:"unlimited_resources,omitempty"`
+	FiniteEconomy          bool    `json:"finite_economy,omitempty"`
+	EconomyBootstrap       string  `json:"economy_bootstrap,omitempty"`
+	EconomyBlockedReason   string  `json:"economy_blocked_reason,omitempty"`
+	EnemyBaseBootstrap     string  `json:"enemy_base_bootstrap,omitempty"`
+	EnemyBaseBlockedReason string  `json:"enemy_base_blocked_reason,omitempty"`
+	DefenseConfigurable    bool    `json:"defense_configurable,omitempty"`
+	AutomaticPerimeter     bool    `json:"automatic_perimeter,omitempty"`
+	BaseProduction         bool    `json:"base_production,omitempty"`
 }
 
 func (s *service) currentScenarioStatus() scenarioStatus {
@@ -47,13 +50,36 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 			status.EconomyBootstrap = "ready"
 		}
 	}
+	if s.scenario.EnemyBase != nil {
+		status.EnemyBaseBootstrap = "preparing"
+		if s.scenario.EnemyBase.LayoutState == "blocked" {
+			status.EnemyBaseBootstrap = "blocked"
+			status.EnemyBaseBlockedReason = s.scenario.EnemyBase.BlockedReason
+		} else if s.enemyBaseSession == s.registry.Session &&
+			s.enemyBaseRevision == s.registry.Revision {
+			if s.enemyBasePublisher && s.enemyBaseController &&
+				s.proxies["scenario:enemy-hatchery"] != "" &&
+				s.proxies["scenario:enemy-spawning-pool"] != "" {
+				status.EnemyBaseBootstrap = "native_validated"
+			} else if s.enemyBasePublisher && s.enemyBaseController {
+				status.EnemyBaseBootstrap = "blocked"
+				status.EnemyBaseBlockedReason = "projection_binding_missing"
+			} else if s.enemyBaseReason != "" && s.enemyBaseReason != "native_validation_pending" {
+				status.EnemyBaseBootstrap = "blocked"
+				status.EnemyBaseBlockedReason = s.enemyBaseReason
+			}
+		}
+	}
 	if s.scenario.Mode == "park_defense" {
 		status.Objective = "Manage and defend the park"
 		status.WaveIntervalSeconds = (s.scenario.ParkDefense.IntervalFrames + 23) / 24
 		status.WaveDifficulty = "standard"
 		status.UnlimitedResources = s.scenario.UnlimitedResources
-		status.DefenseConfigurable = s.scenario.ParkDefense.ManualActivation || s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter"
+		status.DefenseConfigurable = s.scenario.ParkDefense.ManualActivation ||
+			s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" ||
+			s.scenario.ParkDefense.SpawnPolicy == "base_production"
 		status.AutomaticPerimeter = s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter"
+		status.BaseProduction = s.scenario.ParkDefense.SpawnPolicy == "base_production"
 		if s.runtime != nil {
 			status.WaveIntervalSeconds = (s.runtime.IntervalFrames(s.scenario) + 23) / 24
 			if s.runtime.WaveDifficulty != "" {
@@ -85,8 +111,17 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 				cooldown = 0
 			}
 			status.ManualCooldownSeconds = (cooldown + 23) / 24
-			status.ManualEligible = s.scenario.ParkDefense.SpawnPolicy != "automatic_perimeter" && status.DefenseEnabled && s.ready && s.bw != nil && s.controller != nil && cooldown == 0 && s.runtime.Error == ""
+			status.ManualEligible = s.scenario.ParkDefense.SpawnPolicy != "automatic_perimeter" &&
+				s.scenario.ParkDefense.SpawnPolicy != "base_production" && status.DefenseEnabled &&
+				s.ready && s.bw != nil && s.controller != nil && cooldown == 0 && s.runtime.Error == ""
 			status.WaveState = "pending"
+			if s.scenario.ParkDefense.SpawnPolicy == "base_production" {
+				status.WaveState = "base_bootstrap"
+				status.NextWaveSeconds = 0
+				if status.EnemyBaseBootstrap == "blocked" {
+					status.Error = "enemy_base_waiting:" + status.EnemyBaseBlockedReason
+				}
+			}
 			for _, wave := range s.runtime.Waves {
 				if wave.State != "cleared" && wave.State != "failed" {
 					status.WaveState = wave.State

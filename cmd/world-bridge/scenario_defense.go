@@ -45,7 +45,8 @@ func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 		return
 	}
 	if s.scenario == nil || s.scenario.Mode != "park_defense" ||
-		(!s.scenario.ParkDefense.ManualActivation && s.scenario.ParkDefense.SpawnPolicy != "automatic_perimeter") || s.runtime == nil {
+		(!s.scenario.ParkDefense.ManualActivation && s.scenario.ParkDefense.SpawnPolicy != "automatic_perimeter" &&
+			s.scenario.ParkDefense.SpawnPolicy != "base_production") || s.runtime == nil {
 		s.respondDefense(p, m, errors.New("defense_configuration_unavailable"))
 		return
 	}
@@ -72,7 +73,8 @@ func (s *service) parkDefenseConfig(p *peer, m world.Envelope) {
 		s.runtime.WaveDifficulty = *request.Difficulty
 	}
 	if request.Anchor != nil {
-		if s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" {
+		if s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" ||
+			s.scenario.ParkDefense.SpawnPolicy == "base_production" {
 			*s.runtime = prior
 			s.respondDefense(p, m, errors.New("automatic_spawn_location"))
 			return

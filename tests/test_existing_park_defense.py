@@ -14,7 +14,7 @@ import scenario_package
 class ExistingParkDefenseTest(unittest.TestCase):
     def test_ordinary_park_uses_finite_native_economy_without_hidden_supply(self):
         class Inspection:
-            economy_layout = {"policy_version": 1, "state": "ready", "seed": "source-a",
+            economy_layout = {"policy_version": 2, "state": "ready", "seed": "source-a",
                 "candidates_checked": 100, "route_checks": 1,
                 "starting_entities": [
                     {"id": "base", "type": "terran_command_center", "tile": [20, 8]},
@@ -23,7 +23,12 @@ class ExistingParkDefenseTest(unittest.TestCase):
                     *[{"id": f"mineral-{letter}", "type": "mineral_field", "tile": [28 + 3 * (i % 3), 9 + 4 * (i // 3)], "amount": 1500}
                       for i, letter in enumerate("abcdef")],
                     {"id": "geyser", "type": "vespene_geyser", "tile": [38, 9], "amount": 5000}],
-                "defense_sites": []}
+                "defense_sites": [], "enemy_base": {"policy_version": 1, "state": "ready",
+                    "structures": [
+                        {"id": "enemy-hatchery", "type": "zerg_hatchery", "tile": [8, 31]},
+                        {"id": "enemy-spawning-pool", "type": "zerg_spawning_pool", "tile": [13, 32]}],
+                    "supply_tile": [16, 34], "assembly_tile": [12, 35],
+                    "approach_tile": [12, 38], "terran_approach_tile": [24, 18]}}
             def __iter__(self):
                 return iter((64, 64))
 
@@ -43,8 +48,10 @@ class ExistingParkDefenseTest(unittest.TestCase):
             self.assertEqual(scenario["economy"]["layout_state"], "ready")
             self.assertEqual(scenario["economy"]["initial_balances"], {"minerals": 50, "gas": 0})
             self.assertGreaterEqual(scenario["park_defense"]["initial_delay_frames"], 7200)
-            self.assertEqual(scenario["initial_structures"], [
-                {"id": "base", "type": "terran_command_center", "faction": "terran", "tile": [20, 8]}])
+            self.assertEqual([item["type"] for item in scenario["initial_structures"]],
+                             ["terran_command_center", "zerg_hatchery", "zerg_spawning_pool"])
+            self.assertEqual(scenario["enemy_base"]["layout_state"], "ready")
+            self.assertEqual(scenario["park_defense"]["spawn_policy"], "base_production")
 
     def test_creates_private_package_without_changing_source(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -62,14 +69,15 @@ class ExistingParkDefenseTest(unittest.TestCase):
             self.assertEqual(definition["park_size"], [192, 128])
             self.assertEqual(definition["starting_units"], {"marines": [], "zerglings": []})
             self.assertEqual(definition["spawn_zones"], {})
-            self.assertEqual(definition["park_defense"]["spawn_policy"], "automatic_perimeter")
+            self.assertEqual(definition["park_defense"]["spawn_policy"], "base_production")
+            self.assertEqual(definition["enemy_base"]["layout_state"], "blocked")
             self.assertFalse(definition["park_defense"].get("manual_activation", False))
             self.assertFalse(definition["park_defense"].get("fixed_spawn", False))
             self.assertFalse(definition.get("unlimited_resources", False))
             self.assertFalse(definition.get("production_fixture"))
             self.assertEqual(definition["economy"]["layout_state"], "blocked")
             self.assertEqual(definition["economy"]["blocked_reason"], "economy_geometry_unavailable")
-            self.assertEqual([tier["from_wave"] for tier in definition["park_defense"]["wave_tiers"]], [1, 3, 6])
+            self.assertEqual([tier["from_wave"] for tier in definition["park_defense"]["wave_tiers"]], [1])
 
     def test_rejects_oversized_map(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -24,8 +24,12 @@ func (s *service) normalizeAuthoredNativeProjection(entity *world.Entity) {
 		return
 	}
 	for _, structure := range s.scenario.InitialStructures {
+		owner := 1
+		if structure.Faction == "zerg" && s.scenario.EnemyBase != nil {
+			owner = 0
+		}
 		if entity.ID != "scenario:"+structure.ID || entity.Type != structure.Type ||
-			entity.Owner != 1 || entity.Position.X != structure.Tile[0]*32 ||
+			entity.Owner != owner || entity.Position.X != structure.Tile[0]*32 ||
 			entity.Position.Y != structure.Tile[1]*32 {
 			continue
 		}
@@ -69,7 +73,8 @@ func (s *service) validateFinitePatch(patch world.Patch) error {
 	}
 	for _, authored := range s.scenario.InitialStructures {
 		building, ok := world.SupportedBuilding(authored.Type)
-		if !ok || len(authored.Type) < 7 || authored.Type[:7] != "terran_" {
+		generatedEnemy := s.scenario.EnemyBase != nil && authored.Faction == "zerg"
+		if !ok || (!generatedEnemy && (len(authored.Type) < 7 || authored.Type[:7] != "terran_")) {
 			continue
 		}
 		baseID := "scenario:" + authored.ID
@@ -140,6 +145,22 @@ func (s *service) validateFiniteSnapshot(entities []world.Entity) error {
 		return errors.New("construction_journal_unavailable")
 	}
 	for _, entity := range entities {
+		if s.scenario.EnemyBase != nil {
+			for _, authored := range s.scenario.EnemyBase.Structures {
+				if entity.ID != "scenario:"+authored.ID {
+					continue
+				}
+				building, ok := world.SupportedBuilding(authored.Type)
+				if !ok || entity.Kind != "structure" || entity.Type != authored.Type || entity.Owner != 0 ||
+					entity.Position.X != authored.Tile[0]*32 || entity.Position.Y != authored.Tile[1]*32 ||
+					!finiteAuthoredFootprint(entity, authored.Tile, building) {
+					return errors.New("enemy_base_snapshot_mismatch")
+				}
+				if s.construction.DestroyedAuthored[entity.ID] {
+					return errors.New("destroyed_enemy_base_reintroduced")
+				}
+			}
+		}
 		if entity.Kind != "structure" || len(entity.Type) < 7 || entity.Type[:7] != "terran_" {
 			continue
 		}
