@@ -113,19 +113,23 @@ def main():
             if args.second_map == args.map:
                 raise RuntimeError("second map must differ from first map")
             second_log = runtime / "sessions" / second["generation"] / "session.log"
-            wave_deadline = time.monotonic() + 240
-            prior_actors = []
+            base_policy = json.loads(Path(second_plan["scenario"]).read_text()).get(
+                "park_defense", {}).get("spawn_policy") == "base_production"
+            wave_deadline = time.monotonic() + (40 if base_policy else 240)
+            prior_actors, prior_orders = [], []
             while time.monotonic() < wave_deadline:
                 prior_journal = journal_for(second_plan, second_log)
                 prior_actors = [unit["actor_id"] for wave in prior_journal.get("waves") or []
                                 for unit in wave.get("units") or [] if unit.get("actor_id")]
-                if prior_actors:
+                prior_orders = [order["request_id"] for order in
+                    (prior_journal.get("enemy_production") or {}).get("orders") or []]
+                if prior_actors or base_policy and prior_orders:
                     break
                 if supervisor.session.poll() is not None:
-                    raise RuntimeError("prior map exited before its automatic wave")
+                    raise RuntimeError("prior map exited before its native activity")
                 time.sleep(.5)
-            if not prior_actors:
-                raise RuntimeError("prior map produced no native automatic wave before switching")
+            if not prior_actors and not prior_orders:
+                raise RuntimeError("prior map produced no native wave or train order before switching")
             second_process = supervisor.session
             third = select(supervisor, args.second_map, second["generation"])
             if second_process.poll() is None:
@@ -139,6 +143,12 @@ def main():
                     third_journal.get("defense_enabled") is not True or
                     third_journal.get("waves") or third_journal.get("next_wave_sequence") != 1):
                 raise RuntimeError("second map inherited wave state or settings")
+            if base_policy and (third_journal.get("enemy_assault") or {}).get("waves"):
+                raise RuntimeError("second map inherited base assault assignments")
+            third_orders = [order["request_id"] for order in
+                (third_journal.get("enemy_production") or {}).get("orders") or []]
+            if set(prior_orders) & set(third_orders):
+                raise RuntimeError("second map inherited native train orders")
             if third_journal["session"] in (runtime / "sessions" / second["generation"] / "session.log").read_text(errors="replace"):
                 raise RuntimeError("second map reused the prior native session")
             if second_plan["scenario_id"] == third_plan["scenario_id"]:
@@ -146,7 +156,8 @@ def main():
             result.update({"second_map": args.second_map, "third_generation": third["generation"],
                            "third_session": third_journal["session"], "third_wave_count": 0,
                            "third_difficulty": third_journal.get("wave_difficulty") or "standard",
-                           "prior_actor_ids": prior_actors})
+                           "prior_actor_ids": prior_actors, "prior_train_order_ids": prior_orders,
+                           "third_train_order_ids": third_orders})
         (runtime / "verification.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result, indent=2))
         return 0

@@ -35,6 +35,8 @@ def main():
     parser.add_argument("source", type=Path)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--expect-blocked", action="store_true")
+    parser.add_argument("--fixture-no-colony", action="store_true",
+                        help="test-only blocked colony on an otherwise valid Terran park")
     parser.add_argument("--restart-bridge", action="store_true")
     args = parser.parse_args()
     source, runtime = args.source.resolve(strict=True), args.runtime.resolve()
@@ -44,6 +46,22 @@ def main():
     runtime.mkdir(parents=True, exist_ok=True)
     plan = prepare(str(source), runtime / "prepared")
     scenario = json.loads(Path(plan["scenario"]).read_text())
+    if args.fixture_no_colony:
+        if not args.expect_blocked or scenario["economy"]["layout_state"] != "ready":
+            parser.error("blocked colony fixture requires a ready Terran economy and --expect-blocked")
+        base = scenario["enemy_base"]
+        base.update({"layout_state": "blocked", "blocked_reason": "no_valid_perimeter_site",
+                     "initial_minerals": 0, "minimum_supply": 0, "max_train_orders": 0,
+                     "structures": [], "supply_tile": [], "assembly_tile": [],
+                     "approach_tile": [], "terran_approach_tile": []})
+        scenario["initial_structures"] = [item for item in scenario["initial_structures"]
+                                           if item["faction"] != "zerg"]
+        Path(plan["scenario"]).write_text(json.dumps(scenario, indent=2) + "\n")
+        metadata_path = Path(plan["scenario"]).parent / "package.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["enemy_base_layout"] = {"policy_version": 1, "state": "blocked",
+                                         "reason": "no_valid_perimeter_site", "structures": []}
+        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
     expected_state = "blocked" if args.expect_blocked else "ready"
     if scenario["enemy_base"]["layout_state"] != expected_state:
         raise RuntimeError("enemy site state differs from expectation: " +

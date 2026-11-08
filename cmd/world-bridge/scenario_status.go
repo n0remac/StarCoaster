@@ -44,6 +44,8 @@ type scenarioStatus struct {
 	EnemyTrainOrders       int     `json:"enemy_train_orders,omitempty"`
 	EnemyAttackers         int     `json:"enemy_attackers,omitempty"`
 	EnemyWaveShortfall     int     `json:"enemy_wave_shortfall,omitempty"`
+	EnemyColonyCount       int     `json:"enemy_colony_count"`
+	EnemyAttackState       string  `json:"enemy_attack_state,omitempty"`
 }
 
 func (s *service) currentScenarioStatus() scenarioStatus {
@@ -122,6 +124,9 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 				status.EnemyBaseBlockedReason = s.enemyBaseReason
 			}
 		}
+		if status.EnemyBaseBootstrap == "native_validated" {
+			status.EnemyColonyCount = 1
+		}
 	}
 	if s.scenario.Mode == "park_defense" {
 		status.Objective = "Manage and defend the park"
@@ -191,7 +196,7 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 						case "route_blocked", "uncertain", "failed":
 							status.WaveState = "failed"
 						}
-						if last.State == "route_blocked" || last.State == "uncertain" {
+						if last.State == "route_blocked" || last.State == "uncertain" || last.State == "failed" {
 							status.Error = last.Attempts[len(last.Attempts)-1].Reason
 						}
 					}
@@ -213,6 +218,32 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 			}
 			if s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" && s.perimeterRetryFrame > s.runtime.LastFrame {
 				status.Error = "Waves waiting: no reachable edge location"
+			}
+		}
+		if status.BaseProduction {
+			switch {
+			case status.EnemyBaseBootstrap == "defeated":
+				status.EnemyAttackState = "defeated"
+			case status.EnemyBaseBootstrap == "blocked":
+				status.EnemyAttackState = "blocked"
+			case !status.DefenseEnabled:
+				status.EnemyAttackState = "paused"
+			case status.EnemyBaseBootstrap != "native_validated" ||
+				(status.FiniteEconomy && status.EconomyBootstrap != "ready"):
+				status.EnemyAttackState = "preparing"
+			case status.WaveState == "spawning":
+				status.EnemyAttackState = "ordering"
+			case status.WaveState == "active":
+				status.EnemyAttackState = "attacking"
+			case status.WaveState == "failed":
+				status.EnemyAttackState = "blocked"
+			case status.EnemyProductionState == "production_exhausted" &&
+				status.EnemyGarrison == 0 && status.EnemyAttackers == 0:
+				status.EnemyAttackState = "exhausted"
+			case status.EnemyGarrison == 0 && status.NextWaveSeconds == 0:
+				status.EnemyAttackState = "waiting_for_units"
+			default:
+				status.EnemyAttackState = "forming"
 			}
 		}
 		return status

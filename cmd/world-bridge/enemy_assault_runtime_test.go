@@ -174,3 +174,34 @@ func TestEnemyAssaultLateProductionResultCannotTrainDestroyedBase(t *testing.T) 
 		})
 	}
 }
+
+func TestEnemyBaseB4SharedStatus(t *testing.T) {
+	s := enemyAssaultService(t)
+	s.enemyBasePublisher, s.enemyBaseController = true, true
+	s.enemyBaseSession, s.enemyBaseRevision = s.registry.Session, s.registry.Revision
+	s.proxies["scenario:enemy-hatchery"] = "openbw:5"
+	s.proxies["scenario:enemy-spawning-pool"] = "openbw:6"
+	status := s.currentScenarioStatus()
+	if status.EnemyColonyCount != 1 || status.EnemyAttackState != "forming" {
+		t.Fatalf("ready colony status: %+v", status)
+	}
+	s.runtime.DefenseEnabled = false
+	if status = s.currentScenarioStatus(); status.EnemyAttackState != "paused" {
+		t.Fatalf("disabled colony status: %+v", status)
+	}
+	s.runtime.DefenseEnabled = true
+	s.registry.Destroyed["scenario:enemy-hatchery"] = true
+	if status = s.currentScenarioStatus(); status.EnemyColonyCount != 0 ||
+		status.EnemyAttackState != "defeated" {
+		t.Fatalf("destroyed colony status: %+v", status)
+	}
+	delete(s.registry.Destroyed, "scenario:enemy-hatchery")
+	s.enemyBasePublisher, s.enemyBaseController = false, false
+	s.scenario.EnemyBase.LayoutState = "blocked"
+	s.scenario.EnemyBase.BlockedReason = "no_valid_perimeter_site"
+	if status = s.currentScenarioStatus(); status.EnemyColonyCount != 0 ||
+		status.EnemyAttackState != "blocked" ||
+		status.EnemyBaseBlockedReason != "no_valid_perimeter_site" {
+		t.Fatalf("blocked colony status: %+v", status)
+	}
+}

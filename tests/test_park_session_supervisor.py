@@ -77,8 +77,13 @@ class ParkSessionSupervisorTest(unittest.TestCase):
             (self.library / name).write_bytes(b"PARKpark")
         self.preflights = []
         self.native_maps = []
+        def preflight(generation, _plan, runtime):
+            self.preflights.append(generation)
+            index = Path(runtime) / "sessions" / generation / "preflight/server/scenarios.idx"
+            index.parent.mkdir(parents=True, exist_ok=True)
+            index.write_bytes(b"SIDX verified fixture index")
         self.cache = SingleMapCache(self.root / "cache", dependencies=lambda: {"fixture": "v1"},
-                                    preflight=lambda generation, plan, runtime: self.preflights.append(generation))
+                                    preflight=preflight)
         self.supervisor = ParkSessionSupervisor(self.library, self.root / "runtime", "Park A.park",
                                                  start_browser=False, cache=self.cache)
         self.old = Process()

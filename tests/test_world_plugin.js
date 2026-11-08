@@ -476,12 +476,32 @@ assert.match(defenseWidgets.find(widget => widget.name === 'defense-feedback').t
     /spawn_zones_temporarily_blocked/, 'wave placement errors are visible in Defense');
 const baseStatus = { ...parkStatus, base_production: true, automatic_perimeter: false,
     enemy_base_bootstrap: 'blocked', enemy_base_blocked_reason: 'no_valid_perimeter_site',
+    enemy_colony_count: 0, enemy_attack_state: 'blocked',
     wave_state: 'base_bootstrap', manual_eligible: false, next_wave_seconds: 0 };
 assert.equal(missionAction.query({ player: 1, args: baseStatus }).error, undefined);
 missionAction.execute({ player: 1, args: baseStatus });
 subscriptions.get('interval.tick')();
 assert.match(defenseWidgets.find(widget => widget.name === 'defense-next').text,
-    /Colony waiting: no_valid_perimeter_site/);
+    /No clear park edge/);
+assert.match(defenseWidgets.find(widget => widget.name === 'defense-spawn').text,
+    /Enemy colonies: 0/);
+assert.match(defenseWidgets.find(widget => widget.name === 'defense-feedback').text,
+    /No clear park edge/);
+missionAction.execute({ player: 1, args: { ...baseStatus,
+    enemy_base_bootstrap: 'native_validated', enemy_base_blocked_reason: '',
+    enemy_colony_count: 1, enemy_attack_state: 'forming', next_wave_seconds: 120 } });
+subscriptions.get('interval.tick')();
+assert.match(defenseWidgets.find(widget => widget.name === 'defense-spawn').text,
+    /Enemy colonies: 1/);
+assert.match(defenseWidgets.find(widget => widget.name === 'defense-next').text,
+    /Next attack: 120s/);
+const statusLogCount = logs.filter(line => line.startsWith('WORLD_SCENARIO_STATUS ')).length;
+missionAction.execute({ player: 1, args: { ...baseStatus,
+    enemy_base_bootstrap: 'native_validated', enemy_base_blocked_reason: '',
+    enemy_colony_count: 1, enemy_attack_state: 'forming', next_wave_seconds: 119,
+    enemy_minerals: 250 } });
+assert.equal(logs.filter(line => line.startsWith('WORLD_SCENARIO_STATUS ')).length,
+    statusLogCount, 'countdown and mineral updates do not flood the session log');
 assert.ok(waveAction.query({ player: 1, args: { session: sid, request: 1,
     request_id: `${sid}:wave:1:1` } }).error,
     'a staged base does not expose free wave spawning');

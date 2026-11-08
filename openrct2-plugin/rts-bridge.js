@@ -1295,6 +1295,8 @@
             worldTargetIds = {};
             targetCatalogSession = "";
             missionStatus = null;
+            lastMissionLogKey = "";
+            lastMissionLogAt = 0;
             outcomeState = null;
             parkCatalog = null;
             parkLoadStatus = null;
@@ -1411,6 +1413,7 @@
         }
         let outcomeState = null;
         let missionStatus = null;
+        let lastMissionLogKey = "", lastMissionLogAt = 0;
         let shownOutcome = "";
         let commandFeedback = "";
         const productionFeedback = {};
@@ -1770,6 +1773,10 @@
                     || (args.economy_blocked_reason !== undefined && !["", "no_native_valid_economy_site", "economy_geometry_unavailable", "economy_search_limit"].includes(args.economy_blocked_reason))
                     || (args.enemy_base_bootstrap !== undefined && !["", "preparing", "native_validated", "blocked", "defeated"].includes(args.enemy_base_bootstrap))
                     || (args.enemy_base_blocked_reason !== undefined && (typeof args.enemy_base_blocked_reason !== "string" || args.enemy_base_blocked_reason.length > 128))
+                    || (args.enemy_colony_count !== undefined && (!Number.isSafeInteger(args.enemy_colony_count)
+                        || args.enemy_colony_count < 0 || args.enemy_colony_count > 1))
+                    || (args.enemy_attack_state !== undefined && !["", "preparing", "forming", "waiting_for_units",
+                        "ordering", "attacking", "blocked", "paused", "defeated", "exhausted"].includes(args.enemy_attack_state))
                     || (args.enemy_production_state !== undefined && (typeof args.enemy_production_state !== "string" || args.enemy_production_state.length > 64))
                     || ["enemy_minerals", "enemy_supply_used", "enemy_supply_total", "enemy_larvae",
                         "enemy_eggs", "enemy_garrison", "enemy_train_orders", "enemy_attackers",
@@ -1784,11 +1791,22 @@
             }, function (event) {
                 missionStatus = event.args;
                 if (missionStatus.outcome) outcomeState = missionStatus.outcome;
-                console.log("WORLD_SCENARIO_STATUS scenario=" + missionStatus.scenario_id
+                const logKey = JSON.stringify([missionStatus.session, missionStatus.scenario_id,
+                    missionStatus.wave_ordinal, missionStatus.wave_state, missionStatus.outcome,
+                    missionStatus.error, missionStatus.enemy_base_bootstrap,
+                    missionStatus.enemy_base_blocked_reason, missionStatus.enemy_production_state,
+                    missionStatus.enemy_attack_state, missionStatus.enemy_colony_count]);
+                const now = Date.now();
+                if (logKey !== lastMissionLogKey || now - lastMissionLogAt >= 5000) {
+                    lastMissionLogKey = logKey;
+                    lastMissionLogAt = now;
+                    console.log("WORLD_SCENARIO_STATUS scenario=" + missionStatus.scenario_id
                     + " wave=" + missionStatus.wave_ordinal + "/" + missionStatus.wave_total
                     + " state=" + missionStatus.wave_state + " outcome=" + missionStatus.outcome
                     + " difficulty=" + (missionStatus.wave_difficulty || "")
                     + " enemy_base=" + (missionStatus.enemy_base_bootstrap || "")
+                    + " colonies=" + (missionStatus.enemy_colony_count || 0)
+                    + " attack=" + (missionStatus.enemy_attack_state || "")
                     + " enemy_reason=" + (missionStatus.enemy_base_blocked_reason || "")
                     + " production=" + (missionStatus.enemy_production_state || "")
                     + " enemy_minerals=" + (missionStatus.enemy_minerals || 0)
@@ -1796,6 +1814,7 @@
                     + " garrison=" + (missionStatus.enemy_garrison || 0)
                     + " attackers=" + (missionStatus.enemy_attackers || 0)
                     + " next_automatic_frame=" + (missionStatus.next_automatic_frame || 0));
+                }
                 return {};
             });
             context.registerAction(WAVE_ACTION, function (event) {
@@ -2853,25 +2872,50 @@
                     const widget = defenseWindow.findWidget(name);
                     if (widget) widget.text = value;
                 };
+                const baseBlockReasons = {
+                    no_valid_perimeter_site: "No clear park edge; edit and reload",
+                    terran_economy_blocked: "Terran site blocked; edit and reload",
+                    native_production_exit_missing: "Colony exit blocked; clear nearby builds",
+                    native_attack_route_missing: "Attack route blocked; clear path",
+                    native_counterattack_route_missing: "Counterattack route blocked; clear path",
+                    native_route_unavailable: "Attack path blocked; clear path",
+                    native_assembly_obstructed: "Colony yard blocked; clear nearby builds",
+                    native_entities_missing_or_incomplete: "Colony setup incomplete; reload map",
+                    native_creep_missing: "Colony creep missing; reload map",
+                    native_supply_missing: "Enemy supply missing; reload map",
+                    native_receipt_missing: "Attack order unconfirmed; waves paused",
+                    projection_binding_missing: "Colony view missing; reload map",
+                    native_colony_identity_changed: "Colony identity changed; reload map",
+                    all_assigned_actors_dead: "Attack group lost before ordering"
+                };
+                const baseReason = function (reason) {
+                    return baseBlockReasons[reason] || ("Colony blocked: " + (reason || "native validation"));
+                };
+                const baseNext = function () {
+                    if (status.enemy_base_bootstrap === "blocked")
+                        return baseReason(status.enemy_base_blocked_reason);
+                    switch (status.enemy_attack_state) {
+                    case "defeated": return "Zerg colony defeated";
+                    case "paused": return "Colony attacks paused";
+                    case "blocked": return baseReason(status.error);
+                    case "exhausted": return "Colony production exhausted";
+                    case "waiting_for_units": return "Waiting for hatched Zerglings";
+                    case "ordering": return "Assigning native attack group";
+                    case "attacking": return "Attack underway; next in " + (status.next_wave_seconds || 0) + "s";
+                    case "preparing": return "Colony validating native routes";
+                    default: return "Next attack: " + (status.next_wave_seconds || 0) + "s";
+                    }
+                };
                 setText("defense-toggle", "Zerg Waves: " + (status.defense_enabled ? "On" : "Off"));
                 setText("defense-spawn", status.base_production
-                    ? "Enemy colony: " + (status.enemy_base_bootstrap || "preparing")
+                    ? "Enemy colonies: " + (status.enemy_colony_count || 0)
+                        + " (" + (status.enemy_base_bootstrap || "preparing") + ")"
                     : status.automatic_perimeter ? "Wave origins: random park edge"
                     : "Spawn: " + (status.spawn_anchor ? status.spawn_anchor.join(", ") : "select a park edge"));
                 setText("defense-interval", "Wave interval: " + status.wave_interval_seconds + "s");
                 setText("defense-difficulty", "Wave difficulty: " + (status.wave_difficulty || "standard"));
                 setText("defense-next", status.base_production
-                    ? (status.enemy_base_bootstrap === "blocked"
-                        ? "Colony waiting: " + status.enemy_base_blocked_reason
-                        : status.enemy_base_bootstrap === "defeated"
-                            ? "Zerg colony defeated"
-                        : status.error && status.wave_state === "failed"
-                            ? "Attack blocked: " + status.error
-                        : status.enemy_base_bootstrap === "native_validated"
-                            ? status.defense_enabled
-                                ? "Next attack: " + (status.next_wave_seconds || 0) + "s"
-                                : "Colony attacks paused"
-                            : "Colony validating native routes")
+                    ? baseNext()
                     : status.economy_bootstrap === "blocked"
                     ? "Economy placement blocked; waves paused"
                     : status.economy_bootstrap === "preparing" ? "Economy starting; waves paused"
@@ -2884,7 +2928,11 @@
                     : "Current wave: " + status.wave_ordinal + " | "
                         + status.active_enemies + " enemies (" + status.wave_state + ")");
                 if (status.base_production) setText("defense-production",
-                    "Production: " + (status.enemy_production_state || "waiting")
+                    "Production: " + ({ production_exhausted: "minerals exhausted",
+                        larva_pending: "waiting for Larva", training: "training Zerglings",
+                        spawning_pool_destroyed: "Pool destroyed; training stopped",
+                        colony_defeated: "Hatchery destroyed", paused: "paused" }[status.enemy_production_state]
+                        || (status.enemy_production_state || "waiting").replace(/_/g, " "))
                         + " | " + (status.enemy_minerals || 0) + " minerals"
                         + " | " + (status.enemy_eggs || 0) + " Eggs");
                 const balance = playerResources[terranOwner];
@@ -2898,6 +2946,10 @@
                     ? status.economy_blocked_reason === "economy_search_limit"
                         ? "Economy search limit reached. Edit, save, and reload this park to retry."
                         : "No level, dry, owned base site with resource routes. Edit, save, and reload this park to retry."
+                    : status.base_production && status.enemy_base_bootstrap === "blocked"
+                        ? baseReason(status.enemy_base_blocked_reason)
+                    : status.base_production && status.enemy_attack_state === "blocked"
+                        ? baseReason(status.error)
                     : status.error ? "Wave placement: " + status.error : waveFeedback || defenseFeedback);
             });
             function requestWave() {
