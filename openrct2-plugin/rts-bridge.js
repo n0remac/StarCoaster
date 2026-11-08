@@ -99,8 +99,16 @@
         const parkStorage = typeof context.getParkStorage === "function" ? context.getParkStorage() : null;
         let finiteEconomy = !!(parkStorage && parkStorage.get("economyMode", "") === "finite");
         const constructionReservations = {};
+        const projectionStateReady = {};
+        let renderSessionReady = false;
         let projectionPlacement = "";
         const projectionAttempts = {};
+        context.subscribe("map.change", function () {
+            renderSessionReady = false;
+            Object.keys(projectionStateReady).forEach(function (id) { delete projectionStateReady[id]; });
+            Object.keys(projectionAttempts).forEach(function (id) { delete projectionAttempts[id]; });
+            Object.keys(constructionReservations).forEach(function (id) { delete constructionReservations[id]; });
+        });
         const savedBarracksGenerations = parkStorage ? (parkStorage.get("barracksGenerations", {}) || {}) : {};
         const savedBarracksHealth = parkStorage ? (parkStorage.get("barracksHealth", {}) || {}) : {};
         const scenarioStructures = parkStorage ? (parkStorage.get("scenarioStructures", []) || []) : [];
@@ -759,7 +767,9 @@
                 + " terrain=" + current.terrain.length + " chunks=" + chunks.length);
         }
         function projectNativeBuilding(state) {
-            if (!finiteEconomy || !state || !state.native_id || state.projection_id
+            if (!finiteEconomy || !renderSessionReady || !state
+                || !["bound", "constructing", "paused", "completed"].includes(state.state)
+                || !state.native_id || state.projection_id
                 || !BUILDING_TYPES[state.building_type] || !state.building_type.startsWith("terran_")
                 || !Number.isInteger(state.tile_x) || !Number.isInteger(state.tile_y)) return;
             const id = state.intent_id;
@@ -1003,10 +1013,16 @@
                         {}, constructionReservations[state.intent_id], state);
                 context.executeAction(CONSTRUCTION_STATE_ACTION, Object.assign({ session: session }, state),
                     function (result) {
-                        if (result.error) console.log("WORLD_CONSTRUCTION_STATE_ERROR " + result.errorMessage);
+                        if (result.error) {
+                            console.log("WORLD_CONSTRUCTION_STATE_ERROR " + result.errorMessage);
+                            return;
+                        }
+                        // The animation registry must be ready before the park action
+                        // can make the native building visible on either client.
+                        if (renderSessionReady)
+                            projectNativeBuilding(constructionReservations[state.intent_id]);
+                        else projectionStateReady[state.intent_id] = true;
                     });
-                if (["bound", "constructing", "paused", "completed"].includes(state.state))
-                    projectNativeBuilding(constructionReservations[state.intent_id]);
             }
             else if (message.kind === "unit.spawn.status" && message.payload) onSpawnStatus(message.payload);
             else if (message.kind === "scenario.wave.status" && message.payload) onWaveStatus(message.payload);
@@ -1039,6 +1055,13 @@
                         accepted: !result.error });
                     delete snapshotSubmitTimes[state.seq];
                     if (result.error) console.log("WORLD_RENDER_ERROR " + result.errorMessage);
+                    else {
+                        renderSessionReady = true;
+                        Object.keys(projectionStateReady).forEach(function (id) {
+                            projectNativeBuilding(constructionReservations[id]);
+                            delete projectionStateReady[id];
+                        });
+                    }
                 });
             }
             else if (message.kind === "actor.bind" || message.kind === "actor.despawn") {
@@ -1401,23 +1424,76 @@
                 const building = BUILDING_TYPES[type], object = buildingObjects[type];
                 if (!object || !building.constructionFrames) return;
                 const prefix = "openrct2:large_scenery:" + object.index + ":";
-                const tiles = [];
+                const tilesByPosition = {};
+                const awaitingProjection = {};
+                function setFootprint(x, y, frame) {
+                    for (let row = 0; row < building.height; row++)
+                        for (let col = 0; col < building.width; col++) {
+                            const tile = { x: x + col * 32, y: y + row * 32 };
+                            if (frame !== undefined) tile.frame = frame;
+                            tilesByPosition[tile.x + ":" + tile.y] = tile;
+                        }
+                }
+                const basePlate = 1 + (building.animation ? building.animation.frames : 0);
+                Object.keys(constructionStates).forEach(function (id) {
+                    const intent = constructionStates[id];
+                    if (intent.session !== controlSession || intent.building_type !== type
+                        || !["bound", "constructing", "paused"].includes(intent.state)
+                            && !(intent.state === "completed" && !intent.projection_id)
+                        || !intent.native_id || !Number.isInteger(intent.tile_x)
+                        || !Number.isInteger(intent.tile_y)) return;
+                    const x = intent.tile_x * 32, y = intent.tile_y * 32;
+                    if (!intent.projection_id) awaitingProjection[x + ":" + y] = true;
+                    // An authoritative completed state wins even when its catalog
+                    // update is still in flight, after the first park projection.
+                    const completed = !!intent.projection_id && Object.keys(buildingStates).some(function (buildingID) {
+                        const state = buildingStates[buildingID];
+                        return buildingID.startsWith(prefix + x + ":" + y + ":")
+                            && state.session === controlSession && state.completed;
+                    });
+                    if (!completed) setFootprint(x, y, basePlate);
+                });
                 Object.keys(buildingStates).forEach(function (id) {
                     const state = buildingStates[id], target = worldTargetIds[id];
-                    if (!id.startsWith(prefix) || !target || !state || state.session !== controlSession
-                        || targetCatalogSession !== controlSession || state.health < 1) return;
+                    if (!id.startsWith(prefix) || !state || state.session !== controlSession
+                        || state.health < 1 || target && target.health < 1) return;
+                    const origin = id.slice(prefix.length).match(/^([0-9]+):([0-9]+):[0-9]+:[0-3]#[0-9]+$/);
+                    if (origin && awaitingProjection[origin[1] + ":" + origin[2]]) return;
                     const constructing = !state.completed && Number.isInteger(state.construction_progress)
                         && state.construction_progress >= 0 && state.construction_progress <= 100;
-                    if (!constructing && (!building.animation || state.queue < 1)) return;
+                    let rects = target && targetCatalogSession === controlSession
+                        ? target.geometry.rects : null;
+                    if (!rects && constructing && targetCatalogSession !== controlSession) {
+                        // On reconnect, native progress can precede the chunked
+                        // target catalog. The stable park ID contains the origin.
+                        if (origin) {
+                            const x = Number(origin[1]), y = Number(origin[2]);
+                            if (x + building.width * 32 <= map.size.x * 32
+                                && y + building.height * 32 <= map.size.y * 32)
+                                rects = [{ x: x, y: y, width: building.width * 32,
+                                    height: building.height * 32 }];
+                        }
+                    }
+                    if (!rects) return;
+                    if (!constructing && (!building.animation || state.queue < 1)) {
+                        rects.forEach(function (rect) {
+                            for (let y = rect.y; y < rect.y + rect.height; y += 32)
+                                for (let x = rect.x; x < rect.x + rect.width; x += 32)
+                                    delete tilesByPosition[x + ":" + y];
+                        });
+                        return;
+                    }
                     const stage = constructing ? Math.min(building.constructionFrames - 1,
                         Math.floor(state.construction_progress * building.constructionFrames / 100)) : -1;
-                    const bank = constructing ? 1 + (building.animation ? building.animation.frames : 0) + stage : 0;
-                    target.geometry.rects.forEach(function (rect) {
+                    const bank = constructing ? basePlate + stage : 0;
+                    rects.forEach(function (rect) {
                         for (let y = rect.y; y < rect.y + rect.height; y += 32)
                             for (let x = rect.x; x < rect.x + rect.width; x += 32)
-                                tiles.push(constructing ? { x: x, y: y, frame: bank } : { x: x, y: y });
+                                tilesByPosition[x + ":" + y] = constructing
+                                    ? { x: x, y: y, frame: bank } : { x: x, y: y };
                     });
                 });
+                const tiles = Object.keys(tilesByPosition).map(function (key) { return tilesByPosition[key]; });
                 if (!tiles.length && !animatedBuildingObjects[type]) return;
                 animatedBuildingObjects[type] = tiles.length > 0;
                 rtsBridge.setBuildingAnimations({ session: controlSession,
@@ -2144,6 +2220,20 @@
                     })
                     ? {} : { error: 1, errorMessage: "Invalid native building state" };
             }, function (event) {
+                const prior = buildingStates[event.args.id];
+                const nativeConstruction = Object.keys(constructionStates).some(function (intentID) {
+                    const intent = constructionStates[intentID], object = buildingObjects[intent.building_type];
+                    return object && Number.isInteger(intent.tile_x) && Number.isInteger(intent.tile_y)
+                        && event.args.id.startsWith("openrct2:large_scenery:" + object.index + ":"
+                            + intent.tile_x * 32 + ":" + intent.tile_y * 32 + ":");
+                });
+                if (nativeConstruction && prior && prior.session === event.args.session
+                    && prior.native_id === event.args.native_id
+                    && (prior.completed && !event.args.completed
+                        || !prior.completed && !event.args.completed
+                            && Number.isInteger(prior.construction_progress)
+                            && Number.isInteger(event.args.construction_progress)
+                            && event.args.construction_progress < prior.construction_progress)) return {};
                 if (!buildingStates[event.args.id]) console.log("WORLD_BUILDING_RECEIVED id="
                     + event.args.id + " session=" + event.args.session + " mode=" + network.mode);
                 buildingStates[event.args.id] = event.args;
@@ -2191,13 +2281,32 @@
                 return /^[0-9a-f]{32}$/.test(args.session || "")
                     && (!controlSession || args.session === controlSession)
                     && /^build:[0-9]+:[0-9]+$/.test(args.intent_id || "")
-                    && typeof args.state === "string" && args.state.length <= 48
+                    && ["reserved", "requested", "dispatched", "ordered", "bound", "constructing",
+                        "paused", "completed", "canceled", "destroyed", "rejected",
+                        "unresolved", "projection_failed"].includes(args.state)
                     && (args.building_type === undefined || !!BUILDING_TYPES[args.building_type])
                     && (args.native_id === undefined || typeof args.native_id === "string")
+                    && (args.tile_x === undefined || (Number.isInteger(args.tile_x)
+                        && args.tile_x >= 0 && args.tile_x < map.size.x))
+                    && (args.tile_y === undefined || (Number.isInteger(args.tile_y)
+                        && args.tile_y >= 0 && args.tile_y < map.size.y))
+                    && (!args.building_type || args.tile_x === undefined || args.tile_y === undefined
+                        || args.tile_x + BUILDING_TYPES[args.building_type].width <= map.size.x
+                            && args.tile_y + BUILDING_TYPES[args.building_type].height <= map.size.y)
                     ? {} : { error: 1, errorMessage: "Invalid native construction state" };
             }, function (event) {
-                constructionStates[event.args.intent_id] = Object.assign(
-                    {}, constructionStates[event.args.intent_id] || {}, event.args);
+                const previous = constructionStates[event.args.intent_id] || {};
+                const terminal = ["completed", "canceled", "destroyed", "rejected"];
+                if (terminal.includes(previous.state) && !terminal.includes(event.args.state)) return {};
+                const active = ["bound", "constructing", "paused"];
+                if (active.includes(previous.state) && !active.includes(event.args.state)
+                    && !terminal.includes(event.args.state)) return {};
+                if (active.includes(previous.state) && active.includes(event.args.state)
+                    && Number.isInteger(previous.publisher_frame)
+                    && Number.isInteger(event.args.publisher_frame)
+                    && event.args.publisher_frame < previous.publisher_frame) return {};
+                constructionStates[event.args.intent_id] = Object.assign({}, previous, event.args);
+                refreshBuildingAnimations();
                 return {};
             });
             context.registerAction(CONSTRUCTION_CATALOG_ACTION, function (event) {

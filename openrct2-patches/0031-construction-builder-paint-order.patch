@@ -1,0 +1,52 @@
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -341,6 +341,36 @@
+         * state->second.bankStride;
+ }
+ 
++// Construction plates use the large-scenery paint bounds (45 units above the
++// ground). A native builder standing at the site otherwise sorts behind those
++// tiles. Only the sorting box is lifted; the image, map position, and hit test
++// keep the actor's actual world coordinates.
++static int32_t BridgeConstructionBuilderSortZ(const CoordsXY& actorPos, int32_t actorZ)
++{
++    const auto animations = std::atomic_load(&gBridgeBuildingAnimations);
++    if (animations->session != std::atomic_load(&gBridgeSnapshot)->session)
++        return actorZ + 5;
++    const auto origin = actorPos.toTileStart();
++    int32_t sortZ = actorZ + 5;
++    for (const auto& [objectIndex, state] : animations->objects)
++    {
++        // Search the builder's tile and immediate neighbours. A native SCV
++        // can work from the edge just outside its building's footprint.
++        for (int32_t dy = -32; dy <= 32; dy += 32)
++            for (int32_t dx = -32; dx <= 32; dx += 32)
++            {
++                const CoordsXY tile{ origin.x + dx, origin.y + dy };
++                const auto frame = state.tiles.find({ tile.x, tile.y });
++                if (frame == state.tiles.end() || frame->second <= state.frames || !MapIsLocationValid(tile))
++                    continue; // Training lights and completed buildings are unrelated.
++                const int32_t tileZ = TileElementHeight(tile);
++                if (std::abs(tileZ - actorZ) <= 8)
++                    sortZ = std::max(sortZ, tileZ + 48);
++            }
++    }
++    return sortZ;
++}
++
+ std::string BridgeHitTest(int32_t x, int32_t y, int32_t radius)
+ {
+     if (radius < 0 || radius > 64) return {};
+@@ -616,8 +646,10 @@
+             else if (actor.kind == "vespene_geyser")
+                 resourceMotion = actor.resourceAmount == 0 ? "depleted" : "idle";
+         }
++        const int32_t sortZ = actor.kind == "terran_scv" && actor.motion == "construct"
++            ? BridgeConstructionBuilderSortZ(actorPos, z) : z + 5;
+         const BoundBoxXYZ actorBounds{
+-            { -visualType->bounds[0] / 2, -visualType->bounds[1] / 2, z + 5 },
++            { -visualType->bounds[0] / 2, -visualType->bounds[1] / 2, sortZ },
+             { visualType->bounds[0], visualType->bounds[1], visualType->bounds[2] } };
+         for (size_t layerIndex = 0; layerIndex < visualType->layerCount; ++layerIndex)
+         {
