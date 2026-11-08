@@ -16,11 +16,14 @@
 // combat remain authoritative; the generic world adapter owns no target IDs.
 class WorldAssaultController {
 public:
-    void configure(std::string objectiveID, std::string session = "", bool parkDefense = false) {
-        if (session == session_ && objectiveID == objectiveID_ && parkDefense == parkDefense_) return;
+    void configure(std::string objectiveID, std::string session = "", bool parkDefense = false,
+                   bool baseProduction = false) {
+        if (session == session_ && objectiveID == objectiveID_ && parkDefense == parkDefense_
+            && baseProduction == baseProduction_) return;
         session_ = std::move(session);
         objectiveID_ = std::move(objectiveID);
         parkDefense_ = parkDefense;
+        baseProduction_ = baseProduction;
         destinations_.clear();
         fallbackRallies_.clear();
         rallyIssueState_.clear();
@@ -40,6 +43,7 @@ public:
     }
     const std::string& objectiveID() const { return objectiveID_; }
     bool parkDefense() const { return parkDefense_; }
+    bool baseProduction() const { return baseProduction_; }
 
     void setWaveDestination(int nativeID, BWAPI::Position destination) {
         if (nativeID >= 0 && destination.isValid()) {
@@ -60,6 +64,7 @@ public:
                               bool idle, bool reachable) {
         const auto found = destinations_.find(nativeID);
         if (found == destinations_.end()) return false;
+        if (baseProduction_ && !idle) return false;
         auto& state = rallyIssueState_[nativeID];
         if (!reachable) {
             state.blocked = true;
@@ -124,6 +129,7 @@ public:
                 }
                 continue; // Native attack-move acquires and fights nearby targets.
             }
+            if (baseProduction_) continue; // unassigned colony units remain at the Hatchery
             BWAPI::Unit target = !parkDefense_ && objective && objective->exists() ? objective : nullptr;
             if (!target) {
                 int best = INT_MAX;
@@ -153,6 +159,7 @@ private:
     std::string objectiveID_;
     std::string session_;
     bool parkDefense_ = false;
+    bool baseProduction_ = false;
     int notBeforeFrame_ = 0;
     bool started_ = false;
     std::map<int, BWAPI::Position> destinations_;

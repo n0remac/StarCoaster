@@ -52,4 +52,11 @@ int main() {
     assert(controller.rallyFor(3002, 64, 48, fallback) == fallback);
     controller.configure("", "next-park", true);
     assert(controller.rallyFor(3001, 64, 48, BWAPI::Position(96, 96)) != BWAPI::Position(800, 700));
+    controller.configure("", "colony-park", true, true);
+    assert(controller.baseProduction());
+    controller.setWaveDestination(3003, BWAPI::Position(800, 700));
+    assert(!controller.shouldIssueWaveRally(3003, BWAPI::Position(96, 96),
+        BWAPI::Position(0, 0), false, true)); // engaged units keep fighting
+    assert(controller.shouldIssueWaveRally(3003, BWAPI::Position(96, 96),
+        BWAPI::Position(0, 0), true, true));
 }

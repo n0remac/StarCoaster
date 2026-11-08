@@ -142,6 +142,7 @@ type service struct {
 	enemyProductionSupplyUsed  int
 	enemyProductionSupplyTotal int
 	enemyProductionLarvae      int
+	enemyAssaultQueryFrame     int
 }
 
 type parkPatchStage struct {
@@ -1474,6 +1475,8 @@ func (s *service) forwardSnapshot() {
 	}
 	if s.scenario != nil {
 		begin.ScenarioMode = s.scenario.Mode
+		begin.BaseProduction = s.scenario.Mode == "park_defense" && s.scenario.ParkDefense != nil &&
+			s.scenario.ParkDefense.SpawnPolicy == "base_production"
 	}
 	if err := s.emit(s.bw, "world.snapshot.begin", r.Session, rev, begin); err != nil {
 		log.Printf("OpenBW begin: %v", err)
@@ -1651,6 +1654,10 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		s.handleEnemyProductionResult(p, m)
 	case "scenario.enemy_production.receipt":
 		s.handleEnemyProductionReceipt(p, m)
+	case "scenario.enemy_assault.result":
+		s.handleEnemyAssaultResult(p, m)
+	case "scenario.enemy_assault.receipt":
+		s.handleEnemyAssaultReceipt(p, m)
 	case "actor.despawn":
 		var event world.ActorDespawn
 		if s.actors == nil || m.Session != s.registry.Session ||

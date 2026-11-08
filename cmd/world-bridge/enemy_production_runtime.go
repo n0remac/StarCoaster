@@ -128,6 +128,11 @@ func (s *service) handleEnemyProductionResult(p *peer, m world.Envelope) {
 			return
 		}
 	}
+	if !s.runtime.DefenseEnabled {
+		s.enemyProductionState = "paused"
+		s.publishScenarioStatus(false)
+		return
+	}
 	base := s.scenario.EnemyBase
 	if !result.Present || result.HatcheryNativeID != s.enemyBasePublisherNativeID {
 		s.enemyProductionState = "hatchery_unavailable"

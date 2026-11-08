@@ -99,11 +99,12 @@ type SnapshotChunk struct {
 	Terrain  []Terrain `json:"terrain,omitempty"`
 }
 type SnapshotBegin struct {
-	Width        int    `json:"width"`
-	Height       int    `json:"height"`
-	Chunks       int    `json:"chunks"`
-	ObjectiveID  string `json:"objective_id,omitempty"`
-	ScenarioMode string `json:"scenario_mode,omitempty"`
+	Width          int    `json:"width"`
+	Height         int    `json:"height"`
+	Chunks         int    `json:"chunks"`
+	ObjectiveID    string `json:"objective_id,omitempty"`
+	ScenarioMode   string `json:"scenario_mode,omitempty"`
+	BaseProduction bool   `json:"base_production,omitempty"`
 }
 type SnapshotEnd struct {
 	Entities int `json:"entities"`

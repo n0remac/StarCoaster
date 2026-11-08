@@ -60,8 +60,18 @@ func (s *service) acceptEnemyBaseResult(p *peer, id string, accepted bool, reaso
 	if accepted && hatchery > 0 && pool > 0 && overlord > 0 &&
 		hatchery != pool && hatchery != overlord && pool != overlord {
 		if p == s.bw {
+			if s.runtime != nil && s.runtime.EnemyAssault != nil &&
+				!s.runtime.EnemyAssault.BindColony(hatchery) {
+				s.enemyBaseReason = "native_colony_identity_changed"
+				s.publishScenarioStatus(false)
+				return
+			}
 			s.enemyBasePublisher = true
 			s.enemyBasePublisherNativeID = hatchery
+			if s.runtime != nil && s.runtime.EnemyAssault != nil && !s.saveScenarioRuntime() {
+				s.scenarioRuntimeError(fmt.Errorf("scenario_journal_unavailable"))
+				return
+			}
 		} else {
 			s.enemyBaseController = true
 		}

@@ -468,6 +468,109 @@ private:
                       << receipt["minerals_after"] << " frame=" << game->getFrameCount() << std::endl;
             return;
         }
+        if (kind=="scenario.enemy_assault.query") {
+            if (!ready_ || !assault_.baseProduction() || message.value("source", "") != "bridge"
+                || message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != revision_) {
+                ack(message, false, "invalid_enemy_assault_query"); return;
+            }
+            const auto request = payload.value("request_id", "");
+            json result = {{"request_id", request}, {"found", false}};
+            if (auto prior = enemyAssaultReceipts_.find(request); prior != enemyAssaultReceipts_.end()) {
+                result["found"] = true;
+                result["receipt"] = prior->second;
+            }
+            send("scenario.enemy_assault.result", result, revision_, game->getFrameCount());
+            return;
+        }
+        if (kind=="scenario.enemy_assault.assign") {
+            const std::string request = payload.value("request_id", "");
+            const std::string waveID = payload.value("wave_id", "");
+            if (!ready_ || !assault_.baseProduction() || !assault_.active(game->getFrameCount())
+                || !game->self() || game->self()->getID() != 0
+                || message.value("source", "") != "bridge"
+                || message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != revision_
+                || request.compare(0, ("enemy-assault:" + session_ + ":").size(),
+                    "enemy-assault:" + session_ + ":") != 0
+                || waveID.compare(0, 5, "base-") != 0
+                || payload.value("source_base_id", "") != "scenario:enemy-hatchery"
+                || payload.value("source_native_id", 0) < 1) {
+                ack(message, false, "invalid_enemy_assault_order"); return;
+            }
+            if (auto prior = enemyAssaultReceipts_.find(request); prior != enemyAssaultReceipts_.end()) {
+                send("scenario.enemy_assault.receipt", prior->second, revision_, game->getFrameCount());
+                return;
+            }
+            bool accepted = true;
+            std::string reason;
+            const auto source = targets_.find("scenario:enemy-hatchery");
+            if (source == targets_.end() || !source->second.unit ||
+                !source->second.unit->exists() || !source->second.unit->isCompleted() ||
+                source->second.unit->getPlayer() != game->self() ||
+                source->second.unit->getType() != BWAPI::UnitTypes::Zerg_Hatchery ||
+                source->second.unit->getID() != payload.value("source_native_id", -1) ||
+                source->second.lifecycle != "active") {
+                accepted = false; reason = "hatchery_unavailable";
+            }
+            if (enemyAssaultAcceptedWaves_.count(waveID)) {
+                accepted = false; reason = "wave_already_ordered";
+            }
+            const int x = payload.value("destination_x", -1);
+            const int y = payload.value("destination_y", -1);
+            const BWAPI::Position destination(x, y);
+            if (accepted && (x < 32 || y < 32 || x >= game->mapWidth()*32-32
+                || y >= game->mapHeight()*32-32 || !destination.isValid()
+                || !game->isWalkable(x/8, y/8))) {
+                accepted = false; reason = "invalid_native_destination";
+            }
+            const auto actors = payload.value("actors", json::array());
+            if (accepted && (!actors.is_array() || actors.empty() || actors.size() > 12)) {
+                accepted = false; reason = "invalid_actor_group";
+            }
+            std::vector<BWAPI::Unit> units;
+            std::set<int> seen;
+            if (accepted) for (const auto& actor : actors) {
+                if (!actor.is_object()) { accepted = false; reason = "invalid_actor_group"; break; }
+                const std::string id = actor.value("id", "");
+                BWAPI::Unit unit = actorRegistry_.lookup(id);
+                bool generationMatches = false;
+                for (const auto& [canonical, registered] : actorRegistry_.runtime())
+                    if (registered.unit == unit && registered.generation == actor.value("generation", 0ULL))
+                        generationMatches = true;
+                if (!unit || !unit->exists() || !generationMatches ||
+                    unit->getID() != actor.value("native_id", -1) ||
+                    unit->getPlayer() != game->self() ||
+                    unit->getType() != BWAPI::UnitTypes::Zerg_Zergling || !unit->isCompleted()
+                    || !seen.insert(unit->getID()).second) {
+                    accepted = false; reason = "native_actor_unavailable"; break;
+                }
+                const bool unitPath = unit->hasPath(destination);
+                if (!unitPath) {
+                    std::cerr << "[world] enemy assault route unavailable native=" << unit->getID()
+                              << " x=" << unit->getPosition().x << " y=" << unit->getPosition().y
+                              << " goal_x=" << x << " goal_y=" << y
+                              << " unit_path=" << unitPath
+                              << " frame=" << game->getFrameCount() << std::endl;
+                    accepted = false; reason = "native_route_unavailable"; break;
+                }
+                units.push_back(unit);
+            }
+            if (accepted) {
+                for (auto unit : units) assault_.setWaveDestination(unit->getID(), destination);
+                enemyAssaultAcceptedWaves_[waveID] = request;
+            }
+            json receipt = {{"request_id", request}, {"wave_id", waveID},
+                {"accepted", accepted}, {"reason", reason}, {"frame", game->getFrameCount()},
+                {"assigned", accepted ? units.size() : 0}};
+            enemyAssaultReceipts_[request] = receipt;
+            send("scenario.enemy_assault.receipt", receipt, revision_, game->getFrameCount());
+            std::cerr << "[world] enemy assault request=" << request << " wave=" << waveID
+                      << " accepted=" << accepted << " reason=" << reason
+                      << " assigned=" << receipt["assigned"] << " frame=" << game->getFrameCount()
+                      << std::endl;
+            return;
+        }
         if (kind=="combat.command") {
             const std::string commandID = payload.value("command_id", "");
             const std::string prefix = session_ + ":";
@@ -706,7 +809,8 @@ private:
             pendingMask_.clear(); pendingMaskHash_.clear();
             stagedMask_.clear(); stagedMaskHash_.clear();
             assault_.configure(payload.value("objective_id", ""), message.at("session").get<std::string>(),
-                payload.value("scenario_mode", "") == "park_defense");
+                payload.value("scenario_mode", "") == "park_defense",
+                payload.value("base_production", false));
             ack(message,true); return;
         }
         if (kind=="world.start") {
@@ -921,6 +1025,8 @@ private:
             lastCommandSerial_ = 0;
             enemyTrainSequence_ = 0;
             enemyTrainReceipts_.clear();
+            enemyAssaultReceipts_.clear();
+            enemyAssaultAcceptedWaves_.clear();
         }
         session_ = desired.session;
         revision_ = desired.revision;
@@ -1845,5 +1951,7 @@ private:
     uint64_t lastCommandSerial_ = 0;
     int enemyTrainSequence_ = 0;
     std::map<std::string, json> enemyTrainReceipts_;
+    std::map<std::string, json> enemyAssaultReceipts_;
+    std::map<std::string, std::string> enemyAssaultAcceptedWaves_;
     std::map<int,std::pair<std::string,int>> observedActorTypes_;
 };

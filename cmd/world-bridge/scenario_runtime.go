@@ -31,10 +31,18 @@ func (s *service) initScenarioRuntime() error {
 			if err := prior.Validate(s.scenario, session); err != nil {
 				return err
 			}
+			if s.scenario.EnemyBase != nil && s.scenario.EnemyBase.Version == 2 &&
+				s.scenario.EnemyBase.LayoutState == "ready" && prior.EnemyAssault == nil {
+				prior.EnemyAssault = world.NewEnemyAssault()
+				prior.JournalVersion = 3
+			}
 			if err := prior.ValidateSpawnQueue(s.spawns); err != nil {
 				return err
 			}
 			s.runtime = &prior
+			if prior.JournalVersion == 3 && !s.saveScenarioRuntime() {
+				return fmt.Errorf("scenario_journal_unavailable")
+			}
 			return nil
 		}
 	} else if !os.IsNotExist(err) {
@@ -122,6 +130,7 @@ func (s *service) advanceScenarioRuntime(frame int, seq uint64, living map[strin
 	}
 	r.Reconcile(s.spawns, living, removed)
 	r.Trigger(s.scenario)
+	s.advanceEnemyAssault(frame, living)
 	if s.scenario.Mode == "park_defense" && s.scenario.ParkDefense.SpawnPolicy == "automatic_perimeter" {
 		s.refreshUnsubmittedAutomaticWaves()
 		s.triggerAutomaticPerimeter()

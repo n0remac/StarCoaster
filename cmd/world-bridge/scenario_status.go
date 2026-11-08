@@ -42,6 +42,8 @@ type scenarioStatus struct {
 	EnemyEggs              int     `json:"enemy_eggs,omitempty"`
 	EnemyGarrison          int     `json:"enemy_garrison,omitempty"`
 	EnemyTrainOrders       int     `json:"enemy_train_orders,omitempty"`
+	EnemyAttackers         int     `json:"enemy_attackers,omitempty"`
+	EnemyWaveShortfall     int     `json:"enemy_wave_shortfall,omitempty"`
 }
 
 func (s *service) currentScenarioStatus() scenarioStatus {
@@ -62,7 +64,9 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 		if s.scenario.EnemyBase.Version == 2 && s.scenario.EnemyBase.LayoutState == "ready" {
 			status.EnemyProductionState = s.enemyProductionState
 			if s.registry.Destroyed["scenario:enemy-hatchery"] {
-				status.EnemyProductionState = "hatchery_destroyed"
+				status.EnemyProductionState = "colony_defeated"
+			} else if s.registry.Destroyed["scenario:enemy-spawning-pool"] {
+				status.EnemyProductionState = "spawning_pool_destroyed"
 			}
 			if status.EnemyProductionState == "" {
 				status.EnemyProductionState = "waiting_for_native_base"
@@ -75,6 +79,10 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 				status.EnemyTrainOrders = len(s.runtime.EnemyProduction.Orders)
 			}
 			if s.actors != nil {
+				assigned := map[string]bool{}
+				if s.runtime != nil && s.runtime.EnemyAssault != nil {
+					assigned = s.runtime.EnemyAssault.OrderedIDs()
+				}
 				for _, actor := range s.actors.Living() {
 					if actor.Owner != 0 {
 						continue
@@ -84,14 +92,20 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 						status.EnemyEggs++
 					case "zerg_zergling":
 						if actor.Phase == "complete" {
-							status.EnemyGarrison++
+							if assigned[actor.ID] {
+								status.EnemyAttackers++
+							} else {
+								status.EnemyGarrison++
+							}
 						}
 					}
 				}
 			}
 		}
 		status.EnemyBaseBootstrap = "preparing"
-		if s.scenario.EnemyBase.LayoutState == "blocked" {
+		if s.registry.Destroyed["scenario:enemy-hatchery"] {
+			status.EnemyBaseBootstrap = "defeated"
+		} else if s.scenario.EnemyBase.LayoutState == "blocked" {
 			status.EnemyBaseBootstrap = "blocked"
 			status.EnemyBaseBlockedReason = s.scenario.EnemyBase.BlockedReason
 		} else if s.enemyBaseSession == s.registry.Session &&
@@ -156,7 +170,32 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 			status.WaveState = "pending"
 			if s.scenario.ParkDefense.SpawnPolicy == "base_production" {
 				status.WaveState = "base_bootstrap"
-				status.NextWaveSeconds = 0
+				if s.runtime.NextAutomaticFrame > 0 && status.DefenseEnabled &&
+					status.EnemyBaseBootstrap != "defeated" {
+					status.NextWaveSeconds = max(0, (s.runtime.NextAutomaticFrame-s.runtime.LastFrame+23)/24)
+				} else {
+					status.NextWaveSeconds = 0
+				}
+				if s.runtime.EnemyAssault != nil {
+					status.WaveOrdinal = len(s.runtime.EnemyAssault.Waves)
+					if len(s.runtime.EnemyAssault.Waves) > 0 {
+						last := s.runtime.EnemyAssault.Waves[len(s.runtime.EnemyAssault.Waves)-1]
+						status.EnemyWaveShortfall = last.Desired - len(last.Actors)
+						switch last.State {
+						case "pending":
+							status.WaveState = "spawning"
+						case "ordered":
+							status.WaveState = "active"
+						case "cleared":
+							status.WaveState = "cleared"
+						case "route_blocked", "uncertain", "failed":
+							status.WaveState = "failed"
+						}
+						if last.State == "route_blocked" || last.State == "uncertain" {
+							status.Error = last.Attempts[len(last.Attempts)-1].Reason
+						}
+					}
+				}
 				if status.EnemyBaseBootstrap == "blocked" {
 					status.Error = "enemy_base_waiting:" + status.EnemyBaseBlockedReason
 				}

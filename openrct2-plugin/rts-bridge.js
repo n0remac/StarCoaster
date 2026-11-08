@@ -1768,11 +1768,12 @@
                     || (args.finite_economy !== undefined && typeof args.finite_economy !== "boolean")
                     || (args.economy_bootstrap !== undefined && !["", "preparing", "ready", "blocked"].includes(args.economy_bootstrap))
                     || (args.economy_blocked_reason !== undefined && !["", "no_native_valid_economy_site", "economy_geometry_unavailable", "economy_search_limit"].includes(args.economy_blocked_reason))
-                    || (args.enemy_base_bootstrap !== undefined && !["", "preparing", "native_validated", "blocked"].includes(args.enemy_base_bootstrap))
+                    || (args.enemy_base_bootstrap !== undefined && !["", "preparing", "native_validated", "blocked", "defeated"].includes(args.enemy_base_bootstrap))
                     || (args.enemy_base_blocked_reason !== undefined && (typeof args.enemy_base_blocked_reason !== "string" || args.enemy_base_blocked_reason.length > 128))
                     || (args.enemy_production_state !== undefined && (typeof args.enemy_production_state !== "string" || args.enemy_production_state.length > 64))
                     || ["enemy_minerals", "enemy_supply_used", "enemy_supply_total", "enemy_larvae",
-                        "enemy_eggs", "enemy_garrison", "enemy_train_orders"].some(function (field) {
+                        "enemy_eggs", "enemy_garrison", "enemy_train_orders", "enemy_attackers",
+                        "enemy_wave_shortfall"].some(function (field) {
                         return args[field] !== undefined && (!Number.isSafeInteger(args[field]) || args[field] < 0 || args[field] > 100000);
                     })
                     || !["", "pending", "triggered", "spawning", "active", "cleared", "failed", "base_bootstrap"].includes(args.wave_state)
@@ -1793,6 +1794,7 @@
                     + " enemy_minerals=" + (missionStatus.enemy_minerals || 0)
                     + " eggs=" + (missionStatus.enemy_eggs || 0)
                     + " garrison=" + (missionStatus.enemy_garrison || 0)
+                    + " attackers=" + (missionStatus.enemy_attackers || 0)
                     + " next_automatic_frame=" + (missionStatus.next_automatic_frame || 0));
                 return {};
             });
@@ -2762,6 +2764,10 @@
                     widgets.push({ type: "button", x: 8, y: 163, width: 118, height: 24,
                         text: "Spawn Wave Now", onClick: requestWave });
                 }
+                if (missionStatus.base_production) {
+                    widgets.push({ type: "label", name: "defense-production", x: 8, y: 163,
+                        width: 242, height: 14, text: "Production: preparing" });
+                }
                 defenseWindow = ui.openWindow({ classification: "starcoaster-defense",
                     width: 258, height: 256, title: "StarCraft Settings",
                     onClose: function () { defenseWindow = null; }, widgets: widgets });
@@ -2857,9 +2863,14 @@
                 setText("defense-next", status.base_production
                     ? (status.enemy_base_bootstrap === "blocked"
                         ? "Colony waiting: " + status.enemy_base_blocked_reason
+                        : status.enemy_base_bootstrap === "defeated"
+                            ? "Zerg colony defeated"
+                        : status.error && status.wave_state === "failed"
+                            ? "Attack blocked: " + status.error
                         : status.enemy_base_bootstrap === "native_validated"
-                            ? "Production: " + (status.enemy_production_state || "waiting")
-                                + " | " + (status.enemy_minerals || 0) + " minerals"
+                            ? status.defense_enabled
+                                ? "Next attack: " + (status.next_wave_seconds || 0) + "s"
+                                : "Colony attacks paused"
                             : "Colony validating native routes")
                     : status.economy_bootstrap === "blocked"
                     ? "Economy placement blocked; waves paused"
@@ -2868,10 +2879,14 @@
                         ? (status.error && status.error.indexOf("Waves waiting:") === 0 ? status.error
                             : "Next wave: " + status.next_wave_seconds + "s") : "Next wave: disabled");
                 setText("defense-current", status.base_production
-                    ? "Colony: " + (status.enemy_garrison || 0) + " Zerglings, "
-                        + (status.enemy_eggs || 0) + " Eggs"
+                    ? "Garrison: " + (status.enemy_garrison || 0)
+                        + " | Attackers: " + (status.enemy_attackers || 0)
                     : "Current wave: " + status.wave_ordinal + " | "
                         + status.active_enemies + " enemies (" + status.wave_state + ")");
+                if (status.base_production) setText("defense-production",
+                    "Production: " + (status.enemy_production_state || "waiting")
+                        + " | " + (status.enemy_minerals || 0) + " minerals"
+                        + " | " + (status.enemy_eggs || 0) + " Eggs");
                 const balance = playerResources[terranOwner];
                 setText("defense-resources", status.unlimited_resources
                     ? "Minerals: Unlimited | Gas: Unlimited"
