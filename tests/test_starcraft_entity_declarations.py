@@ -186,7 +186,8 @@ class EntityDeclarationTests(unittest.TestCase):
                          ("starcoaster.scenery_large.terran_starport", 4, 3, []))
         self.assertEqual(visuals["buildings"]["terran_starport"]["asset"], "starport")
         established = BASELINE["catalogs"]["starcraft-types.json"]["buildings"]
-        self.assertEqual(catalog["buildings"][:len(established)], established)
+        self.assertEqual([{key: value for key, value in item.items() if key != "construction"}
+                          for item in catalog["buildings"][:len(established)]], established)
         self.assertIn('BWAPI::UnitTypes::Terran_Starport',
                       (self.root / "openbw-bwapi-module/src/WorldStarcraftTypes.h").read_text())
         self.assertIn('"terran_starport": {ID: "terran_starport", NativeType: "Terran_Starport"',
@@ -195,14 +196,15 @@ class EntityDeclarationTests(unittest.TestCase):
                       (self.root / "openrct2-plugin/rts-bridge.js").read_text())
         objects = module(self.root / "scripts/install-starcraft-construction-object.py", "fixture_objects")
         art = Image.new("P", (140, 140), 10)
-        with patch.object(objects, "building_images", return_value=[art]):
+        with patch.object(objects, "building_images", return_value=[art]), patch.object(
+                objects, "construction_images", return_value=[art] * 3):
             destination = objects.install(self.root / "objects", self.root, "terran_starport")
         with zipfile.ZipFile(destination) as archive:
             definition = json.loads(archive.read("object.json"))
             self.assertEqual(definition["id"], starport["object_id"])
             self.assertEqual(definition["strings"]["name"]["en-GB"], "Terran Starport")
             self.assertEqual(len(definition["properties"]["tiles"]), 12)
-            self.assertEqual(len(definition["images"]), 4 + 12 * 4)
+            self.assertEqual(len(definition["images"]), 4 + 4 * 12 * 4)
         self.run_generator("--check")
 
     def test_negative_declarations(self):

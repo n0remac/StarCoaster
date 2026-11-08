@@ -115,18 +115,19 @@ class SpriteRegistryTests(unittest.TestCase):
             image = Image.new("P", (189, 164), index + 10)
             image.putpalette(palette)
             frames.append(image)
-        with tempfile.TemporaryDirectory() as directory, patch.object(module, "barracks_images", return_value=frames):
+        with tempfile.TemporaryDirectory() as directory, patch.object(module, "barracks_images", return_value=frames), \
+                patch.object(module, "construction_images", return_value=frames[:3]):
             path = module.install(Path(directory), Path(directory))
             with zipfile.ZipFile(path) as archive:
                 object_data = json.loads(archive.read("object.json"))
                 images = object_data["images"]
                 self.assertEqual(len(object_data["properties"]["tiles"]), 12)
-                self.assertEqual(len(images), 4 + 8 * 12 * 4)
+                self.assertEqual(len(images), 4 + 11 * 12 * 4)
                 self.assertEqual(images[4]["path"], "images/barracks-0.png")
                 self.assertEqual(images[52]["path"], "images/barracks-1.png")
-                self.assertEqual(images[-1]["path"], "images/barracks-7.png")
+                self.assertEqual(images[-1]["path"], "images/barracks-10.png")
                 self.assertEqual(len([name for name in archive.namelist()
-                                      if name.startswith("images/barracks-")]), 8)
+                                      if name.startswith("images/barracks-")]), 11)
 
     def test_construction_object_supports_a_distinct_footprint(self):
         spec = importlib.util.spec_from_file_location(
@@ -158,15 +159,16 @@ class SpriteRegistryTests(unittest.TestCase):
         spec.loader.exec_module(module)
         image = Image.new("P", (140, 140), 10)
         with tempfile.TemporaryDirectory() as directory, patch.object(
-                module, "building_images", return_value=[image]):
+                module, "building_images", return_value=[image]), patch.object(
+                module, "construction_images", return_value=[image] * 3):
             path = module.install(Path(directory), Path(directory), "terran_academy")
             with zipfile.ZipFile(path) as archive:
                 definition = json.loads(archive.read("object.json"))
                 self.assertEqual(definition["id"], "starcoaster.scenery_large.terran_academy")
                 self.assertEqual(len(definition["properties"]["tiles"]), 6)
-                self.assertEqual(len(definition["images"]), 4 + 6 * 4)
+                self.assertEqual(len(definition["images"]), 4 + 4 * 6 * 4)
                 self.assertEqual({image["path"] for image in definition["images"][4:]},
-                                 {"images/academy-0.png"})
+                                 {f"images/academy-{i}.png" for i in range(4)})
 
     def test_depot_and_factory_use_native_footprints_and_metadata_resolved_art(self):
         spec = importlib.util.spec_from_file_location(
@@ -184,7 +186,7 @@ class SpriteRegistryTests(unittest.TestCase):
                 with zipfile.ZipFile(path) as archive:
                     definition = json.loads(archive.read("object.json"))
                     self.assertEqual(len(definition["properties"]["tiles"]), tiles)
-                    self.assertEqual(len(definition["images"]), 4 + tiles * 4)
+                    self.assertEqual(len(definition["images"]), 4 + 4 * tiles * 4)
                     self.assertEqual(module.TYPE_DEFINITIONS[building]["max_health"], hp)
 
     @unittest.skipUnless((ROOT / "run-data/generated-assets/starcraft/goliath/manifest.json").is_file(),
@@ -301,11 +303,11 @@ class SpriteRegistryTests(unittest.TestCase):
                     self.assertTrue(all(tuple(pixel[:3]) in colours for pixel in image.getdata() if pixel[3]))
         native = (upstream / "src/openrct2/scripting/ScriptEngine.cpp").read_text()
         plugin = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
-        self.assertIn('"version", JS_NewInt32(ctx, 5)', native)
-        self.assertIn('"assetVersion", JS_NewInt32(ctx, 6)', native)
+        self.assertIn('"version", JS_NewInt32(ctx, 6)', native)
+        self.assertIn('"assetVersion", JS_NewInt32(ctx, 7)', native)
         self.assertIn('BridgeSupportsActorType(parsed.kind)', native)
-        self.assertIn('rtsBridge.version !== 5', plugin)
-        self.assertIn('rtsBridge.assetVersion !== 6', plugin)
+        self.assertIn('rtsBridge.version !== 6', plugin)
+        self.assertIn('rtsBridge.assetVersion !== 7', plugin)
 
     @unittest.skipUnless(MANIFEST.is_file(), "local licensed sprites have not been prepared")
     def test_verified_walk_groups_and_mirror_anchors(self):

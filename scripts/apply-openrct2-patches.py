@@ -306,6 +306,16 @@ def ensure_resource_amount_visuals(checkout: Path) -> str:
     return "applied"
 
 
+def ensure_building_construction_progress(checkout: Path) -> str:
+    patch = ROOT / "openrct2-patches/0030-building-construction-progress.patch"
+    if applies(checkout, patch, reverse=True):
+        return "current"
+    if not applies(checkout, patch):
+        raise RuntimeError(f"Cannot apply {patch.name} in {checkout}: unexpected building renderer changes")
+    subprocess.run(["git", "-C", str(checkout), "apply", str(patch)], check=True)
+    return "applied"
+
+
 if __name__ == "__main__":
     try:
         checkout = ROOT / "upstream/openrct2"
@@ -332,7 +342,8 @@ if __name__ == "__main__":
                     ROOT / "openrct2-patches/0026-wasm-connection-state.patch",
                     ROOT / "openrct2-patches/0027-economy-worker-visual-states.patch",
                     ROOT / "openrct2-patches/0028-native-resource-health-range.patch",
-                    ROOT / "openrct2-patches/0029-resource-amount-visuals.patch"]
+                    ROOT / "openrct2-patches/0029-resource-amount-visuals.patch",
+                    ROOT / "openrct2-patches/0030-building-construction-progress.patch"]
         # Reconciliation temporarily reverses and reapplies overlays. Keep
         # unchanged file mtimes so an ordinary rebuild does not recompile all
         # SpriteIds.h dependents merely because the check ran.
@@ -377,7 +388,8 @@ if __name__ == "__main__":
                   ("WASM connection state", ensure_wasm_connection_state),
                   ("Economy worker visual states", ensure_economy_worker_visual_states),
                   ("Native resource health range", ensure_native_resource_health_range),
-                  ("Resource amount visuals", ensure_resource_amount_visuals)]
+                  ("Resource amount visuals", ensure_resource_amount_visuals),
+                  ("Building construction progress", ensure_building_construction_progress)]
         for index, (label, ensure) in enumerate(checks):
             removed = []
             for overlay in reversed(overlays[index + 1:]):

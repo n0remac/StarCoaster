@@ -8,6 +8,7 @@
   "display_name": "Terran Refinery",
   "width": 4, "height": 2, "max_health": 750,
   "conventional_training": false,
+  "construction": {"image": "Terran_Construction_Large", "source_size": [160, 128], "frame_count": 3, "frames": [0, 1, 2]},
   "visual": {
     "image": "Refinery", "asset": "refinery",
     "source_size": [192, 192], "frame_count": 5,

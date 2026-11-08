@@ -10,6 +10,7 @@
   "height": 2,
   "max_health": 750,
   "conventional_training": false,
+  "construction": {"image": "Zerg_Construction_Medium", "source_size": [160, 192], "frame_count": 31, "frames": [0, 5, 10, 15, 20, 25]},
   "visual": {
     "image": "Spawning_Pool",
     "asset": "spawning_pool",

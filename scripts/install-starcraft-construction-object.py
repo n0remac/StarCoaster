@@ -168,6 +168,44 @@ def building_images(game_dir: Path, profile: dict) -> list[Image.Image]:
     raise ValueError(f"Unsupported building art method: {method}")
 
 
+def construction_images(game_dir: Path, definition: dict, profile: dict) -> list[Image.Image]:
+    """Extract native construction stages on one fixed canvas per building."""
+    spec = definition["construction"]
+    source = ROOT / f"run-data/generated-assets/starcraft/{profile['asset']}/.source"
+    source.mkdir(parents=True, exist_ok=True)
+    helpers = runpy.run_path(str(ROOT / "scripts/prepare-starcraft-sprites.py"))
+    grp_path, wpe_path = source / (spec["image"] + ".grp"), source / "Badlands.wpe"
+    helpers["extract"](game_dir, image_resource(game_dir, spec["image"], helpers), grp_path)
+    helpers["extract"](game_dir, PALETTE_RESOURCE, wpe_path)
+    data, wpe = grp_path.read_bytes(), wpe_path.read_bytes()
+    if struct.unpack_from("<HHH", data) != (spec["frame_count"], *spec["source_size"]) or len(wpe) != 1024:
+        raise ValueError(f"Unexpected classic StarCraft construction art: {spec['image']}")
+    palette = helpers["openrct2_palette"]()
+    available = [i for i in range(10, 255) if not 230 <= i <= 239 and not 243 <= i <= 254]
+    cache = {}
+    output_images = []
+    for frame_index in spec["frames"]:
+        source_image = helpers["decode_grp"](data, wpe, frame_index)
+        # Keep the GRP's full canvas. Cropping each stage independently makes
+        # a partly built structure jump as its silhouette grows.
+        image = source_image.resize(tuple(profile["output_size"]), Image.Resampling.NEAREST)
+        output = Image.new("P", image.size, 0)
+        output.putpalette([channel for colour in palette for channel in colour])
+        pixels = []
+        for red, green, blue, alpha in image.getdata():
+            if alpha == 0:
+                pixels.append(0)
+                continue
+            colour = (red, green, blue)
+            if colour not in cache:
+                cache[colour] = min(available, key=lambda i:
+                    sum((colour[channel] - palette[i][channel]) ** 2 for channel in range(3)))
+            pixels.append(cache[colour])
+        output.putdata(pixels)
+        output_images.append(output)
+    return output_images
+
+
 def png_bytes(image: Image.Image) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -201,6 +239,8 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
     animation = definition_type.get("animation")
     if animation and len(sprites) != animation["frames"] + 1:
         raise ValueError(f"Animation bank count differs from type catalog: {building_type}")
+    if "construction" in definition_type:
+        sprites += construction_images(game_dir, definition_type, spec)
     sprite = sprites[0]
     preview = sprite.resize(spec.get("preview_size", (58, 50)), Image.Resampling.NEAREST)
     images = []

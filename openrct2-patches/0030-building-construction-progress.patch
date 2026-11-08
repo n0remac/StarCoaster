@@ -1,0 +1,132 @@
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -15,6 +15,7 @@
+ #include <utility>
+ #include <optional>
+ #include <set>
++#include <map>
+ 
+ struct PaintSession;
+ struct CoordsXY;
+@@ -42,7 +43,7 @@
+ void BridgeApplySnapshot(std::string session, uint64_t seq, std::vector<BridgeActor> actors);
+ void BridgeClearSnapshot();
+ void BridgeInvalidateAnimation();
+-void BridgeSetBuildingAnimations(std::string session, int32_t objectIndex, std::set<std::pair<int32_t, int32_t>> tiles,
++void BridgeSetBuildingAnimations(std::string session, int32_t objectIndex, std::map<std::pair<int32_t, int32_t>, uint32_t> tiles,
+     uint32_t frames = 7, uint32_t ticksPerFrame = 3, uint32_t bankStride = 48);
+ uint32_t BridgeBuildingAnimationImageOffset(int32_t objectIndex, const CoordsXY& position);
+ std::string BridgeHitTest(int32_t x, int32_t y, int32_t radius);
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -73,7 +73,7 @@
+     std::shared_ptr<const BridgeSnapshot> gBridgeSnapshot = std::make_shared<BridgeSnapshot>();
+     struct BridgeBuildingAnimationState
+     {
+-        std::set<std::pair<int32_t, int32_t>> tiles;
++        std::map<std::pair<int32_t, int32_t>, uint32_t> tiles;
+         uint32_t frames = 7;
+         uint32_t ticksPerFrame = 3;
+         uint32_t bankStride = 48;
+@@ -85,10 +85,11 @@
+     };
+     std::shared_ptr<const BridgeBuildingAnimations> gBridgeBuildingAnimations = std::make_shared<BridgeBuildingAnimations>();
+ 
+-    void InvalidateBuildingTiles(const std::set<std::pair<int32_t, int32_t>>& tiles)
+-    {
+-        for (const auto& [x, y] : tiles)
+-        {
++    void InvalidateBuildingTiles(const std::map<std::pair<int32_t, int32_t>, uint32_t>& tiles)
++    {
++        for (const auto& [positionKey, frame] : tiles)
++        {
++            const auto [x, y] = positionKey;
+             const CoordsXY position{ x, y };
+             if (MapIsLocationValid(position))
+                 ViewportsInvalidate({ x + 16, y + 16, TileElementHeight(position) }, 48, 180, 100, ZoomLevel{ 2 });
+@@ -289,7 +290,7 @@
+     }
+ }
+ 
+-void BridgeSetBuildingAnimations(std::string session, int32_t objectIndex, std::set<std::pair<int32_t, int32_t>> tiles,
++void BridgeSetBuildingAnimations(std::string session, int32_t objectIndex, std::map<std::pair<int32_t, int32_t>, uint32_t> tiles,
+     uint32_t frames, uint32_t ticksPerFrame, uint32_t bankStride)
+ {
+     auto previous = std::atomic_load(&gBridgeBuildingAnimations);
+@@ -325,8 +326,14 @@
+ {
+     const auto animation = std::atomic_load(&gBridgeBuildingAnimations);
+     const auto state = animation->objects.find(objectIndex);
+-    if (animation->session != std::atomic_load(&gBridgeSnapshot)->session || state == animation->objects.end()
+-        || !state->second.tiles.contains({ position.x, position.y }))
++    if (animation->session != std::atomic_load(&gBridgeSnapshot)->session || state == animation->objects.end())
++        return 0;
++    const auto tile = state->second.tiles.find({ position.x, position.y });
++    if (tile == state->second.tiles.end())
++        return 0;
++    if (tile->second != 0)
++        return tile->second * state->second.bankStride;
++    if (state->second.frames == 0)
+         return 0;
+     // The locally generated banks repeat the idle structure and add only the
+     // indicator lights. Lift-off frames are not part of the training loop.
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -847,7 +847,7 @@
+     const bool validLayout = (JS_IsUndefined(framesValue) || JS_ToInt32(ctx, &frameCount, framesValue) == 0)
+         && (JS_IsUndefined(ticksValue) || JS_ToInt32(ctx, &ticksPerFrame, ticksValue) == 0)
+         && (JS_IsUndefined(strideValue) || JS_ToInt32(ctx, &bankStride, strideValue) == 0)
+-        && frameCount >= 1 && frameCount <= 32 && ticksPerFrame >= 1 && ticksPerFrame <= 120
++        && frameCount >= 0 && frameCount <= 32 && ticksPerFrame >= 1 && ticksPerFrame <= 120
+         && bankStride >= 4 && bankStride <= 4096 && bankStride % 4 == 0;
+     JS_FreeValue(ctx, framesValue);
+     JS_FreeValue(ctx, ticksValue);
+@@ -865,22 +865,31 @@
+         JS_FreeValue(ctx, tiles);
+         return JS_ThrowTypeError(ctx, "building animation must contain at most 4096 tiles");
+     }
+-    std::set<std::pair<int32_t, int32_t>> positions;
++    std::map<std::pair<int32_t, int32_t>, uint32_t> positions;
+     const auto mapSize = GetMapSizeUnits();
+     for (int32_t index = 0; index < length; ++index)
+     {
+         JSValue tile = JS_GetPropertyUint32(ctx, tiles, index);
+         int32_t x = -1, y = -1;
++        int32_t frame = 0;
++        JSValue frameValue = JS_GetPropertyStr(ctx, tile, "frame");
+         const bool valid = JS_IsObject(tile) && BridgeReadInt(ctx, tile, "x", x)
+             && BridgeReadInt(ctx, tile, "y", y) && x >= 0 && y >= 0 && x < mapSize.x && y < mapSize.y
+-            && x % 32 == 0 && y % 32 == 0;
++            && x % 32 == 0 && y % 32 == 0
++            && (JS_IsUndefined(frameValue) || JS_ToInt32(ctx, &frame, frameValue) == 0)
++            && frame >= 0 && frame <= 64;
++        JS_FreeValue(ctx, frameValue);
+         JS_FreeValue(ctx, tile);
+         if (!valid)
+         {
+             JS_FreeValue(ctx, tiles);
+             return JS_ThrowTypeError(ctx, "invalid building animation tile");
+         }
+-        positions.emplace(x, y);
++        if (!positions.emplace(std::pair{ x, y }, frame).second)
++        {
++            JS_FreeValue(ctx, tiles);
++            return JS_ThrowTypeError(ctx, "duplicate building animation tile");
++        }
+     }
+     JS_FreeValue(ctx, tiles);
+     BridgeSetBuildingAnimations(std::move(session), objectIndex, std::move(positions),
+@@ -958,8 +967,8 @@
+ {
+     JSValue glb = JS_GetGlobalObject(ctx);
+     JSValue bridge = JS_NewObject(ctx);
+-    JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5));
+-    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 6));
++    JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 6));
++    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 7));
+     JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
+     JS_SetPropertyStr(ctx, bridge, "performanceEnabled", JS_NewBool(ctx, BridgePerf::enabled()));
+     const char* worldPortText = std::getenv("STARCOASTER_BRIDGE_PORT");

@@ -73,8 +73,8 @@ def main() -> int:
         raise RuntimeError("Cannot determine WASM multiplayer configuration")
     script_engine = require(UPSTREAM / "src/openrct2/scripting/ScriptEngine.cpp").read_text()
     script_header = require(UPSTREAM / "src/openrct2/scripting/ScriptEngine.h").read_text()
-    if ('JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5))' not in script_engine
-            or 'JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 6))' not in script_engine
+    if ('JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 6))' not in script_engine
+            or 'JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 7))' not in script_engine
             or 'kPluginApiVersion = 124' not in script_header):
         raise RuntimeError("Native bridge or plugin API versions do not match this bundle")
 

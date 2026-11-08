@@ -15,6 +15,7 @@
     "ticks_per_frame": 3
   },
   "conventional_training": true,
+  "construction": {"image": "Terran_Construction_Large", "source_size": [160, 128], "frame_count": 3, "frames": [0, 1, 2]},
   "visual": {
     "image": "Barracks",
     "asset": "barracks",

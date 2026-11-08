@@ -33,7 +33,7 @@ UNIT_FIELDS = COMMON | {"race", "ownership", "controllable", "movement",
                         "owned_effects", "visible_incomplete"}
 RESOURCE_FIELDS = UNIT_FIELDS | {"width", "height"}
 BUILDING_FIELDS = COMMON | {"object_id", "width", "height", "max_health",
-                            "animation", "conventional_training"}
+                            "animation", "construction", "conventional_training"}
 UNIT_VISUAL_FIELDS = {"asset", "g2_order", "source", "image", "canvas",
                       "frame_count", "minimum_frame_count", "stride", "animations",
                       "health_offset", "bounds", "attachments", "effect"}
@@ -382,6 +382,21 @@ def validate_entities(entities, root=ROOT):
                 if animation["trigger"] != "training" or not all(
                         type(animation[f]) is int and 1 <= animation[f] <= 120 for f in ("frames", "ticks_per_frame")):
                     raise ValueError(f"{label}: animation: unsupported training animation")
+            construction = entity.get("construction")
+            _fields(construction, {"image", "source_size", "frame_count", "frames"}, set(),
+                    label + ".construction")
+            if (not isinstance(construction["image"], str) or not construction["image"]
+                    or not isinstance(construction["source_size"], list)
+                    or len(construction["source_size"]) != 2
+                    or any(type(v) is not int or v < 1 for v in construction["source_size"])
+                    or type(construction["frame_count"]) is not int
+                    or not 3 <= construction["frame_count"] <= 64
+                    or not isinstance(construction["frames"], list)
+                    or not 3 <= len(construction["frames"]) <= 16
+                    or any(type(v) is not int or not 0 <= v < construction["frame_count"]
+                           for v in construction["frames"])
+                    or len(set(construction["frames"])) != len(construction["frames"])):
+                raise ValueError(f"{label}: construction: invalid native sprite frames")
         by_id[ident] = entity
     for path, entity in entities:
         if entity["kind"] != "unit":
@@ -457,6 +472,7 @@ def project_catalogs(entities, root=ROOT):
     for building in buildings:
         catalog["buildings"].append({key: building[key] for key in BUILDING_CATALOG_KEYS}
                                     | {"visual": building["id"], "production": production[building["id"]]}
+                                    | {"construction": building["construction"]}
                                     | ({"animation": building["animation"]} if "animation" in building else {}))
         visuals["buildings"][building["id"]] = building["visual"]
     validate(catalog, visuals, root)
@@ -510,7 +526,8 @@ def javascript_definitions(catalog):
                      f'objectID: {quoted(building["object_id"])}, width: {building["width"]}, '
                      f'height: {building["height"]}, maxHealth: {building["max_health"]}, '
                      f'production: {json.dumps(building["production"])}, '
-                     f'animation: {json.dumps(building.get("animation"), separators=(",", ":"))} }},')
+                     f'animation: {json.dumps(building.get("animation"), separators=(",", ":"))}, '
+                     f'constructionFrames: {len(building["construction"]["frames"])} }},')
     return '\n'.join(lines + ['    });'])
 
 

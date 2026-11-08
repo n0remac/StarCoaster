@@ -77,7 +77,7 @@ const sandbox = {
     objectManager: { getAllObjects(kind) { return kind === 'large_scenery'
         ? [barracks, academy, depot, factory, armory] : []; } },
     network: { mode: 'client', currentPlayer: { id: 1 }, players: [{ id: 1 }] },
-    rtsBridge: { version: 5, assetVersion: 6, applySnapshot() {}, clearSnapshot() {},
+    rtsBridge: { version: 6, assetVersion: 7, applySnapshot() {}, clearSnapshot() {},
         invalidateAnimation() {}, setBuildingAnimations(state) { buildingAnimations.push(state); },
         actorScreenPosition() { return null; }, cursorWorld() { return null; } },
     ui, context, console: { log() {} }, registerPlugin(plugin) { plugin.main(); },
@@ -153,6 +153,16 @@ assert.equal(buildingAnimations.at(-1).bank_stride, 48);
 assert.equal(buildingAnimations.at(-1).tiles.length, 12);
 assert.equal(buildingAnimations.at(-1).tiles[0].x, 64);
 assert.equal(buildingAnimations.at(-1).tiles[0].y, 64);
+buildingAction.execute({ player: 1, args: { ...nativeState, completed: false,
+    queue: 0, construction_progress: 0, construction_remaining_frames: 1200 } });
+assert.equal(buildingAnimations.at(-1).tiles[0].frame, 8,
+    'unfinished Barracks uses its first construction bank after training banks');
+buildingAction.execute({ player: 1, args: { ...nativeState, completed: false,
+    queue: 0, construction_progress: 45, construction_remaining_frames: 660 } });
+assert.equal(buildingAnimations.at(-1).tiles[0].frame, 9);
+buildingAction.execute({ player: 1, args: { ...nativeState, completed: false,
+    queue: 0, construction_progress: 90, construction_remaining_frames: 120 } });
+assert.equal(buildingAnimations.at(-1).tiles[0].frame, 10);
 buildingAction.execute({ player: 1, args: { ...nativeState, queue: 0, remaining_frames: 0 } });
 assert.equal(buildingAnimations.at(-1).tiles.length, 0, 'completed training restores the idle frame');
 buildingAction.execute({ player: 1, args: nativeState });
@@ -261,6 +271,17 @@ assert.ok(academyInfo);
 buildingAction.execute({ player: 1, args: { ...nativeState, id: academyID,
     native_id: 'openbw:9', health: 600, max_health: 600, queue: 0,
     remaining_frames: 0, availability: {}, commands: [] } });
+buildingAction.execute({ player: 1, args: { ...nativeState, id: academyID,
+    native_id: 'openbw:9', completed: false, construction_progress: 70,
+    construction_remaining_frames: 300, health: 600, max_health: 600, queue: 0,
+    remaining_frames: 0, availability: {}, commands: [] } });
+assert.equal(buildingAnimations.at(-1).object, academy.index);
+assert.equal(buildingAnimations.at(-1).tiles[0].frame, 3,
+    'nontraining building follows native construction progress');
+buildingAction.execute({ player: 1, args: { ...nativeState, id: academyID,
+    native_id: 'openbw:9', health: 600, max_health: 600, queue: 0,
+    remaining_frames: 0, availability: {}, commands: [] } });
+assert.equal(buildingAnimations.at(-1).tiles.length, 0, 'completed Academy restores idle art');
 academyInfo.desc.onUpdate();
 assert.equal(academyInfo.findWidget('building-health').text, 'HP: 600/600');
 assert.match(academyInfo.findWidget('building-status').text, /Complete/);
@@ -351,7 +372,7 @@ function discoverAfterLoad() {
                 } };
             return socket;
         } },
-        rtsBridge: { version: 5, assetVersion: 6, applySnapshot() {}, clearSnapshot() {},
+        rtsBridge: { version: 6, assetVersion: 7, applySnapshot() {}, clearSnapshot() {},
             invalidateAnimation() {}, setBuildingAnimations() {}, actorScreenPosition() {} },
         context: { getParkStorage() { return { get(key, fallback) { return savedStorage[key] || fallback; },
             set(key, value) { savedStorage[key] = structuredClone(value); } }; },

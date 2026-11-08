@@ -18,7 +18,7 @@ const sandbox = {
     objectManager: { getAllObjects(kind) { return kind === 'large_scenery' ? [object] : []; } },
     network: { mode: 'server', currentPlayer: { id: 1 }, players: [{ id: 1 }, { id: 2 }],
         createSocket() { return { on() {}, connect() {}, destroy() {} }; } },
-    rtsBridge: { version: 5, assetVersion: 6, cursorWorld() {}, invalidateAnimation() {},
+    rtsBridge: { version: 6, assetVersion: 7, cursorWorld() {}, invalidateAnimation() {},
         setBuildingAnimations() {}, applySnapshot() {}, clearSnapshot() {}, actorScreenPosition() {} },
     context: { getParkStorage() { return { get(key, fallback) {
         return key === 'scenarioStructures' ? [structure] : fallback;

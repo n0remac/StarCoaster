@@ -49,15 +49,15 @@
         vespene_geyser: { name: "Vespene Geyser", visual: "vespene_geyser", race: "neutral", controllable: false, movement: "static", spawnable: false, commands: [] },
     });
     const BUILDING_TYPES = Object.freeze({
-        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat", "terran_medic"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3} },
-        terran_academy: { name: "Terran Academy", objectID: "starcoaster.scenery_large.terran_academy", width: 3, height: 2, maxHealth: 600, production: [], animation: null },
-        terran_supply_depot: { name: "Terran Supply Depot", objectID: "starcoaster.scenery_large.terran_supply_depot", width: 3, height: 2, maxHealth: 500, production: [], animation: null },
-        terran_factory: { name: "Terran Factory", objectID: "starcoaster.scenery_large.terran_factory", width: 4, height: 3, maxHealth: 1250, production: ["terran_vulture", "terran_goliath"], animation: null },
-        terran_armory: { name: "Terran Armory", objectID: "starcoaster.scenery_large.terran_armory", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
-        zerg_hatchery: { name: "Zerg Hatchery", objectID: "starcoaster.scenery_large.zerg_hatchery", width: 4, height: 3, maxHealth: 1250, production: ["zerg_zergling"], animation: null },
-        zerg_spawning_pool: { name: "Zerg Spawning Pool", objectID: "starcoaster.scenery_large.zerg_spawning_pool", width: 3, height: 2, maxHealth: 750, production: [], animation: null },
-        terran_command_center: { name: "Terran Command Center", objectID: "starcoaster.scenery_large.terran_command_center", width: 4, height: 3, maxHealth: 1500, production: ["terran_scv"], animation: null },
-        terran_refinery: { name: "Terran Refinery", objectID: "starcoaster.scenery_large.terran_refinery", width: 4, height: 2, maxHealth: 750, production: [], animation: null },
+        terran_barracks: { name: "Terran Barracks", objectID: "starcoaster.scenery_large.terran_barracks", width: 4, height: 3, maxHealth: 1000, production: ["terran_marine", "terran_firebat", "terran_medic"], animation: {"trigger":"training","frames":7,"ticks_per_frame":3}, constructionFrames: 3 },
+        terran_academy: { name: "Terran Academy", objectID: "starcoaster.scenery_large.terran_academy", width: 3, height: 2, maxHealth: 600, production: [], animation: null, constructionFrames: 3 },
+        terran_supply_depot: { name: "Terran Supply Depot", objectID: "starcoaster.scenery_large.terran_supply_depot", width: 3, height: 2, maxHealth: 500, production: [], animation: null, constructionFrames: 3 },
+        terran_factory: { name: "Terran Factory", objectID: "starcoaster.scenery_large.terran_factory", width: 4, height: 3, maxHealth: 1250, production: ["terran_vulture", "terran_goliath"], animation: null, constructionFrames: 3 },
+        terran_armory: { name: "Terran Armory", objectID: "starcoaster.scenery_large.terran_armory", width: 3, height: 2, maxHealth: 750, production: [], animation: null, constructionFrames: 3 },
+        zerg_hatchery: { name: "Zerg Hatchery", objectID: "starcoaster.scenery_large.zerg_hatchery", width: 4, height: 3, maxHealth: 1250, production: ["zerg_zergling"], animation: null, constructionFrames: 6 },
+        zerg_spawning_pool: { name: "Zerg Spawning Pool", objectID: "starcoaster.scenery_large.zerg_spawning_pool", width: 3, height: 2, maxHealth: 750, production: [], animation: null, constructionFrames: 6 },
+        terran_command_center: { name: "Terran Command Center", objectID: "starcoaster.scenery_large.terran_command_center", width: 4, height: 3, maxHealth: 1500, production: ["terran_scv"], animation: null, constructionFrames: 3 },
+        terran_refinery: { name: "Terran Refinery", objectID: "starcoaster.scenery_large.terran_refinery", width: 4, height: 2, maxHealth: 750, production: [], animation: null, constructionFrames: 3 },
     });
     // END GENERATED STARCRAFT TYPES
     const COMMAND_ICON_IMAGES = Object.freeze({"empty": 29357, "terran_firebat": 30696, "terran_goliath": 30697, "terran_marine": 30698, "terran_medic": 30699, "terran_scv": 30835, "terran_vulture": 30700, "zerg_zergling": 30701});
@@ -1199,7 +1199,7 @@
     }
 
     function main() {
-        if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 6
+        if (typeof rtsBridge !== "object" || rtsBridge.version !== 6 || rtsBridge.assetVersion !== 7
             || typeof rtsBridge.applySnapshot !== "function"
             || typeof rtsBridge.clearSnapshot !== "function"
             || typeof rtsBridge.invalidateAnimation !== "function"
@@ -1394,26 +1394,35 @@
         let constructionCatalog = {};
         let playerResources = {};
         let resourceSiteStates = {};
+        const animatedBuildingObjects = {};
         function refreshBuildingAnimations() {
             if (!controlSession) return;
             Object.keys(BUILDING_TYPES).forEach(function (type) {
                 const building = BUILDING_TYPES[type], object = buildingObjects[type];
-                if (!object || !building.animation) return;
+                if (!object || !building.constructionFrames) return;
                 const prefix = "openrct2:large_scenery:" + object.index + ":";
                 const tiles = [];
                 Object.keys(buildingStates).forEach(function (id) {
                     const state = buildingStates[id], target = worldTargetIds[id];
                     if (!id.startsWith(prefix) || !target || !state || state.session !== controlSession
-                        || targetCatalogSession !== controlSession || state.health < 1 || state.queue < 1) return;
+                        || targetCatalogSession !== controlSession || state.health < 1) return;
+                    const constructing = !state.completed && Number.isInteger(state.construction_progress)
+                        && state.construction_progress >= 0 && state.construction_progress < 100;
+                    if (!constructing && (!building.animation || state.queue < 1)) return;
+                    const stage = constructing ? Math.min(building.constructionFrames - 1,
+                        Math.floor(state.construction_progress * building.constructionFrames / 100)) : -1;
+                    const bank = constructing ? 1 + (building.animation ? building.animation.frames : 0) + stage : 0;
                     target.geometry.rects.forEach(function (rect) {
                         for (let y = rect.y; y < rect.y + rect.height; y += 32)
                             for (let x = rect.x; x < rect.x + rect.width; x += 32)
-                                tiles.push({ x: x, y: y });
+                                tiles.push(constructing ? { x: x, y: y, frame: bank } : { x: x, y: y });
                     });
                 });
+                if (!tiles.length && !animatedBuildingObjects[type]) return;
+                animatedBuildingObjects[type] = tiles.length > 0;
                 rtsBridge.setBuildingAnimations({ session: controlSession,
-                    object: object.index, tiles: tiles, frames: building.animation.frames,
-                    ticks_per_frame: building.animation.ticks_per_frame,
+                    object: object.index, tiles: tiles, frames: building.animation ? building.animation.frames : 0,
+                    ticks_per_frame: building.animation ? building.animation.ticks_per_frame : 1,
                     bank_stride: building.width * building.height * 4 });
             });
         }

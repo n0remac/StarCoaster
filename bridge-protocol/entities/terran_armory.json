@@ -10,6 +10,7 @@
   "height": 2,
   "max_health": 750,
   "conventional_training": false,
+  "construction": {"image": "Terran_Construction_Medium", "source_size": [96, 96], "frame_count": 3, "frames": [0, 1, 2]},
   "visual": {
     "image": "Armory",
     "asset": "armory",

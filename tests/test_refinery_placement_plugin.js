@@ -41,7 +41,7 @@ function checkPark(size) {
         objectManager: { getAllObjects() { return [{ index: 7,
             identifier: 'starcoaster.scenery_large.terran_refinery' }]; } },
         network: { mode: 'client', currentPlayer: { id: 1 }, players: [{ id: 1 }] },
-        rtsBridge: { version: 5, assetVersion: 6, clearSnapshot() {}, applySnapshot() {},
+        rtsBridge: { version: 6, assetVersion: 7, clearSnapshot() {}, applySnapshot() {},
             invalidateAnimation() {}, setBuildingAnimations() {}, cursorWorld() { return null; },
             actorScreenPosition(id) { return id === worker.id ? { x: 50, y: 50 } : null; } },
         ui, context, console: { log() {} }, registerPlugin(plugin) { plugin.main(); } };

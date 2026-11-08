@@ -10,6 +10,7 @@
   "height": 3,
   "max_health": 1250,
   "conventional_training": false,
+  "construction": {"image": "Zerg_Construction_Large", "source_size": [160, 192], "frame_count": 31, "frames": [0, 5, 10, 15, 20, 25]},
   "visual": {
     "image": "Hatchery",
     "asset": "hatchery",

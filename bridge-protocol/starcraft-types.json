@@ -199,6 +199,19 @@
         "terran_firebat",
         "terran_medic"
       ],
+      "construction": {
+        "image": "Terran_Construction_Large",
+        "source_size": [
+          160,
+          128
+        ],
+        "frame_count": 3,
+        "frames": [
+          0,
+          1,
+          2
+        ]
+      },
       "animation": {
         "trigger": "training",
         "frames": 7,
@@ -214,7 +227,20 @@
       "height": 2,
       "max_health": 600,
       "visual": "terran_academy",
-      "production": []
+      "production": [],
+      "construction": {
+        "image": "Terran_Construction_Medium",
+        "source_size": [
+          96,
+          96
+        ],
+        "frame_count": 3,
+        "frames": [
+          0,
+          1,
+          2
+        ]
+      }
     },
     {
       "id": "terran_supply_depot",
@@ -225,7 +251,20 @@
       "height": 2,
       "max_health": 500,
       "visual": "terran_supply_depot",
-      "production": []
+      "production": [],
+      "construction": {
+        "image": "Terran_Construction_Medium",
+        "source_size": [
+          96,
+          96
+        ],
+        "frame_count": 3,
+        "frames": [
+          0,
+          1,
+          2
+        ]
+      }
     },
     {
       "id": "terran_factory",
@@ -239,7 +278,20 @@
       "production": [
         "terran_vulture",
         "terran_goliath"
-      ]
+      ],
+      "construction": {
+        "image": "Terran_Construction_Large",
+        "source_size": [
+          160,
+          128
+        ],
+        "frame_count": 3,
+        "frames": [
+          0,
+          1,
+          2
+        ]
+      }
     },
     {
       "id": "terran_armory",
@@ -250,7 +302,20 @@
       "height": 2,
       "max_health": 750,
       "visual": "terran_armory",
-      "production": []
+      "production": [],
+      "construction": {
+        "image": "Terran_Construction_Medium",
+        "source_size": [
+          96,
+          96
+        ],
+        "frame_count": 3,
+        "frames": [
+          0,
+          1,
+          2
+        ]
+      }
     },
     {
       "id": "zerg_hatchery",
@@ -263,7 +328,23 @@
       "visual": "zerg_hatchery",
       "production": [
         "zerg_zergling"
-      ]
+      ],
+      "construction": {
+        "image": "Zerg_Construction_Large",
+        "source_size": [
+          160,
+          192
+        ],
+        "frame_count": 31,
+        "frames": [
+          0,
+          5,
+          10,
+          15,
+          20,
+          25
+        ]
+      }
     },
     {
       "id": "zerg_spawning_pool",
@@ -274,7 +355,23 @@
       "height": 2,
       "max_health": 750,
       "visual": "zerg_spawning_pool",
-      "production": []
+      "production": [],
+      "construction": {
+        "image": "Zerg_Construction_Medium",
+        "source_size": [
+          160,
+          192
+        ],
+        "frame_count": 31,
+        "frames": [
+          0,
+          5,
+          10,
+          15,
+          20,
+          25
+        ]
+      }
     },
     {
       "id": "terran_command_center",
@@ -287,7 +384,20 @@
       "visual": "terran_command_center",
       "production": [
         "terran_scv"
-      ]
+      ],
+      "construction": {
+        "image": "Terran_Construction_Large",
+        "source_size": [
+          160,
+          128
+        ],
+        "frame_count": 3,
+        "frames": [
+          0,
+          1,
+          2
+        ]
+      }
     },
     {
       "id": "terran_refinery",
@@ -298,7 +408,20 @@
       "height": 2,
       "max_health": 750,
       "visual": "terran_refinery",
-      "production": []
+      "production": [],
+      "construction": {
+        "image": "Terran_Construction_Large",
+        "source_size": [
+          160,
+          128
+        ],
+        "frame_count": 3,
+        "frames": [
+          0,
+          1,
+          2
+        ]
+      }
     }
   ],
   "resources": [
