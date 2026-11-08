@@ -1580,6 +1580,12 @@ private:
                 {"attack_frames",attackFrames_[unit->getID()]},
                 {"target_id",target?json(actorRegistry_.id(target)):json(nullptr)},
                 {"target_entity_id",targetEntity.empty()?json(nullptr):json(targetEntity)}};
+            if (type == BWAPI::UnitTypes::Resource_Mineral_Field
+                || type == BWAPI::UnitTypes::Resource_Vespene_Geyser) {
+                const auto binding = economyObservations_.bindingFor(unit);
+                if (!binding.is_null()) actor["resource_site_id"] = binding.at("site_id");
+                actor["resource_amount"] = std::max(0, unit->getResources());
+            }
             if (type == BWAPI::UnitTypes::Terran_SCV) {
                 actor["worker_order"] = unit->getOrder().getName();
                 actor["cargo"] = unit->isCarryingMinerals() ? "minerals"

@@ -1190,12 +1190,16 @@
                     && Number.isInteger(unit.hp) && unit.hp >= 0
                     && Number.isInteger(unit.max_hp) && unit.max_hp >= unit.hp && unit.max_hp <= 100000
                     && (unit.energy === undefined || Number.isInteger(unit.energy) && unit.energy >= 0)
+                    && (unit.resource_amount === undefined || Number.isInteger(unit.resource_amount)
+                        && unit.resource_amount >= 0)
+                    && (unit.resource_site_id === undefined || typeof unit.resource_site_id === "string"
+                        && /^[a-z0-9-]{1,64}$/.test(unit.resource_site_id))
                     && Number.isInteger(unit.attack_frames) && unit.attack_frames >= 0);
         });
     }
 
     function main() {
-        if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 4
+        if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 5
             || typeof rtsBridge.applySnapshot !== "function"
             || typeof rtsBridge.clearSnapshot !== "function"
             || typeof rtsBridge.invalidateAnimation !== "function"
@@ -2336,11 +2340,31 @@
             }
             function footprintAt(point) {
                 if (!point) return null;
-                const x = Math.floor(point.x / 32), y = Math.floor(point.y / 32);
+                let x = Math.floor(point.x / 32), y = Math.floor(point.y / 32);
                 const building = selectedBuilding();
+                let geyserSite = null;
+                if (selectedBuildingID === "terran_refinery" && missionStatus && missionStatus.finite_economy) {
+                    const offsetX = Math.floor((256 - map.size.x) / 2) * 32;
+                    const offsetY = Math.floor((256 - map.size.y) / 2) * 32;
+                    geyserSite = Object.keys(resourceSiteStates).sort().map(function (id) {
+                        return resourceSiteStates[id];
+                    }).find(function (site) {
+                        if (site.type !== "vespene_geyser" || site.lifecycle !== "deposit") return false;
+                        const left = site.x - building.width * 16 - offsetX;
+                        const top = site.y - building.height * 16 - offsetY;
+                        return point.x >= left && point.x < left + building.width * 32
+                            && point.y >= top && point.y < top + building.height * 32;
+                    }) || null;
+                    if (geyserSite) {
+                        x = (geyserSite.x - building.width * 16 - offsetX) / 32;
+                        y = (geyserSite.y - building.height * 16 - offsetY) / 32;
+                    }
+                }
                 if (x < 1 || y < 1 || x + building.width >= map.size.x
-                    || y + building.height >= map.size.y) return null;
-                return { x: x, y: y, tiles: Array.from({ length: building.width * building.height }, function (_, index) {
+                    || y + building.height >= map.size.y || !Number.isInteger(x)
+                    || !Number.isInteger(y)) return null;
+                return { x: x, y: y, geyserSiteID: geyserSite ? geyserSite.site_id : "",
+                    tiles: Array.from({ length: building.width * building.height }, function (_, index) {
                     return { x: x + index % building.width, y: y + Math.floor(index / building.width) };
                 }) };
             }
@@ -2353,6 +2377,8 @@
                     if (!native) return "Waiting for native costs";
                     if (!native.available) return native.reason === "requires_building"
                         ? "Requires " + native.requirement.replace(/_/g, " ") : native.reason.replace(/_/g, " ");
+                    if (selectedBuildingID === "terran_refinery" && !footprint.geyserSiteID)
+                        return "Select the visible geyser";
                     if (Object.keys(constructionStates).some(function (id) {
                         const site = constructionStates[id], building = BUILDING_TYPES[site.building_type];
                         return building && !["rejected", "canceled", "destroyed"].includes(site.state)
@@ -2382,7 +2408,10 @@
                 if (Object.keys(occupancyUnits).some(function (id) {
                     const unit = occupancyUnits[id];
                     const margin = 16;
-                    return id !== selectedWorker() && unit.hp > 0 && unit.x + margin > footprint.x * 32
+                    return id !== selectedWorker()
+                        && !(footprint.geyserSiteID && unit.kind === "vespene_geyser"
+                            && unit.resource_site_id === footprint.geyserSiteID)
+                        && unit.hp > 0 && unit.x + margin > footprint.x * 32
                         && unit.y + margin > footprint.y * 32
                         && unit.x - margin < (footprint.x + selectedBuilding().width) * 32
                         && unit.y - margin < (footprint.y + selectedBuilding().height) * 32;
@@ -2436,23 +2465,10 @@
                             const worker = selectedWorker();
                             const request = ++nextRequest;
                             lastConstructionIntent = "build:" + network.currentPlayer.id + ":" + request;
-                            let geyser = "";
-                            if (selectedBuildingID === "terran_refinery") {
-                                geyser = Object.keys(resourceSiteStates).filter(function (id) {
-                                    const site = resourceSiteStates[id];
-                                    const offsetX = Math.floor((256 - map.size.x) / 2);
-                                    const offsetY = Math.floor((256 - map.size.y) / 2);
-                                    return site.type === "vespene_geyser" && site.lifecycle === "deposit"
-                                        && site.x - 64 === (footprint.x + offsetX) * 32
-                                        && site.y - 32 === (footprint.y + offsetY) * 32;
-                                })[0] || "";
-                                if (!geyser) { barracksPreviewStatus = "Select the visible geyser";
-                                    updateConstructionStatus(); return; }
-                            }
                             const command = { session: controlSession, request: request, unit_ids: [worker],
                                 verb: "build", building_type: selectedBuildingID,
                                 tile_x: footprint.x, tile_y: footprint.y };
-                            if (geyser) command.geyser_site_id = geyser;
+                            if (footprint.geyserSiteID) command.geyser_site_id = footprint.geyserSiteID;
                             barracksPreviewStatus = "Build order requested: " + worker;
                             updateConstructionStatus();
                             context.executeAction(COMMAND_ACTION, command, function (result) {

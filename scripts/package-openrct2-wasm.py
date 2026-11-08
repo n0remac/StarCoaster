@@ -74,7 +74,7 @@ def main() -> int:
     script_engine = require(UPSTREAM / "src/openrct2/scripting/ScriptEngine.cpp").read_text()
     script_header = require(UPSTREAM / "src/openrct2/scripting/ScriptEngine.h").read_text()
     if ('JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5))' not in script_engine
-            or 'JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 4))' not in script_engine
+            or 'JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 5))' not in script_engine
             or 'kPluginApiVersion = 124' not in script_header):
         raise RuntimeError("Native bridge or plugin API versions do not match this bundle")
 
@@ -125,7 +125,7 @@ def main() -> int:
         "openrct2_commit": upstream_commit,
         "patch_sha256": patch_digest.hexdigest(),
         "native_bridge_version": 5,
-        "asset_version": 4,
+        "asset_version": 5,
         "plugin_api_version": 124,
         "network_enabled": network_enabled,
         "visual_source": visual_source,

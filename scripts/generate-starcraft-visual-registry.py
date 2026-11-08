@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 DIRECTIONS = ("east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast")
-STATES = ("idle", "walk", "attack", "heal", "gather", "carry", "construct", "morph", "hatch", "death")
+STATES = ("idle", "reduced", "low", "very_low", "depleted", "walk", "attack", "heal", "gather", "carry", "construct", "morph", "hatch", "death")
 LEGACY_G2_COUNT = 601
 
 

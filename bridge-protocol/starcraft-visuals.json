@@ -875,12 +875,27 @@
       "animations": {
         "idle": {
           "frames": [
-            0,
-            1,
-            2,
+            0
+          ],
+          "ticks": 1
+        },
+        "reduced": {
+          "frames": [
+            1
+          ],
+          "ticks": 1
+        },
+        "low": {
+          "frames": [
+            2
+          ],
+          "ticks": 1
+        },
+        "very_low": {
+          "frames": [
             3
           ],
-          "ticks": 6
+          "ticks": 1
         },
         "death": {
           "frames": [
@@ -913,12 +928,15 @@
       "animations": {
         "idle": {
           "frames": [
-            0,
-            1,
-            2,
-            3
+            0
           ],
-          "ticks": 6
+          "ticks": 1
+        },
+        "depleted": {
+          "frames": [
+            0
+          ],
+          "ticks": 1
         },
         "death": {
           "frames": [
@@ -927,6 +945,40 @@
           "ticks": 1
         }
       },
+      "attachments": [
+        {
+          "name": "smoke",
+          "image": "Vespene_Geyser_Smoke1",
+          "source": "unit/thingy/GeySmok1.grp",
+          "canvas": [
+            32,
+            64
+          ],
+          "frame_count": 8,
+          "stride": 1,
+          "facing": "body",
+          "layer": "above_body",
+          "animations": {
+            "idle": {
+              "frames": [
+                0
+              ],
+              "ticks": 1
+            },
+            "depleted": {
+              "frames": [
+                0
+              ],
+              "ticks": 1,
+              "source": "unit/thingy/GeySmoS1.grp",
+              "canvas": [
+                32,
+                64
+              ]
+            }
+          }
+        }
+      ],
       "health_offset": [
         -14,
         -28

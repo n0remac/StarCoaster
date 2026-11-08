@@ -11,7 +11,10 @@
     "asset": "mineral_field", "g2_order": 12, "image": "Mineral_Field_Type1",
     "source": "unit/neutral/min01.grp", "canvas": [64, 96],
     "frame_count": 4, "stride": 1,
-    "animations": {"idle": {"frames": [0, 1, 2, 3], "ticks": 6},
+    "animations": {"idle": {"frames": [0], "ticks": 1},
+                   "reduced": {"frames": [1], "ticks": 1},
+                   "low": {"frames": [2], "ticks": 1},
+                   "very_low": {"frames": [3], "ticks": 1},
                    "death": {"frames": [0], "ticks": 1}},
     "health_offset": [-12, -28], "bounds": [24, 20, 12]
   }

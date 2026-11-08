@@ -18,7 +18,7 @@ def main() -> int:
     manifest = json.loads((bundle / "manifest.json").read_text())
     expected = (manifest.get("schema"), manifest.get("native_bridge_version"),
                 manifest.get("asset_version"), manifest.get("plugin_api_version"))
-    if expected != (1, 5, 4, 124):
+    if expected != (1, 5, 5, 124):
         raise ValueError(f"Incompatible bundle versions: {expected}")
     if not isinstance(manifest.get("network_enabled"), bool):
         raise ValueError("Bundle multiplayer configuration is missing")

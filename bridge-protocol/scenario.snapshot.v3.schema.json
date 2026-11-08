@@ -32,6 +32,8 @@
           "alive": { "type": "boolean" },
           "attack_frames": { "type": "integer", "minimum": 0 },
           "energy": { "type": "integer", "minimum": 0 },
+          "resource_amount": { "type": "integer", "minimum": 0 },
+          "resource_site_id": { "type": "string", "pattern": "^[a-z0-9-]{1,64}$" },
           "target_id": { "oneOf": [{ "$ref": "#/$defs/unitId" }, { "type": "null" }] },
           "worker_order": { "type": "string" },
           "cargo": { "enum": ["none", "minerals", "gas"] },

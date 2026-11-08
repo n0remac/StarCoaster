@@ -1,0 +1,74 @@
+diff --git a/src/openrct2/paint/Paint.Entity.h b/src/openrct2/paint/Paint.Entity.h
+--- a/src/openrct2/paint/Paint.Entity.h
++++ b/src/openrct2/paint/Paint.Entity.h
+@@ -32,6 +32,7 @@
+     int32_t maxHp = 0;
+     int32_t owner = -1;
+     int32_t attackFrames = 0;
++    int32_t resourceAmount = -1;
+     bool alive = true;
+ };
+ 
+diff --git a/src/openrct2/paint/Paint.Entity.cpp b/src/openrct2/paint/Paint.Entity.cpp
+--- a/src/openrct2/paint/Paint.Entity.cpp
++++ b/src/openrct2/paint/Paint.Entity.cpp
+@@ -592,6 +592,23 @@
+         if (!visualType)
+             continue;
+         const uint32_t elapsed = getGameState().currentTicks - visual.animationStartTick;
++        std::string resourceMotion = actor.motion;
++        if (actor.motion != "death" && actor.resourceAmount >= 0)
++        {
++            if (actor.kind == "mineral_field")
++            {
++                if (actor.resourceAmount < 250)
++                    resourceMotion = "very_low";
++                else if (actor.resourceAmount < 500)
++                    resourceMotion = "low";
++                else if (actor.resourceAmount < 750)
++                    resourceMotion = "reduced";
++                else
++                    resourceMotion = "idle";
++            }
++            else if (actor.kind == "vespene_geyser")
++                resourceMotion = actor.resourceAmount == 0 ? "depleted" : "idle";
++        }
+         const BoundBoxXYZ actorBounds{
+             { -visualType->bounds[0] / 2, -visualType->bounds[1] / 2, z + 5 },
+             { visualType->bounds[0], visualType->bounds[1], visualType->bounds[2] } };
+@@ -600,7 +617,7 @@
+             const auto& layer = visualType->layers[layerIndex];
+             const BridgeVisualAnimation* animation = nullptr;
+             for (size_t animationIndex = 0; animationIndex < layer.count; ++animationIndex)
+-                if (actor.motion == layer.animations[animationIndex].motion)
++                if (resourceMotion == layer.animations[animationIndex].motion)
+                 {
+                     animation = &layer.animations[animationIndex];
+                     break;
+diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/ScriptEngine.cpp
+--- a/src/openrct2/scripting/ScriptEngine.cpp
++++ b/src/openrct2/scripting/ScriptEngine.cpp
+@@ -794,8 +794,13 @@
+         const bool aimValid = JS_IsUndefined(aimValue)
+             || (JS_ToInt32(ctx, &aimFacing, aimValue) == 0 && aimFacing >= 0 && aimFacing <= 255);
+         JS_FreeValue(ctx, aimValue);
++        JSValue amountValue = JS_IsObject(unit) ? JS_GetPropertyStr(ctx, unit, "resource_amount") : JS_UNDEFINED;
++        const bool amountValid = JS_IsUndefined(amountValue)
++            || (JS_ToInt32(ctx, &parsed.resourceAmount, amountValue) == 0
++                && parsed.resourceAmount >= 0 && parsed.resourceAmount <= 1000000);
++        JS_FreeValue(ctx, amountValue);
+         JS_FreeValue(ctx, unit);
+-        if (!valid || !aimValid)
++        if (!valid || !aimValid || !amountValid)
+         {
+             JS_FreeValue(ctx, units);
+             return JS_ThrowTypeError(ctx, "invalid bridge unit");
+@@ -954,7 +959,7 @@
+     JSValue glb = JS_GetGlobalObject(ctx);
+     JSValue bridge = JS_NewObject(ctx);
+     JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5));
+-    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 4));
++    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 5));
+     JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
+     JS_SetPropertyStr(ctx, bridge, "performanceEnabled", JS_NewBool(ctx, BridgePerf::enabled()));
+     const char* worldPortText = std::getenv("STARCOASTER_BRIDGE_PORT");

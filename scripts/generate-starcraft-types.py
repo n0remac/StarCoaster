@@ -74,7 +74,7 @@ def validate_animation(profile, label, required_death=True):
             ("idle" not in animations or "death" not in animations)):
         raise ValueError(f"Missing required visual state: {label}")
     for state, animation in animations.items():
-        if state not in {"idle", "walk", "attack", "heal", "death", "morph", "hatch",
+        if state not in {"idle", "reduced", "low", "very_low", "depleted", "walk", "attack", "heal", "death", "morph", "hatch",
                          "gather", "carry", "construct"} or not isinstance(animation, dict):
             raise ValueError(f"Unsupported visual state: {label}.{state}")
         if "fallback" in animation:
