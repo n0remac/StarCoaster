@@ -34,6 +34,14 @@ type scenarioStatus struct {
 	DefenseConfigurable    bool    `json:"defense_configurable,omitempty"`
 	AutomaticPerimeter     bool    `json:"automatic_perimeter,omitempty"`
 	BaseProduction         bool    `json:"base_production,omitempty"`
+	EnemyProductionState   string  `json:"enemy_production_state,omitempty"`
+	EnemyMinerals          int     `json:"enemy_minerals,omitempty"`
+	EnemySupplyUsed        int     `json:"enemy_supply_used,omitempty"`
+	EnemySupplyTotal       int     `json:"enemy_supply_total,omitempty"`
+	EnemyLarvae            int     `json:"enemy_larvae,omitempty"`
+	EnemyEggs              int     `json:"enemy_eggs,omitempty"`
+	EnemyGarrison          int     `json:"enemy_garrison,omitempty"`
+	EnemyTrainOrders       int     `json:"enemy_train_orders,omitempty"`
 }
 
 func (s *service) currentScenarioStatus() scenarioStatus {
@@ -51,6 +59,37 @@ func (s *service) currentScenarioStatus() scenarioStatus {
 		}
 	}
 	if s.scenario.EnemyBase != nil {
+		if s.scenario.EnemyBase.Version == 2 && s.scenario.EnemyBase.LayoutState == "ready" {
+			status.EnemyProductionState = s.enemyProductionState
+			if s.registry.Destroyed["scenario:enemy-hatchery"] {
+				status.EnemyProductionState = "hatchery_destroyed"
+			}
+			if status.EnemyProductionState == "" {
+				status.EnemyProductionState = "waiting_for_native_base"
+			}
+			status.EnemyMinerals = s.enemyProductionMinerals
+			status.EnemySupplyUsed = s.enemyProductionSupplyUsed
+			status.EnemySupplyTotal = s.enemyProductionSupplyTotal
+			status.EnemyLarvae = s.enemyProductionLarvae
+			if s.runtime != nil && s.runtime.EnemyProduction != nil {
+				status.EnemyTrainOrders = len(s.runtime.EnemyProduction.Orders)
+			}
+			if s.actors != nil {
+				for _, actor := range s.actors.Living() {
+					if actor.Owner != 0 {
+						continue
+					}
+					switch actor.Type {
+					case "zerg_egg":
+						status.EnemyEggs++
+					case "zerg_zergling":
+						if actor.Phase == "complete" {
+							status.EnemyGarrison++
+						}
+					}
+				}
+			}
+		}
 		status.EnemyBaseBootstrap = "preparing"
 		if s.scenario.EnemyBase.LayoutState == "blocked" {
 			status.EnemyBaseBootstrap = "blocked"

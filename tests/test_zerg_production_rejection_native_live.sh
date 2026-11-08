@@ -67,8 +67,11 @@ for variant in ('absent_pool', 'insufficient_minerals', 'supply_cap'):
                       r'supply=(\d+)->(\d+) supply_total=(\d+)', train)
     checks[variant + '_native_rejected_without_charging'] = bool(match
         and match[1] == match[2] and match[3] == match[4])
-    checks[variant + '_larvae_without_eggs'] = (all(
-        re.search(r'role=' + role + r' stage=larva ', log) for role in ('publisher', 'controller'))
+    # Both native roles write to one stderr stream. Their diagnostic lines can
+    # interleave byte-for-byte, so require the authoritative publisher Larva
+    # and the outcome observed on the same participant.
+    checks[variant + '_larvae_without_eggs'] = (
+        bool(re.search(r'role=publisher stage=larva ', log))
         and 'role=publisher stage=rejected egg_count=0' in log
         and 'stage=egg ' not in log)
     if variant == 'absent_pool':

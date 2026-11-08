@@ -69,7 +69,10 @@ PY
   export BRIDGE_ZERG_STARTING_MINERALS="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'
 import json, sys
 fixture = json.load(open(sys.argv[1], encoding="utf-8")).get("production_fixture", {})
-print(fixture["zerg_minerals"] if "zerg_minerals" in fixture else "")
+scenario = json.load(open(sys.argv[1], encoding="utf-8"))
+base = scenario.get("enemy_base") or {}
+print(base["initial_minerals"] if base.get("version") == 2 and base.get("layout_state") == "ready"
+      else fixture["zerg_minerals"] if "zerg_minerals" in fixture else "")
 PY
 )"
   export BRIDGE_ZERG_STARTING_GAS="$(python3 - "$BRIDGE_SCENARIO_CONFIG" <<'PY'

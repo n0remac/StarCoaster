@@ -68,72 +68,80 @@ type staging struct {
 	seen     map[string]bool
 }
 type service struct {
-	mu                        sync.Mutex
-	park, bw                  *peer
-	controller                *peer
-	registry                  *world.Registry
-	actors                    *world.ActorRegistry
-	resources                 *world.ResourceLedger
-	construction              *world.ConstructionLedger
-	constructionSeen          map[string]map[string]nativeConstructionObservation
-	economyBalance            map[int][4]int
-	mapping                   world.Mapping
-	stage                     *staging
-	parkPatch                 *parkPatchStage
-	targetPatch               *targetPatchStage
-	next                      uint64
-	pending                   map[string]world.CombatEvent
-	pendingFrames             map[string]int
-	proxies                   map[string]string
-	targetLinks               map[string]targetLink
-	pendingLinks              map[string]pendingTargetLink
-	deferredLinks             map[string]bool
-	pendingReady              *world.Ready
-	lastReady                 *world.Ready
-	startedSession            string
-	navigationMask            world.NavigationMask
-	navigationRevision        uint64
-	navigationStarted         time.Time
-	navigationMeasured        bool
-	publisherNavigationReady  bool
-	controllerNavigationReady bool
-	ready                     bool
-	bwResyncPending           bool
-	bwWidth                   int
-	bwHeight                  int
-	transform                 world.Transform
-	scenario                  *world.Scenario
-	runtime                   *world.ScenarioRuntime
-	objectiveID               string
-	outcome                   string
-	lastMarines               int
-	lastZerglings             int
-	lastEnemies               int
-	lastNativeActors          int
-	nativeOccupants           []world.NativeOccupant
-	nativeOccupancyComplete   bool
-	actorReconcileComplete    bool
-	reconciledActors          map[string]bool
-	retired                   map[string]bool
-	commands                  map[string]worldCommand
-	perfPositions             map[string][2]int
-	perfMoves                 map[string]perfMove
-	spawns                    *world.SpawnQueue
-	spawnOps                  map[string]world.SpawnExecute
-	spawnJournalPath          string
-	maxLiveActors             int
-	lastScenarioStatus        string
-	parkSupervisorSocket      string
-	parkGeneration            string
-	defenseRandomIndex        func(int) int
-	perimeterRetryFrame       int
-	pendingPerimeter          *perimeterQueryState
-	enemyBaseSession          string
-	enemyBaseRevision         uint64
-	enemyBasePublisher        bool
-	enemyBaseController       bool
-	enemyBaseReason           string
-	enemyBaseRetryFrame       int
+	mu                         sync.Mutex
+	park, bw                   *peer
+	controller                 *peer
+	registry                   *world.Registry
+	actors                     *world.ActorRegistry
+	resources                  *world.ResourceLedger
+	construction               *world.ConstructionLedger
+	constructionSeen           map[string]map[string]nativeConstructionObservation
+	economyBalance             map[int][4]int
+	mapping                    world.Mapping
+	stage                      *staging
+	parkPatch                  *parkPatchStage
+	targetPatch                *targetPatchStage
+	next                       uint64
+	pending                    map[string]world.CombatEvent
+	pendingFrames              map[string]int
+	proxies                    map[string]string
+	targetLinks                map[string]targetLink
+	pendingLinks               map[string]pendingTargetLink
+	deferredLinks              map[string]bool
+	pendingReady               *world.Ready
+	lastReady                  *world.Ready
+	startedSession             string
+	navigationMask             world.NavigationMask
+	navigationRevision         uint64
+	navigationStarted          time.Time
+	navigationMeasured         bool
+	publisherNavigationReady   bool
+	controllerNavigationReady  bool
+	ready                      bool
+	bwResyncPending            bool
+	bwWidth                    int
+	bwHeight                   int
+	transform                  world.Transform
+	scenario                   *world.Scenario
+	runtime                    *world.ScenarioRuntime
+	objectiveID                string
+	outcome                    string
+	lastMarines                int
+	lastZerglings              int
+	lastEnemies                int
+	lastNativeActors           int
+	nativeOccupants            []world.NativeOccupant
+	nativeOccupancyComplete    bool
+	actorReconcileComplete     bool
+	reconciledActors           map[string]bool
+	retired                    map[string]bool
+	commands                   map[string]worldCommand
+	perfPositions              map[string][2]int
+	perfMoves                  map[string]perfMove
+	spawns                     *world.SpawnQueue
+	spawnOps                   map[string]world.SpawnExecute
+	spawnJournalPath           string
+	maxLiveActors              int
+	lastScenarioStatus         string
+	parkSupervisorSocket       string
+	parkGeneration             string
+	defenseRandomIndex         func(int) int
+	perimeterRetryFrame        int
+	pendingPerimeter           *perimeterQueryState
+	enemyBaseSession           string
+	enemyBaseRevision          uint64
+	enemyBasePublisher         bool
+	enemyBaseController        bool
+	enemyBaseReason            string
+	enemyBaseRetryFrame        int
+	enemyBasePublisherNativeID int
+	enemyProductionQueryFrame  int
+	enemyProductionQueryID     string
+	enemyProductionState       string
+	enemyProductionMinerals    int
+	enemyProductionSupplyUsed  int
+	enemyProductionSupplyTotal int
+	enemyProductionLarvae      int
 }
 
 type parkPatchStage struct {
@@ -577,6 +585,20 @@ func (s *service) publishReady() {
 	}
 	if s.scenario != nil && s.scenario.Version == 2 && !s.actorReconcileComplete {
 		return
+	}
+	if s.scenario != nil && s.scenario.EnemyBase != nil && s.scenario.EnemyBase.Version == 2 &&
+		s.pendingReady.Zerglings > len(s.scenario.StartingUnits.Zerglings) {
+		runtimeZerglings := 0
+		if s.actors != nil {
+			for _, actor := range s.actors.Living() {
+				if actor.Type == "zerg_zergling" {
+					runtimeZerglings++
+				}
+			}
+		}
+		if s.pendingReady.Zerglings > len(s.scenario.StartingUnits.Zerglings)+runtimeZerglings {
+			return // native morph/spawn messages can trail world.ready during reconnect
+		}
 	}
 	ready := *s.pendingReady
 	s.pendingReady = nil
@@ -1542,11 +1564,12 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.ack(p, m, true, "")
-		log.Printf("actor spawn id=%s generation=%d", identity.ID, identity.Generation)
+		log.Printf("actor spawn id=%s generation=%d type=%s", identity.ID, identity.Generation, identity.Type)
 		if s.reconciledActors != nil {
 			s.reconciledActors[identity.ID] = true
 		}
 		_ = s.emit(s.controller, "actor.spawn", m.Session, m.Revision, identity)
+		s.publishReady()
 	case "actor.morph":
 		var change world.ActorMorph
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -1556,8 +1579,11 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 			return
 		}
 		s.ack(p, m, true, "")
+		log.Printf("actor morph id=%s from=%s type=%s phase=%s generation=%d",
+			change.ID, change.FromType, change.Type, change.Phase, change.Generation)
 		_ = s.emit(s.controller, "actor.morph", m.Session, m.Revision, change)
 		_ = s.emit(s.park, "actor.morph", m.Session, m.Revision, change)
+		s.publishReady()
 	case "actor.reconcile":
 		var state world.ActorReconcile
 		if s.actors == nil || m.Session != s.registry.Session ||
@@ -1621,6 +1647,10 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		s.acceptPerimeterRoute(result.QueryID, result.Accepted, result.ValidIndices)
 	case "scenario.enemy_base.result":
 		s.handleEnemyBaseResult(p, m)
+	case "scenario.enemy_production.result":
+		s.handleEnemyProductionResult(p, m)
+	case "scenario.enemy_production.receipt":
+		s.handleEnemyProductionReceipt(p, m)
 	case "actor.despawn":
 		var event world.ActorDespawn
 		if s.actors == nil || m.Session != s.registry.Session ||

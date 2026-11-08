@@ -85,6 +85,9 @@ type ScenarioEconomyEntity struct {
 // A blocked layout has no structures and cannot produce free fallback waves.
 type ScenarioEnemyBase struct {
 	Version            int                 `json:"version"`
+	InitialMinerals    int                 `json:"initial_minerals,omitempty"`
+	MinimumSupply      int                 `json:"minimum_supply,omitempty"`
+	MaxTrainOrders     int                 `json:"max_train_orders,omitempty"`
 	LayoutPolicy       string              `json:"layout_policy"`
 	LayoutState        string              `json:"layout_state"`
 	PolicyVersion      int                 `json:"policy_version"`
@@ -394,12 +397,15 @@ func (s *Scenario) validateEnemyBase() error {
 	if s.Version != 2 || s.Mode != "park_defense" || s.Economy == nil ||
 		s.Economy.LayoutPolicy != "generated" || s.Economy.PolicyVersion != 2 ||
 		s.ParkDefense == nil || s.ParkDefense.SpawnPolicy != "base_production" ||
-		b.Version != 1 || b.LayoutPolicy != "generated" || b.PolicyVersion != 1 ||
+		(b.Version != 1 && b.Version != 2) || b.LayoutPolicy != "generated" || b.PolicyVersion != 1 ||
 		b.LayoutSeed != s.Economy.LayoutSeed ||
 		(b.LayoutState != "ready" && b.LayoutState != "blocked") {
 		return fmt.Errorf("invalid generated enemy base policy")
 	}
 	if b.LayoutState == "blocked" {
+		if b.InitialMinerals != 0 || b.MinimumSupply != 0 || b.MaxTrainOrders != 0 {
+			return fmt.Errorf("blocked enemy base has production budget")
+		}
 		if len(b.Structures) != 0 || len(b.SupplyTile) != 0 ||
 			len(b.AssemblyTile) != 0 || len(b.ApproachTile) != 0 || len(b.TerranApproachTile) != 0 ||
 			b.BlockedReason == "" ||
@@ -414,6 +420,12 @@ func (s *Scenario) validateEnemyBase() error {
 		len(b.Structures) != 2 || len(b.SupplyTile) != 2 ||
 		len(b.AssemblyTile) != 2 || len(b.ApproachTile) != 2 || len(b.TerranApproachTile) != 2 {
 		return fmt.Errorf("invalid ready enemy base")
+	}
+	if b.Version == 2 && (b.InitialMinerals != 300 || b.MinimumSupply != 16 || b.MaxTrainOrders != 6) {
+		return fmt.Errorf("invalid enemy production budget")
+	}
+	if b.Version == 1 && (b.InitialMinerals != 0 || b.MinimumSupply != 0 || b.MaxTrainOrders != 0) {
+		return fmt.Errorf("legacy enemy base has production budget")
 	}
 	for index, kind := range []string{"zerg_hatchery", "zerg_spawning_pool"} {
 		building := b.Structures[index]
@@ -684,7 +696,7 @@ func (s *Scenario) CheckReadyWithRuntimeState(registry *Registry, proxies map[st
 	}
 	validCounts := ready.Marines == len(s.StartingUnits.Marines) &&
 		ready.Zerglings == len(s.StartingUnits.Zerglings)
-	if ready.Resuming {
+	if ready.Resuming || (s.EnemyBase != nil && s.EnemyBase.Version == 2 && runtimeZerglings > 0) {
 		validCounts = runtimeMarines >= 0 && runtimeZerglings >= 0 &&
 			ready.Marines >= runtimeMarines && ready.Zerglings >= runtimeZerglings &&
 			ready.Marines <= len(s.StartingUnits.Marines)+runtimeMarines &&

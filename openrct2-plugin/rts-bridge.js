@@ -1770,6 +1770,11 @@
                     || (args.economy_blocked_reason !== undefined && !["", "no_native_valid_economy_site", "economy_geometry_unavailable", "economy_search_limit"].includes(args.economy_blocked_reason))
                     || (args.enemy_base_bootstrap !== undefined && !["", "preparing", "native_validated", "blocked"].includes(args.enemy_base_bootstrap))
                     || (args.enemy_base_blocked_reason !== undefined && (typeof args.enemy_base_blocked_reason !== "string" || args.enemy_base_blocked_reason.length > 128))
+                    || (args.enemy_production_state !== undefined && (typeof args.enemy_production_state !== "string" || args.enemy_production_state.length > 64))
+                    || ["enemy_minerals", "enemy_supply_used", "enemy_supply_total", "enemy_larvae",
+                        "enemy_eggs", "enemy_garrison", "enemy_train_orders"].some(function (field) {
+                        return args[field] !== undefined && (!Number.isSafeInteger(args[field]) || args[field] < 0 || args[field] > 100000);
+                    })
                     || !["", "pending", "triggered", "spawning", "active", "cleared", "failed", "base_bootstrap"].includes(args.wave_state)
                     || !["", "victory", "defeat"].includes(args.outcome)
                     || typeof args.error !== "string" || args.error.length > 256)
@@ -1784,6 +1789,10 @@
                     + " difficulty=" + (missionStatus.wave_difficulty || "")
                     + " enemy_base=" + (missionStatus.enemy_base_bootstrap || "")
                     + " enemy_reason=" + (missionStatus.enemy_base_blocked_reason || "")
+                    + " production=" + (missionStatus.enemy_production_state || "")
+                    + " enemy_minerals=" + (missionStatus.enemy_minerals || 0)
+                    + " eggs=" + (missionStatus.enemy_eggs || 0)
+                    + " garrison=" + (missionStatus.enemy_garrison || 0)
                     + " next_automatic_frame=" + (missionStatus.next_automatic_frame || 0));
                 return {};
             });
@@ -2849,7 +2858,8 @@
                     ? (status.enemy_base_bootstrap === "blocked"
                         ? "Colony waiting: " + status.enemy_base_blocked_reason
                         : status.enemy_base_bootstrap === "native_validated"
-                            ? "Colony ready; production pending"
+                            ? "Production: " + (status.enemy_production_state || "waiting")
+                                + " | " + (status.enemy_minerals || 0) + " minerals"
                             : "Colony validating native routes")
                     : status.economy_bootstrap === "blocked"
                     ? "Economy placement blocked; waves paused"
@@ -2857,8 +2867,11 @@
                     : status.defense_enabled
                         ? (status.error && status.error.indexOf("Waves waiting:") === 0 ? status.error
                             : "Next wave: " + status.next_wave_seconds + "s") : "Next wave: disabled");
-                setText("defense-current", "Current wave: " + status.wave_ordinal + " | "
-                    + status.active_enemies + " enemies (" + status.wave_state + ")");
+                setText("defense-current", status.base_production
+                    ? "Colony: " + (status.enemy_garrison || 0) + " Zerglings, "
+                        + (status.enemy_eggs || 0) + " Eggs"
+                    : "Current wave: " + status.wave_ordinal + " | "
+                        + status.active_enemies + " enemies (" + status.wave_state + ")");
                 const balance = playerResources[terranOwner];
                 setText("defense-resources", status.unlimited_resources
                     ? "Minerals: Unlimited | Gas: Unlimited"

@@ -19,6 +19,8 @@ func (s *service) queryEnemyBase(frame int) {
 		s.enemyBasePublisher, s.enemyBaseController = false, false
 		s.enemyBaseReason = "native_validation_pending"
 		s.enemyBaseRetryFrame = 0
+		s.enemyBasePublisherNativeID = 0
+		s.enemyProductionQueryFrame = 0
 	}
 	if frame == 0 {
 		s.enemyBasePublisher, s.enemyBaseController = false, false
@@ -59,6 +61,7 @@ func (s *service) acceptEnemyBaseResult(p *peer, id string, accepted bool, reaso
 		hatchery != pool && hatchery != overlord && pool != overlord {
 		if p == s.bw {
 			s.enemyBasePublisher = true
+			s.enemyBasePublisherNativeID = hatchery
 		} else {
 			s.enemyBaseController = true
 		}

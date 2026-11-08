@@ -380,6 +380,94 @@ private:
             ack(message, accepted, accepted ? "" : "invalid_construction_watch");
             return;
         }
+        if (kind=="scenario.enemy_production.query") {
+            const bool valid = ready_ && game->self() && game->self()->getID() == 0
+                && message.value("source", "") == "bridge"
+                && message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() == revision_
+                && payload.value("target_id", "") == "scenario:enemy-hatchery";
+            if (!valid) { ack(message, false, "invalid_enemy_production_query"); return; }
+            auto found = targets_.find("scenario:enemy-hatchery");
+            BWAPI::Unit hatchery = found == targets_.end() ? nullptr : found->second.unit;
+            const bool present = hatchery && hatchery->exists() && hatchery->isCompleted()
+                && hatchery->getPlayer() == game->self()
+                && found->second.lifecycle == "active"
+                && hatchery->getID() == payload.value("hatchery_native_id", -1);
+            json result = {{"query_id", payload.value("query_id", "")},
+                {"hatchery_native_id", present ? hatchery->getID() : -1},
+                {"present", present}, {"minerals", game->self()->minerals()},
+                {"supply_used", game->self()->supplyUsed()},
+                {"supply_total", game->self()->supplyTotal()},
+                {"can_train", present && hatchery->canTrain(BWAPI::UnitTypes::Zerg_Zergling)},
+                {"pool_complete", game->self()->completedUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool) > 0},
+                {"larvae", present ? hatchery->getLarva().size() : 0}};
+            const auto pending = payload.value("pending_request_id", "");
+            if (!pending.empty()) {
+                auto receipt = enemyTrainReceipts_.find(pending);
+                if (receipt != enemyTrainReceipts_.end()) result["receipt"] = receipt->second;
+            }
+            send("scenario.enemy_production.result", result, revision_, game->getFrameCount());
+            return;
+        }
+        if (kind=="scenario.enemy_production.train") {
+            const std::string request = payload.value("request_id", "");
+            const std::string prefix = "enemy-train:" + session_ + ":";
+            if (!ready_ || !game->self() || game->self()->getID() != 0
+                || message.value("source", "") != "bridge"
+                || message.value("session", "") != session_
+                || message.at("revision").get<uint64_t>() != revision_
+                || request.compare(0, prefix.size(), prefix) != 0) {
+                ack(message, false, "invalid_enemy_train_order"); return;
+            }
+            if (auto prior = enemyTrainReceipts_.find(request); prior != enemyTrainReceipts_.end()) {
+                send("scenario.enemy_production.receipt", prior->second, revision_, game->getFrameCount());
+                return;
+            }
+            const int sequence = payload.value("sequence", 0);
+            const bool authorized = ready_ && game->self() && game->self()->getID() == 0
+                && message.value("source", "") == "bridge"
+                && message.value("session", "") == session_
+                && message.at("revision").get<uint64_t>() == revision_
+                && payload.value("target_id", "") == "scenario:enemy-hatchery"
+                && payload.value("unit_type", "") == "zerg_zergling"
+                && sequence > 0 && sequence <= 12 && sequence == enemyTrainSequence_ + 1
+                && request == prefix + std::to_string(sequence);
+            auto found = targets_.find("scenario:enemy-hatchery");
+            BWAPI::Unit hatchery = found == targets_.end() ? nullptr : found->second.unit;
+            const bool present = hatchery && hatchery->exists() && hatchery->isCompleted()
+                && hatchery->getPlayer() == game->self() && found->second.lifecycle == "active"
+                && hatchery->getID() == payload.value("hatchery_native_id", -1)
+                && payload.value("target_proxy_id", "") ==
+                    "openbw:" + std::to_string(found->second.proxyID);
+            const int before = game->self()->minerals();
+            bool accepted = false;
+            std::string reason = "invalid_enemy_train_order";
+            if (authorized && present) {
+                reason = "native_train_rejected";
+                if (game->self()->completedUnitCount(BWAPI::UnitTypes::Zerg_Spawning_Pool) < 1)
+                    reason = "spawning_pool_missing";
+                else if (game->self()->minerals() < 50) reason = "production_exhausted";
+                else if (hatchery->getLarva().empty()) reason = "larva_unavailable";
+                else if (game->self()->supplyTotal() - game->self()->supplyUsed() < 2)
+                    reason = "supply_exhausted";
+                else if (hatchery->canTrain(BWAPI::UnitTypes::Zerg_Zergling)
+                    && hatchery->train(BWAPI::UnitTypes::Zerg_Zergling)) {
+                    accepted = true; reason.clear();
+                }
+                enemyTrainSequence_ = sequence;
+            } else if (authorized) reason = "hatchery_unavailable";
+            json receipt = {{"request_id", request}, {"sequence", sequence},
+                {"accepted", accepted}, {"reason", reason},
+                {"hatchery_native_id", payload.value("hatchery_native_id", -1)},
+                {"frame", game->getFrameCount()}, {"minerals_before", before},
+                {"minerals_after", game->self() ? game->self()->minerals() : before}};
+            if (authorized) enemyTrainReceipts_[request] = receipt;
+            send("scenario.enemy_production.receipt", receipt, revision_, game->getFrameCount());
+            std::cerr << "[world] enemy train request=" << request << " accepted=" << accepted
+                      << " reason=" << reason << " minerals=" << before << "->"
+                      << receipt["minerals_after"] << " frame=" << game->getFrameCount() << std::endl;
+            return;
+        }
         if (kind=="combat.command") {
             const std::string commandID = payload.value("command_id", "");
             const std::string prefix = session_ + ":";
@@ -829,7 +917,11 @@ private:
         for (auto& pending : pending_)
             if (newSession || !desired.entities.count(pending.id)) pending.id.clear();
         desired_ = desired;
-        if (session_ != desired.session) lastCommandSerial_ = 0;
+        if (session_ != desired.session) {
+            lastCommandSerial_ = 0;
+            enemyTrainSequence_ = 0;
+            enemyTrainReceipts_.clear();
+        }
         session_ = desired.session;
         revision_ = desired.revision;
         width_ = desired.width;
@@ -1751,5 +1843,7 @@ private:
     std::map<int,int> lastHealFrame_;
     std::map<int,std::pair<json,int>> lastActors_;
     uint64_t lastCommandSerial_ = 0;
+    int enemyTrainSequence_ = 0;
+    std::map<std::string, json> enemyTrainReceipts_;
     std::map<int,std::pair<std::string,int>> observedActorTypes_;
 };

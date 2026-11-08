@@ -106,3 +106,41 @@ func TestGeneratedEnemyBaseRejectsMissingProjectionAndOverlap(t *testing.T) {
 		t.Fatal("economy overlap accepted")
 	}
 }
+
+func TestProducedZerglingsPermitBridgeReadinessRecovery(t *testing.T) {
+	v := generatedEnemyScenario(t, false)
+	base := v["enemy_base"].(map[string]any)
+	base["version"], base["initial_minerals"], base["minimum_supply"], base["max_train_orders"] = 2, 300, 16, 6
+	s, err := loadEnemyScenario(t, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRegistry()
+	r.Width, r.Height = s.ParkSize[0], s.ParkSize[1]
+	ready := Ready{Navigation: "native", Zerglings: 2}
+	if err := s.CheckReadyWithRuntimeState(r, nil, ready, 0, 2, false); err != nil {
+		t.Fatalf("reconciled native pair blocked bridge restart: %v", err)
+	}
+	ready.Zerglings = 3
+	if err := s.CheckReadyWithRuntimeState(r, nil, ready, 0, 2, false); err == nil {
+		t.Fatal("unregistered native Zergling accepted")
+	}
+}
+
+func TestGeneratedEnemyBaseRejectsInvalidProductionBudget(t *testing.T) {
+	v := generatedEnemyScenario(t, false)
+	base := v["enemy_base"].(map[string]any)
+	base["version"], base["initial_minerals"], base["minimum_supply"], base["max_train_orders"] = 2, 300, 16, 6
+	if _, err := loadEnemyScenario(t, v); err != nil {
+		t.Fatal(err)
+	}
+	base["initial_minerals"] = 100000
+	if _, err := loadEnemyScenario(t, v); err == nil {
+		t.Fatal("unbounded enemy bank accepted")
+	}
+	base["initial_minerals"] = 300
+	base["max_train_orders"] = 7
+	if _, err := loadEnemyScenario(t, v); err == nil {
+		t.Fatal("more orders than finite bank accepted")
+	}
+}

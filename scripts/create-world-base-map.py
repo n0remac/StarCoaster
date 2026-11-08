@@ -100,7 +100,7 @@ def scenario_units(path: Path) -> list[bytes]:
                                    100, 100, 100, amount, 0, 0, 0, 0))
     enemy = scenario.get("enemy_base") or {}
     if enemy:
-        if enemy.get("version") != 1 or enemy.get("layout_policy") != "generated" or \
+        if enemy.get("version") not in (1, 2) or enemy.get("layout_policy") != "generated" or \
                 enemy.get("layout_state") not in ("ready", "blocked"):
             raise ValueError("invalid enemy base map bootstrap")
         if enemy["layout_state"] == "ready":

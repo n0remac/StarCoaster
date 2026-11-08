@@ -36,6 +36,7 @@ type ScenarioRuntime struct {
 	ManualOrder        []string          `json:"manual_order,omitempty"`
 	ManualSequence     map[int]int       `json:"manual_sequence,omitempty"`
 	Waves              []RuntimeWave     `json:"waves"`
+	EnemyProduction    *EnemyProduction  `json:"enemy_production,omitempty"`
 	Outcome            string            `json:"outcome,omitempty"`
 	Error              string            `json:"error,omitempty"`
 }
@@ -84,6 +85,9 @@ func NewScenarioRuntime(s *Scenario, session string) *ScenarioRuntime {
 	if s.Mode == "park_defense" {
 		r.NextWaveSequence = 1
 		r.DefenseEnabled = !s.ParkDefense.ManualActivation
+		if s.EnemyBase != nil && s.EnemyBase.Version == 2 && s.EnemyBase.LayoutState == "ready" {
+			r.EnemyProduction = NewEnemyProduction(s.EnemyBase.MaxTrainOrders)
+		}
 		return r
 	}
 	for _, wave := range s.Waves {
@@ -102,6 +106,13 @@ func (r *ScenarioRuntime) Validate(s *Scenario, session string) error {
 		return errors.New("scenario_journal_version_invalid")
 	}
 	if s.Mode == "park_defense" {
+		if s.EnemyBase != nil && s.EnemyBase.Version == 2 && s.EnemyBase.LayoutState == "ready" {
+			if err := r.EnemyProduction.Validate(session, s.EnemyBase.MaxTrainOrders); err != nil {
+				return err
+			}
+		} else if r.EnemyProduction != nil {
+			return errors.New("unexpected_enemy_production_journal")
+		}
 		if s.ParkDefense.SpawnPolicy == "base_production" && len(r.Waves) != 0 {
 			return errors.New("base_production_legacy_wave_invalid")
 		}
