@@ -263,6 +263,19 @@ conflicting chunk cannot expose a partial update. The server resends a complete
 catalog for a joining client when its plugin reports readiness, and on actual
 target changes; it does not broadcast the full catalog on a timer.
 
+Generated enemy colonies use four internal `scenario.enemy_production.*`
+messages. The bridge queries the Zerg publisher for native minerals, supply,
+Larvae and `canTrain` state, journals a session-scoped train request before
+sending it, and binds the order to the native Hatchery ID and projection proxy.
+The publisher alone accepts `scenario.enemy_production.train` for one
+`zerg_zergling` Egg; it rechecks native ownership, completion, Pool, supply and
+minerals. Its receipt records the native frame and before/after mineral values.
+On bridge reconnect, a pending request is resolved only from the publisher's
+same-session cached receipt. A missing receipt marks production uncertain and
+stops further orders; no request is replayed from a timeout. Larva, Egg and
+Zergling actor identities remain in the existing native actor registry.
+These messages are unavailable through the player command action.
+
 The new startup world API is documented in [world.v1](world.v1.schema.json) and the [world bridge guide](../docs/world-bridge.md). It runs alongside the older disposable combat snapshot messages described below.
 
 Terrain `height`, `water`, and path `base_height` are OpenRCT2 world Z units, not base-height steps. The optional `slope` contains the native surface slope encoding; omitted means flat for older fixtures. Legacy `ground_paths` accepts one ground-following path. The additive `path_layers` field preserves up to 16 paths at distinct heights or occupied quarters, including raised and subsurface layers. Each layer includes `base_height`, nullable `slope_direction`, `clearance_height`, and `occupied_quadrants`. A tile cannot mix legacy and layered fields. Raised paths do not create native walking routes; the bridge blocks ground cells only when the approximated path slab intersects the shared 32-Z-unit unit clearance. Subsurface layers remain metadata.
