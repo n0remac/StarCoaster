@@ -68,7 +68,7 @@ diff --git a/src/openrct2/scripting/ScriptEngine.cpp b/src/openrct2/scripting/Sc
      JSValue bridge = JS_NewObject(ctx);
      JS_SetPropertyStr(ctx, bridge, "version", JS_NewInt32(ctx, 5));
 -    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 4));
-+    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 5));
++    JS_SetPropertyStr(ctx, bridge, "assetVersion", JS_NewInt32(ctx, 6));
      JS_SetPropertyStr(ctx, bridge, "applySnapshot", JS_NewCFunction(ctx, BridgeApplySnapshotJS, "applySnapshot", 1));
      JS_SetPropertyStr(ctx, bridge, "performanceEnabled", JS_NewBool(ctx, BridgePerf::enabled()));
      const char* worldPortText = std::getenv("STARCOASTER_BRIDGE_PORT");

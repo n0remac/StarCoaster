@@ -563,6 +563,12 @@ def main() -> None:
     if pack == "starcraft-local" and only_unit is None and not icon_manifest.is_file():
         raise SystemExit("Missing original command icons; run scripts/prepare-starcraft-command-icons.py")
     icon_frames = json.loads(icon_manifest.read_text())["icons"] if icon_manifest.is_file() and only_unit is None else {}
+    if pack == "starcraft-local" and only_unit is None:
+        catalog = json.loads((ROOT / "bridge-protocol/starcraft-types.json").read_text())
+        trained = {unit for building in catalog["buildings"] for unit in building["production"]}
+        missing = trained - icon_frames.keys()
+        if missing:
+            raise SystemExit("Missing original command icons for: " + ", ".join(sorted(missing)))
     entries = json.loads(contents)
     icon_ids = {"empty": g2_base}
     for kind, meta in sorted(icon_frames.items()):

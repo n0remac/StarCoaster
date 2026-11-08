@@ -176,7 +176,7 @@
         if (!window.WebAssembly || !window.JSZip) throw new Error("WebAssembly or the local ZIP library is unavailable.");
         const manifest = await (await fetchRequired("manifest.json")).json();
         if (manifest.schema !== 1 || manifest.native_bridge_version !== 5 ||
-            manifest.asset_version !== 5 || manifest.plugin_api_version !== 124 ||
+            manifest.asset_version !== 6 || manifest.plugin_api_version !== 124 ||
             typeof manifest.network_enabled !== "boolean")
             throw new Error("Browser bundle compatibility version mismatch.");
         const script = document.createElement("script");

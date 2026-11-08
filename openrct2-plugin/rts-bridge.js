@@ -60,7 +60,7 @@
         terran_refinery: { name: "Terran Refinery", objectID: "starcoaster.scenery_large.terran_refinery", width: 4, height: 2, maxHealth: 750, production: [], animation: null },
     });
     // END GENERATED STARCRAFT TYPES
-    const COMMAND_ICON_IMAGES = Object.freeze({"empty": 29357, "terran_firebat": 30696, "terran_goliath": 30697, "terran_marine": 30698, "terran_medic": 30699, "terran_vulture": 30700, "zerg_zergling": 30701});
+    const COMMAND_ICON_IMAGES = Object.freeze({"empty": 29357, "terran_firebat": 30696, "terran_goliath": 30697, "terran_marine": 30698, "terran_medic": 30699, "terran_scv": 30835, "terran_vulture": 30700, "zerg_zergling": 30701});
     const buildingByObject = {};
     Object.keys(BUILDING_TYPES).forEach(function (id) {
         const definition = BUILDING_TYPES[id];
@@ -1199,7 +1199,7 @@
     }
 
     function main() {
-        if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 5
+        if (typeof rtsBridge !== "object" || rtsBridge.version !== 5 || rtsBridge.assetVersion !== 6
             || typeof rtsBridge.applySnapshot !== "function"
             || typeof rtsBridge.clearSnapshot !== "function"
             || typeof rtsBridge.invalidateAnimation !== "function"

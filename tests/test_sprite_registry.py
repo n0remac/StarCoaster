@@ -302,10 +302,10 @@ class SpriteRegistryTests(unittest.TestCase):
         native = (upstream / "src/openrct2/scripting/ScriptEngine.cpp").read_text()
         plugin = (ROOT / "openrct2-plugin/rts-bridge.js").read_text()
         self.assertIn('"version", JS_NewInt32(ctx, 5)', native)
-        self.assertIn('"assetVersion", JS_NewInt32(ctx, 5)', native)
+        self.assertIn('"assetVersion", JS_NewInt32(ctx, 6)', native)
         self.assertIn('BridgeSupportsActorType(parsed.kind)', native)
         self.assertIn('rtsBridge.version !== 5', plugin)
-        self.assertIn('rtsBridge.assetVersion !== 5', plugin)
+        self.assertIn('rtsBridge.assetVersion !== 6', plugin)
 
     @unittest.skipUnless(MANIFEST.is_file(), "local licensed sprites have not been prepared")
     def test_verified_walk_groups_and_mirror_anchors(self):

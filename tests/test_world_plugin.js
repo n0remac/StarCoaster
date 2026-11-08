@@ -40,7 +40,8 @@ let clearedSnapshots = 0;
 let squadWidgets;
 const openedWindows = [];
 const starcraftBuildings = ['terran_barracks', 'terran_academy', 'terran_supply_depot',
-    'terran_factory', 'terran_armory', 'zerg_hatchery', 'zerg_spawning_pool'];
+    'terran_factory', 'terran_armory', 'zerg_hatchery', 'zerg_spawning_pool',
+    'terran_command_center'];
 let socket;
 const sandbox = {
     map: { size: { x: 8, y: 8 }, get rides() { return ride ? [ride] : []; },
@@ -67,7 +68,7 @@ const sandbox = {
                     payload: { op_id: m.op_id, accepted: true } }) + '\n');
             } }; return socket;
     } },
-    rtsBridge: { version: 5, assetVersion: 5, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, clearSnapshot() { clearedSnapshots++; }, applySnapshot(snapshot) { applied.push(snapshot); },
+    rtsBridge: { version: 5, assetVersion: 6, cursorWorld() { return null; }, invalidateAnimation() {}, setBuildingAnimations() {}, clearSnapshot() { clearedSnapshots++; }, applySnapshot(snapshot) { applied.push(snapshot); },
         actorScreenPosition(id) { return actorScreens.get(id) || null; },
         hitTest(x, y) { return x === 32 && y === 32 ? 'openbw:3001' : null; } },
     ui: { tileSelection: { tiles: [] }, get tool() { return activeTool; }, openWindow(desc) { squadWidgets = desc.widgets;
@@ -658,7 +659,8 @@ for (const [index, type] of starcraftBuildings.entries()) {
         baseHeight: 14, baseZ: 112, direction: 0 });
     const commands = type === 'terran_barracks' ? ['terran_marine', 'terran_firebat', 'terran_medic']
         : type === 'terran_factory' ? ['terran_vulture', 'terran_goliath']
-            : type === 'zerg_hatchery' ? ['zerg_zergling'] : [];
+            : type === 'zerg_hatchery' ? ['zerg_zergling']
+                : type === 'terran_command_center' ? ['terran_scv'] : [];
     const availability = Object.fromEntries(commands.map(unit => [unit,
         { ready: true, reason: 'ready', requirement: '' }]));
     const state = { session: sid, id: hudTargets[index].id, native_id: 'openbw:' + (100 + index),

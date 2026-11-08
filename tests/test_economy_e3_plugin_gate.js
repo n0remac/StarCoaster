@@ -19,7 +19,7 @@ function boot(finite) {
             players: [{ id: 1 }, { id: 2 }], createSocket() {
                 return { on() {}, connect() {}, destroy() {} };
             } },
-        rtsBridge: { version: 5, assetVersion: 5, cursorWorld() {},
+        rtsBridge: { version: 5, assetVersion: 6, cursorWorld() {},
             invalidateAnimation() {}, setBuildingAnimations() {}, applySnapshot() {},
             clearSnapshot() {}, actorScreenPosition() {} },
         context: { getParkStorage() { return { get(key, fallback) {

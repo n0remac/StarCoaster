@@ -51,7 +51,7 @@ const sandbox = {
             }, destroy() {} };
         return socket;
     } },
-    rtsBridge: { version: 5, assetVersion: 5, invalidateAnimation() {}, setBuildingAnimations() {}, applySnapshot() {}, clearSnapshot() {}, hitTest() {},
+    rtsBridge: { version: 5, assetVersion: 6, invalidateAnimation() {}, setBuildingAnimations() {}, applySnapshot() {}, clearSnapshot() {}, hitTest() {},
         actorScreenPosition() { return null; } },
     ui: { tileSelection: { tiles: [] }, openWindow() { return { findWidget() { return { text: '' }; } }; },
         registerShortcut() {}, registerViewportInteraction() {}, activateTool() {}, showError() {} },

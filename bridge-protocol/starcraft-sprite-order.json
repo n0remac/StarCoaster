@@ -1469,5 +1469,13 @@
   "bridge/vespene_geyser/idle0.png",
   "bridge/vespene_geyser/idle1.png",
   "bridge/vespene_geyser/idle2.png",
-  "bridge/vespene_geyser/idle3.png"
+  "bridge/vespene_geyser/idle3.png",
+  "bridge/mineral_field/depleted0.png",
+  "bridge/mineral_field/low0.png",
+  "bridge/mineral_field/reduced0.png",
+  "bridge/mineral_field/very_low0.png",
+  "bridge/vespene_geyser/depleted0.png",
+  "bridge/vespene_geyser/smoke_depleted0.png",
+  "bridge/vespene_geyser/smoke_idle0.png",
+  "bridge/command/terran_scv.png"
 ]

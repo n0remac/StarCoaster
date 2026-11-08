@@ -13,6 +13,7 @@ ICON_FRAMES = {
     "terran_marine": 0,
     "terran_vulture": 2,
     "terran_goliath": 3,
+    "terran_scv": 7,
     "terran_firebat": 32,
     "terran_medic": 34,
     "zerg_zergling": 37,
