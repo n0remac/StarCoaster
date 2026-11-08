@@ -1,9 +1,11 @@
 # StarCoaster milestone: Productive enemy Zerg bases
 
-Status: SPEC / NOT IMPLEMENTED
+Status: B1 IMPLEMENTED / GRAPHICAL VERIFICATION PENDING; B2–B4 NOT IMPLEMENTED
 Date: 2026-11-08
-Planning baseline: `76f38af` (main and completed economy fixes)
+Implementation baseline: `1dbfec5` (enemy-zerg-bases branch)
 Implementation branch: `enemy-zerg-bases`
+Implementation commit: `5a08a52` (B1)
+Implementation evidence: `docs/enemy-zerg-bases-b1-verification.md`
 Next milestone: enemy economic and strategic AI
 
 ## 1. Goal and player experience
