@@ -50,7 +50,9 @@ class SpriteOrderTests(unittest.TestCase):
                 prepared.append((path, name))
             contents = json.dumps([{"path": "bridge/" + name, "x": -12, "y": -8}
                                    for name in sorted(roots)])
-            result = json.loads(installer.preserve_retired_resource_ids(contents, prepared))
+            rendered = installer.preserve_retired_resource_ids(contents, prepared)
+            self.assertIn('"path": "bridge/mineral_field/idle0.png", "x": -12', rendered)
+            result = json.loads(rendered)
             paths = {entry["path"] for entry in result}
             expected = {"bridge/" + asset + "/" + old + ".png"
                         for asset, aliases in installer.RETIRED_RESOURCE_ALIASES.items()

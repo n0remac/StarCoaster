@@ -59,6 +59,7 @@ def preserve_retired_resource_ids(contents: str, prepared: list) -> str:
     by_path = {entry["path"]: entry for entry in entries}
     sources = {name: path for path, name in prepared}
     ledger = set(json.loads((ROOT / "bridge-protocol/starcraft-sprite-order.json").read_text()))
+    additions = []
     for asset, aliases in RETIRED_RESOURCE_ALIASES.items():
         for old, current in aliases.items():
             old_name, current_name = f"{asset}/{old}.png", f"{asset}/{current}.png"
@@ -72,7 +73,13 @@ def preserve_retired_resource_ids(contents: str, prepared: list) -> str:
                 entry = {**by_path[current_key], "path": old_key}
                 entries.append(entry)
                 by_path[old_key] = entry
-    return json.dumps(entries, indent=4) + "\n"
+                additions.append(entry)
+    if not additions:
+        return contents
+    prefix = contents.rstrip()[:-1].rstrip()
+    separator = "," if not prefix.endswith("[") else ""
+    return prefix + separator + "\n" + ",\n".join(
+        "    " + json.dumps(entry) for entry in additions) + "\n]\n"
 
 
 def registered_units() -> list[tuple[str, dict]]:
