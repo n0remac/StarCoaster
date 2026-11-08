@@ -1,12 +1,13 @@
 # StarCoaster milestone: Productive enemy Zerg bases
 
-Status: B1–B2 IMPLEMENTED / GRAPHICAL VERIFICATION PENDING; B3–B4 NOT IMPLEMENTED
+Status: B1–B3 IMPLEMENTED / B3 NATIVE ASSAULT VERIFIED; GRAPHICAL AND BASE-KILL VERIFICATION PENDING; B4 NOT IMPLEMENTED
 Date: 2026-11-08
 Implementation baseline: `1dbfec5` (enemy-zerg-bases branch)
 Implementation branch: `enemy-zerg-bases`
 Implementation commit: `5a08a52` (B1)
 Implementation evidence: `docs/enemy-zerg-bases-b1-verification.md`
 Production evidence: `docs/enemy-zerg-bases-b2-verification.md`
+Assault evidence: `docs/enemy-zerg-bases-b3-verification.md`
 Next milestone: enemy economic and strategic AI
 
 ## 1. Goal and player experience

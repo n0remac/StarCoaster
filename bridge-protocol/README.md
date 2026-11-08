@@ -276,6 +276,22 @@ stops further orders; no request is replayed from a timeout. Larva, Egg and
 Zergling actor identities remain in the existing native actor registry.
 These messages are unavailable through the player command action.
 
+Base-backed assaults use four internal `scenario.enemy_assault.*` messages.
+The bridge first journals a wave with the Hatchery native ID, revision,
+destination and exact completed Zergling actor IDs observed in a complete
+native snapshot. It then sends one session-scoped assignment to the Zerg
+publisher. The publisher checks the live Hatchery, each canonical actor
+binding, ownership, completion and each actual unit's native path before
+registering the attack destination with the existing assault controller.
+Its receipt gives the assigned count and native frame; `world.ack` alone does
+not establish an order. A duplicate request returns the cached receipt.
+After a bridge reconnect, the bridge queries a pending receipt and never
+replays an assignment whose native outcome is unknown. Rejected route checks
+have at most three distinct, journaled attempts. The controller leaves
+unassigned colony units in the garrison and issues native attack moves only
+for accepted assignments. These messages are bridge-only and do not create
+units.
+
 The new startup world API is documented in [world.v1](world.v1.schema.json) and the [world bridge guide](../docs/world-bridge.md). It runs alongside the older disposable combat snapshot messages described below.
 
 Terrain `height`, `water`, and path `base_height` are OpenRCT2 world Z units, not base-height steps. The optional `slope` contains the native surface slope encoding; omitted means flat for older fixtures. Legacy `ground_paths` accepts one ground-following path. The additive `path_layers` field preserves up to 16 paths at distinct heights or occupied quarters, including raised and subsurface layers. Each layer includes `base_height`, nullable `slope_direction`, `clearance_height`, and `occupied_quadrants`. A tile cannot mix legacy and layered fields. Raised paths do not create native walking routes; the bridge blocks ground cells only when the approximated path slab intersects the shared 32-Z-unit unit clearance. Subsurface layers remain metadata.
