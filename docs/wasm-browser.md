@@ -22,6 +22,17 @@ Production runs as `starcoaster.service` on the new Pi (`100.119.114.99`). The o
 
 The browser starts at OpenRCT2's normal main menu, with the native New Game and Load Game interfaces. Its packaged StarCoaster plugin is hash checked and installed in the browser's persistent OpenRCT2 user directory. On a managed Pi host, selecting a stock scenario or save requests a new authoritative generation. The browser uploads a selected save to a private temporary directory when needed, waits for OpenRCT2, OpenBW, and Go readiness, and joins through the existing `/ws` multiplayer gateway without reloading the page. No session token or extra login is required after opening the private Tailscale URL. Explicit scenario sessions and the `starcoaster-test-join` URL parameter remain available for development.
 
+For an ordinary park, open **Map > StarCraft Settings** after joining. The
+generated Zerg colony status shows its native-validated count, production,
+garrison, attack state and next attack countdown. A blocked placement gives a
+reason and keeps the park playable without free replacement waves. The same
+window keeps the Easy/Standard/Hard, interval and enable controls; changes
+apply to future, uncommitted attacks. To check the enemy base, watch Larva and
+Eggs at the Hatchery, defend against its Zerglings, then train Marines and
+counterattack the Pool and Hatchery. The generated-base browser playthrough
+and two-client visual check remain a manual verification gate; see
+[enemy-base verification](enemy-zerg-bases-verification.md).
+
 The browser control routes are `/private/park-session` for status and `/private/park-session/{load,upload,cancel,title}` for changes. Changes require a matching origin and are available to clients that can reach the private Tailscale URL; `/ws` remains the ordinary OpenRCT2 multiplayer transport. Scenario names are matched against the Pi's installed `RCT2_DATA_DIR/Scenarios` and private library, never interpreted as client paths. Save uploads are limited to 64 MiB, accept the supported `.park`, `.sc6`, `.sc4`, `.sv6`, and `.sv4` formats, and pass OpenRCT2 preflight before the old game is stopped. An invalid replacement leaves the current generation running. A native client launched through `scripts/project.sh launch` detects the local supervisor; a remote native client needs `STARCOASTER_CONTROL_URL` and `STARCOASTER_MULTIPLAYER_HOST` configured.
 
 For a separate local development browser run, run `RCT2_DATA_DIR=/path/to/rct2 STARCRAFT_DATA_DIR=/path/to/starcraft python3 scripts/park_session_supervisor.py --parks run-data/pi-park-library --runtime run-data/park-supervisor` after the native and WASM builds. Select New Game in OpenRCT2, choose a stock scenario, and wait for the automatic join. The private browser service stays up during preparation and map transitions. `WASM_NORMAL_HANDOFF=1 WASM_LIVE_URL=http://127.0.0.1:8091/ node browser/live-test.mjs` drives the first-game path in Chromium; add `WASM_LIVE_CAMERA=1 WASM_DEFENSE_CONFIGURE=1 WASM_DEFENSE_BUILD=1 WASM_DEFENSE_MANUAL=1 WASM_AUTO_ORDER=1` to verify Barracks construction, OpenBW Marine training, Defense control, and a viewport order.

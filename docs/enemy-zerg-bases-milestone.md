@@ -1,6 +1,6 @@
 # StarCoaster milestone: Productive enemy Zerg bases
 
-Status: B1–B3 IMPLEMENTED / B3 NATIVE ASSAULT VERIFIED; GRAPHICAL AND BASE-KILL VERIFICATION PENDING; B4 NOT IMPLEMENTED
+Status: B1–B3 IMPLEMENTED; B4 HARDENING AND FOCUSED NATIVE CHECKS COMPLETE / MANUAL GAMEPLAY GATE PENDING
 Date: 2026-11-08
 Implementation baseline: `1dbfec5` (enemy-zerg-bases branch)
 Implementation branch: `enemy-zerg-bases`
@@ -8,6 +8,7 @@ Implementation commit: `5a08a52` (B1)
 Implementation evidence: `docs/enemy-zerg-bases-b1-verification.md`
 Production evidence: `docs/enemy-zerg-bases-b2-verification.md`
 Assault evidence: `docs/enemy-zerg-bases-b3-verification.md`
+B4 evidence and manual gate: `docs/enemy-zerg-bases-verification.md`
 Next milestone: enemy economic and strategic AI
 
 ## 1. Goal and player experience
@@ -24,7 +25,10 @@ Target minimum demonstration:
 5. Terran units can reach and destroy the enemy Spawning Pool and Hatchery. Existing Zerglings fight on; subsequent Zergling training fails without its prerequisite, and future production ends with the Hatchery.
 6. A browser reload/second client and a bridge restart do not resurrect destroyed structures, issue duplicate training commands, manufacture lost waves, or duplicate units.
 
-## 2. Verified baseline and integration points
+## 2. Planning baseline and integration points
+
+The following bullets record the state at baseline `1dbfec5`; current B1–B4
+implementation and verification are recorded in the linked evidence documents.
 
 - `docs/automatic-zerg-waves-plan.md` and `docs/automatic-zerg-waves-verification.md`: generated parks use `spawn_policy: automatic_perimeter`; a durable Go wave scheduler chooses one reachable edge cluster, journals origins/composition/request IDs, and orders native attack-move. Settings, blocking, mixed-client synchronization, and no-catch-up behavior exist.
 - `scripts/prepare_existing_defense.py`, `scripts/scenario_package.py`, and `scripts/create-world-base-map.py`: source parks are copied into ignored run-data, inspected, provisioned with a generated Terran economy, and staged for native initialization. The current generated scenario supplies a Command Center via `initial_structures` and a finite economy via `economy.starting_entities`; it has **no enemy base**.
@@ -35,7 +39,7 @@ Target minimum demonstration:
 - `openbw-bwapi-module/src/WorldAssaultController.h`: native attack-move and combat control should be reused, not recreated inside Go.
 - `.agents/skills/starcoaster-verify/SKILL.md`: choose focused tests first, never overlap shared-port live suites.
 
-Do not interpret a successful native probe as proof of a full browser gameplay loop. No live test has been run for this specification.
+Do not interpret a successful native probe as proof of a full browser gameplay loop. Focused native probes have been run for B1–B4; the long browser playthrough remains the user's manual gate.
 
 ## 3. In scope / out of scope
 

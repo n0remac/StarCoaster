@@ -117,6 +117,23 @@ the same queue and selected zone. A disabled defense produces no new automatic
 waves; an accepted re-enable sets a fresh future deadline from the current
 OpenBW frame.
 
+For generated `base_production` parks, `scenario.status` also reports
+`enemy_colony_count` (zero or one after both native participants and the park
+projection validate), `enemy_attack_state` (`preparing`, `forming`,
+`waiting_for_units`, `ordering`, `attacking`, `blocked`, `paused`, `defeated`, or
+`exhausted`), production state, mineral/supply/Larva/Egg counts, garrison and
+assigned attacker counts, and a native blocking reason. These are observed
+status fields; neither a countdown nor an accepted train receipt proves a
+unit exists. Status may advance while a browser client is disconnected and is
+replayed when it joins the same session. Settings changes alter the durable
+native-frame schedule without rebuilding the source park or cached map.
+
+On native `world.ready`, OpenBW reports `static_morphed_zergling_ids` for
+Zerglings that morphed from a map-start Larva with an existing `openbw:2500`–
+`openbw:2999` identity. The bridge checks those identities alongside runtime
+actors before publishing readiness after a reconnect. Native unit count alone
+does not satisfy that check.
+
 ## Live park patches
 
 `world.patch` is one bounded authoritative construction batch from the
