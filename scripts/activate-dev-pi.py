@@ -71,6 +71,7 @@ def override_text(root, library=LIBRARY):
             "ExecStart=\n"
             f"ExecStart=/bin/bash {root}/current/scripts/run-pi-game.sh\n"
             f"Environment=BRIDGE_PARK_LIBRARY={library}\n"
+            f"Environment=WASM_RCT2_INVENTORY_CACHE={root}/cache/wasm-rct2-inventory.json\n"
             f"Environment=BRIDGE_WASM_LOG_FILE={root}/logs/wasm-playable-server.log\n")
 
 
@@ -101,7 +102,7 @@ def check_serving(path):
     return True
 
 
-def serving_revision(path, timeout=45):
+def serving_revision(path, timeout=120):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -111,6 +112,18 @@ def serving_revision(path, timeout=45):
             pass
         time.sleep(1)
     return False
+
+
+def prepare_inventory_cache(root, previous):
+    cache = root / "cache/wasm-rct2-inventory.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    if cache.is_symlink():
+        raise ValueError("unsafe DEV RCT2 inventory cache")
+    if cache.exists() or previous is None:
+        return
+    source = root / previous / "run-data/wasm-rct2-inventory.json"
+    if source.is_file() and not source.is_symlink():
+        replace_file(cache, source.read_bytes())
 
 
 def activate(revision, root=RELEASE_ROOT, override=OVERRIDE):
@@ -126,6 +139,7 @@ def activate(revision, root=RELEASE_ROOT, override=OVERRIDE):
             raise ValueError("current release is not a symlink")
         previous = current.readlink() if current.is_symlink() else None
         old_override = override.read_bytes() if override.exists() else None
+        prepare_inventory_cache(root, previous)
         try:
             replace_link(current, Path(RELEASES_DIR) / revision[:RELEASE_ID_LENGTH])
             replace_file(override, override_text(root).encode())

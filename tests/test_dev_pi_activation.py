@@ -59,10 +59,22 @@ class DevActivationTests(unittest.TestCase):
         self.assertEqual((self.root / "current").resolve(), self.candidate)
         self.assertFalse((self.root / "hold").exists())
         self.assertIn(str(self.root / "current"), self.override.read_text())
+        self.assertIn("WASM_RCT2_INVENTORY_CACHE=" + str(self.root / "cache/wasm-rct2-inventory.json"),
+                      self.override.read_text())
         self.assertEqual((self.root / "legacy-service-override.conf").read_text(),
                          "[Service]\nWorkingDirectory=/legacy-dev\n")
         self.assertNotIn("100.119.114.99", self.override.read_text())
         self.assertEqual(calls[-1], ("systemctl", "--user", "restart", activation.SERVICE))
+
+    def test_activation_reuses_previous_validated_rct2_inventory(self):
+        previous = self.root / activation.RELEASES_DIR / ("b" * activation.RELEASE_ID_LENGTH)
+        inventory = previous / "run-data/wasm-rct2-inventory.json"
+        inventory.parent.mkdir(parents=True)
+        inventory.write_bytes(b'{"schema":1}\n')
+        (self.root / "current").symlink_to(Path(activation.RELEASES_DIR) / previous.name)
+        with patch.object(activation, "run"), patch.object(activation, "serving_revision", return_value=True):
+            activation.activate(self.REVISION, self.root, self.override)
+        self.assertEqual((self.root / "cache/wasm-rct2-inventory.json").read_bytes(), inventory.read_bytes())
 
     def test_manual_rollback_restores_legacy_dev_service(self):
         original = self.override.read_bytes()
