@@ -212,8 +212,7 @@ def png_bytes(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
-def tile_screen(x: int, y: int, direction: int) -> tuple[int, int]:
-    x, y = x * 32, y * 32
+def world_screen(x: int, y: int, direction: int) -> tuple[int, int]:
     if direction == 1:
         x, y = y, -x
     elif direction == 2:
@@ -221,6 +220,19 @@ def tile_screen(x: int, y: int, direction: int) -> tuple[int, int]:
     elif direction == 3:
         x, y = -y, x
     return y - x, (x + y) // 2
+
+
+def tile_screen(x: int, y: int, direction: int) -> tuple[int, int]:
+    return world_screen(x * 32, y * 32, direction)
+
+
+def sprite_origin(width: int, height: int, sprite_width: int, sprite_height: int,
+                  direction: int) -> tuple[int, int]:
+    # Anchor the painted image to one world point: the footprint centre.
+    # The former frontmost-tile anchor changed its world point on rotation.
+    centre_x, centre_y = world_screen(width * 16, height * 16, direction)
+    return (centre_x - sprite_width // 2,
+            centre_y + (width + height) * 8 - sprite_height)
 
 
 def install(data_root: Path, game_dir: Path, building_type: str = "terran_barracks") -> Path:
@@ -255,13 +267,8 @@ def install(data_root: Path, game_dir: Path, building_type: str = "terran_barrac
     for _ in range(4):
         preview_x, preview_y = spec.get("preview_offset", (-29, -16))
         images.append({"path": "images/preview.png", "x": preview_x, "y": preview_y, "palette": "keep"})
-    origins = []
-    for direction in range(4):
-        positions = [tile_screen(tx, ty, direction)
-                     for ty in range(height) for tx in range(width)]
-        centre_x = (min(p[0] for p in positions) + max(p[0] for p in positions)) // 2
-        origins.append((centre_x - sprite.width // 2,
-                        max(p[1] for p in positions) + 16 - sprite.height))
+    origins = [sprite_origin(width, height, sprite.width, sprite.height, direction)
+               for direction in range(4)]
     # Frame 0 remains at the original image indexes for old saves and normal
     # scenery painting. Native painting selects a later 48-image bank only while
     # OpenBW reports a Marine in this Barracks' training queue.

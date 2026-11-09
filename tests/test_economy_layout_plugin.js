@@ -13,12 +13,10 @@ function structureScreenBox(structure, rotation) {
         else if (rotation === 3) [x, y] = [-y, x];
         return [y - x, Math.floor((x + y) / 2)];
     };
-    const corners = Array.from({ length: width * height }, (_, index) =>
-        screen(index % width, Math.floor(index / width)));
+    const [centreX, centreY] = screen(width / 2, height / 2);
     const [worldX, worldY] = screen(...structure.tile);
-    const left = worldX + Math.floor((Math.min(...corners.map(p => p[0])) +
-        Math.max(...corners.map(p => p[0]))) / 2) - Math.floor(spriteWidth / 2);
-    const top = worldY + Math.max(...corners.map(p => p[1])) + 16 - spriteHeight;
+    const left = worldX + centreX - Math.floor(spriteWidth / 2);
+    const top = worldY + centreY + (width + height) * 8 - spriteHeight;
     return [left, top, left + spriteWidth, top + spriteHeight];
 }
 
