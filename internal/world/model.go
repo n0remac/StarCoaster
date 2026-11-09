@@ -126,19 +126,20 @@ type Ack struct {
 	Error    string `json:"error,omitempty"`
 }
 type Ready struct {
-	Entities           int            `json:"entities"`
-	Targets            int            `json:"targets"`
-	Marines            int            `json:"marines,omitempty"`
-	Zerglings          int            `json:"zerglings,omitempty"`
-	Obstacles          int            `json:"obstacles,omitempty"`
-	Navigation         string         `json:"navigation,omitempty"`
-	Resuming           bool           `json:"resuming,omitempty"`
-	Reconciled         *bool          `json:"reconciled,omitempty"`
-	TargetCapacity     int            `json:"target_capacity,omitempty"`
-	TargetIDs          []string       `json:"target_ids,omitempty"`
-	Unsupported        []string       `json:"unsupported,omitempty"`
-	UnsupportedTotal   int            `json:"unsupported_total,omitempty"`
-	UnsupportedReasons map[string]int `json:"unsupported_reasons,omitempty"`
+	Entities                 int            `json:"entities"`
+	Targets                  int            `json:"targets"`
+	Marines                  int            `json:"marines,omitempty"`
+	Zerglings                int            `json:"zerglings,omitempty"`
+	StaticMorphedZerglingIDs []string       `json:"static_morphed_zergling_ids,omitempty"`
+	Obstacles                int            `json:"obstacles,omitempty"`
+	Navigation               string         `json:"navigation,omitempty"`
+	Resuming                 bool           `json:"resuming,omitempty"`
+	Reconciled               *bool          `json:"reconciled,omitempty"`
+	TargetCapacity           int            `json:"target_capacity,omitempty"`
+	TargetIDs                []string       `json:"target_ids,omitempty"`
+	Unsupported              []string       `json:"unsupported,omitempty"`
+	UnsupportedTotal         int            `json:"unsupported_total,omitempty"`
+	UnsupportedReasons       map[string]int `json:"unsupported_reasons,omitempty"`
 }
 type CombatEvent struct {
 	ID       string `json:"id"`

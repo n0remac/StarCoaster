@@ -125,6 +125,17 @@ func TestProducedZerglingsPermitBridgeReadinessRecovery(t *testing.T) {
 	if err := s.CheckReadyWithRuntimeState(r, nil, ready, 0, 2, false); err == nil {
 		t.Fatal("unregistered native Zergling accepted")
 	}
+	ready.Zerglings = 2
+	ready.StaticMorphedZerglingIDs = []string{"openbw:2511"}
+	if err := s.CheckReadyWithRuntimeState(r, nil, ready, 0, 1, false); err != nil {
+		t.Fatalf("native static larva morph blocked bridge restart: %v", err)
+	}
+	for _, ids := range [][]string{{"openbw:3001"}, {"openbw:2511", "openbw:2511"}, {"openbw:2499"}} {
+		ready.StaticMorphedZerglingIDs = ids
+		if err := s.CheckReadyWithRuntimeState(r, nil, ready, 0, 1, false); err == nil {
+			t.Fatalf("invalid static morph identities accepted: %v", ids)
+		}
+	}
 }
 
 func TestGeneratedEnemyBaseRejectsInvalidProductionBudget(t *testing.T) {

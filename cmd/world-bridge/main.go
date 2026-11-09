@@ -597,7 +597,11 @@ func (s *service) publishReady() {
 				}
 			}
 		}
-		if s.pendingReady.Zerglings > len(s.scenario.StartingUnits.Zerglings)+runtimeZerglings {
+		if s.pendingReady.Zerglings > len(s.scenario.StartingUnits.Zerglings)+runtimeZerglings+
+			len(s.pendingReady.StaticMorphedZerglingIDs) {
+			log.Printf("native readiness awaiting zergling identities native=%d starting=%d runtime=%d static_morphed=%d",
+				s.pendingReady.Zerglings, len(s.scenario.StartingUnits.Zerglings), runtimeZerglings,
+				len(s.pendingReady.StaticMorphedZerglingIDs))
 			return // native morph/spawn messages can trail world.ready during reconnect
 		}
 	}
@@ -1768,6 +1772,9 @@ func (s *service) bwMessage(p *peer, m world.Envelope) {
 		s.pendingReady = &ready
 		copyReady := ready
 		s.lastReady = &copyReady
+		log.Printf("native readiness pending targets=%d zerglings=%d static_morphed=%d links=%d actor_reconciled=%t navigation=%t/%t",
+			ready.Targets, ready.Zerglings, len(ready.StaticMorphedZerglingIDs), len(s.pendingLinks), s.actorReconcileComplete,
+			s.publisherNavigationReady, s.controllerNavigationReady)
 		s.publishReady()
 	case "world.targets.status":
 		var status struct {

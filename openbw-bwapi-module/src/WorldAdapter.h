@@ -1688,13 +1688,19 @@ private:
         initializing_ = false;
         ready_ = unsupportedReasons_.value("removal_failed_reconcile_required", 0) == 0;
         int marines = 0, zerglings = 0;
+		json staticMorphedZerglings = json::array();
         for (auto unit : game->getAllUnits()) {
             if (!unit || !unit->exists()) continue;
             if (unit->getType() == BWAPI::UnitTypes::Terran_Marine) ++marines;
             else if (unit->getType() == BWAPI::UnitTypes::Zerg_Zergling) ++zerglings;
         }
+		for (const auto& [canonical, unit] : actorRegistry_.registeredUnits())
+			if (canonical >= 2500 && canonical < 3000 && unit && unit->exists()
+				&& unit->getType() == BWAPI::UnitTypes::Zerg_Zergling)
+				staticMorphedZerglings.push_back("openbw:" + std::to_string(canonical));
         send("world.ready", {{"entities", entities_.size()}, {"targets", targets_.size()},
             {"marines", marines}, {"zerglings", zerglings},
+			{"static_morphed_zergling_ids", staticMorphedZerglings},
             {"obstacles", navigation_.objects()}, {"navigation", navigation_.capability()},
             {"reconciled", ready_}, {"resuming", everReady_}, {"target_capacity", targetLimit()},
             {"unsupported", unsupported_}, {"unsupported_total", unsupportedTotal_},

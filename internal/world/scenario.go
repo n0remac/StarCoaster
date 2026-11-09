@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -696,11 +697,26 @@ func (s *Scenario) CheckReadyWithRuntimeState(registry *Registry, proxies map[st
 	}
 	validCounts := ready.Marines == len(s.StartingUnits.Marines) &&
 		ready.Zerglings == len(s.StartingUnits.Zerglings)
+	staticMorphed := 0
+	if len(ready.StaticMorphedZerglingIDs) > 0 {
+		if s.EnemyBase == nil || s.EnemyBase.Version != 2 || len(ready.StaticMorphedZerglingIDs) > 500 {
+			return fmt.Errorf("invalid_static_zergling_identities")
+		}
+		seen := make(map[string]bool, len(ready.StaticMorphedZerglingIDs))
+		for _, id := range ready.StaticMorphedZerglingIDs {
+			index, err := strconv.Atoi(strings.TrimPrefix(id, "openbw:"))
+			if err != nil || !strings.HasPrefix(id, "openbw:") || index < 2500 || index >= 3000 || seen[id] {
+				return fmt.Errorf("invalid_static_zergling_identities: %s", id)
+			}
+			seen[id] = true
+		}
+		staticMorphed = len(seen)
+	}
 	if ready.Resuming || (s.EnemyBase != nil && s.EnemyBase.Version == 2 && runtimeZerglings > 0) {
 		validCounts = runtimeMarines >= 0 && runtimeZerglings >= 0 &&
-			ready.Marines >= runtimeMarines && ready.Zerglings >= runtimeZerglings &&
+			ready.Marines >= runtimeMarines && ready.Zerglings >= runtimeZerglings+staticMorphed &&
 			ready.Marines <= len(s.StartingUnits.Marines)+runtimeMarines &&
-			ready.Zerglings <= len(s.StartingUnits.Zerglings)+runtimeZerglings
+			ready.Zerglings <= len(s.StartingUnits.Zerglings)+runtimeZerglings+staticMorphed
 	}
 	if !validCounts {
 		return fmt.Errorf("starting_units_missing: marines=%d/%d zerglings=%d/%d", ready.Marines,
