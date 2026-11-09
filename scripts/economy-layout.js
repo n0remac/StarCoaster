@@ -154,7 +154,7 @@
                 score: Math.min(...workers.map(worker =>
                     (worker.x - index % width) ** 2 + (worker.y - Math.floor(index / width)) ** 2)) }))
             .sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x);
-        if (!terranApproaches.length) return { policy_version: 1, state: 'blocked',
+        if (!terranApproaches.length) return { policy_version: 2, state: 'blocked',
             reason: 'no_valid_perimeter_site', candidates_checked: 0, structures: [] };
         const terranApproach = terranApproaches[0];
         const candidates = [];
@@ -181,14 +181,16 @@
                 candidates.push({ x, y, score });
             }
         candidates.sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x);
-        if (!candidates.length) return { policy_version: 1, state: 'blocked',
+        if (!candidates.length) return { policy_version: 2, state: 'blocked',
             reason: 'no_valid_perimeter_site', candidates_checked: 0, structures: [] };
         const { x, y } = candidates[0];
-        return { policy_version: 1, state: 'ready', seed: String(seedHash),
+        return { policy_version: 2, state: 'ready', seed: String(seedHash),
             candidates_checked: candidates.length,
             structures: [
                 { id: 'enemy-hatchery', type: 'zerg_hatchery', tile: [x + 1, y + 1] },
-                { id: 'enemy-spawning-pool', type: 'zerg_spawning_pool', tile: [x + 5, y + 2] },
+                // Keep the Pool within Hatchery creep while leaving painted
+                // silhouettes clear in all four OpenRCT2 rotations.
+                { id: 'enemy-spawning-pool', type: 'zerg_spawning_pool', tile: [x + 1, y + 7] },
             ], supply_tile: [x + 8, y + 4], assembly_tile: [x + 4, y + 5],
             approach_tile: [x + 4, y + 8],
             terran_approach_tile: [terranApproach.x, terranApproach.y] };
@@ -267,7 +269,7 @@
                 ? 'economy_search_limit' : 'no_native_valid_economy_site',
             candidates_checked: checked, candidates_retained: candidates.length,
             route_checks: routeChecks, starting_entities: [], defense_sites: [],
-            enemy_base: { policy_version: 1, state: 'blocked',
+            enemy_base: { policy_version: 2, state: 'blocked',
                 reason: 'terran_economy_blocked', structures: [] } };
     }
 

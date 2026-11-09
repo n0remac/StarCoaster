@@ -59,7 +59,7 @@ def main():
         Path(plan["scenario"]).write_text(json.dumps(scenario, indent=2) + "\n")
         metadata_path = Path(plan["scenario"]).parent / "package.json"
         metadata = json.loads(metadata_path.read_text())
-        metadata["enemy_base_layout"] = {"policy_version": 1, "state": "blocked",
+        metadata["enemy_base_layout"] = {"policy_version": base["policy_version"], "state": "blocked",
                                          "reason": "no_valid_perimeter_site", "structures": []}
         metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
     expected_state = "blocked" if args.expect_blocked else "ready"
@@ -100,8 +100,8 @@ def main():
                         and "WORLD_SCENARIO_STATUS_ERROR" not in content,
                     "no_free_waves": "scenario spawn request=" not in content}
                 if args.expect_blocked:
-                    checks.update({"blocked_status": "enemy_base=blocked enemy_reason=" +
-                        scenario["enemy_base"]["blocked_reason"] in content,
+                    checks.update({"blocked_status": "enemy_base=blocked" in content and
+                        "enemy_reason=" + scenario["enemy_base"]["blocked_reason"] in content,
                         "no_colony_targets": "native target state id=scenario:enemy-" not in content})
                 else:
                     checks.update({"publisher_validated": "enemy base native role=publisher accepted=true" in content,

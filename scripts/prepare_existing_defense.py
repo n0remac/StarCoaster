@@ -34,7 +34,7 @@ def prepare(source: str, workspace: Path | None = None, timing=None) -> dict:
         layout = getattr(inspected, "economy_layout", None) or {
             "policy_version": 2, "state": "blocked", "reason": "economy_geometry_unavailable",
             "starting_entities": [], "defense_sites": [],
-            "enemy_base": {"policy_version": 1, "state": "blocked",
+            "enemy_base": {"policy_version": 2, "state": "blocked",
                            "reason": "terran_economy_blocked", "structures": []}}
         if layout.get("policy_version") != 2 or layout.get("state") not in ("ready", "blocked"):
             raise ValueError("invalid generated economy layout")
@@ -43,9 +43,9 @@ def prepare(source: str, workspace: Path | None = None, timing=None) -> dict:
         bases = [entity for entity in entities if entity.get("type") == "terran_command_center"]
         if ready and len(bases) != 1:
             raise ValueError("generated economy layout missing Command Center")
-        enemy = layout.get("enemy_base") or {"policy_version": 1, "state": "blocked",
+        enemy = layout.get("enemy_base") or {"policy_version": 2, "state": "blocked",
                                               "reason": "enemy_geometry_unavailable", "structures": []}
-        if enemy.get("policy_version") != 1 or enemy.get("state") not in ("ready", "blocked"):
+        if enemy.get("policy_version") not in (1, 2) or enemy.get("state") not in ("ready", "blocked"):
             raise ValueError("invalid generated enemy base layout")
         if enemy["state"] == "ready" and (not ready or
                 [item.get("type") for item in enemy.get("structures", [])] !=

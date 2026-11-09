@@ -92,6 +92,21 @@ func TestGeneratedEnemyBaseBootstrapAndNoFreeWaves(t *testing.T) {
 	}
 }
 
+func TestGeneratedEnemyBaseVisualLayoutPolicyKeepsOlderSessionsValid(t *testing.T) {
+	for _, version := range []int{1, 2} {
+		v := generatedEnemyScenario(t, false)
+		v["enemy_base"].(map[string]any)["policy_version"] = version
+		if _, err := loadEnemyScenario(t, v); err != nil {
+			t.Fatalf("layout policy %d rejected: %v", version, err)
+		}
+	}
+	v := generatedEnemyScenario(t, false)
+	v["enemy_base"].(map[string]any)["policy_version"] = 3
+	if _, err := loadEnemyScenario(t, v); err == nil {
+		t.Fatal("unknown layout policy accepted")
+	}
+}
+
 func TestGeneratedEnemyBaseRejectsMissingProjectionAndOverlap(t *testing.T) {
 	v := generatedEnemyScenario(t, false)
 	v["initial_structures"] = v["initial_structures"].([]any)[:1]

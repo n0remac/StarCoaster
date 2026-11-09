@@ -398,7 +398,8 @@ func (s *Scenario) validateEnemyBase() error {
 	if s.Version != 2 || s.Mode != "park_defense" || s.Economy == nil ||
 		s.Economy.LayoutPolicy != "generated" || s.Economy.PolicyVersion != 2 ||
 		s.ParkDefense == nil || s.ParkDefense.SpawnPolicy != "base_production" ||
-		(b.Version != 1 && b.Version != 2) || b.LayoutPolicy != "generated" || b.PolicyVersion != 1 ||
+		(b.Version != 1 && b.Version != 2) || b.LayoutPolicy != "generated" ||
+		(b.PolicyVersion != 1 && b.PolicyVersion != 2) ||
 		b.LayoutSeed != s.Economy.LayoutSeed ||
 		(b.LayoutState != "ready" && b.LayoutState != "blocked") {
 		return fmt.Errorf("invalid generated enemy base policy")

@@ -1,6 +1,31 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { findEconomyLayout, POLICY_VERSION } = require('../scripts/economy-layout.js');
+const visuals = require('../bridge-protocol/starcraft-visuals.json').buildings;
+
+function structureScreenBox(structure, rotation) {
+    const [width, height] = structure.type === 'zerg_hatchery' ? [4, 3] : [3, 2];
+    const [spriteWidth, spriteHeight] = visuals[structure.type].output_size;
+    const screen = (x, y) => {
+        x *= 32; y *= 32;
+        if (rotation === 1) [x, y] = [y, -x];
+        else if (rotation === 2) [x, y] = [-x, -y];
+        else if (rotation === 3) [x, y] = [-y, x];
+        return [y - x, Math.floor((x + y) / 2)];
+    };
+    const corners = Array.from({ length: width * height }, (_, index) =>
+        screen(index % width, Math.floor(index / width)));
+    const [worldX, worldY] = screen(...structure.tile);
+    const left = worldX + Math.floor((Math.min(...corners.map(p => p[0])) +
+        Math.max(...corners.map(p => p[0]))) / 2) - Math.floor(spriteWidth / 2);
+    const top = worldY + Math.max(...corners.map(p => p[1])) + 16 - spriteHeight;
+    return [left, top, left + spriteWidth, top + spriteHeight];
+}
+
+function screenBoxOverlap(a, b) {
+    return Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) *
+        Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+}
 
 function park(width, height, cell = () => ({})) {
     return { size: { x: width, y: height }, getTile(x, y) {
@@ -26,6 +51,12 @@ for (let index = 0; index < 16; index++) {
 assert.ok(chosenSides.size >= 3, 'seeded site selection must consider the full perimeter');
 assert.deepEqual(open.enemy_base.structures.map(s => s.type),
     ['zerg_hatchery', 'zerg_spawning_pool']);
+for (let rotation = 0; rotation < 4; rotation++) {
+    const [hatchery, pool] = open.enemy_base.structures.map(structure =>
+        structureScreenBox(structure, rotation));
+    assert.ok(screenBoxOverlap(hatchery, pool) <= 400,
+        `colony sprite boxes overlap excessively at rotation ${rotation}`);
+}
 const economyCells = new Set(open.starting_entities.flatMap(e => {
     const [w, h] = ({terran_command_center: [4, 3], terran_scv: [1, 1],
         mineral_field: [2, 1], vespene_geyser: [4, 2]})[e.type];
