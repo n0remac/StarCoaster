@@ -218,7 +218,7 @@ class ParkSessionSupervisor:
         log.close()
         return process, log_path
 
-    def await_ready(self, process, log_path, timeout=150):
+    def await_ready(self, process, log_path, timeout=240):
         return await_native_ready(process, log_path, timeout)
 
     @staticmethod

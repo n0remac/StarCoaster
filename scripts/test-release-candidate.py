@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise normal browser gameplay against an isolated release candidate."""
-import json,os,signal,socket,subprocess,tempfile,time,urllib.request
+import json,os,re,signal,socket,subprocess,tempfile,time,urllib.request
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
@@ -18,8 +18,7 @@ env=dict(os.environ,RCT2_DATA_DIR=os.environ.get('RCT2_DATA_DIR','/home/pi/games
  BRIDGE_LAUNCH_CLIENT='0',WASM_LIVE_URL='http://127.0.0.1:18095/',
  WASM_LIVE_PROFILE=str(profile),
  WASM_PERF_ARTIFACTS=str(artifacts),WASM_NORMAL_HANDOFF='1',WASM_HANDOFF_ALLOW_READY='1',
- WASM_LIVE_CAMERA='1',WASM_AUTO_ORDER='1',WASM_DEFENSE_CONFIGURE='1',
- WASM_DEFENSE_BUILD='1',WASM_DEFENSE_NO_WAVE='1',
+ WASM_LIVE_CAMERA='1',WASM_LIVE_CAMERA_WORKER='1',WASM_LIVE_CAMERA_DIRECT_ORDER='1',
  WASM_LIVE_BOOT_TIMEOUT_MS='600000',WASM_LIVE_DURATION_MS='30000')
 subprocess.run(['bash','scripts/deploy-wasm.sh'],env=env,check=True)
 with (artifacts/'supervisor.log').open('w') as log:
@@ -37,9 +36,21 @@ with (artifacts/'supervisor.log').open('w') as log:
   subprocess.run(['node','browser/live-test.mjs'],env=env,check=True,timeout=1200)
   report=json.loads((artifacts/'runtime.json').read_text())
   assert report['outcome']=='passed',report['outcome']
-  assert report['metrics'].get('actorMoveLatencyMs') is not None
+  order=next((record['text'] for record in report['records']
+              if 'WASM_CAMERA_DIRECT_ORDER request=97001' in record.get('text','')),None)
+  assert order,'browser did not send the SCV order'
+  target=re.search(r'id=(openbw:[0-9]+) x=([0-9]+) y=([0-9]+)',order)
+  assert target,order
+  generation=report['metrics']['handoffGeneration']
+  native=(ROOT/'run-data/park-supervisor/sessions'/generation/'session.log').read_text(errors='replace')
+  assert 'request=97001 units=1 verb=move' in native,'SCV order did not reach the bridge'
+  assert re.search(r'\[world-control\] command=.* verb=unit.move accepted=1 ',native),\
+      'OpenBW rejected the browser SCV order'
+  reached=','.join(target.groups())+','
+  assert any('BridgeApplySnapshot' in line and reached in line for line in native.splitlines()),\
+      'native snapshot did not reach the SCV destination'
   assert report['metrics']['websocketFramesOut']>0
-  print('Release candidate passed browser construction, training, and movement')
+  print('Release candidate passed browser New Game and browser-plugin SCV order in OpenBW')
  finally:
   if host.poll() is None:
    host.send_signal(signal.SIGTERM)

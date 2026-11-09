@@ -5,6 +5,9 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
     let ticks = 0, ready = false, trackedId = "", lastPosition = "", screenReported = false;
     let lastSession = "";
     let focusCount = 0, marineFocus = null;
+    let directOrderSent = false, directOrderPending = false;
+    const directWorkerOrder = typeof STARCOASTER_CAMERA_DIRECT_WORKER_ORDER !== "undefined"
+        && STARCOASTER_CAMERA_DIRECT_WORKER_ORDER;
     let sweepIndex = 0;
     const sweep = typeof STARCOASTER_CAMERA_SWEEP !== "undefined" && STARCOASTER_CAMERA_SWEEP;
     const allActors = typeof STARCOASTER_CAMERA_ALL_ACTORS !== "undefined"
@@ -33,6 +36,7 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
             lastSession = snapshot.session;
             ready = false; trackedId = ""; lastPosition = ""; screenReported = false;
             focusCount = 0; marineFocus = null;
+            directOrderSent = false; directOrderPending = false;
             perfCommandReadyAt = 0; perfLastCommandAt = 0;
             console.log("WASM_CAMERA_SESSION session=" + lastSession
                 + " units=" + snapshot.units.length
@@ -108,6 +112,21 @@ registerPlugin({ name: "StarCoaster WASM live camera", version: "1.0.0",
                         + " y=" + tracked.y + " hp=" + tracked.hp + " seq=" + snapshot.seq);
                 }
             }
+        }
+        if (directWorkerOrder && ready && !directOrderSent && !directOrderPending && ticks > 60) {
+            directOrderPending = true;
+            const request = 97001;
+            const destination = { x: marine.x, y: Math.max(0, marine.y - 128) };
+            console.log("WASM_CAMERA_DIRECT_ORDER request=" + request + " id=" + trackedId
+                + " x=" + destination.x + " y=" + destination.y);
+            context.executeAction("rtsbridge.marineCommand", { session: snapshot.session,
+                request: request, unit_ids: [trackedId], verb: "move",
+                x: destination.x, y: destination.y }, function (result) {
+                directOrderPending = false;
+                directOrderSent = !result.error;
+                console.log("WASM_CAMERA_DIRECT_RESULT accepted=" + !result.error
+                    + " reason=" + (result.errorMessage || "ok"));
+            });
         }
         const perfIntervalMs = perfWorkload === "moving" ? 5000 : 15000;
         const perfNow = Date.now();

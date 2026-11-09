@@ -12,8 +12,26 @@ test -f "$park_file" || { printf 'Missing park file: %s\n' "$park_file" >&2; exi
 test -f "$openrct2_data/g2.dat" || { printf 'Missing staged OpenRCT2 data; run scripts/install-openrct2-local.sh\n' >&2; exit 1; }
 test -x "$project_dir/build/openrct2/openrct2-cli" || { printf 'Missing OpenRCT2 CLI; run scripts/build-openrct2.sh\n' >&2; exit 1; }
 
-python3 "$project_dir/scripts/install-starcraft-construction-object.py" "$openrct2_data" \
-  --game-dir "$STARCRAFT_DATA_DIR" --all >/dev/null
+if ! python3 - "$project_dir" "$openrct2_data" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root, stage = map(Path, sys.argv[1:])
+sources = (root / "scripts/install-starcraft-construction-object.py",
+           root / "bridge-protocol/starcraft-types.json",
+           root / "bridge-protocol/starcraft-visuals.json")
+newest_source = max(path.stat().st_mtime_ns for path in sources)
+catalog = json.loads(sources[1].read_text())
+for building in catalog["buildings"]:
+    obj = stage / "object/starcoaster/scenery_large" / (building["object_id"] + ".parkobj")
+    if not obj.is_file() or obj.stat().st_size == 0 or obj.stat().st_mtime_ns < newest_source:
+        raise SystemExit(1)
+PY
+then
+  python3 "$project_dir/scripts/install-starcraft-construction-object.py" "$openrct2_data" \
+    --game-dir "$STARCRAFT_DATA_DIR" --all >/dev/null
+fi
 mkdir -p "$server_data/object"
 for object in "$openrct2_data"/object/starcoaster/scenery_large/*.parkobj; do
   test -f "$object" || continue

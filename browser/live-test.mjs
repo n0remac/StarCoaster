@@ -131,6 +131,10 @@ try {
     const cameraSource = defenseMenu ? source : defenseProbe
       ? 'var STARCOASTER_CAMERA_NO_MOVE = true;\n'
         + source.replaceAll('terran_marine', 'zerg_zergling')
+      : process.env.WASM_LIVE_CAMERA_WORKER === '1'
+      ? (process.env.WASM_LIVE_CAMERA_DIRECT_ORDER === '1'
+        ? 'var STARCOASTER_CAMERA_DIRECT_WORKER_ORDER = true;\n' : '')
+        + source.replaceAll('terran_marine', 'terran_scv')
       : demolitionProbe
       ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 6;\nvar STARCOASTER_HUD_DRIVER = true;\n' + source
       : productionProbe ? 'var STARCOASTER_HUD_INITIAL_FOCUS = 2;\n'
@@ -224,6 +228,8 @@ try {
     }
     const screen = /WASM_ACTOR_SCREEN id=([^ ]+) x=([\d.]+) y=([\d.]+)/.exec(line);
     if (screen) resolveActorScreen({ id: screen[1], x: Number(screen[2]), y: Number(screen[3]) });
+    if (line.includes('WASM_CAMERA_DIRECT_ORDER request=')) metrics.orderSentAt = Date.now();
+    if (line.includes('WASM_CAMERA_DIRECT_RESULT accepted=true')) metrics.browserCommandAccepted = true;
     if (line.includes('WASM_ACTOR_MOVED') && metrics.orderSentAt && metrics.actorMoveLatencyMs === undefined)
       metrics.actorMoveLatencyMs = Date.now() - metrics.orderSentAt;
     if (line.includes('WASM_ACTOR_MOVED') && metrics.secondOrderSentAt &&
